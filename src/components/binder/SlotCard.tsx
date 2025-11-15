@@ -65,7 +65,7 @@ export function SlotCard({
           {cardName && (
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
               <p className="text-xs text-white font-medium truncate">{cardName}</p>
-              {price !== undefined && (
+              {price != null && (
                 <p className="text-xs text-neutral-300">${price.toFixed(2)}</p>
               )}
             </div>
