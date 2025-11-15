@@ -98,7 +98,7 @@ const Scanner = ({ userId }: ScannerProps) => {
       // Perform OCR
       const ocr = await performOCR(file);
       setOcrResult(ocr);
-      setScanProgress(90);
+      setScanProgress(50);
 
       // Upload image to Supabase Storage
       const fileExt = file.name.split(".").pop();
@@ -114,22 +114,55 @@ const Scanner = ({ userId }: ScannerProps) => {
         .from("card-images")
         .getPublicUrl(fileName);
 
-      // Save card to database
+      setScanProgress(60);
+
+      // Call AI identification edge function
+      toast.info("Identifying card with AI...");
+      const { data: cardIdentification, error: aiError } = await supabase.functions.invoke(
+        "identify-card",
+        {
+          body: {
+            imageUrl: publicUrl,
+            ocrText: ocr.rawText,
+          },
+        }
+      );
+
+      if (aiError) {
+        console.error("AI identification error:", aiError);
+        throw new Error("Failed to identify card details");
+      }
+
+      setScanProgress(80);
+
+      // Save card to database with full identification and pricing
       const { error: dbError } = await supabase.from("cards").insert({
         user_id: userId,
-        card_name: ocr.cardName,
-        card_set: ocr.cardSet,
-        card_number: ocr.cardNumber,
+        card_name: cardIdentification.cardName || ocr.cardName,
+        card_set: cardIdentification.cardSet || ocr.cardSet,
+        card_number: cardIdentification.cardNumber || ocr.cardNumber,
+        rarity: cardIdentification.rarity,
+        edition: cardIdentification.edition,
+        condition: cardIdentification.condition || "ungraded",
+        sport_type: cardIdentification.sportType,
+        game_type: cardIdentification.gameType,
+        notes: cardIdentification.notes,
         ocr_confidence: ocr.confidence,
         ocr_raw_text: ocr.rawText,
+        current_price_raw: cardIdentification.currentPriceRaw,
+        current_price_psa9: cardIdentification.currentPricePsa9,
+        current_price_psa10: cardIdentification.currentPricePsa10,
+        suggested_price: cardIdentification.suggestedPrice,
+        ebay_listing_url: cardIdentification.ebayListingUrl,
         image_url: publicUrl,
         thumbnail_url: publicUrl,
+        last_price_update: new Date().toISOString(),
       });
 
       if (dbError) throw dbError;
 
       setScanProgress(100);
-      toast.success("Card scanned and saved successfully!");
+      toast.success("Card identified and saved with pricing data!");
       
       // Reset form after short delay
       setTimeout(() => {
