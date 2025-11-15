@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Search, Download, Trash2, DollarSign, TrendingUp } from "lucide-react";
+import { Search, Download, Trash2, DollarSign, TrendingUp, Grid3x3, List, CheckSquare, X } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import * as XLSX from "xlsx";
 
 interface CollectionProps {
@@ -35,24 +36,48 @@ const Collection = ({ userId }: CollectionProps) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [totalValue, setTotalValue] = useState(0);
+  const [sortBy, setSortBy] = useState("date-desc");
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
+  const [bulkMode, setBulkMode] = useState(false);
 
   useEffect(() => {
     fetchCards();
   }, [userId]);
 
   useEffect(() => {
+    let filtered = cards;
+    
     if (searchQuery.trim()) {
-      const filtered = cards.filter(
+      filtered = cards.filter(
         (card) =>
           card.card_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
           card.card_set?.toLowerCase().includes(searchQuery.toLowerCase()) ||
           card.card_number?.toLowerCase().includes(searchQuery.toLowerCase())
       );
-      setFilteredCards(filtered);
-    } else {
-      setFilteredCards(cards);
     }
-  }, [searchQuery, cards]);
+    
+    // Apply sorting
+    const sorted = [...filtered].sort((a, b) => {
+      switch (sortBy) {
+        case "name-asc":
+          return a.card_name.localeCompare(b.card_name);
+        case "name-desc":
+          return b.card_name.localeCompare(a.card_name);
+        case "value-asc":
+          return (a.current_price_raw || 0) - (b.current_price_raw || 0);
+        case "value-desc":
+          return (b.current_price_raw || 0) - (a.current_price_raw || 0);
+        case "date-asc":
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        case "date-desc":
+        default:
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      }
+    });
+    
+    setFilteredCards(sorted);
+  }, [searchQuery, cards, sortBy]);
 
   useEffect(() => {
     const total = cards.reduce((sum, card) => {
@@ -117,6 +142,37 @@ const Collection = ({ userId }: CollectionProps) => {
     XLSX.writeFile(wb, `card-collection-${Date.now()}.xlsx`);
     toast.success("Collection exported successfully");
   };
+  
+  const toggleCardSelection = (cardId: string) => {
+    const newSelected = new Set(selectedCards);
+    if (newSelected.has(cardId)) {
+      newSelected.delete(cardId);
+    } else {
+      newSelected.add(cardId);
+    }
+    setSelectedCards(newSelected);
+  };
+  
+  const handleBulkDelete = async () => {
+    if (selectedCards.size === 0) return;
+    
+    try {
+      const { error } = await supabase
+        .from("cards")
+        .delete()
+        .in("id", Array.from(selectedCards));
+      
+      if (error) throw error;
+      
+      toast.success(`Deleted ${selectedCards.size} cards`);
+      setSelectedCards(new Set());
+      setBulkMode(false);
+      fetchCards();
+    } catch (error) {
+      console.error("Bulk delete error:", error);
+      toast.error("Failed to delete cards");
+    }
+  };
 
   if (isLoading) {
     return (
@@ -170,29 +226,75 @@ const Collection = ({ userId }: CollectionProps) => {
       {/* Collection Card */}
       <Card className="shadow-card">
         <CardHeader>
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center justify-between">
             <div>
               <CardTitle>My Collection</CardTitle>
               <CardDescription>
-                View and manage your scanned cards
+                {cards.length} cards • ${totalValue.toFixed(2)} total value
               </CardDescription>
             </div>
-            <Button onClick={handleExport} variant="outline" className="gap-2">
-              <Download className="h-4 w-4" />
-              Export to Excel
-            </Button>
+            <div className="flex gap-2">
+              <Select value={sortBy} onValueChange={setSortBy}>
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="Sort by" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="date-desc">Newest First</SelectItem>
+                  <SelectItem value="date-asc">Oldest First</SelectItem>
+                  <SelectItem value="name-asc">Name A-Z</SelectItem>
+                  <SelectItem value="name-desc">Name Z-A</SelectItem>
+                  <SelectItem value="value-desc">Highest Value</SelectItem>
+                  <SelectItem value="value-asc">Lowest Value</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setViewMode(viewMode === "grid" ? "list" : "grid")}
+                title={viewMode === "grid" ? "Switch to list view" : "Switch to grid view"}
+              >
+                {viewMode === "grid" ? <List className="h-4 w-4" /> : <Grid3x3 className="h-4 w-4" />}
+              </Button>
+              <Button
+                variant={bulkMode ? "default" : "outline"}
+                size="icon"
+                onClick={() => {
+                  setBulkMode(!bulkMode);
+                  setSelectedCards(new Set());
+                }}
+                title="Toggle bulk select mode"
+              >
+                <CheckSquare className="h-4 w-4" />
+              </Button>
+              <Button onClick={handleExport} variant="outline" className="gap-2">
+                <Download className="h-4 w-4" />
+                Export
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search cards by name, set, or number..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
-            />
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search by name, set, or number..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            {bulkMode && selectedCards.size > 0 && (
+              <>
+                <Button onClick={handleBulkDelete} variant="destructive">
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete ({selectedCards.size})
+                </Button>
+                <Button onClick={() => setSelectedCards(new Set())} variant="outline" size="icon">
+                  <X className="h-4 w-4" />
+                </Button>
+              </>
+            )}
           </div>
 
           {/* Cards Grid */}

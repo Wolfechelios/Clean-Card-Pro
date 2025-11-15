@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Plus, BookOpen, Trash2, Eye, Grid3x3, List, Scan } from "lucide-react";
+import { Plus, BookOpen, Trash2, Eye, Grid3x3, List, Scan, Printer, Copy } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BinderScan } from "@/components/binder/BinderScan";
@@ -166,19 +166,37 @@ export default function BindersPage() {
     }
   };
 
-  const deleteBinder = async (binderName: string) => {
+  const handleDeleteBinder = async (binderName: string) => {
+    const { data: session } = await supabase.auth.getSession();
+    if (!session.session) return;
+
     const { error } = await supabase
       .from("cards")
       .update({ collection_name: null })
+      .eq("user_id", session.session.user.id)
       .eq("collection_name", binderName);
 
     if (error) {
       toast.error("Failed to delete binder");
     } else {
-      toast.success("Binder deleted and cards moved to unsorted");
-      setSelectedBinder(null);
+      toast.success("Binder deleted");
       fetchBinders();
+      if (selectedBinder === binderName) {
+        setSelectedBinder(null);
+      }
     }
+  };
+  
+  const handleDuplicateBinder = async (binderName: string) => {
+    const newName = `${binderName} (Copy)`;
+    setNewBinder({ name: newName, description: `Copy of ${binderName}` });
+    setIsCreateOpen(true);
+    toast.info("Edit the name and create your duplicate binder");
+  };
+  
+  const handlePrintBinder = () => {
+    window.print();
+    toast.success("Print dialog opened");
   };
 
   return (
@@ -249,16 +267,28 @@ export default function BindersPage() {
                       </p>
                     </div>
                     {binder.id !== "Unsorted" && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteBinder(binder.id);
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDuplicateBinder(binder.id);
+                          }}
+                        >
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteBinder(binder.id);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4 text-red-500" />
+                        </Button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -273,43 +303,53 @@ export default function BindersPage() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle>{selectedBinder}</CardTitle>
-                  <div className="flex gap-2">
-                    <Dialog open={isScanOpen} onOpenChange={setIsScanOpen}>
-                      <DialogTrigger asChild>
-                        <Button size="sm" variant="outline">
-                          <Scan className="mr-2 h-4 w-4" />
-                          Scan Page
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="bg-neutral-900 border-neutral-800">
-                        <BinderScan
-                          binderName={selectedBinder}
-                          onComplete={() => {
-                            setIsScanOpen(false);
-                            fetchBinders();
-                            if (selectedBinder) {
-                              fetchBinderCards(selectedBinder);
-                            }
-                          }}
-                        />
-                      </DialogContent>
-                    </Dialog>
-                    <Dialog open={isAddCardOpen} onOpenChange={setIsAddCardOpen}>
-                      <DialogTrigger asChild>
-                        <Button size="sm">
-                          <Plus className="mr-2 h-4 w-4" />
-                          Add Cards
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="bg-neutral-900 border-neutral-800 max-w-2xl">
-                        <DialogHeader>
-                          <DialogTitle>Add Cards to {selectedBinder}</DialogTitle>
-                        </DialogHeader>
-                        <div className="max-h-96 overflow-y-auto">
-                          <div className="grid grid-cols-2 gap-3">
-                            {availableCards
-                              .filter(card => card.collection_name !== selectedBinder)
-                              .map((card) => (
+                   <div className="flex gap-2">
+                     <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as any)}>
+                       <TabsList>
+                         <TabsTrigger value="grid">
+                           <Grid3x3 className="h-4 w-4" />
+                         </TabsTrigger>
+                         <TabsTrigger value="list">
+                           <List className="h-4 w-4" />
+                         </TabsTrigger>
+                         <TabsTrigger value="editor">
+                           <Eye className="h-4 w-4" />
+                         </TabsTrigger>
+                       </TabsList>
+                     </Tabs>
+                     <Button onClick={handlePrintBinder} variant="outline" size="sm">
+                       <Printer className="h-4 w-4 mr-2" />
+                       Print
+                     </Button>
+                     <Dialog open={isScanOpen} onOpenChange={setIsScanOpen}>
+                       <DialogTrigger asChild>
+                         <Button size="sm" variant="default">
+                           <Scan className="mr-2 h-4 w-4" />
+                           Scan Page
+                         </Button>
+                       </DialogTrigger>
+                       <DialogContent className="bg-neutral-900 border-neutral-800">
+                         <BinderScan
+                           binderName={selectedBinder}
+                           onComplete={() => {
+                             setIsScanOpen(false);
+                             fetchBinders();
+                             if (selectedBinder) {
+                               fetchBinderCards(selectedBinder);
+                             }
+                           }}
+                         />
+                       </DialogContent>
+                     </Dialog>
+                     <Dialog open={isAddCardOpen} onOpenChange={setIsAddCardOpen}>
+                       <DialogTrigger asChild>
+                         <Button size="sm">
+                           <Plus className="mr-2 h-4 w-4" />
+                           Add Cards
+                         </Button>
+                       </DialogTrigger>
+                       <DialogContent className="bg-neutral-900 border-neutral-800 max-w-2xl">
+                         <DialogHeader>
                                 <div
                                   key={card.id}
                                   className="p-2 bg-neutral-800 rounded cursor-pointer hover:bg-neutral-700"

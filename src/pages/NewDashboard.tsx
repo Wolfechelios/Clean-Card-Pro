@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Database } from "@/integrations/supabase/types";
-import { TrendingUp, TrendingDown, DollarSign, Package, Activity, Star } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, Package, Activity, Star, RefreshCw, Scan, BookOpen, Camera } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useNavigate } from "react-router-dom";
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 type CardType = Database["public"]["Tables"]["cards"]["Row"];
@@ -23,6 +25,7 @@ interface ChartData {
 }
 
 export default function NewDashboard() {
+  const navigate = useNavigate();
   const [stats, setStats] = useState<DashboardStats>({
     totalCards: 0,
     totalValue: 0,
@@ -36,14 +39,19 @@ export default function NewDashboard() {
   const [conditionData, setConditionData] = useState<ChartData[]>([]);
   const [valueOverTime, setValueOverTime] = useState<ChartData[]>([]);
   const [topCards, setTopCards] = useState<CardType[]>([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
     fetchDashboardData();
   }, []);
 
   const fetchDashboardData = async () => {
+    setIsRefreshing(true);
     const { data: session } = await supabase.auth.getSession();
-    if (!session.session) return;
+    if (!session.session) {
+      setIsRefreshing(false);
+      return;
+    }
 
     const { data: cards } = await supabase
       .from("cards")
@@ -139,6 +147,7 @@ export default function NewDashboard() {
 
       setValueOverTime(valueTimeData);
     }
+    setIsRefreshing(false);
   };
 
   const COLORS = ['#8b5cf6', '#ec4899', '#10b981', '#f59e0b', '#3b82f6', '#6366f1'];
@@ -146,8 +155,23 @@ export default function NewDashboard() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Dashboard</h1>
-        <Activity className="h-6 w-6 text-neutral-400" />
+        <div>
+          <h1 className="text-3xl font-bold mb-2">Dashboard</h1>
+          <p className="text-muted-foreground">Overview of your card collection</p>
+        </div>
+        <div className="flex gap-2">
+          <Button onClick={() => navigate("/scan")} variant="default">
+            <Camera className="h-4 w-4 mr-2" />
+            Scan Cards
+          </Button>
+          <Button onClick={() => navigate("/binders")} variant="outline">
+            <BookOpen className="h-4 w-4 mr-2" />
+            Binders
+          </Button>
+          <Button onClick={fetchDashboardData} variant="outline" size="icon" disabled={isRefreshing}>
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
       </div>
       
       {/* Stats Grid */}
