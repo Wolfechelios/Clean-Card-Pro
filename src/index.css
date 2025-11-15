@@ -7,108 +7,40 @@ All colors MUST be HSL.
 */
 
 @layer base {
-  :root {
-    --background: 220 25% 97%;
-    --foreground: 220 40% 15%;
-
-    --card: 0 0% 100%;
-    --card-foreground: 220 40% 15%;
-
-    --popover: 0 0% 100%;
-    --popover-foreground: 220 40% 15%;
-
-    --primary: 233 47% 25%;
-    --primary-foreground: 0 0% 100%;
-
-    --secondary: 220 15% 92%;
-    --secondary-foreground: 220 40% 15%;
-
-    --muted: 220 15% 94%;
-    --muted-foreground: 220 20% 45%;
-
-    --accent: 45 93% 47%;
-    --accent-foreground: 220 40% 15%;
-
-    --success: 142 76% 36%;
-    --success-foreground: 0 0% 100%;
-
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 100%;
-
-    --border: 220 20% 88%;
-    --input: 220 20% 88%;
-    --ring: 233 47% 35%;
-
-    --radius: 0.75rem;
-
-    --gradient-primary: linear-gradient(135deg, hsl(233 47% 25%), hsl(233 60% 35%));
-    --gradient-accent: linear-gradient(135deg, hsl(45 93% 47%), hsl(38 92% 50%));
-    --gradient-success: linear-gradient(135deg, hsl(142 76% 36%), hsl(142 70% 45%));
-    --shadow-card: 0 4px 20px -2px hsl(233 47% 25% / 0.1);
-    --shadow-elevated: 0 10px 40px -10px hsl(233 47% 25% / 0.2);
-
-    --sidebar-background: 0 0% 98%;
-
-    --sidebar-foreground: 240 5.3% 26.1%;
-
-    --sidebar-primary: 240 5.9% 10%;
-
-    --sidebar-primary-foreground: 0 0% 98%;
-
-    --sidebar-accent: 240 4.8% 95.9%;
-
-    --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
-  }
+/* LUX UI Kit Dark Theme */
+:root {
+  --background: 0 0% 0%;
+  --foreground: 0 0% 100%;
+  --card: 0 0% 5%;
+  --card-foreground: 0 0% 100%;
+  --popover: 0 0% 5%;
+  --popover-foreground: 0 0% 100%;
+  --primary: 0 0% 100%;
+  --primary-foreground: 0 0% 0%;
+  --secondary: 0 0% 10%;
+  --secondary-foreground: 0 0% 100%;
+  --muted: 0 0% 15%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 20%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 62.8% 50.6%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 20%;
+  --input: 0 0% 20%;
+  --ring: 0 0% 80%;
+  --radius: 0.5rem;
+  --sidebar-background: 0 0% 2%;
+  --sidebar-foreground: 0 0% 95%;
+  --sidebar-primary: 0 0% 100%;
+  --sidebar-primary-foreground: 0 0% 0%;
+  --sidebar-accent: 0 0% 10%;
+  --sidebar-accent-foreground: 0 0% 100%;
+  --sidebar-border: 0 0% 20%;
+  --sidebar-ring: 0 0% 80%;
+}
 
   .dark {
-    --background: 220 40% 8%;
-    --foreground: 220 15% 95%;
-
-    --card: 220 35% 12%;
-    --card-foreground: 220 15% 95%;
-
-    --popover: 220 35% 12%;
-    --popover-foreground: 220 15% 95%;
-
-    --primary: 233 60% 45%;
-    --primary-foreground: 0 0% 100%;
-
-    --secondary: 220 30% 18%;
-    --secondary-foreground: 220 15% 95%;
-
-    --muted: 220 30% 16%;
-    --muted-foreground: 220 15% 65%;
-
-    --accent: 45 93% 55%;
-    --accent-foreground: 220 40% 8%;
-
-    --success: 142 76% 40%;
-    --success-foreground: 0 0% 100%;
-
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 100%;
-
-    --border: 220 30% 20%;
-    --input: 220 30% 20%;
-    --ring: 233 60% 50%;
-
-    --gradient-primary: linear-gradient(135deg, hsl(233 60% 35%), hsl(233 70% 50%));
-    --gradient-accent: linear-gradient(135deg, hsl(45 93% 55%), hsl(38 92% 60%));
-    --gradient-success: linear-gradient(135deg, hsl(142 76% 40%), hsl(142 70% 50%));
-    --shadow-card: 0 4px 20px -2px hsl(0 0% 0% / 0.3);
-    --shadow-elevated: 0 10px 40px -10px hsl(0 0% 0% / 0.5);
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    /* Dark theme is now the default, keeping this for compatibility */
   }
 }
 
@@ -116,8 +48,31 @@ All colors MUST be HSL.
   * {
     @apply border-border;
   }
-
   body {
-    @apply bg-background text-foreground;
+    @apply bg-black text-white;
   }
+}
+
+/* LUX UI Kit Dark Theme */
+:root {
+  --background: 0 0% 0%;
+  --foreground: 0 0% 100%;
+  --card: 0 0% 5%;
+  --card-foreground: 0 0% 100%;
+  --popover: 0 0% 5%;
+  --popover-foreground: 0 0% 100%;
+  --primary: 0 0% 100%;
+  --primary-foreground: 0 0% 0%;
+  --secondary: 0 0% 10%;
+  --secondary-foreground: 0 0% 100%;
+  --muted: 0 0% 15%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 20%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 62.8% 50.6%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 20%;
+  --input: 0 0% 20%;
+  --ring: 0 0% 80%;
+  --radius: 0.5rem;
 }
