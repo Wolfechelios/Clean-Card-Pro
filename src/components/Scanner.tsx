@@ -6,8 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { Upload, Camera, Loader2, CheckCircle, X } from "lucide-react";
+import { Upload, Camera, Loader2, CheckCircle, X, RefreshCw, FolderUp } from "lucide-react";
 import { createWorker } from "tesseract.js";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface ScannerProps {
   userId: string;
@@ -21,38 +22,107 @@ interface OCRResult {
   rawText: string;
 }
 
+interface ScanJob {
+  id: string;
+  file: File;
+  preview: string;
+  status: 'pending' | 'scanning' | 'complete' | 'error';
+  result?: OCRResult;
+  error?: string;
+}
+
 const Scanner = ({ userId }: ScannerProps) => {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
   const [ocrResult, setOcrResult] = useState<OCRResult | null>(null);
+  const [scanJobs, setScanJobs] = useState<ScanJob[]>([]);
+  const [isCameraActive, setIsCameraActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = event.target.files?.[0];
-    if (selectedFile) {
-      setFile(selectedFile);
+    const files = event.target.files;
+    if (files && files.length > 0) {
+      const fileArray = Array.from(files);
+      
+      // Check total size
+      const totalSize = fileArray.reduce((sum, f) => sum + f.size, 0);
+      const maxSize = 500 * 1024 * 1024; // 500MB
+      
+      if (totalSize > maxSize) {
+        toast.error(`Total file size exceeds 500MB limit`);
+        return;
+      }
+
+      if (fileArray.length === 1) {
+        // Single file - use existing flow
+        const selectedFile = fileArray[0];
+        setFile(selectedFile);
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          setPreview(e.target?.result as string);
+        };
+        reader.readAsDataURL(selectedFile);
+        setOcrResult(null);
+      } else {
+        // Multiple files - use batch mode
+        processBatchFiles(fileArray);
+      }
+    }
+  };
+
+  const processBatchFiles = (files: File[]) => {
+    const jobs: ScanJob[] = files.map(file => ({
+      id: crypto.randomUUID(),
+      file,
+      preview: '',
+      status: 'pending' as const
+    }));
+
+    // Create previews
+    jobs.forEach(job => {
       const reader = new FileReader();
       reader.onload = (e) => {
-        setPreview(e.target?.result as string);
+        job.preview = e.target?.result as string;
+        setScanJobs(prev => [...prev.filter(j => j.id !== job.id), job]);
       };
-      reader.readAsDataURL(selectedFile);
-      setOcrResult(null);
-    }
+      reader.readAsDataURL(job.file);
+    });
+
+    setScanJobs(jobs);
+    toast.success(`Added ${files.length} files to batch queue`);
   };
 
   const handleDrop = useCallback((event: React.DragEvent) => {
     event.preventDefault();
-    const droppedFile = event.dataTransfer.files[0];
-    if (droppedFile && droppedFile.type.startsWith("image/")) {
-      setFile(droppedFile);
+    const files = Array.from(event.dataTransfer.files).filter(f => f.type.startsWith("image/"));
+    
+    if (files.length === 0) {
+      toast.error("Please drop image files only");
+      return;
+    }
+
+    const totalSize = files.reduce((sum, f) => sum + f.size, 0);
+    const maxSize = 500 * 1024 * 1024;
+    
+    if (totalSize > maxSize) {
+      toast.error(`Total file size exceeds 500MB limit`);
+      return;
+    }
+
+    if (files.length === 1) {
+      setFile(files[0]);
       const reader = new FileReader();
       reader.onload = (e) => {
         setPreview(e.target?.result as string);
       };
-      reader.readAsDataURL(droppedFile);
+      reader.readAsDataURL(files[0]);
       setOcrResult(null);
+    } else {
+      processBatchFiles(files);
     }
   }, []);
 
@@ -190,30 +260,164 @@ const Scanner = ({ userId }: ScannerProps) => {
     }
   };
 
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment' },
+        audio: false 
+      });
+      
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        streamRef.current = stream;
+        setIsCameraActive(true);
+      }
+    } catch (error) {
+      console.error('Camera access error:', error);
+      toast.error('Could not access camera');
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    setIsCameraActive(false);
+  };
+
+  const capturePhoto = () => {
+    if (!videoRef.current) return;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    const ctx = canvas.getContext('2d');
+    
+    if (ctx) {
+      ctx.drawImage(videoRef.current, 0, 0);
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
+          setFile(file);
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            setPreview(e.target?.result as string);
+          };
+          reader.readAsDataURL(file);
+          setOcrResult(null);
+          stopCamera();
+        }
+      }, 'image/jpeg', 0.95);
+    }
+  };
+
+  const processBatchQueue = async () => {
+    const pendingJobs = scanJobs.filter(j => j.status === 'pending');
+    
+    for (const job of pendingJobs) {
+      setScanJobs(prev => prev.map(j => 
+        j.id === job.id ? { ...j, status: 'scanning' as const } : j
+      ));
+
+      try {
+        const ocr = await performOCR(job.file);
+        
+        const fileExt = job.file.name.split(".").pop();
+        const fileName = `${userId}/${Date.now()}.${fileExt}`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from("card-images")
+          .upload(fileName, job.file);
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from("card-images")
+          .getPublicUrl(fileName);
+
+        const { data: cardIdentification, error: aiError } = await supabase.functions.invoke(
+          "identify-card",
+          {
+            body: {
+              imageUrl: publicUrl,
+              ocrText: ocr.rawText,
+            },
+          }
+        );
+
+        if (aiError) throw aiError;
+
+        await supabase.from("cards").insert({
+          user_id: userId,
+          card_name: cardIdentification.cardName || ocr.cardName,
+          card_set: cardIdentification.cardSet || ocr.cardSet,
+          card_number: cardIdentification.cardNumber || ocr.cardNumber,
+          rarity: cardIdentification.rarity,
+          edition: cardIdentification.edition,
+          condition: cardIdentification.condition || "ungraded",
+          sport_type: cardIdentification.sportType,
+          game_type: cardIdentification.gameType,
+          notes: cardIdentification.notes,
+          ocr_confidence: ocr.confidence,
+          ocr_raw_text: ocr.rawText,
+          current_price_raw: cardIdentification.currentPriceRaw,
+          current_price_psa9: cardIdentification.currentPricePsa9,
+          current_price_psa10: cardIdentification.currentPricePsa10,
+          suggested_price: cardIdentification.suggestedPrice,
+          ebay_listing_url: cardIdentification.ebayListingUrl,
+          image_url: publicUrl,
+          thumbnail_url: publicUrl,
+          last_price_update: new Date().toISOString(),
+        });
+
+        setScanJobs(prev => prev.map(j => 
+          j.id === job.id ? { ...j, status: 'complete' as const, result: ocr } : j
+        ));
+      } catch (error: any) {
+        console.error('Batch scan error:', error);
+        setScanJobs(prev => prev.map(j => 
+          j.id === job.id ? { ...j, status: 'error' as const, error: error.message } : j
+        ));
+      }
+    }
+
+    toast.success('Batch processing complete!');
+  };
+
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
-      {/* Upload Section */}
-      <Card className="shadow-card">
-        <CardHeader>
-          <CardTitle>Upload Card Image</CardTitle>
-          <CardDescription>
-            Drag and drop or click to select a card image
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div
-            onDrop={handleDrop}
-            onDragOver={handleDragOver}
-            className="relative flex min-h-[300px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted/20 p-6 transition-colors hover:border-primary hover:bg-muted/30"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleFileSelect}
-              className="hidden"
-            />
+    <div className="space-y-6">
+      <Tabs defaultValue="upload" className="w-full">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="upload">Upload</TabsTrigger>
+          <TabsTrigger value="camera">Camera</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="upload">
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* Upload Section */}
+            <Card className="shadow-card">
+              <CardHeader>
+                <CardTitle>Upload Card Image(s)</CardTitle>
+                <CardDescription>
+                  Drag and drop or click to select (up to 500MB total)
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div
+                  onDrop={handleDrop}
+                  onDragOver={handleDragOver}
+                  className="relative flex min-h-[300px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted/20 p-6 transition-colors hover:border-primary hover:bg-muted/30"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
             
             {preview ? (
               <div className="relative w-full">
@@ -240,34 +444,51 @@ const Scanner = ({ userId }: ScannerProps) => {
                   <Upload className="h-8 w-8 text-primary" />
                 </div>
                 <div>
-                  <p className="font-medium">Drop your card image here</p>
-                  <p className="text-sm text-muted-foreground">or click to browse</p>
+                  <p className="font-medium">Drop your card images or folder here</p>
+                  <p className="text-sm text-muted-foreground">or click to browse (multiple files supported)</p>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Supports JPG, PNG, WEBP up to 20MB
+                  Supports JPG, PNG, WEBP up to 500MB total
                 </p>
               </div>
             )}
           </div>
 
-          <Button
-            onClick={handleScan}
-            disabled={!file || isScanning}
-            className="w-full"
-            size="lg"
-          >
-            {isScanning ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Scanning...
-              </>
-            ) : (
-              <>
-                <Camera className="mr-2 h-4 w-4" />
-                Scan Card
-              </>
+          <div className="flex gap-2">
+            <Button
+              onClick={handleScan}
+              disabled={!file || isScanning}
+              className="flex-1"
+              size="lg"
+            >
+              {isScanning ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Scanning...
+                </>
+              ) : (
+                <>
+                  <Camera className="mr-2 h-4 w-4" />
+                  Scan Card
+                </>
+              )}
+            </Button>
+            
+            {ocrResult && (
+              <Button
+                onClick={() => {
+                  setOcrResult(null);
+                  handleScan();
+                }}
+                disabled={isScanning}
+                variant="outline"
+                size="lg"
+              >
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Rescan
+              </Button>
             )}
-          </Button>
+          </div>
 
           {isScanning && (
             <div className="space-y-2">
@@ -346,6 +567,90 @@ const Scanner = ({ userId }: ScannerProps) => {
         </CardContent>
       </Card>
     </div>
+  </TabsContent>
+
+  <TabsContent value="camera">
+    <Card className="shadow-card">
+      <CardHeader>
+        <CardTitle>Camera Capture</CardTitle>
+        <CardDescription>
+          Use your device camera to capture card images
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!isCameraActive ? (
+          <div className="flex min-h-[400px] flex-col items-center justify-center gap-4">
+            <div className="rounded-full bg-primary/10 p-6">
+              <Camera className="h-12 w-12 text-primary" />
+            </div>
+            <Button onClick={startCamera} size="lg">
+              <Camera className="mr-2 h-4 w-4" />
+              Start Camera
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              className="w-full rounded-lg"
+            />
+            <div className="flex gap-2">
+              <Button onClick={capturePhoto} size="lg" className="flex-1">
+                <Camera className="mr-2 h-4 w-4" />
+                Capture Photo
+              </Button>
+              <Button onClick={stopCamera} variant="outline" size="lg">
+                <X className="mr-2 h-4 w-4" />
+                Close Camera
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  </TabsContent>
+</Tabs>
+
+{scanJobs.length > 0 && (
+  <Card className="shadow-card">
+    <CardHeader>
+      <CardTitle>Batch Queue ({scanJobs.length} files)</CardTitle>
+      <CardDescription>Process multiple cards at once</CardDescription>
+    </CardHeader>
+    <CardContent className="space-y-4">
+      <div className="grid gap-2 max-h-[400px] overflow-y-auto">
+        {scanJobs.map(job => (
+          <div key={job.id} className="flex items-center gap-3 rounded-lg border p-3">
+            <img src={job.preview} alt="" className="h-12 w-12 rounded object-cover" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{job.file.name}</p>
+              <p className="text-xs text-muted-foreground">
+                {job.status === 'pending' && 'Waiting...'}
+                {job.status === 'scanning' && 'Scanning...'}
+                {job.status === 'complete' && '✓ Complete'}
+                {job.status === 'error' && `Error: ${job.error}`}
+              </p>
+            </div>
+            {job.status === 'scanning' && <Loader2 className="h-4 w-4 animate-spin" />}
+            {job.status === 'complete' && <CheckCircle className="h-4 w-4 text-success" />}
+          </div>
+        ))}
+      </div>
+      <Button 
+        onClick={processBatchQueue} 
+        disabled={scanJobs.every(j => j.status !== 'pending')}
+        className="w-full"
+        size="lg"
+      >
+        <FolderUp className="mr-2 h-4 w-4" />
+        Process All ({scanJobs.filter(j => j.status === 'pending').length} pending)
+      </Button>
+    </CardContent>
+  </Card>
+)}
+</div>
   );
 };
 
