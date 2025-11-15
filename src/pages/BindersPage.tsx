@@ -341,64 +341,41 @@ export default function BindersPage() {
                          />
                        </DialogContent>
                      </Dialog>
-                     <Dialog open={isAddCardOpen} onOpenChange={setIsAddCardOpen}>
-                       <DialogTrigger asChild>
-                         <Button size="sm">
-                           <Plus className="mr-2 h-4 w-4" />
-                           Add Cards
-                         </Button>
-                       </DialogTrigger>
-                       <DialogContent className="bg-neutral-900 border-neutral-800 max-w-2xl">
-                         <DialogHeader>
-                                <div
-                                  key={card.id}
-                                  className="p-2 bg-neutral-800 rounded cursor-pointer hover:bg-neutral-700"
-                                  onClick={() => {
-                                    addCardToBinder(card.id, selectedBinder);
-                                    setIsAddCardOpen(false);
-                                  }}
-                                >
-                                  <img
-                                    src={card.thumbnail_url || card.image_url}
-                                    alt={card.card_name}
-                                    className="w-full h-24 object-cover rounded mb-2"
-                                  />
-                                  <p className="text-sm font-medium truncate">{card.card_name}</p>
-                                  <p className="text-xs text-neutral-400 truncate">{card.card_set}</p>
-                                </div>
-                              ))}
+                      <Dialog open={isAddCardOpen} onOpenChange={setIsAddCardOpen}>
+                        <DialogTrigger asChild>
+                          <Button size="sm">
+                            <Plus className="mr-2 h-4 w-4" />
+                            Add Cards
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="bg-neutral-900 border-neutral-800 max-w-2xl">
+                          <DialogHeader>
+                            <DialogTitle>Add Cards to {selectedBinder}</DialogTitle>
+                          </DialogHeader>
+                          <div className="grid grid-cols-3 gap-3 max-h-96 overflow-y-auto">
+                            {availableCards.filter(card => !card.collection_name || card.collection_name !== selectedBinder).map((card) => (
+                              <div
+                                key={card.id}
+                                className="p-2 bg-neutral-800 rounded cursor-pointer hover:bg-neutral-700"
+                                onClick={() => {
+                                  addCardToBinder(card.id, selectedBinder);
+                                  setIsAddCardOpen(false);
+                                }}
+                              >
+                                <img
+                                  src={card.thumbnail_url || card.image_url}
+                                  alt={card.card_name}
+                                  className="w-full h-24 object-cover rounded mb-2"
+                                />
+                                <p className="text-sm font-medium truncate">{card.card_name}</p>
+                                <p className="text-xs text-neutral-400 truncate">{card.card_set}</p>
+                              </div>
+                            ))}
                           </div>
-                        </div>
-                      </DialogContent>
-                    </Dialog>
-                    <div className="flex gap-1 border border-neutral-700 rounded">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setViewMode("grid")}
-                        className={viewMode === "grid" ? "bg-neutral-700" : ""}
-                      >
-                        <Grid3x3 className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setViewMode("list")}
-                        className={viewMode === "list" ? "bg-neutral-700" : ""}
-                      >
-                        <List className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setViewMode("editor")}
-                        className={viewMode === "editor" ? "bg-neutral-700" : ""}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
+                        </DialogContent>
+                      </Dialog>
                     </div>
                   </div>
-                </div>
               </CardHeader>
               <CardContent>
                 {viewMode === "editor" ? (
