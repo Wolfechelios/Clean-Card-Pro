@@ -15,8 +15,49 @@ serve(async (req) => {
     const { imageUrl, ocrText } = await req.json();
     
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    const GOOGLE_VISION_API_KEY = Deno.env.get("GOOGLE_VISION_API_KEY");
+    
     if (!LOVABLE_API_KEY) {
       throw new Error("LOVABLE_API_KEY not configured");
+    }
+
+    // Use Google Vision API for enhanced text detection
+    let detectedText = ocrText || "";
+    if (GOOGLE_VISION_API_KEY) {
+      try {
+        const visionResponse = await fetch(
+          `https://vision.googleapis.com/v1/images:annotate?key=${GOOGLE_VISION_API_KEY}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              requests: [
+                {
+                  image: { source: { imageUri: imageUrl } },
+                  features: [
+                    { type: "TEXT_DETECTION" },
+                    { type: "DOCUMENT_TEXT_DETECTION" }
+                  ]
+                }
+              ]
+            })
+          }
+        );
+
+        if (visionResponse.ok) {
+          const visionData = await visionResponse.json();
+          const fullText = visionData.responses?.[0]?.fullTextAnnotation?.text;
+          if (fullText) {
+            detectedText = fullText;
+            console.log("Google Vision detected text:", fullText);
+          }
+        } else {
+          console.error("Google Vision API error:", await visionResponse.text());
+        }
+      } catch (visionError) {
+        console.error("Google Vision API failed:", visionError);
+        // Continue with original OCR text if Vision fails
+      }
     }
 
     // Use AI vision to identify the card
@@ -47,8 +88,8 @@ Return ONLY a JSON object with these exact keys: cardName, cardSet, cardNumber, 
             role: "user",
             content: [
               {
-                type: "text",
-                text: `Identify this trading card. OCR text detected: ${ocrText || "none"}`
+              type: "text",
+              text: `Identify this trading card. Detected text: ${detectedText || "none"}`
               },
               {
                 type: "image_url",
