@@ -7,9 +7,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Plus, BookOpen, Trash2, Eye, Grid3x3, List } from "lucide-react";
+import { Plus, BookOpen, Trash2, Eye, Grid3x3, List, Scan } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { BinderScan } from "@/components/binder/BinderScan";
+import { BinderEditor } from "@/components/binder/BinderEditor";
 
 interface Binder {
   id: string;
@@ -37,7 +39,8 @@ export default function BindersPage() {
   const [availableCards, setAvailableCards] = useState<BinderCard[]>([]);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isAddCardOpen, setIsAddCardOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [isScanOpen, setIsScanOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<"grid" | "list" | "editor">("grid");
   const [newBinder, setNewBinder] = useState({ name: "", description: "" });
 
   useEffect(() => {
@@ -271,6 +274,26 @@ export default function BindersPage() {
                 <div className="flex items-center justify-between">
                   <CardTitle>{selectedBinder}</CardTitle>
                   <div className="flex gap-2">
+                    <Dialog open={isScanOpen} onOpenChange={setIsScanOpen}>
+                      <DialogTrigger asChild>
+                        <Button size="sm" variant="outline">
+                          <Scan className="mr-2 h-4 w-4" />
+                          Scan Page
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="bg-neutral-900 border-neutral-800">
+                        <BinderScan
+                          binderName={selectedBinder}
+                          onComplete={() => {
+                            setIsScanOpen(false);
+                            fetchBinders();
+                            if (selectedBinder) {
+                              fetchBinderCards(selectedBinder);
+                            }
+                          }}
+                        />
+                      </DialogContent>
+                    </Dialog>
                     <Dialog open={isAddCardOpen} onOpenChange={setIsAddCardOpen}>
                       <DialogTrigger asChild>
                         <Button size="sm">
@@ -325,12 +348,31 @@ export default function BindersPage() {
                       >
                         <List className="h-4 w-4" />
                       </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setViewMode("editor")}
+                        className={viewMode === "editor" ? "bg-neutral-700" : ""}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
                 </div>
               </CardHeader>
               <CardContent>
-                {viewMode === "grid" ? (
+                {viewMode === "editor" ? (
+                  <BinderEditor
+                    binderName={selectedBinder}
+                    cards={binderCards}
+                    onUpdate={() => {
+                      fetchBinders();
+                      if (selectedBinder) {
+                        fetchBinderCards(selectedBinder);
+                      }
+                    }}
+                  />
+                ) : viewMode === "grid" ? (
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                     {binderCards.map((card) => (
                       <div key={card.id} className="group relative">
