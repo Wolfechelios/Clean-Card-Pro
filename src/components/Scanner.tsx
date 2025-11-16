@@ -172,7 +172,8 @@ const Scanner = ({ userId }: ScannerProps) => {
 
       // Upload image to Supabase Storage
       const fileExt = file.name.split(".").pop();
-      const fileName = `${userId}/${Date.now()}.${fileExt}`;
+      const cardId = crypto.randomUUID();
+      const fileName = `cards/${cardId}.${fileExt}`;
       
       const { error: uploadError } = await supabase.storage
         .from("card-images")
@@ -180,9 +181,12 @@ const Scanner = ({ userId }: ScannerProps) => {
 
       if (uploadError) throw uploadError;
 
-      const { data: { publicUrl } } = supabase.storage
+      const { data: signedUrlData, error: urlError } = await supabase.storage
         .from("card-images")
-        .getPublicUrl(fileName);
+        .createSignedUrl(fileName, 60 * 60 * 24 * 365); // 1 year
+
+      if (urlError) throw urlError;
+      const imageUrl = signedUrlData.signedUrl;
 
       setScanProgress(60);
 
@@ -192,7 +196,7 @@ const Scanner = ({ userId }: ScannerProps) => {
         "identify-card",
         {
           body: {
-            imageUrl: publicUrl,
+            imageUrl: imageUrl,
             ocrText: ocr.rawText,
           },
         }
@@ -224,8 +228,8 @@ const Scanner = ({ userId }: ScannerProps) => {
         current_price_psa10: cardIdentification.currentPricePsa10,
         suggested_price: cardIdentification.suggestedPrice,
         ebay_listing_url: cardIdentification.ebayListingUrl,
-        image_url: publicUrl,
-        thumbnail_url: publicUrl,
+        image_url: imageUrl,
+        thumbnail_url: imageUrl,
         last_price_update: new Date().toISOString(),
       });
 
@@ -324,7 +328,8 @@ const Scanner = ({ userId }: ScannerProps) => {
         const ocr = await performOCR(job.file);
         
         const fileExt = job.file.name.split(".").pop();
-        const fileName = `${userId}/${Date.now()}.${fileExt}`;
+        const cardId = crypto.randomUUID();
+        const fileName = `cards/${cardId}.${fileExt}`;
         
         const { error: uploadError } = await supabase.storage
           .from("card-images")
@@ -332,15 +337,18 @@ const Scanner = ({ userId }: ScannerProps) => {
 
         if (uploadError) throw uploadError;
 
-        const { data: { publicUrl } } = supabase.storage
+        const { data: signedUrlData, error: urlError } = await supabase.storage
           .from("card-images")
-          .getPublicUrl(fileName);
+          .createSignedUrl(fileName, 60 * 60 * 24 * 365); // 1 year
+
+        if (urlError) throw urlError;
+        const imageUrl = signedUrlData.signedUrl;
 
         const { data: cardIdentification, error: aiError } = await supabase.functions.invoke(
           "identify-card",
           {
             body: {
-              imageUrl: publicUrl,
+              imageUrl: imageUrl,
               ocrText: ocr.rawText,
             },
           }
@@ -366,8 +374,8 @@ const Scanner = ({ userId }: ScannerProps) => {
           current_price_psa10: cardIdentification.currentPricePsa10,
           suggested_price: cardIdentification.suggestedPrice,
           ebay_listing_url: cardIdentification.ebayListingUrl,
-          image_url: publicUrl,
-          thumbnail_url: publicUrl,
+          image_url: imageUrl,
+          thumbnail_url: imageUrl,
           last_price_update: new Date().toISOString(),
         });
 
