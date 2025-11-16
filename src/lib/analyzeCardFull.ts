@@ -44,7 +44,7 @@ export async function analyzeCardFull(
     cardName?: string;
   }
 ): Promise<FullCardAnalysis> {
-  const res = await fetch("/functions/v1/analyze-card-full", {
+  const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-card-full`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

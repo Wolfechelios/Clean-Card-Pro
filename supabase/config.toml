@@ -1,1 +1,4 @@
 project_id = "cyyaapagcftbhafhlofb"
+
+[functions.analyze-card-full]
+verify_jwt = false
