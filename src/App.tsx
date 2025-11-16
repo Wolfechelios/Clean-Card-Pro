@@ -12,6 +12,7 @@ import ScanPage from "./pages/ScanPage";
 import CollectionsPage from "./pages/CollectionsPage";
 import BindersPage from "./pages/BindersPage";
 import SettingsPage from "./pages/SettingsPage";
+import InsightsPage from "./pages/InsightsPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -62,6 +63,10 @@ const App = () => {
             <Route
               path="/settings"
               element={session ? <AppLayout><SettingsPage /></AppLayout> : <Navigate to="/auth" />}
+            />
+            <Route
+              path="/insights"
+              element={session ? <AppLayout><InsightsPage /></AppLayout> : <Navigate to="/auth" />}
             />
             <Route path="*" element={<NotFound />} />
           </Routes>

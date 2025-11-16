@@ -2,3 +2,9 @@ project_id = "cyyaapagcftbhafhlofb"
 
 [functions.analyze-card-full]
 verify_jwt = false
+
+[functions.enhanced-card-identify]
+verify_jwt = false
+
+[functions.collection-insights]
+verify_jwt = true

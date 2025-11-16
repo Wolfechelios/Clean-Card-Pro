@@ -190,8 +190,38 @@ const Scanner = ({ userId }: ScannerProps) => {
 
       setScanProgress(60);
 
-      // Call AI identification edge function
-      toast.info("Identifying card with AI...");
+      // Call enhanced AI identification with Lovable AI
+      toast.info("Identifying card with enhanced AI...");
+      
+      let enhancedData;
+      try {
+        const enhancedRes = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/enhanced-card-identify`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              imageUrl: imageUrl,
+              ocrText: ocr.rawText,
+            }),
+          }
+        );
+        
+        if (enhancedRes.ok) {
+          const enhancedResult = await enhancedRes.json();
+          if (enhancedResult.success) {
+            enhancedData = enhancedResult.cardData;
+            toast.success(`Card identified: ${enhancedData.card_name}`);
+          }
+        }
+      } catch (error) {
+        console.error("Enhanced identification error:", error);
+        toast.warning("Using fallback identification...");
+      }
+
+      setScanProgress(70);
+
+      // Fallback to original identification if enhanced fails
       const { data: cardIdentification, error: aiError } = await supabase.functions.invoke(
         "identify-card",
         {
@@ -202,32 +232,32 @@ const Scanner = ({ userId }: ScannerProps) => {
         }
       );
 
-      if (aiError) {
+      if (aiError && !enhancedData) {
         console.error("AI identification error:", aiError);
         throw new Error("Failed to identify card details");
       }
 
       setScanProgress(80);
 
-      // Save card to database with full identification and pricing
+      // Save card to database with enhanced identification and pricing
       const { error: dbError } = await supabase.from("cards").insert({
         user_id: userId,
-        card_name: cardIdentification.cardName || ocr.cardName,
-        card_set: cardIdentification.cardSet || ocr.cardSet,
-        card_number: cardIdentification.cardNumber || ocr.cardNumber,
-        rarity: cardIdentification.rarity,
-        edition: cardIdentification.edition,
-        condition: cardIdentification.condition || "ungraded",
-        sport_type: cardIdentification.sportType,
-        game_type: cardIdentification.gameType,
-        notes: cardIdentification.notes,
-        ocr_confidence: ocr.confidence,
+        card_name: enhancedData?.card_name || cardIdentification?.cardName || ocr.cardName,
+        card_set: enhancedData?.card_set || cardIdentification?.cardSet || ocr.cardSet,
+        card_number: enhancedData?.card_number || cardIdentification?.cardNumber || ocr.cardNumber,
+        rarity: enhancedData?.rarity || cardIdentification?.rarity,
+        edition: enhancedData?.edition || cardIdentification?.edition,
+        condition: cardIdentification?.condition || "ungraded",
+        sport_type: enhancedData?.sport_type || cardIdentification?.sportType,
+        game_type: enhancedData?.game_type || cardIdentification?.gameType,
+        notes: enhancedData?.description || cardIdentification?.notes,
+        ocr_confidence: enhancedData?.confidence || ocr.confidence,
         ocr_raw_text: ocr.rawText,
-        current_price_raw: cardIdentification.currentPriceRaw,
-        current_price_psa9: cardIdentification.currentPricePsa9,
-        current_price_psa10: cardIdentification.currentPricePsa10,
-        suggested_price: cardIdentification.suggestedPrice,
-        ebay_listing_url: cardIdentification.ebayListingUrl,
+        current_price_raw: cardIdentification?.currentPriceRaw,
+        current_price_psa9: cardIdentification?.currentPricePsa9,
+        current_price_psa10: cardIdentification?.currentPricePsa10,
+        suggested_price: cardIdentification?.suggestedPrice,
+        ebay_listing_url: cardIdentification?.ebayListingUrl,
         image_url: imageUrl,
         thumbnail_url: imageUrl,
         last_price_update: new Date().toISOString(),
