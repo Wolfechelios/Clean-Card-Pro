@@ -82,7 +82,8 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
         const response = await fetch(cardImageData);
         const blob = await response.blob();
 
-        const fileName = `binder-${Date.now()}-${i}.jpg`;
+        const cardId = crypto.randomUUID();
+        const fileName = `cards/${cardId}.jpg`;
         const { error: uploadError } = await supabase.storage
           .from("card-images")
           .upload(fileName, blob);
@@ -98,13 +99,26 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
           continue;
         }
 
-        const { data: { publicUrl } } = supabase.storage
+        const { data: signedUrlData, error: urlError } = await supabase.storage
           .from("card-images")
-          .getPublicUrl(fileName);
+          .createSignedUrl(fileName, 60 * 60 * 24 * 365); // 1 year
+
+        if (urlError) {
+          console.error("URL error:", urlError);
+          results.push({
+            id: `failed-${i}`,
+            card_name: "URL Generation Failed",
+            image_url: cardImageData,
+            success: false,
+          });
+          continue;
+        }
+
+        const imageUrl = signedUrlData.signedUrl;
 
         const { data: cardData, error: identifyError } = await supabase.functions
           .invoke("identify-card", {
-            body: { imageUrl: publicUrl },
+            body: { imageUrl: imageUrl },
           });
 
         if (!identifyError && cardData) {
@@ -114,8 +128,8 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
             card_set: cardData.setName,
             card_number: cardData.cardNumber,
             rarity: cardData.rarity,
-            image_url: publicUrl,
-            thumbnail_url: publicUrl,
+            image_url: imageUrl,
+            thumbnail_url: imageUrl,
             collection_name: binderName,
             current_price_raw: cardData.pricing?.currentPriceRaw,
             current_price_psa9: cardData.pricing?.psa9Price,
@@ -127,8 +141,8 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
           results.push({
             id: insertedCard?.id || `temp-${i}`,
             card_name: cardData.cardName || "Unknown Card",
-            image_url: publicUrl,
-            thumbnail_url: publicUrl,
+            image_url: imageUrl,
+            thumbnail_url: imageUrl,
             current_price_raw: cardData.pricing?.currentPriceRaw,
             success: true,
           });
@@ -136,7 +150,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
           results.push({
             id: `failed-${i}`,
             card_name: "Failed to identify",
-            image_url: publicUrl,
+            image_url: imageUrl,
             success: false,
           });
         }
