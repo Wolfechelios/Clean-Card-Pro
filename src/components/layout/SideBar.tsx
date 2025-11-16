@@ -1,4 +1,4 @@
-import { LayoutDashboard, ScanLine, FolderOpen, BookOpen, Settings } from "lucide-react";
+import { LayoutDashboard, ScanLine, FolderOpen, BookOpen, Settings, Lightbulb } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 
 const menuItems = [
@@ -6,6 +6,7 @@ const menuItems = [
   { icon: ScanLine, label: "Scan", path: "/scan" },
   { icon: FolderOpen, label: "Collections", path: "/collections" },
   { icon: BookOpen, label: "Binders", path: "/binders" },
+  { icon: Lightbulb, label: "AI Insights", path: "/insights" },
   { icon: Settings, label: "Settings", path: "/settings" },
 ];
 
