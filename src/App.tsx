@@ -13,6 +13,7 @@ import CollectionsPage from "./pages/CollectionsPage";
 import BindersPage from "./pages/BindersPage";
 import SettingsPage from "./pages/SettingsPage";
 import InsightsPage from "./pages/InsightsPage";
+import VisionTestPage from "./pages/VisionTestPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -67,6 +68,10 @@ const App = () => {
             <Route
               path="/insights"
               element={session ? <AppLayout><InsightsPage /></AppLayout> : <Navigate to="/auth" />}
+            />
+            <Route
+              path="/vision-test"
+              element={session ? <AppLayout><VisionTestPage /></AppLayout> : <Navigate to="/auth" />}
             />
             <Route path="*" element={<NotFound />} />
           </Routes>

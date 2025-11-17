@@ -81,6 +81,9 @@ async function callVision(imageUrl: string) {
           { type: "DOCUMENT_TEXT_DETECTION" },
           { type: "CROP_HINTS" },
           { type: "IMAGE_PROPERTIES" },
+          { type: "LABEL_DETECTION", maxResults: 20 },
+          { type: "LOGO_DETECTION", maxResults: 10 },
+          { type: "WEB_DETECTION" },
         ],
         imageContext: {
           cropHintsParams: {
@@ -109,6 +112,9 @@ async function callVision(imageUrl: string) {
     response.fullTextAnnotation;
   const cropHints = response.cropHintsAnnotation?.cropHints ?? [];
   const imageProps = response.imagePropertiesAnnotation ?? {};
+  const labels = response.labelAnnotations ?? [];
+  const logos = response.logoAnnotations ?? [];
+  const webDetection = response.webDetection ?? {};
 
   let primaryCrop: {
     importanceFraction: number | null;
@@ -123,12 +129,42 @@ async function callVision(imageUrl: string) {
     };
   }
 
+  // Process labels to extract card attributes
+  const processedLabels = labels.map((label: any) => ({
+    description: label.description,
+    score: label.score,
+    topicality: label.topicality,
+  }));
+
+  // Process logos
+  const processedLogos = logos.map((logo: any) => ({
+    description: logo.description,
+    score: logo.score,
+  }));
+
+  // Process web detection for similar images and related entities
+  const webEntities = webDetection.webEntities?.map((entity: any) => ({
+    entityId: entity.entityId,
+    description: entity.description,
+    score: entity.score,
+  })) ?? [];
+
+  const similarImages = webDetection.visuallySimilarImages?.map((img: any) => img.url) ?? [];
+  const matchingImages = webDetection.fullMatchingImages?.map((img: any) => img.url) ?? [];
+
   return {
     raw_vision_response: response,
     ocr_text: fullText?.description ?? "",
     ocr_locale: fullText?.locale ?? null,
     crop_hint: primaryCrop,
     image_properties: imageProps,
+    labels: processedLabels,
+    logos: processedLogos,
+    web_detection: {
+      entities: webEntities,
+      similar_images: similarImages.slice(0, 5), // Limit to 5
+      matching_images: matchingImages.slice(0, 5),
+    },
   };
 }
 
