@@ -4,7 +4,19 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Search } from "lucide-react";
+import { Search, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
 
 interface CardItem {
   id: string;
@@ -22,6 +34,7 @@ export default function Collections() {
   const [filteredCards, setFilteredCards] = useState<CardItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [cardToDelete, setCardToDelete] = useState<string | null>(null);
 
   useEffect(() => {
     fetchCards();
@@ -57,6 +70,28 @@ export default function Collections() {
       console.error("Error fetching cards:", error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!cardToDelete) return;
+
+    try {
+      const { error } = await supabase
+        .from("cards")
+        .delete()
+        .eq("id", cardToDelete);
+
+      if (error) throw error;
+
+      setCards(cards.filter(card => card.id !== cardToDelete));
+      setFilteredCards(filteredCards.filter(card => card.id !== cardToDelete));
+      toast.success("Card deleted successfully");
+    } catch (error) {
+      console.error("Error deleting card:", error);
+      toast.error("Failed to delete card");
+    } finally {
+      setCardToDelete(null);
     }
   };
 
@@ -102,7 +137,15 @@ export default function Collections() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filteredCards.map((card) => (
-            <Card key={card.id} className="bg-card border-border hover:shadow-lg transition-shadow overflow-hidden">
+            <Card key={card.id} className="bg-card border-border hover:shadow-lg transition-shadow overflow-hidden group relative">
+              <Button
+                variant="destructive"
+                size="icon"
+                className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={() => setCardToDelete(card.id)}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
               <CardHeader className="p-0">
                 <div className="aspect-[3/4] overflow-hidden bg-muted">
                   <img
@@ -143,6 +186,23 @@ export default function Collections() {
           ))}
         </div>
       )}
+
+      <AlertDialog open={!!cardToDelete} onOpenChange={(open) => !open && setCardToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Card</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this card? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
