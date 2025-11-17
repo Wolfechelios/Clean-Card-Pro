@@ -40,6 +40,7 @@ const Scanner = ({ userId }: ScannerProps) => {
   const [scanJobs, setScanJobs] = useState<ScanJob[]>([]);
   const [isCameraActive, setIsCameraActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -374,17 +375,45 @@ const Scanner = ({ userId }: ScannerProps) => {
         if (urlError) throw urlError;
         const imageUrl = signedUrlData.signedUrl;
 
-        const { data: cardIdentification, error: aiError } = await supabase.functions.invoke(
-          "identify-card",
-          {
-            body: {
-              imageUrl: imageUrl,
-              ocrText: ocr.rawText,
-            },
+        // Try enhanced AI identification first
+        let cardIdentification;
+        try {
+          const enhancedRes = await fetch(
+            `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/enhanced-card-identify`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                imageUrl: imageUrl,
+                ocrText: ocr.rawText,
+              }),
+            }
+          );
+          
+          if (enhancedRes.ok) {
+            const enhancedResult = await enhancedRes.json();
+            if (enhancedResult.success) {
+              cardIdentification = enhancedResult.cardData;
+            }
           }
-        );
+        } catch (error) {
+          console.error("Enhanced identification error:", error);
+        }
 
-        if (aiError) throw aiError;
+        // Fallback to standard identification
+        if (!cardIdentification) {
+          const { data, error: aiError } = await supabase.functions.invoke(
+            "identify-card",
+            {
+              body: {
+                imageUrl: imageUrl,
+                ocrText: ocr.rawText,
+              },
+            }
+          );
+          if (aiError) throw aiError;
+          cardIdentification = data;
+        }
 
         await supabase.from("cards").insert({
           user_id: userId,
@@ -456,6 +485,15 @@ const Scanner = ({ userId }: ScannerProps) => {
                     onChange={handleFileSelect}
                     className="hidden"
                   />
+                  <input
+                    ref={folderInputRef}
+                    type="file"
+                    accept="image/*"
+                    {...({ webkitdirectory: "", directory: "" } as any)}
+                    multiple
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
             
             {preview ? (
               <div className="relative w-full">
@@ -482,8 +520,34 @@ const Scanner = ({ userId }: ScannerProps) => {
                   <Upload className="h-8 w-8 text-primary" />
                 </div>
                 <div>
-                  <p className="font-medium">Drop your card images or folder here</p>
-                  <p className="text-sm text-muted-foreground">or click to browse (multiple files supported)</p>
+                  <p className="font-medium">Drop your card images here</p>
+                  <p className="text-sm text-muted-foreground">or use the buttons below to select files or folders</p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      fileInputRef.current?.click();
+                    }}
+                  >
+                    <Upload className="mr-2 h-4 w-4" />
+                    Select Files
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      folderInputRef.current?.click();
+                    }}
+                  >
+                    <FolderUp className="mr-2 h-4 w-4" />
+                    Select Folder
+                  </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
                   Supports JPG, PNG, WEBP up to 500MB total
