@@ -77,6 +77,8 @@ const Scanner = ({ userId }: ScannerProps) => {
     cardName?: string;
   }>>([]);
   const [pendingCard, setPendingCard] = useState<PendingCardData | null>(null);
+  const [batchQueue, setBatchQueue] = useState<ScanJob[]>([]);
+  const [currentBatchIndex, setCurrentBatchIndex] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -337,6 +339,8 @@ const Scanner = ({ userId }: ScannerProps) => {
   const handleConfirmCard = async (editedCard: IdentifiedCard) => {
     if (!pendingCard) return;
 
+    const isBatchMode = pendingCard.fallbackData?.jobId;
+    
     try {
       const { error: dbError } = await supabase.from("cards").insert({
         user_id: userId,
@@ -365,12 +369,35 @@ const Scanner = ({ userId }: ScannerProps) => {
 
       toast.success("Card saved successfully!");
       
-      // Reset form
-      setFile(null);
-      setPreview(null);
-      setOcrResult(null);
-      setScanProgress(0);
-      setPendingCard(null);
+      if (isBatchMode) {
+        // Update batch card status
+        const jobId = pendingCard.fallbackData.jobId;
+        const batchIndex = pendingCard.fallbackData.batchIndex;
+        
+        setBatchCards(prev => prev.map(c => 
+          c.id === jobId ? { 
+            ...c, 
+            status: "completed" as const,
+            cardName: editedCard.card_name
+          } : c
+        ));
+
+        setScanJobs(prev => prev.map(j => 
+          j.id === jobId ? { ...j, status: 'complete' as const } : j
+        ));
+
+        // Clear pending card and process next
+        setPendingCard(null);
+        setCurrentBatchIndex(batchIndex + 1);
+        processNextBatchCard(batchQueue, batchIndex + 1);
+      } else {
+        // Single card mode - reset everything
+        setFile(null);
+        setPreview(null);
+        setOcrResult(null);
+        setScanProgress(0);
+        setPendingCard(null);
+      }
     } catch (error: any) {
       console.error("Save error:", error);
       toast.error(error.message || "Error saving card");
@@ -378,8 +405,34 @@ const Scanner = ({ userId }: ScannerProps) => {
   };
 
   const handleCancelCard = () => {
-    setPendingCard(null);
-    toast.info("Card identification cancelled");
+    const isBatchMode = pendingCard?.fallbackData?.jobId;
+    
+    if (isBatchMode) {
+      // Mark current card as error and continue to next
+      const jobId = pendingCard.fallbackData.jobId;
+      const batchIndex = pendingCard.fallbackData.batchIndex;
+      
+      setBatchCards(prev => prev.map(c => 
+        c.id === jobId ? { 
+          ...c, 
+          status: "error" as const,
+          error: "Skipped by user"
+        } : c
+      ));
+
+      setScanJobs(prev => prev.map(j => 
+        j.id === jobId ? { ...j, status: 'error' as const, error: "Skipped" } : j
+      ));
+
+      setPendingCard(null);
+      setCurrentBatchIndex(batchIndex + 1);
+      processNextBatchCard(batchQueue, batchIndex + 1);
+      toast.info("Card skipped, continuing with next...");
+    } else {
+      // Single card mode
+      setPendingCard(null);
+      toast.info("Card identification cancelled");
+    }
   };
 
   const handleSelectAlternative = (alternative: Alternative) => {
@@ -451,138 +504,151 @@ const Scanner = ({ userId }: ScannerProps) => {
   const processBatchQueue = async () => {
     const pendingJobs = scanJobs.filter(j => j.status === 'pending');
     
-    // Initialize batch cards for progress tracking
+    // Initialize batch cards and queue for progress tracking
     const initialCards = pendingJobs.map((job) => ({
       id: job.id,
       fileName: job.file.name,
       status: "pending" as const,
     }));
     setBatchCards(initialCards);
+    setBatchQueue(pendingJobs);
+    setCurrentBatchIndex(0);
     
-    for (const job of pendingJobs) {
-      // Update to processing
+    // Start processing the first card
+    if (pendingJobs.length > 0) {
+      processNextBatchCard(pendingJobs, 0);
+    }
+  };
+
+  const processNextBatchCard = async (queue: ScanJob[], index: number) => {
+    if (index >= queue.length) {
+      toast.success('Batch processing complete!');
+      setBatchQueue([]);
+      setCurrentBatchIndex(0);
+      return;
+    }
+
+    const job = queue[index];
+    
+    // Update to processing
+    setBatchCards(prev => prev.map(c => 
+      c.id === job.id ? { ...c, status: "processing" as const } : c
+    ));
+    
+    setScanJobs(prev => prev.map(j => 
+      j.id === job.id ? { ...j, status: 'scanning' as const } : j
+    ));
+
+    try {
+      const ocr = await performOCR(job.file);
+      
+      const fileExt = job.file.name.split(".").pop();
+      const cardId = crypto.randomUUID();
+      const fileName = `cards/${cardId}.${fileExt}`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from("card-images")
+        .upload(fileName, job.file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: signedUrlData, error: urlError } = await supabase.storage
+        .from("card-images")
+        .createSignedUrl(fileName, 60 * 60 * 24 * 365);
+
+      if (urlError) throw urlError;
+      const imageUrl = signedUrlData.signedUrl;
+
+      // Try enhanced AI identification first
+      let enhancedData;
+      let alternatives: Alternative[] = [];
+      let fallbackData;
+      
+      try {
+        const enhancedRes = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/enhanced-card-identify`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              imageUrl: imageUrl,
+              ocrText: ocr.rawText,
+            }),
+          }
+        );
+        
+        if (enhancedRes.ok) {
+          const enhancedResult = await enhancedRes.json();
+          if (enhancedResult.success && enhancedResult.cardData) {
+            enhancedData = enhancedResult.cardData.primary || enhancedResult.cardData;
+            alternatives = enhancedResult.cardData.alternatives || [];
+          }
+        }
+      } catch (error) {
+        console.error("Enhanced identification error:", error);
+      }
+
+      // Fallback to standard identification
+      if (!enhancedData) {
+        const { data, error: aiError } = await supabase.functions.invoke(
+          "identify-card",
+          {
+            body: {
+              imageUrl: imageUrl,
+              ocrText: ocr.rawText,
+            },
+          }
+        );
+        if (!aiError && data) {
+          fallbackData = data;
+        }
+      }
+
+      // Show editor for this card
+      const identifiedCard: IdentifiedCard = enhancedData || {
+        card_name: fallbackData?.cardName || ocr.cardName,
+        card_set: fallbackData?.cardSet || ocr.cardSet,
+        card_number: fallbackData?.cardNumber || ocr.cardNumber,
+        rarity: fallbackData?.rarity || null,
+        edition: fallbackData?.edition || null,
+        game_type: fallbackData?.gameType || null,
+        sport_type: fallbackData?.sportType || null,
+        year: fallbackData?.year || null,
+        manufacturer: fallbackData?.manufacturer || null,
+        confidence: enhancedData?.confidence || fallbackData?.confidence || ocr.confidence,
+        description: fallbackData?.notes || "",
+      };
+
+      setPendingCard({
+        identifiedCard,
+        alternatives,
+        imageUrl,
+        fallbackData: {
+          ...fallbackData,
+          jobId: job.id,
+          batchIndex: index,
+        },
+      });
+
+    } catch (error: any) {
+      console.error('Batch scan error:', error);
+      
       setBatchCards(prev => prev.map(c => 
-        c.id === job.id ? { ...c, status: "processing" as const } : c
+        c.id === job.id ? { 
+          ...c, 
+          status: "error" as const,
+          error: error.message || "Failed to process"
+        } : c
       ));
       
       setScanJobs(prev => prev.map(j => 
-        j.id === job.id ? { ...j, status: 'scanning' as const } : j
+        j.id === job.id ? { ...j, status: 'error' as const, error: error.message } : j
       ));
 
-      try {
-        const ocr = await performOCR(job.file);
-        
-        const fileExt = job.file.name.split(".").pop();
-        const cardId = crypto.randomUUID();
-        const fileName = `cards/${cardId}.${fileExt}`;
-        
-        const { error: uploadError } = await supabase.storage
-          .from("card-images")
-          .upload(fileName, job.file);
-
-        if (uploadError) throw uploadError;
-
-        const { data: signedUrlData, error: urlError } = await supabase.storage
-          .from("card-images")
-          .createSignedUrl(fileName, 60 * 60 * 24 * 365); // 1 year
-
-        if (urlError) throw urlError;
-        const imageUrl = signedUrlData.signedUrl;
-
-        // Try enhanced AI identification first
-        let cardIdentification;
-        try {
-          const enhancedRes = await fetch(
-            `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/enhanced-card-identify`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                imageUrl: imageUrl,
-                ocrText: ocr.rawText,
-              }),
-            }
-          );
-          
-          if (enhancedRes.ok) {
-            const enhancedResult = await enhancedRes.json();
-            if (enhancedResult.success) {
-              cardIdentification = enhancedResult.cardData;
-            }
-          }
-        } catch (error) {
-          console.error("Enhanced identification error:", error);
-        }
-
-        // Fallback to standard identification
-        if (!cardIdentification) {
-          const { data, error: aiError } = await supabase.functions.invoke(
-            "identify-card",
-            {
-              body: {
-                imageUrl: imageUrl,
-                ocrText: ocr.rawText,
-              },
-            }
-          );
-          if (aiError) throw aiError;
-          cardIdentification = data;
-        }
-
-        await supabase.from("cards").insert({
-          user_id: userId,
-          card_name: cardIdentification.card_name || cardIdentification.cardName || ocr.cardName,
-          card_set: cardIdentification.card_set || cardIdentification.cardSet || ocr.cardSet,
-          card_number: cardIdentification.card_number || cardIdentification.cardNumber || ocr.cardNumber,
-          rarity: cardIdentification.rarity,
-          edition: cardIdentification.edition,
-          condition: cardIdentification.condition || "ungraded",
-          sport_type: cardIdentification.sport_type || cardIdentification.sportType,
-          game_type: cardIdentification.game_type || cardIdentification.gameType,
-          notes: cardIdentification.description || cardIdentification.notes,
-          ocr_confidence: cardIdentification.confidence || ocr.confidence,
-          ocr_raw_text: ocr.rawText,
-          current_price_raw: cardIdentification.currentPriceRaw,
-          current_price_psa9: cardIdentification.currentPricePsa9,
-          current_price_psa10: cardIdentification.currentPricePsa10,
-          suggested_price: cardIdentification.suggestedPrice,
-          ebay_listing_url: cardIdentification.ebayListingUrl,
-          image_url: imageUrl,
-          thumbnail_url: imageUrl,
-          last_price_update: new Date().toISOString(),
-        });
-
-        // Update to completed
-        setBatchCards(prev => prev.map(c => 
-          c.id === job.id ? { 
-            ...c, 
-            status: "completed" as const,
-            cardName: cardIdentification.card_name || cardIdentification.cardName || ocr.cardName || "Unknown Card"
-          } : c
-        ));
-
-        setScanJobs(prev => prev.map(j => 
-          j.id === job.id ? { ...j, status: 'complete' as const, result: ocr } : j
-        ));
-      } catch (error: any) {
-        console.error('Batch scan error:', error);
-        
-        // Update to error
-        setBatchCards(prev => prev.map(c => 
-          c.id === job.id ? { 
-            ...c, 
-            status: "error" as const,
-            error: error.message || "Failed to process"
-          } : c
-        ));
-        
-        setScanJobs(prev => prev.map(j => 
-          j.id === job.id ? { ...j, status: 'error' as const, error: error.message } : j
-        ));
-      }
+      // Continue with next card
+      setCurrentBatchIndex(index + 1);
+      processNextBatchCard(queue, index + 1);
     }
-
-    toast.success('Batch processing complete!');
   };
 
   return (
