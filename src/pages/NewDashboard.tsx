@@ -83,6 +83,28 @@ export default function NewDashboard() {
 
   useEffect(() => {
     fetchDashboardData();
+
+    // Set up real-time subscription for card changes
+    const channel = supabase
+      .channel('dashboard-cards-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'cards'
+        },
+        (payload) => {
+          console.log('Dashboard card change detected:', payload);
+          // Refresh dashboard on any card change
+          fetchDashboardData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const fetchDashboardData = async () => {

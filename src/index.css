@@ -53,6 +53,33 @@ All colors MUST be HSL.
   }
 }
 
+/* Smooth transitions for all interactive elements */
+@layer utilities {
+  .transition-smooth {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  .transition-fast {
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+}
+
+/* Add smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Optimize animations */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* LUX UI Kit Dark Theme */
 :root {
   --background: 0 0% 0%;

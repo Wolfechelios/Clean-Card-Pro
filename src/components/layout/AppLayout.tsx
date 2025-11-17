@@ -1,6 +1,6 @@
-import { ReactNode } from "react";
-import { NavBar } from "./NavBar";
 import { SideBar } from "./SideBar";
+import { NavBar } from "./NavBar";
+import { ReactNode } from "react";
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -8,12 +8,14 @@ interface AppLayoutProps {
 
 export default function AppLayout({ children }: AppLayoutProps) {
   return (
-    <div className="flex h-screen bg-background">
+    <div className="min-h-screen flex w-full bg-background">
       <SideBar />
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col w-full min-w-0">
         <NavBar />
-        <main className="flex-1 overflow-y-auto p-6">
-          {children}
+        <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-auto">
+          <div className="max-w-[1920px] mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {children}
+          </div>
         </main>
       </div>
     </div>
