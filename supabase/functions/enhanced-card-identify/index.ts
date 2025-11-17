@@ -24,28 +24,40 @@ serve(async (req) => {
 
     console.log('Analyzing card with Lovable AI...');
 
-    // Prepare the prompt for card identification
+    // Prepare the prompt for card identification with multiple options
     const prompt = `You are an expert trading card identifier specializing in sports cards, Pokémon, Magic: The Gathering, Yu-Gi-Oh!, and other collectible card games.
 
-Analyze this trading card image and extract the following information in JSON format:
+Analyze this trading card image and provide the most likely card identification along with up to 2 alternative possibilities if you're not completely certain.
+
+Return JSON in this exact format:
 
 {
-  "card_name": "exact card name",
-  "card_set": "set name",
-  "card_number": "card number in set",
-  "rarity": "rarity level",
-  "edition": "edition (e.g., 1st Edition, Unlimited, etc.)",
-  "game_type": "Pokemon/MTG/YuGiOh/etc or null for sports",
-  "sport_type": "Baseball/Basketball/Football/etc or null for games",
-  "year": "year of release",
-  "manufacturer": "manufacturer name",
-  "confidence": "confidence score 0-1",
-  "description": "brief description of the card"
+  "primary": {
+    "card_name": "exact card name",
+    "card_set": "set name",
+    "card_number": "card number in set",
+    "rarity": "rarity level",
+    "edition": "edition (e.g., 1st Edition, Unlimited, etc.)",
+    "game_type": "Pokemon/MTG/YuGiOh/etc or null for sports",
+    "sport_type": "Baseball/Basketball/Football/etc or null for games",
+    "year": "year of release",
+    "manufacturer": "manufacturer name",
+    "confidence": "confidence score 0-1",
+    "description": "brief description of the card"
+  },
+  "alternatives": [
+    {
+      "card_name": "alternative card name",
+      "card_set": "alternative set name",
+      "confidence": "confidence score 0-1",
+      "reason": "why this could be an alternative"
+    }
+  ]
 }
 
 ${ocrText ? `OCR text extracted: ${ocrText}` : ''}
 
-Provide accurate identification based on visible card details, text, and imagery.`;
+Only include alternatives array if confidence is below 0.95. If completely certain, return empty alternatives array. Provide accurate identification based on visible card details, text, and imagery.`;
 
     const messages = [
       {
