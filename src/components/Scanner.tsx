@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { Upload, Camera, Loader2, CheckCircle, X, RefreshCw, FolderUp } from "lucide-react";
 import { createWorker } from "tesseract.js";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { BatchProgress } from "./scanner/BatchProgress";
 
 interface ScannerProps {
   userId: string;
@@ -39,6 +40,13 @@ const Scanner = ({ userId }: ScannerProps) => {
   const [ocrResult, setOcrResult] = useState<OCRResult | null>(null);
   const [scanJobs, setScanJobs] = useState<ScanJob[]>([]);
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [batchCards, setBatchCards] = useState<Array<{
+    id: string;
+    fileName: string;
+    status: "pending" | "processing" | "completed" | "error";
+    error?: string;
+    cardName?: string;
+  }>>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -350,7 +358,20 @@ const Scanner = ({ userId }: ScannerProps) => {
   const processBatchQueue = async () => {
     const pendingJobs = scanJobs.filter(j => j.status === 'pending');
     
+    // Initialize batch cards for progress tracking
+    const initialCards = pendingJobs.map((job) => ({
+      id: job.id,
+      fileName: job.file.name,
+      status: "pending" as const,
+    }));
+    setBatchCards(initialCards);
+    
     for (const job of pendingJobs) {
+      // Update to processing
+      setBatchCards(prev => prev.map(c => 
+        c.id === job.id ? { ...c, status: "processing" as const } : c
+      ));
+      
       setScanJobs(prev => prev.map(j => 
         j.id === job.id ? { ...j, status: 'scanning' as const } : j
       ));
@@ -438,11 +459,30 @@ const Scanner = ({ userId }: ScannerProps) => {
           last_price_update: new Date().toISOString(),
         });
 
+        // Update to completed
+        setBatchCards(prev => prev.map(c => 
+          c.id === job.id ? { 
+            ...c, 
+            status: "completed" as const,
+            cardName: cardIdentification.cardName || ocr.cardName || "Unknown Card"
+          } : c
+        ));
+
         setScanJobs(prev => prev.map(j => 
           j.id === job.id ? { ...j, status: 'complete' as const, result: ocr } : j
         ));
       } catch (error: any) {
         console.error('Batch scan error:', error);
+        
+        // Update to error
+        setBatchCards(prev => prev.map(c => 
+          c.id === job.id ? { 
+            ...c, 
+            status: "error" as const,
+            error: error.message || "Failed to process"
+          } : c
+        ));
+        
         setScanJobs(prev => prev.map(j => 
           j.id === job.id ? { ...j, status: 'error' as const, error: error.message } : j
         ));
@@ -602,6 +642,15 @@ const Scanner = ({ userId }: ScannerProps) => {
           )}
         </CardContent>
       </Card>
+
+      {/* Batch Progress */}
+      {batchCards.length > 0 && (
+        <BatchProgress
+          cards={batchCards}
+          total={batchCards.length}
+          completed={batchCards.filter(c => c.status === "completed").length}
+        />
+      )}
 
       {/* Results Section */}
       <Card className="shadow-card">
