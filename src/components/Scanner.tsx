@@ -438,16 +438,16 @@ const Scanner = ({ userId }: ScannerProps) => {
 
         await supabase.from("cards").insert({
           user_id: userId,
-          card_name: cardIdentification.cardName || ocr.cardName,
-          card_set: cardIdentification.cardSet || ocr.cardSet,
-          card_number: cardIdentification.cardNumber || ocr.cardNumber,
+          card_name: cardIdentification.card_name || cardIdentification.cardName || ocr.cardName,
+          card_set: cardIdentification.card_set || cardIdentification.cardSet || ocr.cardSet,
+          card_number: cardIdentification.card_number || cardIdentification.cardNumber || ocr.cardNumber,
           rarity: cardIdentification.rarity,
           edition: cardIdentification.edition,
           condition: cardIdentification.condition || "ungraded",
-          sport_type: cardIdentification.sportType,
-          game_type: cardIdentification.gameType,
-          notes: cardIdentification.notes,
-          ocr_confidence: ocr.confidence,
+          sport_type: cardIdentification.sport_type || cardIdentification.sportType,
+          game_type: cardIdentification.game_type || cardIdentification.gameType,
+          notes: cardIdentification.description || cardIdentification.notes,
+          ocr_confidence: cardIdentification.confidence || ocr.confidence,
           ocr_raw_text: ocr.rawText,
           current_price_raw: cardIdentification.currentPriceRaw,
           current_price_psa9: cardIdentification.currentPricePsa9,
@@ -464,7 +464,7 @@ const Scanner = ({ userId }: ScannerProps) => {
           c.id === job.id ? { 
             ...c, 
             status: "completed" as const,
-            cardName: cardIdentification.cardName || ocr.cardName || "Unknown Card"
+            cardName: cardIdentification.card_name || cardIdentification.cardName || ocr.cardName || "Unknown Card"
           } : c
         ));
 
