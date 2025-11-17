@@ -1,5 +1,22 @@
 // src/lib/analyzeCardFull.ts
 
+export type VisionLabel = {
+  description: string;
+  score: number;
+  topicality: number;
+};
+
+export type VisionLogo = {
+  description: string;
+  score: number;
+};
+
+export type WebEntity = {
+  entityId?: string;
+  description: string;
+  score: number;
+};
+
 export type FullCardAnalysis = {
   image_url: string;
   card_id: string | null;
@@ -14,6 +31,13 @@ export type FullCardAnalysis = {
       boundingPoly: any;
     } | null;
     image_properties: any;
+    labels: VisionLabel[];
+    logos: VisionLogo[];
+    web_detection: {
+      entities: WebEntity[];
+      similar_images: string[];
+      matching_images: string[];
+    };
     raw_vision_response: any;
   };
   condition_estimate: {
