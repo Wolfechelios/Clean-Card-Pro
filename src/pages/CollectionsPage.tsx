@@ -4,9 +4,10 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Search, Trash2 } from "lucide-react";
+import { Search, Trash2, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,16 +19,23 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+import AdvancedFilters, { FilterConfig } from "@/components/collections/AdvancedFilters";
+import ImportExport from "@/components/collections/ImportExport";
+import PriceAlerts from "@/components/collections/PriceAlerts";
+import PortfolioView from "@/components/collections/PortfolioView";
 
 interface CardItem {
   id: string;
   card_name: string;
   card_set: string | null;
+  card_number: string | null;
+  rarity: string | null;
   image_url: string;
   thumbnail_url: string | null;
   current_price_raw: number | null;
   collection_name: string | null;
   condition: string | null;
+  created_at: string;
 }
 
 export default function Collections() {
@@ -38,6 +46,10 @@ export default function Collections() {
   const [cardToDelete, setCardToDelete] = useState<string | null>(null);
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
   const [showBulkDelete, setShowBulkDelete] = useState(false);
+  const [activeFilters, setActiveFilters] = useState<FilterConfig>({});
+
+  const availableSets = Array.from(new Set(cards.map(c => c.card_set).filter(Boolean))) as string[];
+  const availableRarities = Array.from(new Set(cards.map(c => c.rarity).filter(Boolean))) as string[];
 
   useEffect(() => {
     fetchCards();
@@ -66,16 +78,37 @@ export default function Collections() {
   }, []);
 
   useEffect(() => {
+    applyFilters();
+  }, [searchQuery, cards, activeFilters]);
+
+  const applyFilters = () => {
+    let filtered = [...cards];
+
     if (searchQuery) {
-      const filtered = cards.filter(card => 
+      filtered = filtered.filter(card => 
         card.card_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         card.card_set?.toLowerCase().includes(searchQuery.toLowerCase())
       );
-      setFilteredCards(filtered);
-    } else {
-      setFilteredCards(cards);
     }
-  }, [searchQuery, cards]);
+
+    if (activeFilters.priceMin !== undefined) {
+      filtered = filtered.filter(card => (card.current_price_raw || 0) >= activeFilters.priceMin!);
+    }
+    if (activeFilters.priceMax !== undefined) {
+      filtered = filtered.filter(card => (card.current_price_raw || 0) <= activeFilters.priceMax!);
+    }
+    if (activeFilters.rarity?.length) {
+      filtered = filtered.filter(card => card.rarity && activeFilters.rarity!.includes(card.rarity));
+    }
+    if (activeFilters.condition?.length) {
+      filtered = filtered.filter(card => card.condition && activeFilters.condition!.includes(card.condition));
+    }
+    if (activeFilters.cardSet?.length) {
+      filtered = filtered.filter(card => card.card_set && activeFilters.cardSet!.includes(card.card_set));
+    }
+
+    setFilteredCards(filtered);
+  };
 
   const fetchCards = async () => {
     try {
