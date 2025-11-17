@@ -268,9 +268,19 @@ No extra text, no markdown, no explanation outside the JSON.
   return parsed;
 }
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
 serve(async (req: Request): Promise<Response> => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
   if (req.method !== "POST") {
-    return new Response("Method Not Allowed", { status: 405 });
+    return new Response("Method Not Allowed", { status: 405, headers: corsHeaders });
   }
 
   try {
@@ -280,7 +290,7 @@ serve(async (req: Request): Promise<Response> => {
           error:
             "GOOGLE_VISION_API_KEY and GEMINI_API_KEY must be configured on the server",
         }),
-        { status: 500, headers: { "Content-Type": "application/json" } },
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
@@ -290,7 +300,7 @@ serve(async (req: Request): Promise<Response> => {
     if (!image_url) {
       return new Response(
         JSON.stringify({ error: "image_url is required" }),
-        { status: 400, headers: { "Content-Type": "application/json" } },
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
@@ -307,7 +317,7 @@ serve(async (req: Request): Promise<Response> => {
           status: imgRes.status,
           details: txt,
         }),
-        { status: 400, headers: { "Content-Type": "application/json" } },
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
     const imgBuffer = await imgRes.arrayBuffer();
@@ -371,13 +381,13 @@ serve(async (req: Request): Promise<Response> => {
 
     return new Response(JSON.stringify(combined), {
       status: 200,
-      headers: { "Content-Type": "application/json" },
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err) {
     console.error("analyze-card-full error:", err);
     return new Response(
       JSON.stringify({ error: "Internal error", details: String(err) }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 });
