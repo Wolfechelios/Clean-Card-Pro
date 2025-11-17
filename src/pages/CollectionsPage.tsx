@@ -41,6 +41,28 @@ export default function Collections() {
 
   useEffect(() => {
     fetchCards();
+
+    // Set up real-time subscription for card changes
+    const channel = supabase
+      .channel('cards-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'cards'
+        },
+        (payload) => {
+          console.log('Card change detected:', payload);
+          // Refresh the cards list on any change
+          fetchCards();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   useEffect(() => {
@@ -208,20 +230,24 @@ export default function Collections() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {filteredCards.map((card) => (
-            <Card key={card.id} className="bg-card border-border hover:shadow-lg transition-shadow overflow-hidden group relative">
-              <div className="absolute top-2 left-2 z-10">
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+          {filteredCards.map((card, index) => (
+            <Card 
+              key={card.id} 
+              className="bg-card border-border hover:shadow-xl hover:scale-105 transition-all duration-300 overflow-hidden group relative animate-in fade-in slide-in-from-bottom-4"
+              style={{ animationDelay: `${index * 50}ms` }}
+            >
+              <div className="absolute top-2 left-2 z-10 transition-transform duration-200 hover:scale-110">
                 <Checkbox
                   checked={selectedCards.has(card.id)}
                   onCheckedChange={() => toggleCardSelection(card.id)}
-                  className="bg-background border-2"
+                  className="bg-background border-2 shadow-lg"
                 />
               </div>
               <Button
                 variant="destructive"
                 size="icon"
-                className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-all duration-200 hover:scale-110 shadow-lg"
                 onClick={() => setCardToDelete(card.id)}
               >
                 <Trash2 className="h-4 w-4" />
@@ -231,18 +257,19 @@ export default function Collections() {
                   <img
                     src={card.thumbnail_url || card.image_url}
                     alt={card.card_name}
-                    className="w-full h-full object-cover"
+                    loading="lazy"
+                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
                   />
                 </div>
               </CardHeader>
-              <CardContent className="p-4">
-                <CardTitle className="text-base font-semibold text-foreground truncate">
+              <CardContent className="p-3 sm:p-4">
+                <CardTitle className="text-sm sm:text-base font-semibold text-foreground truncate">
                   {card.card_name}
                 </CardTitle>
                 {card.card_set && (
-                  <p className="text-sm text-muted-foreground mt-1">{card.card_set}</p>
+                  <p className="text-xs sm:text-sm text-muted-foreground mt-1 truncate">{card.card_set}</p>
                 )}
-                <div className="flex items-center gap-2 mt-2">
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
                   {card.collection_name && (
                     <Badge variant="secondary" className="text-xs">
                       {card.collection_name}
@@ -255,9 +282,9 @@ export default function Collections() {
                   )}
                 </div>
               </CardContent>
-              <CardFooter className="p-4 pt-0">
+              <CardFooter className="p-3 sm:p-4 pt-0">
                 {card.current_price_raw && (
-                  <p className="text-lg font-bold text-foreground">
+                  <p className="text-base sm:text-lg font-bold text-foreground">
                     ${card.current_price_raw.toFixed(2)}
                   </p>
                 )}
