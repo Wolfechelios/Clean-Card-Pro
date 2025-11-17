@@ -10,6 +10,7 @@ import { Upload, Camera, Loader2, CheckCircle, X, RefreshCw, FolderUp } from "lu
 import { createWorker } from "tesseract.js";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BatchProgress } from "./scanner/BatchProgress";
+import { CardIdentificationEditor } from "./scanner/CardIdentificationEditor";
 
 interface ScannerProps {
   userId: string;
@@ -32,6 +33,34 @@ interface ScanJob {
   error?: string;
 }
 
+interface IdentifiedCard {
+  card_name: string;
+  card_set: string | null;
+  card_number: string | null;
+  rarity: string | null;
+  edition: string | null;
+  game_type: string | null;
+  sport_type: string | null;
+  year: string | null;
+  manufacturer: string | null;
+  confidence: number;
+  description: string;
+}
+
+interface Alternative {
+  card_name: string;
+  card_set: string;
+  confidence: number;
+  reason: string;
+}
+
+interface PendingCardData {
+  identifiedCard: IdentifiedCard;
+  alternatives: Alternative[];
+  imageUrl: string;
+  fallbackData?: any;
+}
+
 const Scanner = ({ userId }: ScannerProps) => {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -47,6 +76,7 @@ const Scanner = ({ userId }: ScannerProps) => {
     error?: string;
     cardName?: string;
   }>>([]);
+  const [pendingCard, setPendingCard] = useState<PendingCardData | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -203,6 +233,7 @@ const Scanner = ({ userId }: ScannerProps) => {
       toast.info("Identifying card with enhanced AI...");
       
       let enhancedData;
+      let alternatives: Alternative[] = [];
       try {
         const enhancedRes = await fetch(
           `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/enhanced-card-identify`,
@@ -219,7 +250,15 @@ const Scanner = ({ userId }: ScannerProps) => {
         if (enhancedRes.ok) {
           const enhancedResult = await enhancedRes.json();
           if (enhancedResult.success) {
-            enhancedData = enhancedResult.cardData;
+            const cardData = enhancedResult.cardData;
+            // Handle new format with primary and alternatives
+            if (cardData.primary) {
+              enhancedData = cardData.primary;
+              alternatives = cardData.alternatives || [];
+            } else {
+              // Handle old format for backward compatibility
+              enhancedData = cardData;
+            }
             toast.success(`Card identified: ${enhancedData.card_name}`);
           }
         }
@@ -231,60 +270,51 @@ const Scanner = ({ userId }: ScannerProps) => {
       setScanProgress(70);
 
       // Fallback to original identification if enhanced fails
-      const { data: cardIdentification, error: aiError } = await supabase.functions.invoke(
-        "identify-card",
-        {
-          body: {
-            imageUrl: imageUrl,
-            ocrText: ocr.rawText,
-          },
-        }
-      );
+      let fallbackData;
+      if (!enhancedData) {
+        const { data: cardIdentification, error: aiError } = await supabase.functions.invoke(
+          "identify-card",
+          {
+            body: {
+              imageUrl: imageUrl,
+              ocrText: ocr.rawText,
+            },
+          }
+        );
 
-      if (aiError && !enhancedData) {
-        console.error("AI identification error:", aiError);
-        throw new Error("Failed to identify card details");
+        if (aiError) {
+          console.error("AI identification error:", aiError);
+          throw new Error("Failed to identify card details");
+        }
+        fallbackData = cardIdentification;
       }
 
-      setScanProgress(80);
+      setScanProgress(90);
 
-      // Save card to database with enhanced identification and pricing
-      const { error: dbError } = await supabase.from("cards").insert({
-        user_id: userId,
-        card_name: enhancedData?.card_name || cardIdentification?.cardName || ocr.cardName,
-        card_set: enhancedData?.card_set || cardIdentification?.cardSet || ocr.cardSet,
-        card_number: enhancedData?.card_number || cardIdentification?.cardNumber || ocr.cardNumber,
-        rarity: enhancedData?.rarity || cardIdentification?.rarity,
-        edition: enhancedData?.edition || cardIdentification?.edition,
-        condition: cardIdentification?.condition || "ungraded",
-        sport_type: enhancedData?.sport_type || cardIdentification?.sportType,
-        game_type: enhancedData?.game_type || cardIdentification?.gameType,
-        notes: enhancedData?.description || cardIdentification?.notes,
-        ocr_confidence: enhancedData?.confidence || ocr.confidence,
-        ocr_raw_text: ocr.rawText,
-        current_price_raw: cardIdentification?.currentPriceRaw,
-        current_price_psa9: cardIdentification?.currentPricePsa9,
-        current_price_psa10: cardIdentification?.currentPricePsa10,
-        suggested_price: cardIdentification?.suggestedPrice,
-        ebay_listing_url: cardIdentification?.ebayListingUrl,
-        image_url: imageUrl,
-        thumbnail_url: imageUrl,
-        last_price_update: new Date().toISOString(),
+      // Show editor instead of saving immediately
+      const identifiedCard: IdentifiedCard = enhancedData || {
+        card_name: fallbackData?.cardName || ocr.cardName,
+        card_set: fallbackData?.cardSet || ocr.cardSet,
+        card_number: fallbackData?.cardNumber || ocr.cardNumber,
+        rarity: fallbackData?.rarity || null,
+        edition: fallbackData?.edition || null,
+        game_type: fallbackData?.gameType || null,
+        sport_type: fallbackData?.sportType || null,
+        year: fallbackData?.year || null,
+        manufacturer: fallbackData?.manufacturer || null,
+        confidence: enhancedData?.confidence || fallbackData?.confidence || ocr.confidence,
+        description: fallbackData?.notes || "",
+      };
+
+      setPendingCard({
+        identifiedCard,
+        alternatives,
+        imageUrl,
+        fallbackData,
       });
 
-      if (dbError) throw dbError;
-
       setScanProgress(100);
-      toast.success("Card identified and saved with pricing data!");
-      
-      // Reset form after short delay
-      setTimeout(() => {
-        setFile(null);
-        setPreview(null);
-        setOcrResult(null);
-        setScanProgress(0);
-        setIsScanning(false);
-      }, 2000);
+      setIsScanning(false);
     } catch (error: any) {
       console.error("Scan error:", error);
       toast.error(error.message || "Error scanning card");
@@ -298,9 +328,72 @@ const Scanner = ({ userId }: ScannerProps) => {
     setPreview(null);
     setOcrResult(null);
     setScanProgress(0);
+    setPendingCard(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+  };
+
+  const handleConfirmCard = async (editedCard: IdentifiedCard) => {
+    if (!pendingCard) return;
+
+    try {
+      const { error: dbError } = await supabase.from("cards").insert({
+        user_id: userId,
+        card_name: editedCard.card_name,
+        card_set: editedCard.card_set,
+        card_number: editedCard.card_number,
+        rarity: editedCard.rarity,
+        edition: editedCard.edition,
+        condition: pendingCard.fallbackData?.condition || "ungraded",
+        sport_type: editedCard.sport_type,
+        game_type: editedCard.game_type,
+        notes: editedCard.description,
+        ocr_confidence: editedCard.confidence,
+        ocr_raw_text: ocrResult?.rawText,
+        current_price_raw: pendingCard.fallbackData?.currentPriceRaw,
+        current_price_psa9: pendingCard.fallbackData?.currentPricePsa9,
+        current_price_psa10: pendingCard.fallbackData?.currentPricePsa10,
+        suggested_price: pendingCard.fallbackData?.suggestedPrice,
+        ebay_listing_url: pendingCard.fallbackData?.ebayListingUrl,
+        image_url: pendingCard.imageUrl,
+        thumbnail_url: pendingCard.imageUrl,
+        last_price_update: new Date().toISOString(),
+      });
+
+      if (dbError) throw dbError;
+
+      toast.success("Card saved successfully!");
+      
+      // Reset form
+      setFile(null);
+      setPreview(null);
+      setOcrResult(null);
+      setScanProgress(0);
+      setPendingCard(null);
+    } catch (error: any) {
+      console.error("Save error:", error);
+      toast.error(error.message || "Error saving card");
+    }
+  };
+
+  const handleCancelCard = () => {
+    setPendingCard(null);
+    toast.info("Card identification cancelled");
+  };
+
+  const handleSelectAlternative = (alternative: Alternative) => {
+    if (!pendingCard) return;
+    
+    setPendingCard({
+      ...pendingCard,
+      identifiedCard: {
+        ...pendingCard.identifiedCard,
+        card_name: alternative.card_name,
+        card_set: alternative.card_set,
+        confidence: alternative.confidence,
+      },
+    });
   };
 
   const startCamera = async () => {
@@ -653,70 +746,81 @@ const Scanner = ({ userId }: ScannerProps) => {
       )}
 
       {/* Results Section */}
-      <Card className="shadow-card">
-        <CardHeader>
-          <CardTitle>Scan Results</CardTitle>
-          <CardDescription>
-            Card details extracted from the image
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {ocrResult ? (
-            <div className="space-y-4">
-              <div className="rounded-lg bg-success/10 p-4">
-                <div className="flex items-center gap-2 text-success">
-                  <CheckCircle className="h-5 w-5" />
-                  <p className="font-medium">Scan Complete</p>
+      {pendingCard ? (
+        <CardIdentificationEditor
+          primaryCard={pendingCard.identifiedCard}
+          alternatives={pendingCard.alternatives}
+          imageUrl={preview || undefined}
+          onConfirm={handleConfirmCard}
+          onSelectAlternative={handleSelectAlternative}
+          onCancel={handleCancelCard}
+        />
+      ) : (
+        <Card className="shadow-card">
+          <CardHeader>
+            <CardTitle>Scan Results</CardTitle>
+            <CardDescription>
+              Card details extracted from the image
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {ocrResult ? (
+              <div className="space-y-4">
+                <div className="rounded-lg bg-success/10 p-4">
+                  <div className="flex items-center gap-2 text-success">
+                    <CheckCircle className="h-5 w-5" />
+                    <p className="font-medium">Scan Complete</p>
+                  </div>
                 </div>
-              </div>
 
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-muted-foreground">Card Name</Label>
-                  <p className="text-lg font-semibold">{ocrResult.cardName}</p>
-                </div>
-
-                {ocrResult.cardSet && (
+                <div className="space-y-3">
                   <div>
-                    <Label className="text-muted-foreground">Set</Label>
-                    <p>{ocrResult.cardSet}</p>
+                    <Label className="text-muted-foreground">Card Name</Label>
+                    <p className="text-lg font-semibold">{ocrResult.cardName}</p>
                   </div>
-                )}
 
-                {ocrResult.cardNumber && (
+                  {ocrResult.cardSet && (
+                    <div>
+                      <Label className="text-muted-foreground">Set</Label>
+                      <p>{ocrResult.cardSet}</p>
+                    </div>
+                  )}
+
+                  {ocrResult.cardNumber && (
+                    <div>
+                      <Label className="text-muted-foreground">Card Number</Label>
+                      <p>{ocrResult.cardNumber}</p>
+                    </div>
+                  )}
+
                   <div>
-                    <Label className="text-muted-foreground">Card Number</Label>
-                    <p>{ocrResult.cardNumber}</p>
-                  </div>
-                )}
-
-                <div>
-                  <Label className="text-muted-foreground">OCR Confidence</Label>
-                  <div className="flex items-center gap-2">
-                    <Progress value={ocrResult.confidence} className="flex-1" />
-                    <span className="text-sm font-medium">
-                      {ocrResult.confidence.toFixed(1)}%
-                    </span>
+                    <Label className="text-muted-foreground">OCR Confidence</Label>
+                    <div className="flex items-center gap-2">
+                      <Progress value={ocrResult.confidence} className="flex-1" />
+                      <span className="text-sm font-medium">
+                        {ocrResult.confidence.toFixed(1)}%
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="rounded-lg border bg-muted/30 p-3">
-                <Label className="text-muted-foreground">Raw OCR Text</Label>
-                <p className="mt-2 text-sm font-mono">{ocrResult.rawText}</p>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <Label className="text-muted-foreground">Raw OCR Text</Label>
+                  <p className="mt-2 text-sm font-mono">{ocrResult.rawText}</p>
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="flex min-h-[300px] items-center justify-center text-center text-muted-foreground">
-              <div className="space-y-2">
-                <Camera className="mx-auto h-12 w-12 opacity-20" />
-                <p>No scan results yet</p>
-                <p className="text-sm">Upload and scan a card to see results</p>
+            ) : (
+              <div className="flex min-h-[300px] items-center justify-center text-center text-muted-foreground">
+                <div className="space-y-2">
+                  <Camera className="mx-auto h-12 w-12 opacity-20" />
+                  <p>No scan results yet</p>
+                  <p className="text-sm">Upload and scan a card to see results</p>
+                </div>
               </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   </TabsContent>
 
