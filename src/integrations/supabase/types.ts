@@ -210,6 +210,39 @@ export type Database = {
         }
         Relationships: []
       }
+      remote_scan_sessions: {
+        Row: {
+          created_at: string | null
+          expires_at: string | null
+          id: string
+          last_active_at: string | null
+          phone_connected_at: string | null
+          session_code: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          expires_at?: string | null
+          id?: string
+          last_active_at?: string | null
+          phone_connected_at?: string | null
+          session_code: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          expires_at?: string | null
+          id?: string
+          last_active_at?: string | null
+          phone_connected_at?: string | null
+          session_code?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       saved_filters: {
         Row: {
           created_at: string | null
