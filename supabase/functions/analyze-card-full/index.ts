@@ -118,12 +118,14 @@ serve(async (req: Request): Promise<Response> => {
 }
 
 CRITICAL FOR YU-GI-OH CARDS:
-- Look for the 8-digit passcode number below the card artwork on the RIGHT side
-- This is the most important identifier - include it in card_number field
-- Example location: Bottom-right of card image area
-- Format: "12345678" (8 digits)
+- The 8-digit passcode is located DIRECTLY BELOW the card artwork/image
+- When facing the card, it's on the RIGHT side, just under the image
+- This number is the MOST IMPORTANT identifier - it's unique to each Yu-Gi-Oh card
+- Example: "38350296" (exactly 8 digits, no letters)
+- Include this passcode in the card_number field
+- Look at the right side, immediately below the artwork
 
-Be thorough with OCR extraction, especially for Yu-Gi-Oh passcodes. Analyze card condition carefully looking at centering, corners, edges, surface quality, and any damage. Grade estimate should be PSA-style (1-10 scale).`
+Be thorough with OCR extraction, especially for Yu-Gi-Oh passcodes in that specific location. Analyze card condition carefully looking at centering, corners, edges, surface quality, and any damage. Grade estimate should be PSA-style (1-10 scale).`
               },
               {
                 type: "image_url",
