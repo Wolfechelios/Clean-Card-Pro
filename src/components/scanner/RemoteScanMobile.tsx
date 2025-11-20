@@ -74,6 +74,18 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
 
   const startCamera = async (facing: 'environment' | 'user' = cameraFacing) => {
     try {
+      // Check if HTTPS or localhost
+      if (!window.isSecureContext && window.location.hostname !== 'localhost') {
+        toast.error("Camera requires HTTPS connection. Please use a secure connection.");
+        return;
+      }
+
+      // Check if mediaDevices is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        toast.error("Camera not supported in this browser");
+        return;
+      }
+
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
@@ -93,9 +105,17 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
         streamRef.current = stream;
         setCameraFacing(facing);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Camera error:", error);
-      toast.error("Failed to access camera");
+      if (error.name === 'NotAllowedError') {
+        toast.error("Camera permission denied. Please allow camera access in your browser settings.");
+      } else if (error.name === 'NotFoundError') {
+        toast.error("No camera found on this device");
+      } else if (error.name === 'NotReadableError') {
+        toast.error("Camera is already in use by another application");
+      } else {
+        toast.error("Failed to access camera: " + error.message);
+      }
     }
   };
 
