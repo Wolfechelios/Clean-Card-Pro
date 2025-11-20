@@ -452,19 +452,28 @@ const Scanner = ({ userId }: ScannerProps) => {
 
   const startCamera = async () => {
     try {
+      // Request high-quality rear camera optimized for card scanning
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment' },
+        video: { 
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          aspectRatio: { ideal: 16/9 },
+        },
         audio: false 
       });
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        // Enable playsinline for iOS compatibility
+        videoRef.current.setAttribute('playsinline', 'true');
+        videoRef.current.setAttribute('webkit-playsinline', 'true');
         streamRef.current = stream;
         setIsCameraActive(true);
       }
     } catch (error) {
       console.error('Camera access error:', error);
-      toast.error('Could not access camera');
+      toast.error('Could not access camera. Please check permissions.');
     }
   };
 
@@ -480,12 +489,18 @@ const Scanner = ({ userId }: ScannerProps) => {
     if (!videoRef.current) return;
 
     const canvas = document.createElement('canvas');
+    // Use full video resolution for maximum quality
     canvas.width = videoRef.current.videoWidth;
     canvas.height = videoRef.current.videoHeight;
     const ctx = canvas.getContext('2d');
     
     if (ctx) {
+      // Enable high-quality rendering
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(videoRef.current, 0, 0);
+      
+      // Capture at maximum quality (0.98 for JPEG)
       canvas.toBlob((blob) => {
         if (blob) {
           const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
@@ -497,8 +512,9 @@ const Scanner = ({ userId }: ScannerProps) => {
           reader.readAsDataURL(file);
           setOcrResult(null);
           stopCamera();
+          toast.success('Photo captured successfully!');
         }
-      }, 'image/jpeg', 0.95);
+      }, 'image/jpeg', 0.98);
     }
   };
 
@@ -914,22 +930,49 @@ const Scanner = ({ userId }: ScannerProps) => {
           </div>
         ) : (
           <div className="space-y-4">
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              className="w-full rounded-lg"
-            />
+            <div className="relative w-full aspect-[4/3] bg-black rounded-lg overflow-hidden">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-full h-full object-cover"
+              />
+              {/* Card frame overlay guide for perfect alignment */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="relative w-[85%] h-[75%]">
+                  {/* Corner guides */}
+                  <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary rounded-tl-lg" />
+                  <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary rounded-tr-lg" />
+                  <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary rounded-bl-lg" />
+                  <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary rounded-br-lg" />
+                  {/* Center crosshair */}
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-12 h-0.5 bg-primary/50" />
+                    <div className="absolute w-0.5 h-12 bg-primary/50" />
+                  </div>
+                </div>
+              </div>
+              {/* Instructions overlay */}
+              <div className="absolute top-4 left-0 right-0 flex justify-center pointer-events-none">
+                <div className="bg-black/70 text-white px-4 py-2 rounded-full text-sm font-medium">
+                  Align card within frame
+                </div>
+              </div>
+            </div>
             <div className="flex gap-2">
               <Button onClick={capturePhoto} size="lg" className="flex-1">
-                <Camera className="mr-2 h-4 w-4" />
-                Capture Photo
+                <Camera className="mr-2 h-5 w-5" />
+                Capture Card
               </Button>
               <Button onClick={stopCamera} variant="outline" size="lg">
                 <X className="mr-2 h-4 w-4" />
-                Close Camera
+                Cancel
               </Button>
             </div>
+            <p className="text-sm text-muted-foreground text-center">
+              Position your card within the frame guides for best scanning results
+            </p>
           </div>
         )}
       </CardContent>
