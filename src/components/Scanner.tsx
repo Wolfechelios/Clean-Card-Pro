@@ -277,9 +277,9 @@ const Scanner = ({ userId }: ScannerProps) => {
 
       setScanProgress(70);
 
-      // Fallback to original identification if enhanced fails
-      let fallbackData;
-      if (!enhancedData) {
+      // Always fetch pricing data using identify-card function
+      let pricingData;
+      try {
         const { data: cardIdentification, error: aiError } = await supabase.functions.invoke(
           "identify-card",
           {
@@ -290,35 +290,36 @@ const Scanner = ({ userId }: ScannerProps) => {
           }
         );
 
-        if (aiError) {
-          console.error("AI identification error:", aiError);
-          throw new Error("Failed to identify card details");
+        if (!aiError && cardIdentification) {
+          pricingData = cardIdentification;
         }
-        fallbackData = cardIdentification;
+      } catch (error) {
+        console.error("Pricing fetch error:", error);
+        toast.warning("Could not fetch pricing data");
       }
 
       setScanProgress(90);
 
       // Show editor instead of saving immediately
       const identifiedCard: IdentifiedCard = enhancedData || {
-        card_name: fallbackData?.cardName || ocr.cardName,
-        card_set: fallbackData?.cardSet || ocr.cardSet,
-        card_number: fallbackData?.cardNumber || ocr.cardNumber,
-        rarity: fallbackData?.rarity || null,
-        edition: fallbackData?.edition || null,
-        game_type: fallbackData?.gameType || null,
-        sport_type: fallbackData?.sportType || null,
-        year: fallbackData?.year || null,
-        manufacturer: fallbackData?.manufacturer || null,
-        confidence: enhancedData?.confidence || fallbackData?.confidence || ocr.confidence,
-        description: fallbackData?.notes || "",
+        card_name: pricingData?.cardName || ocr.cardName,
+        card_set: pricingData?.cardSet || ocr.cardSet,
+        card_number: pricingData?.cardNumber || ocr.cardNumber,
+        rarity: pricingData?.rarity || null,
+        edition: pricingData?.edition || null,
+        game_type: pricingData?.gameType || null,
+        sport_type: pricingData?.sportType || null,
+        year: pricingData?.year || null,
+        manufacturer: pricingData?.manufacturer || null,
+        confidence: enhancedData?.confidence || pricingData?.confidence || ocr.confidence,
+        description: pricingData?.notes || "",
       };
 
       setPendingCard({
         identifiedCard,
         alternatives,
         imageUrl,
-        fallbackData,
+        fallbackData: pricingData,
       });
 
       setScanProgress(100);
