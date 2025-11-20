@@ -6,11 +6,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { Upload, Camera, Loader2, CheckCircle, X, RefreshCw, FolderUp, SwitchCamera } from "lucide-react";
+import { Upload, Camera, Loader2, CheckCircle, X, RefreshCw, FolderUp, SwitchCamera, Smartphone } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BatchProgress } from "./scanner/BatchProgress";
 import { CardIdentificationEditor } from "./scanner/CardIdentificationEditor";
+import { RemoteScanDesktop } from "./scanner/RemoteScanDesktop";
+import { RemoteScanMobile } from "./scanner/RemoteScanMobile";
 import { analyzeCardFull } from "@/lib/analyzeCardFull";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 interface ScannerProps {
   userId: string;
@@ -62,6 +65,7 @@ interface PendingCardData {
 }
 
 const Scanner = ({ userId }: ScannerProps) => {
+  const isMobile = useIsMobile();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
@@ -685,9 +689,13 @@ const Scanner = ({ userId }: ScannerProps) => {
   return (
     <div className="space-y-6">
       <Tabs defaultValue="upload" className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="upload">Upload</TabsTrigger>
           <TabsTrigger value="camera">Camera</TabsTrigger>
+          <TabsTrigger value="remote">
+            <Smartphone className="mr-2 h-4 w-4" />
+            Remote
+          </TabsTrigger>
         </TabsList>
         
         <TabsContent value="upload">
@@ -998,6 +1006,26 @@ const Scanner = ({ userId }: ScannerProps) => {
         )}
       </CardContent>
     </Card>
+  </TabsContent>
+
+  <TabsContent value="remote">
+    {isMobile ? (
+      <RemoteScanMobile userId={userId} />
+    ) : (
+      <RemoteScanDesktop 
+        userId={userId} 
+        onImageReceived={(imageFile) => {
+          setFile(imageFile);
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            setPreview(e.target?.result as string);
+            // Trigger scan after preview is set
+            setTimeout(() => handleScan(), 100);
+          };
+          reader.readAsDataURL(imageFile);
+        }}
+      />
+    )}
   </TabsContent>
 </Tabs>
 
