@@ -22,31 +22,36 @@ const App = () => {
   const [session, setSession] = useState(null);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      
-      // Trigger background price updates when user logs in
-      if (session?.user?.id) {
-        supabase.functions
-          .invoke('update-prices', {
-            body: { user_id: session.user.id }
-          })
-          .then(() => console.log('Background price update started'))
-          .catch(err => console.error('Price update error:', err));
-      }
-    });
-
+    // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       
-      // Trigger background price updates on auth state change
+      // Defer Supabase function calls to prevent deadlock
       if (session?.user?.id) {
-        supabase.functions
-          .invoke('update-prices', {
-            body: { user_id: session.user.id }
-          })
-          .then(() => console.log('Background price update started'))
-          .catch(err => console.error('Price update error:', err));
+        setTimeout(() => {
+          supabase.functions
+            .invoke('update-prices', {
+              body: { user_id: session.user.id }
+            })
+            .then(() => console.log('Background price update started'))
+            .catch(err => console.error('Price update error:', err));
+        }, 0);
+      }
+    });
+
+    // THEN check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      
+      if (session?.user?.id) {
+        setTimeout(() => {
+          supabase.functions
+            .invoke('update-prices', {
+              body: { user_id: session.user.id }
+            })
+            .then(() => console.log('Background price update started'))
+            .catch(err => console.error('Price update error:', err));
+        }, 0);
       }
     });
 
