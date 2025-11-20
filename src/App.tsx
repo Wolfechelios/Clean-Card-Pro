@@ -24,10 +24,30 @@ const App = () => {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
+      
+      // Trigger background price updates when user logs in
+      if (session?.user?.id) {
+        supabase.functions
+          .invoke('update-prices', {
+            body: { user_id: session.user.id }
+          })
+          .then(() => console.log('Background price update started'))
+          .catch(err => console.error('Price update error:', err));
+      }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      
+      // Trigger background price updates on auth state change
+      if (session?.user?.id) {
+        supabase.functions
+          .invoke('update-prices', {
+            body: { user_id: session.user.id }
+          })
+          .then(() => console.log('Background price update started'))
+          .catch(err => console.error('Price update error:', err));
+      }
     });
 
     return () => subscription.unsubscribe();

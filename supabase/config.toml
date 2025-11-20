@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.collection-insights]
 verify_jwt = true
+
+[functions.update-prices]
+verify_jwt = false
