@@ -94,7 +94,7 @@ serve(async (req: Request): Promise<Response> => {
   "card_details": {
     "card_name": "Name of the card/character",
     "set": "Set name if visible",
-    "card_number": "Card number (e.g., 25/102)",
+    "card_number": "Card number (e.g., 25/102 for Pokemon, LART-EN035 for Yu-Gi-Oh)",
     "rarity": "Rarity symbol or indicator",
     "game_type": "Pokemon/Magic/YuGiOh/Sports/etc"
   },
@@ -118,14 +118,13 @@ serve(async (req: Request): Promise<Response> => {
 }
 
 CRITICAL FOR YU-GI-OH CARDS:
-- The 8-digit passcode is located DIRECTLY BELOW the card artwork/image
-- When facing the card, it's on the RIGHT side, just under the image
-- This number is the MOST IMPORTANT identifier - it's unique to each Yu-Gi-Oh card
-- Example: "38350296" (exactly 8 digits, no letters)
-- Include this passcode in the card_number field
-- Look at the right side, immediately below the artwork
+- Look for the SET NUMBER on the right side, just below the card artwork
+- Format: [SET CODE]-EN[NUMBER] (e.g., "LART-EN035", "SDK-EN001", "LOB-EN001")
+- This is separated by a dash (-) followed by "EN" and then a number
+- Include this set number in the card_number field
+- This is the MOST IMPORTANT identifier for Yu-Gi-Oh cards
 
-Be thorough with OCR extraction, especially for Yu-Gi-Oh passcodes in that specific location. Analyze card condition carefully looking at centering, corners, edges, surface quality, and any damage. Grade estimate should be PSA-style (1-10 scale).`
+Be thorough with OCR extraction, especially for Yu-Gi-Oh set numbers in [CODE]-EN[NUMBER] format. Analyze card condition carefully looking at centering, corners, edges, surface quality, and any damage. Grade estimate should be PSA-style (1-10 scale).`
               },
               {
                 type: "image_url",

@@ -30,12 +30,12 @@ serve(async (req) => {
 Analyze this trading card image and provide the most likely card identification along with up to 2 alternative possibilities if you're not completely certain.
 
 CRITICAL FOR YU-GI-OH CARDS:
-- The 8-digit passcode is located DIRECTLY BELOW the card artwork/image
-- When facing the card, look at the RIGHT side, just under the image
-- This passcode number is the MOST RELIABLE identifier for Yu-Gi-Oh cards
-- Example location: Right side, immediately below the card artwork
-- Example format: "38350296" (exactly 8 digits)
-- Use this passcode as the PRIMARY identification method - it's unique to each Yu-Gi-Oh card
+- Look for the SET NUMBER on the right side, just below the card artwork
+- Format: [SET CODE]-EN[NUMBER] (e.g., "LART-EN035", "SDK-EN001", "LOB-EN001")
+- This is typically separated by a dash (-) followed by "EN" and then a number
+- This set number is the MOST RELIABLE identifier for Yu-Gi-Oh cards
+- Also look for the 8-digit passcode number (e.g., "89631139") which can help confirm identity
+- Use the set number as the PRIMARY identification method
 
 Return JSON in this exact format:
 
@@ -43,7 +43,7 @@ Return JSON in this exact format:
   "primary": {
     "card_name": "exact card name",
     "card_set": "set name",
-    "card_number": "card number in set (or 8-digit passcode for Yu-Gi-Oh)",
+    "card_number": "set number (e.g., LART-EN035) for Yu-Gi-Oh",
     "rarity": "rarity level",
     "edition": "edition (e.g., 1st Edition, Unlimited, etc.)",
     "game_type": "Pokemon/MTG/YuGiOh/etc or null for sports",
@@ -65,7 +65,7 @@ Return JSON in this exact format:
 
 ${ocrText ? `OCR text extracted: ${ocrText}` : ''}
 
-Only include alternatives array if confidence is below 0.95. If completely certain, return empty alternatives array. For Yu-Gi-Oh cards, ALWAYS look for and use the 8-digit passcode located just below the artwork on the right side.`;
+Only include alternatives array if confidence is below 0.95. If completely certain, return empty alternatives array. For Yu-Gi-Oh cards, ALWAYS look for the set number in [CODE]-EN[NUMBER] format on the right side below the artwork.`;
 
     const messages = [
       {
