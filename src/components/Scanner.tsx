@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { Upload, Camera, Loader2, CheckCircle, X, RefreshCw, FolderUp } from "lucide-react";
+import { Upload, Camera, Loader2, CheckCircle, X, RefreshCw, FolderUp, SwitchCamera } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BatchProgress } from "./scanner/BatchProgress";
 import { CardIdentificationEditor } from "./scanner/CardIdentificationEditor";
@@ -69,6 +69,7 @@ const Scanner = ({ userId }: ScannerProps) => {
   const [ocrResult, setOcrResult] = useState<OCRResult | null>(null);
   const [scanJobs, setScanJobs] = useState<ScanJob[]>([]);
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [cameraFacingMode, setCameraFacingMode] = useState<'environment' | 'user'>('environment');
   const [batchCards, setBatchCards] = useState<Array<{
     id: string;
     fileName: string;
@@ -450,12 +451,17 @@ const Scanner = ({ userId }: ScannerProps) => {
     });
   };
 
-  const startCamera = async () => {
+  const startCamera = async (facingMode: 'environment' | 'user' = cameraFacingMode) => {
     try {
-      // Request high-quality rear camera optimized for card scanning
+      // Stop existing stream if any
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+
+      // Request high-quality camera optimized for card scanning
       const stream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
-          facingMode: { ideal: 'environment' },
+          facingMode: { ideal: facingMode },
           width: { ideal: 1920 },
           height: { ideal: 1080 },
           aspectRatio: { ideal: 16/9 },
@@ -470,11 +476,17 @@ const Scanner = ({ userId }: ScannerProps) => {
         videoRef.current.setAttribute('webkit-playsinline', 'true');
         streamRef.current = stream;
         setIsCameraActive(true);
+        setCameraFacingMode(facingMode);
       }
     } catch (error) {
       console.error('Camera access error:', error);
       toast.error('Could not access camera. Please check permissions.');
     }
+  };
+
+  const toggleCamera = () => {
+    const newMode = cameraFacingMode === 'environment' ? 'user' : 'environment';
+    startCamera(newMode);
   };
 
   const stopCamera = () => {
@@ -923,7 +935,7 @@ const Scanner = ({ userId }: ScannerProps) => {
             <div className="rounded-full bg-primary/10 p-6">
               <Camera className="h-12 w-12 text-primary" />
             </div>
-            <Button onClick={startCamera} size="lg">
+            <Button onClick={() => startCamera()} size="lg">
               <Camera className="mr-2 h-4 w-4" />
               Start Camera
             </Button>
@@ -938,6 +950,15 @@ const Scanner = ({ userId }: ScannerProps) => {
                 muted
                 className="w-full h-full object-cover"
               />
+              {/* Camera flip toggle button */}
+              <Button 
+                onClick={toggleCamera} 
+                variant="secondary" 
+                size="icon"
+                className="absolute top-4 right-4 z-10 rounded-full bg-black/70 hover:bg-black/80"
+              >
+                <SwitchCamera className="h-5 w-5 text-white" />
+              </Button>
               {/* Card frame overlay guide for perfect alignment */}
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="relative w-[85%] h-[75%]">
