@@ -12,6 +12,7 @@ import { BatchProgress } from "./scanner/BatchProgress";
 import { CardIdentificationEditor } from "./scanner/CardIdentificationEditor";
 import { RemoteScanDesktop } from "./scanner/RemoteScanDesktop";
 import { RemoteScanMobile } from "./scanner/RemoteScanMobile";
+import { RapidScanCamera } from "./scanner/RapidScanCamera";
 import { analyzeCardFull } from "@/lib/analyzeCardFull";
 import { useIsMobile } from "@/hooks/use-mobile";
 
@@ -690,9 +691,13 @@ const Scanner = ({ userId }: ScannerProps) => {
   return (
     <div className="space-y-6">
       <Tabs defaultValue="upload" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="upload">Upload</TabsTrigger>
           <TabsTrigger value="camera">Camera</TabsTrigger>
+          <TabsTrigger value="rapid">
+            <Camera className="mr-2 h-4 w-4" />
+            Rapid Scan
+          </TabsTrigger>
           <TabsTrigger value="remote">
             <Smartphone className="mr-2 h-4 w-4" />
             Remote
@@ -1007,6 +1012,16 @@ const Scanner = ({ userId }: ScannerProps) => {
         )}
       </CardContent>
     </Card>
+  </TabsContent>
+
+  <TabsContent value="rapid">
+    <RapidScanCamera 
+      userId={userId}
+      onComplete={() => {
+        // Refresh or notify completion
+        toast.success('Rapid scan session complete!');
+      }}
+    />
   </TabsContent>
 
   <TabsContent value="remote">
