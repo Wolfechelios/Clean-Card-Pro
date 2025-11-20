@@ -29,13 +29,19 @@ serve(async (req) => {
 
 Analyze this trading card image and provide the most likely card identification along with up to 2 alternative possibilities if you're not completely certain.
 
+IMPORTANT FOR YU-GI-OH CARDS:
+- Look for the 8-digit passcode number located BELOW the card artwork on the RIGHT side
+- This passcode is the most reliable way to identify Yu-Gi-Oh cards
+- Example: "12345678" - use this to determine the exact card name and set
+- If you find this passcode, use it as the primary identification method
+
 Return JSON in this exact format:
 
 {
   "primary": {
     "card_name": "exact card name",
     "card_set": "set name",
-    "card_number": "card number in set",
+    "card_number": "card number in set (or passcode for Yu-Gi-Oh)",
     "rarity": "rarity level",
     "edition": "edition (e.g., 1st Edition, Unlimited, etc.)",
     "game_type": "Pokemon/MTG/YuGiOh/etc or null for sports",
@@ -57,7 +63,7 @@ Return JSON in this exact format:
 
 ${ocrText ? `OCR text extracted: ${ocrText}` : ''}
 
-Only include alternatives array if confidence is below 0.95. If completely certain, return empty alternatives array. Provide accurate identification based on visible card details, text, and imagery.`;
+Only include alternatives array if confidence is below 0.95. If completely certain, return empty alternatives array. Provide accurate identification based on visible card details, text, imagery, and especially passcodes for Yu-Gi-Oh cards.`;
 
     const messages = [
       {

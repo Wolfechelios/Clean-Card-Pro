@@ -117,7 +117,13 @@ serve(async (req: Request): Promise<Response> => {
   "labels": ["descriptive", "keywords", "about", "the", "card"]
 }
 
-Be thorough with OCR extraction. Analyze card condition carefully looking at centering, corners, edges, surface quality, and any damage. Grade estimate should be PSA-style (1-10 scale).`
+CRITICAL FOR YU-GI-OH CARDS:
+- Look for the 8-digit passcode number below the card artwork on the RIGHT side
+- This is the most important identifier - include it in card_number field
+- Example location: Bottom-right of card image area
+- Format: "12345678" (8 digits)
+
+Be thorough with OCR extraction, especially for Yu-Gi-Oh passcodes. Analyze card condition carefully looking at centering, corners, edges, surface quality, and any damage. Grade estimate should be PSA-style (1-10 scale).`
               },
               {
                 type: "image_url",
