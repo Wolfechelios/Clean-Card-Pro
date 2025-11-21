@@ -130,7 +130,23 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   };
 
   const processQueue = async () => {
-    if (isProcessingRef.current || processingQueueRef.current.length === 0) {
+    if (isProcessingRef.current) {
+      return;
+    }
+
+    if (processingQueueRef.current.length === 0) {
+      setProcessing(false);
+      
+      // Show completion summary if we just finished processing
+      if (captures.length > 0) {
+        const completed = captures.filter(c => c.status === 'completed').length;
+        const errors = captures.filter(c => c.status === 'error').length;
+        const pending = captures.filter(c => c.status === 'queued' || c.status === 'uploading' || c.status === 'processing').length;
+        
+        if (pending === 0 && (completed > 0 || errors > 0)) {
+          toast.success(`Batch complete: ${completed} cards processed${errors > 0 ? `, ${errors} errors` : ''}`);
+        }
+      }
       return;
     }
 
@@ -139,9 +155,16 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
 
     while (processingQueueRef.current.length > 0) {
       const captureId = processingQueueRef.current[0];
-      const capture = captures.find(c => c.id === captureId);
       
-      if (!capture) {
+      // Get fresh capture from state
+      let currentCapture: CapturedCard | undefined;
+      setCaptures(prev => {
+        currentCapture = prev.find(c => c.id === captureId);
+        return prev;
+      });
+      
+      if (!currentCapture) {
+        console.warn('Capture not found:', captureId);
         processingQueueRef.current.shift();
         continue;
       }
@@ -156,7 +179,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
         const fileName = `${userId}/${captureId}.jpg`;
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from('card-images')
-          .upload(`cards/${fileName}`, capture.blob, {
+          .upload(`cards/${fileName}`, currentCapture.blob, {
             cacheControl: '3600',
             upsert: false,
           });
@@ -188,10 +211,29 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
         ));
         processingQueueRef.current.shift();
       }
+
+      // Small delay to prevent blocking
+      await new Promise(resolve => setTimeout(resolve, 100));
     }
 
     isProcessingRef.current = false;
-    setProcessing(false);
+    
+    // Check one more time if queue is truly empty after processing
+    if (processingQueueRef.current.length === 0) {
+      setProcessing(false);
+      
+      // Show final summary
+      const completed = captures.filter(c => c.status === 'completed').length;
+      const errors = captures.filter(c => c.status === 'error').length;
+      
+      if (completed > 0 || errors > 0) {
+        toast.success(`Queue complete: ${completed} cards saved${errors > 0 ? `, ${errors} failed` : ''}`);
+      }
+    } else {
+      // More items were added, continue processing
+      isProcessingRef.current = false;
+      processQueue();
+    }
   };
 
   const processCardAnalysis = async (captureId: string, imageUrl: string) => {
@@ -274,6 +316,9 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
 
   const completedCount = captures.filter(c => c.status === 'completed').length;
   const errorCount = captures.filter(c => c.status === 'error').length;
+  const processingCount = captures.filter(c => c.status === 'processing').length;
+  const uploadingCount = captures.filter(c => c.status === 'uploading').length;
+  const queuedCount = captures.filter(c => c.status === 'queued').length;
   const progress = captures.length > 0 ? (completedCount / captures.length) * 100 : 0;
 
   return (
@@ -336,11 +381,17 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
         {/* Progress */}
         {captures.length > 0 && (
           <div className="space-y-2">
-            <div className="flex justify-between text-sm text-muted-foreground">
-              <span>Processing: {completedCount} completed, {errorCount} errors</span>
-              <span>{Math.round(progress)}%</span>
+            <div className="flex justify-between text-sm">
+              <div className="flex gap-4">
+                <span className="text-green-500">✓ {completedCount}</span>
+                {processingCount > 0 && <span className="text-blue-500">⏳ {processingCount}</span>}
+                {uploadingCount > 0 && <span className="text-yellow-500">⬆ {uploadingCount}</span>}
+                {queuedCount > 0 && <span className="text-muted-foreground">⏸ {queuedCount}</span>}
+                {errorCount > 0 && <span className="text-red-500">✗ {errorCount}</span>}
+              </div>
+              <span className="font-semibold">{Math.round(progress)}%</span>
             </div>
-            <Progress value={progress} />
+            <Progress value={progress} className="h-2" />
           </div>
         )}
 
