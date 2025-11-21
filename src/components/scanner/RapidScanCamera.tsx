@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Camera, SwitchCamera, X, CheckCircle, Loader2 } from "lucide-react";
+import { Camera, SwitchCamera, X, CheckCircle, Loader2, Pause, Play } from "lucide-react";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -29,6 +29,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   const [cameraFacing, setCameraFacing] = useState<'environment' | 'user'>('environment');
   const [captures, setCaptures] = useState<CapturedCard[]>([]);
   const [processing, setProcessing] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const processingQueueRef = useRef<string[]>([]);
@@ -129,8 +130,27 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     }
   };
 
+  const togglePause = () => {
+    setIsPaused(prev => {
+      const newPaused = !prev;
+      if (!newPaused && processingQueueRef.current.length > 0) {
+        // Resume processing
+        toast.info('Processing resumed');
+        setTimeout(() => processQueue(), 100);
+      } else if (newPaused) {
+        toast.info('Processing paused');
+      }
+      return newPaused;
+    });
+  };
+
   const processQueue = async () => {
     if (isProcessingRef.current) {
+      return;
+    }
+
+    if (isPaused) {
+      setProcessing(false);
       return;
     }
 
@@ -153,7 +173,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     isProcessingRef.current = true;
     setProcessing(true);
 
-    while (processingQueueRef.current.length > 0) {
+    while (processingQueueRef.current.length > 0 && !isPaused) {
       const captureId = processingQueueRef.current[0];
       
       // Get fresh capture from state
@@ -217,6 +237,12 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     }
 
     isProcessingRef.current = false;
+    
+    // If paused mid-processing, stop here
+    if (isPaused) {
+      setProcessing(false);
+      return;
+    }
     
     // Check one more time if queue is truly empty after processing
     if (processingQueueRef.current.length === 0) {
@@ -308,11 +334,11 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   }, []);
 
   useEffect(() => {
-    // Auto-process queue when captures are added
-    if (captures.length > 0 && !isProcessingRef.current && processingQueueRef.current.length > 0) {
+    // Auto-process queue when captures are added (unless paused)
+    if (captures.length > 0 && !isProcessingRef.current && processingQueueRef.current.length > 0 && !isPaused) {
       processQueue();
     }
-  }, [captures.length]);
+  }, [captures.length, isPaused]);
 
   const completedCount = captures.filter(c => c.status === 'completed').length;
   const errorCount = captures.filter(c => c.status === 'error').length;
@@ -380,18 +406,45 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
 
         {/* Progress */}
         {captures.length > 0 && (
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <div className="flex gap-4">
+          <div className="space-y-3">
+            <div className="flex justify-between items-center">
+              <div className="flex gap-4 text-sm">
                 <span className="text-green-500">✓ {completedCount}</span>
                 {processingCount > 0 && <span className="text-blue-500">⏳ {processingCount}</span>}
                 {uploadingCount > 0 && <span className="text-yellow-500">⬆ {uploadingCount}</span>}
                 {queuedCount > 0 && <span className="text-muted-foreground">⏸ {queuedCount}</span>}
                 {errorCount > 0 && <span className="text-red-500">✗ {errorCount}</span>}
               </div>
-              <span className="font-semibold">{Math.round(progress)}%</span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold">{Math.round(progress)}%</span>
+                {queuedCount > 0 && (
+                  <Button
+                    size="sm"
+                    variant={isPaused ? "default" : "outline"}
+                    onClick={togglePause}
+                    className="h-8"
+                  >
+                    {isPaused ? (
+                      <>
+                        <Play className="h-3 w-3 mr-1" />
+                        Resume
+                      </>
+                    ) : (
+                      <>
+                        <Pause className="h-3 w-3 mr-1" />
+                        Pause
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
             </div>
             <Progress value={progress} className="h-2" />
+            {isPaused && queuedCount > 0 && (
+              <p className="text-xs text-muted-foreground text-center">
+                Processing paused - {queuedCount} cards waiting
+              </p>
+            )}
           </div>
         )}
 
