@@ -74,6 +74,8 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
 
   const startCamera = async (facing: 'environment' | 'user' = cameraFacing) => {
     try {
+      console.log("Starting camera with facing:", facing);
+      
       // Check if HTTPS or localhost
       if (!window.isSecureContext && window.location.hostname !== 'localhost') {
         toast.error("Camera requires HTTPS connection. Please use a secure connection.");
@@ -90,20 +92,34 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
 
+      console.log("Requesting camera access...");
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: { ideal: facing },
+          facingMode: facing === 'environment' ? 'environment' : 'user',
           width: { ideal: 1920 },
           height: { ideal: 1080 },
         },
         audio: false,
       });
 
+      console.log("Camera access granted, stream received");
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.setAttribute('playsinline', 'true');
+        videoRef.current.setAttribute('muted', 'true');
+        
+        // Explicitly play the video for mobile browsers
+        try {
+          await videoRef.current.play();
+          console.log("Video playback started");
+        } catch (playError) {
+          console.error("Video play error:", playError);
+        }
+        
         streamRef.current = stream;
         setCameraFacing(facing);
+        toast.success("Camera ready!");
       }
     } catch (error: any) {
       console.error("Camera error:", error);
@@ -113,6 +129,8 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
         toast.error("No camera found on this device");
       } else if (error.name === 'NotReadableError') {
         toast.error("Camera is already in use by another application");
+      } else if (error.name === 'NotSupportedError') {
+        toast.error("Camera not supported. Try using HTTPS.");
       } else {
         toast.error("Failed to access camera: " + error.message);
       }
