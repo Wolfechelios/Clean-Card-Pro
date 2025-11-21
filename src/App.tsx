@@ -14,6 +14,7 @@ import BindersPage from "./pages/BindersPage";
 import SettingsPage from "./pages/SettingsPage";
 import InsightsPage from "./pages/InsightsPage";
 import VisionTestPage from "./pages/VisionTestPage";
+import MobileScanPage from "./pages/MobileScanPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -97,6 +98,10 @@ const App = () => {
             <Route
               path="/vision-test"
               element={session ? <AppLayout><VisionTestPage /></AppLayout> : <Navigate to="/auth" />}
+            />
+            <Route
+              path="/mobile-scan"
+              element={session ? <MobileScanPage /> : <Navigate to="/auth" />}
             />
             <Route path="*" element={<NotFound />} />
           </Routes>
