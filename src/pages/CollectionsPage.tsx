@@ -48,12 +48,15 @@ export default function Collections() {
   const [showBulkDelete, setShowBulkDelete] = useState(false);
   const [activeFilters, setActiveFilters] = useState<FilterConfig>({});
   const [isUpdatingPrices, setIsUpdatingPrices] = useState(false);
+  const [showDeleteRecent, setShowDeleteRecent] = useState(false);
+  const [recentImportCount, setRecentImportCount] = useState(0);
 
   const availableSets = Array.from(new Set(cards.map(c => c.card_set).filter(Boolean))) as string[];
   const availableRarities = Array.from(new Set(cards.map(c => c.rarity).filter(Boolean))) as string[];
 
   useEffect(() => {
     fetchCards();
+    checkRecentImports();
 
     // Set up real-time subscription for card changes
     const channel = supabase
@@ -69,6 +72,7 @@ export default function Collections() {
           console.log('Card change detected:', payload);
           // Refresh the cards list on any change
           fetchCards();
+          checkRecentImports();
         }
       )
       .subscribe();
@@ -195,6 +199,67 @@ export default function Collections() {
     setSelectedCards(new Set());
   };
 
+  const handleDeleteRecentImport = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      // Get cards created in the last 5 minutes
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      
+      const { data: recentCards, error: fetchError } = await supabase
+        .from("cards")
+        .select("id")
+        .eq("user_id", session.user.id)
+        .gte("created_at", fiveMinutesAgo);
+
+      if (fetchError) throw fetchError;
+
+      if (!recentCards || recentCards.length === 0) {
+        toast.error("No recent imports found (last 5 minutes)");
+        setShowDeleteRecent(false);
+        return;
+      }
+
+      const { error } = await supabase
+        .from("cards")
+        .delete()
+        .eq("user_id", session.user.id)
+        .gte("created_at", fiveMinutesAgo);
+
+      if (error) throw error;
+
+      toast.success(`Deleted ${recentCards.length} recently imported card(s)`);
+      fetchCards();
+    } catch (error) {
+      console.error("Error deleting recent imports:", error);
+      toast.error("Failed to delete recent imports");
+    } finally {
+      setShowDeleteRecent(false);
+    }
+  };
+
+  const checkRecentImports = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      
+      const { count, error } = await supabase
+        .from("cards")
+        .select("*", { count: 'exact', head: true })
+        .eq("user_id", session.user.id)
+        .gte("created_at", fiveMinutesAgo);
+
+      if (!error && count !== null) {
+        setRecentImportCount(count);
+      }
+    } catch (error) {
+      console.error("Error checking recent imports:", error);
+    }
+  };
+
   const handleUpdatePrices = async () => {
     try {
       setIsUpdatingPrices(true);
@@ -260,6 +325,17 @@ export default function Collections() {
         </div>
         
         <div className="flex items-center gap-2 flex-wrap">
+          {recentImportCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowDeleteRecent(true)}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete Recent Import ({recentImportCount})
+            </Button>
+          )}
+          
           <Button
             variant="outline"
             size="sm"
@@ -399,6 +475,23 @@ export default function Collections() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleBulkDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               Delete {selectedCards.size} Card(s)
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showDeleteRecent} onOpenChange={setShowDeleteRecent}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Recent Import</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {recentImportCount} card(s) imported in the last 5 minutes? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteRecentImport} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete Recent Import
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
