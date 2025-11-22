@@ -41,19 +41,64 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
         throw new Error("Camera not supported in this browser");
       }
 
-      // Request camera with explicit constraints
-      console.log("Requesting camera access...");
-      const constraints = {
-        video: {
-          facingMode: facing,
-          width: { ideal: 1920, max: 1920 },
-          height: { ideal: 1080, max: 1080 }
-        },
-        audio: false
-      };
-      console.log("Constraints:", JSON.stringify(constraints));
+      let stream: MediaStream | null = null;
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      // Try multiple constraint strategies for better mobile compatibility
+      const constraintStrategies = [
+        // Strategy 1: Exact facingMode (works best on modern mobile browsers)
+        {
+          video: {
+            facingMode: { exact: facing },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          },
+          audio: false
+        },
+        // Strategy 2: Ideal facingMode (more flexible)
+        {
+          video: {
+            facingMode: { ideal: facing },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        },
+        // Strategy 3: Simple facingMode string
+        {
+          video: {
+            facingMode: facing,
+          },
+          audio: false
+        },
+        // Strategy 4: No facingMode, just request video (fallback)
+        {
+          video: true,
+          audio: false
+        }
+      ];
+
+      // Try each strategy until one works
+      for (let i = 0; i < constraintStrategies.length; i++) {
+        const constraints = constraintStrategies[i];
+        console.log(`Trying strategy ${i + 1}:`, JSON.stringify(constraints));
+        
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          console.log(`Strategy ${i + 1} succeeded!`);
+          break;
+        } catch (err: any) {
+          console.log(`Strategy ${i + 1} failed:`, err.name, err.message);
+          if (i === constraintStrategies.length - 1) {
+            // Last strategy failed, throw the error
+            throw err;
+          }
+          // Continue to next strategy
+        }
+      }
+
+      if (!stream) {
+        throw new Error("Failed to get camera stream with all strategies");
+      }
       console.log("Camera access granted!");
       console.log("Stream tracks:", stream.getTracks().map(t => ({ kind: t.kind, label: t.label, enabled: t.enabled })));
 
@@ -62,11 +107,12 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
         throw new Error("Video element not ready");
       }
 
-      // Set up video element
+      // Set up video element with mobile-specific attributes
       videoRef.current.srcObject = stream;
       videoRef.current.setAttribute('playsinline', 'true');
       videoRef.current.setAttribute('autoplay', 'true');
       videoRef.current.setAttribute('muted', 'true');
+      videoRef.current.setAttribute('webkit-playsinline', 'true'); // iOS Safari
 
       // Wait for video to be ready
       await new Promise((resolve, reject) => {
@@ -90,10 +136,16 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
         setTimeout(() => reject(new Error("Video loading timeout")), 10000);
       });
 
-      // Play the video
+      // Play the video with error handling
       console.log("Playing video...");
-      await videoRef.current.play();
-      console.log("Video playing successfully");
+      try {
+        await videoRef.current.play();
+      } catch (playError: any) {
+        console.error("Play error:", playError);
+        // On some mobile browsers, play() might fail initially but work after user interaction
+        // We'll still mark it as ready since the stream is active
+      }
+      console.log("Video setup complete");
 
       streamRef.current = stream;
       setCameraFacing(facing);
@@ -113,13 +165,15 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
       let errorMessage = "Failed to access camera";
       
       if (error.name === 'NotAllowedError') {
-        errorMessage = "Camera permission denied. Please allow camera access.";
+        errorMessage = "Camera permission denied. Please allow camera access in your browser settings.";
       } else if (error.name === 'NotFoundError') {
         errorMessage = "No camera found on this device";
       } else if (error.name === 'NotReadableError') {
-        errorMessage = "Camera is already in use";
+        errorMessage = "Camera is already in use by another app. Please close other apps and try again.";
       } else if (error.name === 'NotSupportedError') {
-        errorMessage = "Camera not supported. Try HTTPS.";
+        errorMessage = "Camera not supported. Make sure you're using HTTPS and a modern browser.";
+      } else if (error.name === 'OverconstrainedError') {
+        errorMessage = "Camera constraints not supported on this device. Trying fallback...";
       } else if (error.message) {
         errorMessage = error.message;
       }
@@ -246,9 +300,10 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
         )}
 
         <div className="text-xs text-muted-foreground space-y-1">
-          <p>• Make sure you're using HTTPS (secure connection)</p>
           <p>• Allow camera permissions when prompted</p>
-          <p>• Close other apps using the camera</p>
+          <p>• Make sure no other app is using the camera</p>
+          <p>• Use a secure connection (HTTPS)</p>
+          <p>• Try closing and reopening your browser if issues persist</p>
         </div>
       </CardContent>
     </Card>
