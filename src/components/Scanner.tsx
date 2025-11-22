@@ -459,6 +459,9 @@ const Scanner = ({ userId }: ScannerProps) => {
 
   const startCamera = async (facingMode: 'environment' | 'user' = cameraFacingMode) => {
     try {
+      console.log('=== Starting Camera ===');
+      console.log('Facing mode:', facingMode);
+      
       // Stop existing stream if any
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
@@ -475,18 +478,71 @@ const Scanner = ({ userId }: ScannerProps) => {
         audio: false 
       });
       
+      console.log('Camera stream obtained');
+      
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         // Enable playsinline for iOS compatibility
         videoRef.current.setAttribute('playsinline', 'true');
         videoRef.current.setAttribute('webkit-playsinline', 'true');
+        
+        // Wait for video metadata to load
+        await new Promise((resolve, reject) => {
+          if (!videoRef.current) {
+            reject(new Error('Video element lost'));
+            return;
+          }
+          
+          videoRef.current.onloadedmetadata = () => {
+            console.log('Video metadata loaded, dimensions:', 
+              videoRef.current?.videoWidth, 'x', videoRef.current?.videoHeight);
+            resolve(null);
+          };
+          
+          videoRef.current.onerror = (e) => {
+            console.error('Video error:', e);
+            reject(new Error('Video failed to load'));
+          };
+          
+          // Timeout after 10 seconds
+          setTimeout(() => reject(new Error('Video loading timeout')), 10000);
+        });
+        
+        // Explicitly play the video
+        try {
+          await videoRef.current.play();
+          console.log('Video playing successfully');
+        } catch (playError) {
+          console.error('Video play error:', playError);
+          // Continue anyway as some browsers require user interaction
+        }
+        
         streamRef.current = stream;
         setIsCameraActive(true);
         setCameraFacingMode(facingMode);
+        toast.success('Camera started successfully');
       }
-    } catch (error) {
-      console.error('Camera access error:', error);
-      toast.error('Could not access camera. Please check permissions.');
+    } catch (error: any) {
+      console.error('=== Camera Error ===');
+      console.error('Error name:', error.name);
+      console.error('Error message:', error.message);
+      console.error('Full error:', error);
+      
+      let errorMessage = 'Could not access camera';
+      
+      if (error.name === 'NotAllowedError') {
+        errorMessage = 'Camera permission denied. Please allow camera access in your browser settings.';
+      } else if (error.name === 'NotFoundError') {
+        errorMessage = 'No camera found on this device';
+      } else if (error.name === 'NotReadableError') {
+        errorMessage = 'Camera is already in use by another application';
+      } else if (error.name === 'NotSupportedError') {
+        errorMessage = 'Camera not supported. Make sure you\'re using HTTPS.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      toast.error(errorMessage);
     }
   };
 
@@ -963,6 +1019,7 @@ const Scanner = ({ userId }: ScannerProps) => {
                 playsInline
                 muted
                 className="w-full h-full object-cover"
+                style={{ width: '100%', height: '100%' }}
               />
               {/* Camera flip toggle button */}
               <Button 
