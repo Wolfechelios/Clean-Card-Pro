@@ -15,6 +15,7 @@ import SettingsPage from "./pages/SettingsPage";
 import InsightsPage from "./pages/InsightsPage";
 import VisionTestPage from "./pages/VisionTestPage";
 import MobileScanPage from "./pages/MobileScanPage";
+import MobileScanRedirect from "./pages/MobileScanRedirect";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -102,6 +103,10 @@ const App = () => {
             <Route
               path="/mobile-scan"
               element={session ? <MobileScanPage /> : <Navigate to="/auth" />}
+            />
+            <Route
+              path="/mobile-scanner"
+              element={session ? <MobileScanRedirect /> : <Navigate to="/auth" />}
             />
             <Route path="*" element={<NotFound />} />
           </Routes>

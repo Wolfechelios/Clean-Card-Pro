@@ -109,10 +109,18 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
 
       // Set up video element with mobile-specific attributes
       videoRef.current.srcObject = stream;
+      videoRef.current.playsInline = true;
+      videoRef.current.autoplay = true;
+      videoRef.current.muted = true;
       videoRef.current.setAttribute('playsinline', 'true');
       videoRef.current.setAttribute('autoplay', 'true');
       videoRef.current.setAttribute('muted', 'true');
       videoRef.current.setAttribute('webkit-playsinline', 'true'); // iOS Safari
+      
+      // Force styles for Android compatibility
+      videoRef.current.style.width = '100%';
+      videoRef.current.style.height = '100%';
+      videoRef.current.style.objectFit = 'cover';
 
       // Wait for video to be ready
       await new Promise((resolve, reject) => {
