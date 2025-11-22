@@ -4,7 +4,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Search, Trash2, TrendingUp } from "lucide-react";
+import { Search, Trash2, TrendingUp, DollarSign, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -47,6 +47,7 @@ export default function Collections() {
   const [selectedCards, setSelectedCards] = useState<Set<string>>(new Set());
   const [showBulkDelete, setShowBulkDelete] = useState(false);
   const [activeFilters, setActiveFilters] = useState<FilterConfig>({});
+  const [isUpdatingPrices, setIsUpdatingPrices] = useState(false);
 
   const availableSets = Array.from(new Set(cards.map(c => c.card_set).filter(Boolean))) as string[];
   const availableRarities = Array.from(new Set(cards.map(c => c.rarity).filter(Boolean))) as string[];
@@ -194,6 +195,38 @@ export default function Collections() {
     setSelectedCards(new Set());
   };
 
+  const handleUpdatePrices = async () => {
+    try {
+      setIsUpdatingPrices(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error("You must be logged in to update prices");
+        return;
+      }
+
+      toast.loading("Updating prices...", { id: "price-update" });
+
+      const { data, error } = await supabase.functions.invoke("update-prices", {
+        body: { user_id: session.user.id },
+      });
+
+      if (error) throw error;
+
+      toast.success(
+        `Price update complete! Updated ${data.updated} of ${data.total_checked} cards`,
+        { id: "price-update" }
+      );
+      
+      // Refresh cards to show new prices
+      fetchCards();
+    } catch (error) {
+      console.error("Error updating prices:", error);
+      toast.error("Failed to update prices", { id: "price-update" });
+    } finally {
+      setIsUpdatingPrices(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -226,7 +259,17 @@ export default function Collections() {
           />
         </div>
         
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleUpdatePrices}
+            disabled={isUpdatingPrices || cards.length === 0}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${isUpdatingPrices ? 'animate-spin' : ''}`} />
+            Update Prices
+          </Button>
+          
           {selectedCards.size > 0 ? (
             <>
               <span className="text-sm text-muted-foreground">
