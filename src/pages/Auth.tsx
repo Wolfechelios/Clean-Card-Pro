@@ -147,6 +147,16 @@ const Auth = () => {
             </form>
           </TabsContent>
         </Tabs>
+        
+        <CardFooter className="flex-col space-y-2 pt-2 border-t">
+          <p className="text-xs text-muted-foreground text-center">
+            On mobile? After signing in, visit{" "}
+            <a href="/mobile-scan" className="text-primary underline font-medium">
+              /mobile-scan
+            </a>{" "}
+            to use your camera
+          </p>
+        </CardFooter>
       </Card>
     </div>
   );

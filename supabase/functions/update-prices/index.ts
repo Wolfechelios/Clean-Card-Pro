@@ -47,31 +47,37 @@ serve(async (req) => {
 
     console.log(`Updating prices for ${cards.length} cards`);
 
-    // Process each card - fetch pricing via identify-card function
+    // Process each card - fetch pricing via analyze-card-full function
     const updates = [];
     
     for (const card of cards) {
       try {
-        // Call identify-card to get fresh pricing
-        const { data: pricingData, error: pricingError } = await supabaseClient.functions.invoke(
-          'identify-card',
+        console.log(`Analyzing card: ${card.card_name}`);
+        
+        // Call analyze-card-full to get fresh pricing
+        const { data: analysisData, error: analysisError } = await supabaseClient.functions.invoke(
+          'analyze-card-full',
           {
             body: {
               imageUrl: card.image_url,
-              ocrText: `${card.card_name} ${card.card_set || ''} ${card.card_number || ''}`,
             },
           }
         );
 
-        if (!pricingError && pricingData) {
+        console.log(`Analysis result for ${card.card_name}:`, analysisData);
+
+        if (!analysisError && analysisData && analysisData.pricing) {
           updates.push({
             id: card.id,
-            current_price_raw: pricingData.pricing?.currentPriceRaw || null,
-            current_price_psa9: pricingData.pricing?.currentPricePsa9 || null,
-            current_price_psa10: pricingData.pricing?.currentPricePsa10 || null,
-            suggested_price: pricingData.pricing?.suggestedPrice || null,
+            current_price_raw: analysisData.pricing.raw || null,
+            current_price_psa9: analysisData.pricing.psa9 || null,
+            current_price_psa10: analysisData.pricing.psa10 || null,
+            suggested_price: analysisData.pricing.suggested || null,
             last_price_update: new Date().toISOString(),
           });
+          console.log(`Queued price update for ${card.card_name}: $${analysisData.pricing.raw}`);
+        } else {
+          console.log(`No pricing data for ${card.card_name}`);
         }
       } catch (error) {
         console.error(`Error updating price for card ${card.id}:`, error);
