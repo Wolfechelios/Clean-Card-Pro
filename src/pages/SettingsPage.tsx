@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,8 +17,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Download, LogOut, Trash2, User, Lock } from "lucide-react";
+import { Download, LogOut, Trash2, User, Lock, Upload } from "lucide-react";
 import * as XLSX from "xlsx";
+import { Progress } from "@/components/ui/progress";
 
 export default function Settings() {
   const navigate = useNavigate();
@@ -30,6 +31,9 @@ export default function Settings() {
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadUserData();
@@ -144,6 +148,81 @@ export default function Settings() {
     }
   };
 
+  const handleImportData = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setImporting(true);
+    setImportProgress(0);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast.error("You must be logged in to import cards");
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const data = new Uint8Array(e.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: "array" });
+          const sheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[sheetName];
+          const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+          if (jsonData.length === 0) {
+            toast.error("No data found in file");
+            setImporting(false);
+            return;
+          }
+
+          // Process cards in batches
+          const batchSize = 10;
+          let imported = 0;
+
+          for (let i = 0; i < jsonData.length; i += batchSize) {
+            const batch = jsonData.slice(i, i + batchSize);
+            const cardsToInsert = batch.map((row: any) => ({
+              user_id: user.id,
+              card_name: row["Card Name"] || row["card_name"] || "Unknown Card",
+              card_set: row["Set"] || row["card_set"] || null,
+              card_number: row["Card Number"] || row["card_number"] || null,
+              rarity: row["Rarity"] || row["rarity"] || null,
+              condition: row["Condition"] || row["condition"] || "ungraded",
+              current_price_raw: parseFloat(row["Price (Raw)"] || row["Price"] || row["current_price_raw"] || 0),
+              current_price_psa9: parseFloat(row["Price (PSA 9)"] || row["current_price_psa9"] || 0),
+              current_price_psa10: parseFloat(row["Price (PSA 10)"] || row["current_price_psa10"] || 0),
+              collection_name: row["Collection"] || row["collection_name"] || null,
+              image_url: row["Image URL"] || row["image_url"] || "https://placehold.co/300x400?text=No+Image",
+            }));
+
+            await supabase.from("cards").insert(cardsToInsert);
+            imported += batch.length;
+            setImportProgress(Math.round(((i + batch.length) / jsonData.length) * 100));
+          }
+
+          toast.success(`Successfully imported ${imported} cards`);
+        } catch (error) {
+          console.error("Import error:", error);
+          toast.error("Failed to process file");
+        } finally {
+          setImporting(false);
+          setImportProgress(0);
+          if (fileInputRef.current) {
+            fileInputRef.current.value = "";
+          }
+        }
+      };
+
+      reader.readAsArrayBuffer(file);
+    } catch (error) {
+      console.error("File read error:", error);
+      toast.error("Failed to read file");
+      setImporting(false);
+    }
+  };
+
   const handleDeleteAccount = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -247,6 +326,16 @@ export default function Settings() {
           <CardDescription>Export or manage your collection data</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {importing && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span>Importing cards...</span>
+                <span>{importProgress}%</span>
+              </div>
+              <Progress value={importProgress} />
+            </div>
+          )}
+          
           <div>
             <p className="text-sm text-muted-foreground mb-2">
               Export your entire card collection as an Excel file
@@ -254,6 +343,30 @@ export default function Settings() {
             <Button variant="outline" onClick={handleExportData}>
               <Download className="h-4 w-4 mr-2" />
               Export Collection
+            </Button>
+          </div>
+
+          <Separator />
+
+          <div>
+            <p className="text-sm text-muted-foreground mb-2">
+              Import cards from Excel or CSV file. Required column: Card Name
+            </p>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={handleImportData}
+              className="hidden"
+              disabled={importing}
+            />
+            <Button 
+              variant="outline" 
+              onClick={() => fileInputRef.current?.click()}
+              disabled={importing}
+            >
+              <Upload className="h-4 w-4 mr-2" />
+              Import Collection
             </Button>
           </div>
         </CardContent>
