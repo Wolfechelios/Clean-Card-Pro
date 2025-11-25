@@ -41,6 +41,8 @@ export default function Settings() {
   const [showClearAll, setShowClearAll] = useState(false);
   const [totalCards, setTotalCards] = useState(0);
   const [isUpdatingPrices, setIsUpdatingPrices] = useState(false);
+  const [showDeleteUnknown, setShowDeleteUnknown] = useState(false);
+  const [unknownCardCount, setUnknownCardCount] = useState(0);
 
   useEffect(() => {
     loadUserData();
@@ -262,6 +264,15 @@ export default function Settings() {
         .gte("created_at", fiveMinutesAgo);
       
       setRecentImportCount(recent || 0);
+
+      // Get unknown cards count
+      const { count: unknown } = await supabase
+        .from("cards")
+        .select("*", { count: 'exact', head: true })
+        .eq("user_id", user.id)
+        .eq("card_name", "Unknown Card");
+      
+      setUnknownCardCount(unknown || 0);
     } catch (error) {
       console.error("Error loading collection stats:", error);
     }
@@ -333,6 +344,29 @@ export default function Settings() {
       toast.error("Failed to clear collection");
     } finally {
       setShowClearAll(false);
+    }
+  };
+
+  const handleDeleteUnknown = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await supabase
+        .from("cards")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("card_name", "Unknown Card");
+
+      if (error) throw error;
+
+      toast.success(`Deleted ${unknownCardCount} unknown card(s)`);
+      loadCollectionStats();
+    } catch (error) {
+      console.error("Error deleting unknown cards:", error);
+      toast.error("Failed to delete unknown cards");
+    } finally {
+      setShowDeleteUnknown(false);
     }
   };
 
@@ -518,6 +552,24 @@ export default function Settings() {
               >
                 <Clock className="h-4 w-4 mr-2" />
                 Delete Recent Import {recentImportCount > 0 ? `(${recentImportCount})` : ''}
+              </Button>
+            </div>
+
+            <Separator />
+
+            <div>
+              <p className="text-sm text-muted-foreground mb-2">
+                {unknownCardCount > 0
+                  ? `Delete ${unknownCardCount} card(s) with "Unknown Card" name`
+                  : 'No unknown cards found'}
+              </p>
+              <Button 
+                variant="outline"
+                onClick={() => setShowDeleteUnknown(true)}
+                disabled={unknownCardCount === 0}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete Unknown Cards {unknownCardCount > 0 ? `(${unknownCardCount})` : ''}
               </Button>
             </div>
 
@@ -739,6 +791,27 @@ export default function Settings() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Delete Recent Import
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Unknown Cards Dialog */}
+      <AlertDialog open={showDeleteUnknown} onOpenChange={setShowDeleteUnknown}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Unknown Cards</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {unknownCardCount} card(s) with "Unknown Card" name? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteUnknown}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete {unknownCardCount} Unknown Card(s)
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
