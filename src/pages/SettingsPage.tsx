@@ -481,63 +481,63 @@ export default function Settings() {
                 disabled={isUpdatingPrices || totalCards === 0}
               >
                 <RefreshCw className={`h-4 w-4 mr-2 ${isUpdatingPrices ? 'animate-spin' : ''}`} />
-                Update All Prices
+                Update All Prices {totalCards > 0 ? `(${totalCards} cards)` : ''}
               </Button>
             </div>
 
-            {noImageCount > 0 && (
-              <>
-                <Separator />
-                <div>
-                  <p className="text-sm text-muted-foreground mb-2">
-                    Delete {noImageCount} card(s) that have no images
-                  </p>
-                  <Button 
-                    variant="outline"
-                    onClick={() => setShowDeleteNoImage(true)}
-                  >
-                    <ImageOff className="h-4 w-4 mr-2" />
-                    Delete No-Image Cards ({noImageCount})
-                  </Button>
-                </div>
-              </>
-            )}
+            <Separator />
+            
+            <div>
+              <p className="text-sm text-muted-foreground mb-2">
+                {noImageCount > 0 
+                  ? `Delete ${noImageCount} card(s) that have no images` 
+                  : 'No cards without images found'}
+              </p>
+              <Button 
+                variant="outline"
+                onClick={() => setShowDeleteNoImage(true)}
+                disabled={noImageCount === 0}
+              >
+                <ImageOff className="h-4 w-4 mr-2" />
+                Delete No-Image Cards {noImageCount > 0 ? `(${noImageCount})` : ''}
+              </Button>
+            </div>
 
-            {recentImportCount > 0 && (
-              <>
-                <Separator />
-                <div>
-                  <p className="text-sm text-muted-foreground mb-2">
-                    Delete {recentImportCount} card(s) imported in the last 5 minutes
-                  </p>
-                  <Button 
-                    variant="outline"
-                    onClick={() => setShowDeleteRecent(true)}
-                  >
-                    <Clock className="h-4 w-4 mr-2" />
-                    Delete Recent Import ({recentImportCount})
-                  </Button>
-                </div>
-              </>
-            )}
+            <Separator />
 
-            {totalCards > 0 && (
-              <>
-                <Separator />
-                <div>
-                  <p className="text-sm text-destructive mb-2">
-                    Permanently delete all {totalCards} cards in your collection
-                  </p>
-                  <Button 
-                    variant="destructive"
-                    onClick={() => setShowClearAll(true)}
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Clear Entire Collection
-                  </Button>
-                </div>
-              </>
-            )}
+            <div>
+              <p className="text-sm text-muted-foreground mb-2">
+                {recentImportCount > 0
+                  ? `Delete ${recentImportCount} card(s) imported in the last 5 minutes`
+                  : 'No recent imports found (last 5 minutes)'}
+              </p>
+              <Button 
+                variant="outline"
+                onClick={() => setShowDeleteRecent(true)}
+                disabled={recentImportCount === 0}
+              >
+                <Clock className="h-4 w-4 mr-2" />
+                Delete Recent Import {recentImportCount > 0 ? `(${recentImportCount})` : ''}
+              </Button>
+            </div>
+
+            <Separator />
+
+            <div>
+              <p className="text-sm text-destructive mb-2">
+                {totalCards > 0
+                  ? `Permanently delete all ${totalCards} cards in your collection`
+                  : 'No cards to delete'}
+              </p>
+              <Button 
+                variant="destructive"
+                onClick={() => setShowClearAll(true)}
+                disabled={totalCards === 0}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Clear Entire Collection {totalCards > 0 ? `(${totalCards} cards)` : ''}
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
