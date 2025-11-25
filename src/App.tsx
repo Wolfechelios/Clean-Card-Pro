@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { Loader2 } from "lucide-react";
 import AppLayout from "./components/layout/AppLayout";
 import Auth from "./pages/Auth";
 import NewDashboard from "./pages/NewDashboard";
@@ -22,11 +23,13 @@ const queryClient = new QueryClient();
 
 const App = () => {
   const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      setLoading(false);
       
       // Defer Supabase function calls to prevent deadlock
       if (session?.user?.id) {
@@ -44,6 +47,7 @@ const App = () => {
     // THEN check for existing session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
+      setLoading(false);
       
       if (session?.user?.id) {
         setTimeout(() => {
@@ -59,6 +63,14 @@ const App = () => {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <QueryClientProvider client={queryClient}>
