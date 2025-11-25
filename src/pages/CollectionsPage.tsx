@@ -4,7 +4,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Search, Trash2, TrendingUp, DollarSign, RefreshCw } from "lucide-react";
+import { Search, Trash2, TrendingUp, DollarSign, RefreshCw, Edit3, ImageOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -18,6 +18,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import AdvancedFilters, { FilterConfig } from "@/components/collections/AdvancedFilters";
 import ImportExport from "@/components/collections/ImportExport";
@@ -50,6 +60,15 @@ export default function Collections() {
   const [isUpdatingPrices, setIsUpdatingPrices] = useState(false);
   const [showDeleteRecent, setShowDeleteRecent] = useState(false);
   const [recentImportCount, setRecentImportCount] = useState(0);
+  const [showDeleteNoImage, setShowDeleteNoImage] = useState(false);
+  const [noImageCount, setNoImageCount] = useState(0);
+  const [showBulkEdit, setShowBulkEdit] = useState(false);
+  const [bulkEditData, setBulkEditData] = useState({
+    condition: "",
+    rarity: "",
+    card_set: "",
+    collection_name: "",
+  });
 
   const availableSets = Array.from(new Set(cards.map(c => c.card_set).filter(Boolean))) as string[];
   const availableRarities = Array.from(new Set(cards.map(c => c.rarity).filter(Boolean))) as string[];
@@ -57,6 +76,7 @@ export default function Collections() {
   useEffect(() => {
     fetchCards();
     checkRecentImports();
+    checkNoImageCards();
 
     // Set up real-time subscription for card changes
     const channel = supabase
@@ -73,6 +93,7 @@ export default function Collections() {
           // Refresh the cards list on any change
           fetchCards();
           checkRecentImports();
+          checkNoImageCards();
         }
       )
       .subscribe();
@@ -260,6 +281,100 @@ export default function Collections() {
     }
   };
 
+  const checkNoImageCards = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const { count, error } = await supabase
+        .from("cards")
+        .select("*", { count: 'exact', head: true })
+        .eq("user_id", session.user.id)
+        .or("image_url.is.null,image_url.eq.");
+
+      if (!error && count !== null) {
+        setNoImageCount(count);
+      }
+    } catch (error) {
+      console.error("Error checking no-image cards:", error);
+    }
+  };
+
+  const handleDeleteNoImage = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const { data: noImageCards, error: fetchError } = await supabase
+        .from("cards")
+        .select("id")
+        .eq("user_id", session.user.id)
+        .or("image_url.is.null,image_url.eq.");
+
+      if (fetchError) throw fetchError;
+
+      if (!noImageCards || noImageCards.length === 0) {
+        toast.error("No cards without images found");
+        setShowDeleteNoImage(false);
+        return;
+      }
+
+      const { error } = await supabase
+        .from("cards")
+        .delete()
+        .eq("user_id", session.user.id)
+        .or("image_url.is.null,image_url.eq.");
+
+      if (error) throw error;
+
+      toast.success(`Deleted ${noImageCards.length} card(s) without images`);
+      fetchCards();
+    } catch (error) {
+      console.error("Error deleting no-image cards:", error);
+      toast.error("Failed to delete no-image cards");
+    } finally {
+      setShowDeleteNoImage(false);
+    }
+  };
+
+  const handleBulkEdit = async () => {
+    if (selectedCards.size === 0) return;
+
+    try {
+      const updates: any = {};
+      if (bulkEditData.condition) updates.condition = bulkEditData.condition;
+      if (bulkEditData.rarity) updates.rarity = bulkEditData.rarity;
+      if (bulkEditData.card_set) updates.card_set = bulkEditData.card_set;
+      if (bulkEditData.collection_name) updates.collection_name = bulkEditData.collection_name;
+
+      if (Object.keys(updates).length === 0) {
+        toast.error("Please select at least one field to update");
+        return;
+      }
+
+      const { error } = await supabase
+        .from("cards")
+        .update(updates)
+        .in("id", Array.from(selectedCards));
+
+      if (error) throw error;
+
+      toast.success(`Updated ${selectedCards.size} card(s) successfully`);
+      fetchCards();
+      setShowBulkEdit(false);
+      setBulkEditData({
+        condition: "",
+        rarity: "",
+        card_set: "",
+        collection_name: "",
+      });
+      setSelectedCards(new Set());
+    } catch (error) {
+      console.error("Error updating cards:", error);
+      toast.error("Failed to update cards");
+    }
+  };
+
   const handleUpdatePrices = async () => {
     try {
       setIsUpdatingPrices(true);
@@ -335,6 +450,17 @@ export default function Collections() {
               Delete Recent Import ({recentImportCount})
             </Button>
           )}
+
+          {noImageCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowDeleteNoImage(true)}
+            >
+              <ImageOff className="h-4 w-4 mr-2" />
+              Delete No-Image ({noImageCount})
+            </Button>
+          )}
           
           <Button
             variant="outline"
@@ -353,6 +479,14 @@ export default function Collections() {
               </span>
               <Button variant="outline" size="sm" onClick={deselectAll}>
                 Deselect All
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => setShowBulkEdit(true)}
+              >
+                <Edit3 className="h-4 w-4 mr-2" />
+                Edit Selected
               </Button>
               <Button 
                 variant="destructive" 
@@ -496,6 +630,92 @@ export default function Collections() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={showDeleteNoImage} onOpenChange={setShowDeleteNoImage}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Cards Without Images</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {noImageCount} card(s) that have no images? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteNoImage} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={showBulkEdit} onOpenChange={setShowBulkEdit}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Edit {selectedCards.size} Card(s)</DialogTitle>
+            <DialogDescription>
+              Update information for {selectedCards.size} selected card(s). Leave fields empty to keep current values.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="condition">Condition</Label>
+              <Select
+                value={bulkEditData.condition}
+                onValueChange={(value) => setBulkEditData({ ...bulkEditData, condition: value })}
+              >
+                <SelectTrigger id="condition">
+                  <SelectValue placeholder="Select condition" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Keep current</SelectItem>
+                  <SelectItem value="Mint">Mint</SelectItem>
+                  <SelectItem value="Near Mint">Near Mint</SelectItem>
+                  <SelectItem value="Excellent">Excellent</SelectItem>
+                  <SelectItem value="Good">Good</SelectItem>
+                  <SelectItem value="Light Play">Light Play</SelectItem>
+                  <SelectItem value="Played">Played</SelectItem>
+                  <SelectItem value="Poor">Poor</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="rarity">Rarity</Label>
+              <Input
+                id="rarity"
+                placeholder="e.g., Common, Rare, Ultra Rare"
+                value={bulkEditData.rarity}
+                onChange={(e) => setBulkEditData({ ...bulkEditData, rarity: e.target.value })}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="card_set">Card Set</Label>
+              <Input
+                id="card_set"
+                placeholder="e.g., Base Set, Jungle"
+                value={bulkEditData.card_set}
+                onChange={(e) => setBulkEditData({ ...bulkEditData, card_set: e.target.value })}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="collection_name">Collection Name</Label>
+              <Input
+                id="collection_name"
+                placeholder="e.g., My Collection"
+                value={bulkEditData.collection_name}
+                onChange={(e) => setBulkEditData({ ...bulkEditData, collection_name: e.target.value })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBulkEdit(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleBulkEdit}>
+              Update {selectedCards.size} Card(s)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
