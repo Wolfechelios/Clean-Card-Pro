@@ -667,7 +667,6 @@ export default function Collections() {
                   <SelectValue placeholder="Select condition" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Keep current</SelectItem>
                   <SelectItem value="Mint">Mint</SelectItem>
                   <SelectItem value="Near Mint">Near Mint</SelectItem>
                   <SelectItem value="Excellent">Excellent</SelectItem>
