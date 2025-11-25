@@ -17,7 +17,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Download, LogOut, Trash2, User, Lock, Upload } from "lucide-react";
+import { Download, LogOut, Trash2, User, Lock, Upload, ImageOff, Clock, RefreshCw, Database } from "lucide-react";
 import * as XLSX from "xlsx";
 import { Progress } from "@/components/ui/progress";
 
@@ -34,9 +34,17 @@ export default function Settings() {
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [showDeleteNoImage, setShowDeleteNoImage] = useState(false);
+  const [noImageCount, setNoImageCount] = useState(0);
+  const [showDeleteRecent, setShowDeleteRecent] = useState(false);
+  const [recentImportCount, setRecentImportCount] = useState(0);
+  const [showClearAll, setShowClearAll] = useState(false);
+  const [totalCards, setTotalCards] = useState(0);
+  const [isUpdatingPrices, setIsUpdatingPrices] = useState(false);
 
   useEffect(() => {
     loadUserData();
+    loadCollectionStats();
   }, []);
 
   const loadUserData = async () => {
@@ -223,6 +231,142 @@ export default function Settings() {
     }
   };
 
+  const loadCollectionStats = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Get total cards count
+      const { count: total } = await supabase
+        .from("cards")
+        .select("*", { count: 'exact', head: true })
+        .eq("user_id", user.id);
+      
+      setTotalCards(total || 0);
+
+      // Get no-image cards count
+      const { count: noImage } = await supabase
+        .from("cards")
+        .select("*", { count: 'exact', head: true })
+        .eq("user_id", user.id)
+        .or("image_url.is.null,image_url.eq.");
+      
+      setNoImageCount(noImage || 0);
+
+      // Get recent imports count (last 5 minutes)
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const { count: recent } = await supabase
+        .from("cards")
+        .select("*", { count: 'exact', head: true })
+        .eq("user_id", user.id)
+        .gte("created_at", fiveMinutesAgo);
+      
+      setRecentImportCount(recent || 0);
+    } catch (error) {
+      console.error("Error loading collection stats:", error);
+    }
+  };
+
+  const handleDeleteNoImage = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await supabase
+        .from("cards")
+        .delete()
+        .eq("user_id", user.id)
+        .or("image_url.is.null,image_url.eq.");
+
+      if (error) throw error;
+
+      toast.success(`Deleted ${noImageCount} card(s) without images`);
+      loadCollectionStats();
+    } catch (error) {
+      console.error("Error deleting no-image cards:", error);
+      toast.error("Failed to delete no-image cards");
+    } finally {
+      setShowDeleteNoImage(false);
+    }
+  };
+
+  const handleDeleteRecent = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const { error } = await supabase
+        .from("cards")
+        .delete()
+        .eq("user_id", user.id)
+        .gte("created_at", fiveMinutesAgo);
+
+      if (error) throw error;
+
+      toast.success(`Deleted ${recentImportCount} recently imported card(s)`);
+      loadCollectionStats();
+    } catch (error) {
+      console.error("Error deleting recent imports:", error);
+      toast.error("Failed to delete recent imports");
+    } finally {
+      setShowDeleteRecent(false);
+    }
+  };
+
+  const handleClearAll = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { error } = await supabase
+        .from("cards")
+        .delete()
+        .eq("user_id", user.id);
+
+      if (error) throw error;
+
+      toast.success("All cards deleted successfully");
+      loadCollectionStats();
+    } catch (error) {
+      console.error("Error clearing collection:", error);
+      toast.error("Failed to clear collection");
+    } finally {
+      setShowClearAll(false);
+    }
+  };
+
+  const handleUpdatePrices = async () => {
+    try {
+      setIsUpdatingPrices(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast.error("You must be logged in to update prices");
+        return;
+      }
+
+      toast.loading("Updating prices...", { id: "price-update" });
+
+      const { data, error } = await supabase.functions.invoke("update-prices", {
+        body: { user_id: user.id },
+      });
+
+      if (error) throw error;
+
+      toast.success(
+        `Price update complete! Updated ${data.updated} of ${data.total_checked} cards`,
+        { id: "price-update" }
+      );
+      
+      loadCollectionStats();
+    } catch (error) {
+      console.error("Error updating prices:", error);
+      toast.error("Failed to update prices", { id: "price-update" });
+    } finally {
+      setIsUpdatingPrices(false);
+    }
+  };
+
   const handleDeleteAccount = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -316,14 +460,96 @@ export default function Settings() {
         </CardContent>
       </Card>
 
+      {/* Collection Management */}
+      <Card className="bg-card border-border">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Database className="h-5 w-5" />
+            Collection Management
+          </CardTitle>
+          <CardDescription>Manage your card collection ({totalCards} total cards)</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4">
+            <div>
+              <p className="text-sm text-muted-foreground mb-2">
+                Update all card prices from market data
+              </p>
+              <Button 
+                variant="outline" 
+                onClick={handleUpdatePrices}
+                disabled={isUpdatingPrices || totalCards === 0}
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${isUpdatingPrices ? 'animate-spin' : ''}`} />
+                Update All Prices
+              </Button>
+            </div>
+
+            {noImageCount > 0 && (
+              <>
+                <Separator />
+                <div>
+                  <p className="text-sm text-muted-foreground mb-2">
+                    Delete {noImageCount} card(s) that have no images
+                  </p>
+                  <Button 
+                    variant="outline"
+                    onClick={() => setShowDeleteNoImage(true)}
+                  >
+                    <ImageOff className="h-4 w-4 mr-2" />
+                    Delete No-Image Cards ({noImageCount})
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {recentImportCount > 0 && (
+              <>
+                <Separator />
+                <div>
+                  <p className="text-sm text-muted-foreground mb-2">
+                    Delete {recentImportCount} card(s) imported in the last 5 minutes
+                  </p>
+                  <Button 
+                    variant="outline"
+                    onClick={() => setShowDeleteRecent(true)}
+                  >
+                    <Clock className="h-4 w-4 mr-2" />
+                    Delete Recent Import ({recentImportCount})
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {totalCards > 0 && (
+              <>
+                <Separator />
+                <div>
+                  <p className="text-sm text-destructive mb-2">
+                    Permanently delete all {totalCards} cards in your collection
+                  </p>
+                  <Button 
+                    variant="destructive"
+                    onClick={() => setShowClearAll(true)}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Clear Entire Collection
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Data Management */}
       <Card className="bg-card border-border">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Download className="h-5 w-5" />
-            Data Management
+            Import / Export
           </CardTitle>
-          <CardDescription>Export or manage your collection data</CardDescription>
+          <CardDescription>Import or export your collection data</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {importing && (
@@ -471,6 +697,69 @@ export default function Settings() {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleChangePassword}>
               Update Password
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete No-Image Cards Dialog */}
+      <AlertDialog open={showDeleteNoImage} onOpenChange={setShowDeleteNoImage}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Cards Without Images</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {noImageCount} card(s) that have no images? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteNoImage}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete {noImageCount} Card(s)
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Recent Import Dialog */}
+      <AlertDialog open={showDeleteRecent} onOpenChange={setShowDeleteRecent}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Recent Import</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {recentImportCount} card(s) imported in the last 5 minutes? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteRecent}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete Recent Import
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Clear All Cards Dialog */}
+      <AlertDialog open={showClearAll} onOpenChange={setShowClearAll}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear Entire Collection</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete ALL {totalCards} cards in your collection? This will permanently delete your entire collection and cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleClearAll}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete All {totalCards} Cards
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
