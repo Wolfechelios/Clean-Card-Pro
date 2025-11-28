@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Camera, SwitchCamera, X, CheckCircle, Loader2, Pause, Play } from "lucide-react";
+import { Camera, SwitchCamera, X, CheckCircle, Loader2, Pause, Play, Focus } from "lucide-react";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -44,8 +44,10 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: cameraFacing },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: 3840, min: 1920 },
+          height: { ideal: 2160, min: 1080 },
+          aspectRatio: { ideal: 5/7 },
+          frameRate: { ideal: 30 },
         },
         audio: false,
       });
@@ -92,14 +94,54 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     }
 
     const canvas = document.createElement('canvas');
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
+    const video = videoRef.current;
     
-    const ctx = canvas.getContext('2d');
+    // Use high resolution for capture
+    const captureWidth = Math.max(video.videoWidth, 2560);
+    const captureHeight = Math.max(video.videoHeight, 3584); // 5:7 ratio
+    
+    canvas.width = captureWidth;
+    canvas.height = captureHeight;
+    
+    const ctx = canvas.getContext('2d', {
+      alpha: false,
+      desynchronized: true,
+      willReadFrequently: false
+    });
+    
     if (ctx) {
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(videoRef.current, 0, 0);
+      
+      // Calculate scaling to maintain aspect ratio
+      const videoRatio = video.videoWidth / video.videoHeight;
+      const targetRatio = 5 / 7;
+      
+      let drawWidth = video.videoWidth;
+      let drawHeight = video.videoHeight;
+      let offsetX = 0;
+      let offsetY = 0;
+      
+      if (videoRatio > targetRatio) {
+        // Video is wider, crop sides
+        drawWidth = video.videoHeight * targetRatio;
+        offsetX = (video.videoWidth - drawWidth) / 2;
+      } else {
+        // Video is taller, crop top/bottom
+        drawHeight = video.videoWidth / targetRatio;
+        offsetY = (video.videoHeight - drawHeight) / 2;
+      }
+      
+      // Fill background
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw cropped and scaled video
+      ctx.drawImage(
+        video,
+        offsetX, offsetY, drawWidth, drawHeight,
+        0, 0, canvas.width, canvas.height
+      );
       
       canvas.toBlob((blob) => {
         if (blob) {
@@ -125,8 +167,10 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
           if ('vibrate' in navigator) {
             navigator.vibrate(50);
           }
+          
+          toast.success('Card captured!');
         }
-      }, 'image/jpeg', 0.92);
+      }, 'image/jpeg', 0.98);
     }
   };
 
@@ -134,7 +178,6 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     setIsPaused(prev => {
       const newPaused = !prev;
       if (!newPaused && processingQueueRef.current.length > 0) {
-        // Resume processing
         toast.info('Processing resumed');
         setTimeout(() => processQueue(), 100);
       } else if (newPaused) {
@@ -145,10 +188,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   };
 
   const processQueue = async () => {
-    if (isProcessingRef.current) {
-      return;
-    }
-
+    if (isProcessingRef.current) return;
     if (isPaused) {
       setProcessing(false);
       return;
@@ -157,7 +197,6 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     if (processingQueueRef.current.length === 0) {
       setProcessing(false);
       
-      // Show completion summary if we just finished processing
       if (captures.length > 0) {
         const completed = captures.filter(c => c.status === 'completed').length;
         const errors = captures.filter(c => c.status === 'error').length;
@@ -176,7 +215,6 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     while (processingQueueRef.current.length > 0 && !isPaused) {
       const captureId = processingQueueRef.current[0];
       
-      // Get fresh capture from state
       let currentCapture: CapturedCard | undefined;
       setCaptures(prev => {
         currentCapture = prev.find(c => c.id === captureId);
@@ -184,18 +222,15 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
       });
       
       if (!currentCapture) {
-        console.warn('Capture not found:', captureId);
         processingQueueRef.current.shift();
         continue;
       }
 
       try {
-        // Update status to uploading
         setCaptures(prev => prev.map(c => 
           c.id === captureId ? { ...c, status: 'uploading' } : c
         ));
 
-        // Upload image
         const fileName = `${userId}/${captureId}.jpg`;
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from('card-images')
@@ -206,22 +241,17 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
 
         if (uploadError) throw uploadError;
 
-        // Get signed URL
         const { data: signedUrlData } = await supabase.storage
           .from('card-images')
           .createSignedUrl(`cards/${fileName}`, 31536000);
 
         if (!signedUrlData?.signedUrl) throw new Error('Failed to get signed URL');
 
-        // Update status to processing
         setCaptures(prev => prev.map(c => 
           c.id === captureId ? { ...c, status: 'processing' } : c
         ));
 
-        // Run card analysis in parallel (don't wait)
         processCardAnalysis(captureId, signedUrlData.signedUrl);
-
-        // Remove from queue immediately, move to next
         processingQueueRef.current.shift();
 
       } catch (error: any) {
@@ -232,23 +262,19 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
         processingQueueRef.current.shift();
       }
 
-      // Small delay to prevent blocking
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
     isProcessingRef.current = false;
     
-    // If paused mid-processing, stop here
     if (isPaused) {
       setProcessing(false);
       return;
     }
     
-    // Check one more time if queue is truly empty after processing
     if (processingQueueRef.current.length === 0) {
       setProcessing(false);
       
-      // Show final summary
       const completed = captures.filter(c => c.status === 'completed').length;
       const errors = captures.filter(c => c.status === 'error').length;
       
@@ -256,7 +282,6 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
         toast.success(`Queue complete: ${completed} cards saved${errors > 0 ? `, ${errors} failed` : ''}`);
       }
     } else {
-      // More items were added, continue processing
       isProcessingRef.current = false;
       processQueue();
     }
@@ -264,7 +289,6 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
 
   const processCardAnalysis = async (captureId: string, imageUrl: string) => {
     try {
-      // Run OCR analysis
       const { data: analysisData, error: analysisError } = await supabase.functions.invoke(
         'analyze-card-full',
         { body: { image_url: imageUrl } }
@@ -274,7 +298,6 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
 
       const ocrText = analysisData?.vision?.ocr_text || '';
 
-      // Run enhanced identification
       const { data: enhancedData, error: enhancedError } = await supabase.functions.invoke(
         'enhanced-card-identify',
         { body: { imageUrl, ocrText } }
@@ -284,13 +307,11 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
 
       const cardData = enhancedData?.cardData?.primary || enhancedData?.cardData;
 
-      // Get pricing
       const { data: pricingData } = await supabase.functions.invoke(
         'identify-card',
         { body: { imageUrl, ocrText } }
       );
 
-      // Save to database
       await supabase.from('cards').insert({
         user_id: userId,
         card_name: cardData?.card_name || 'Unknown Card',
@@ -311,7 +332,6 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
         last_price_update: new Date().toISOString(),
       });
 
-      // Update status to completed
       setCaptures(prev => prev.map(c => 
         c.id === captureId ? { 
           ...c, 
@@ -334,7 +354,6 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   }, []);
 
   useEffect(() => {
-    // Auto-process queue when captures are added (unless paused)
     if (captures.length > 0 && !isProcessingRef.current && processingQueueRef.current.length > 0 && !isPaused) {
       processQueue();
     }
@@ -348,90 +367,153 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   const progress = captures.length > 0 ? (completedCount / captures.length) * 100 : 0;
 
   return (
-    <Card className="w-full">
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          <span>Rapid Scan Mode</span>
-          <Badge variant={processing ? "default" : "secondary"}>
-            {captures.length}/{MAX_CAPTURES} captured
-          </Badge>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Camera View */}
-        <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="w-full h-full object-cover"
-          />
-          
-          {/* Camera Controls Overlay */}
-          <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
-            <div className="flex items-center justify-between">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={toggleCamera}
-                className="text-white"
-              >
-                <SwitchCamera className="h-6 w-6" />
-              </Button>
+    <div className="w-full max-w-4xl mx-auto space-y-4">
+      {/* Header Stats */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <h3 className="text-2xl font-bold">Rapid Scan</h3>
+              <p className="text-sm text-muted-foreground">
+                Capture cards quickly - processing happens automatically
+              </p>
+            </div>
+            <Badge variant={processing ? "default" : "secondary"} className="text-lg px-4 py-2">
+              {captures.length}/{MAX_CAPTURES}
+            </Badge>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Camera Viewfinder */}
+      <Card className="overflow-hidden">
+        <CardContent className="p-0">
+          <div className="relative bg-black">
+            {/* Video container with trading card aspect ratio */}
+            <div className="relative mx-auto max-w-md" style={{ aspectRatio: '5/7' }}>
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-full h-full object-cover"
+              />
               
-              <Button
-                size="lg"
-                onClick={capturePhoto}
-                disabled={captures.length >= MAX_CAPTURES}
-                className="rounded-full h-16 w-16"
-              >
-                <Camera className="h-8 w-8" />
-              </Button>
-              
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => {
-                  stopCamera();
-                  onComplete();
-                }}
-                className="text-white"
-              >
-                <X className="h-6 w-6" />
-              </Button>
+              {/* Trading Card Guide Overlay */}
+              <div className="absolute inset-0 pointer-events-none">
+                {/* Corner guides */}
+                <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 140" preserveAspectRatio="none">
+                  {/* Top-left corner */}
+                  <path d="M 10 10 L 10 20 M 10 10 L 20 10" stroke="white" strokeWidth="0.5" fill="none" opacity="0.8"/>
+                  {/* Top-right corner */}
+                  <path d="M 90 10 L 90 20 M 90 10 L 80 10" stroke="white" strokeWidth="0.5" fill="none" opacity="0.8"/>
+                  {/* Bottom-left corner */}
+                  <path d="M 10 130 L 10 120 M 10 130 L 20 130" stroke="white" strokeWidth="0.5" fill="none" opacity="0.8"/>
+                  {/* Bottom-right corner */}
+                  <path d="M 90 130 L 90 120 M 90 130 L 80 130" stroke="white" strokeWidth="0.5" fill="none" opacity="0.8"/>
+                  
+                  {/* Center alignment guides */}
+                  <line x1="50" y1="0" x2="50" y2="10" stroke="white" strokeWidth="0.3" opacity="0.5" strokeDasharray="1,2"/>
+                  <line x1="50" y1="130" x2="50" y2="140" stroke="white" strokeWidth="0.3" opacity="0.5" strokeDasharray="1,2"/>
+                </svg>
+                
+                {/* Instruction overlay */}
+                <div className="absolute top-4 left-0 right-0 text-center">
+                  <div className="inline-flex items-center gap-2 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full">
+                    <Focus className="h-4 w-4 text-white" />
+                    <span className="text-white text-sm font-medium">Align card with guides</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Camera Controls */}
+              <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black via-black/80 to-transparent">
+                <div className="flex items-center justify-between max-w-sm mx-auto">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={toggleCamera}
+                    className="text-white hover:bg-white/20 h-12 w-12"
+                  >
+                    <SwitchCamera className="h-6 w-6" />
+                  </Button>
+                  
+                  <Button
+                    size="lg"
+                    onClick={capturePhoto}
+                    disabled={captures.length >= MAX_CAPTURES}
+                    className="rounded-full h-20 w-20 shadow-2xl"
+                  >
+                    <Camera className="h-10 w-10" />
+                  </Button>
+                  
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      stopCamera();
+                      onComplete();
+                    }}
+                    className="text-white hover:bg-white/20 h-12 w-12"
+                  >
+                    <X className="h-6 w-6" />
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
+        </CardContent>
+      </Card>
 
-        {/* Progress */}
-        {captures.length > 0 && (
-          <div className="space-y-3">
+      {/* Progress Section */}
+      {captures.length > 0 && (
+        <Card>
+          <CardContent className="pt-6 space-y-4">
             <div className="flex justify-between items-center">
-              <div className="flex gap-4 text-sm">
-                <span className="text-green-500">✓ {completedCount}</span>
-                {processingCount > 0 && <span className="text-blue-500">⏳ {processingCount}</span>}
-                {uploadingCount > 0 && <span className="text-yellow-500">⬆ {uploadingCount}</span>}
-                {queuedCount > 0 && <span className="text-muted-foreground">⏸ {queuedCount}</span>}
-                {errorCount > 0 && <span className="text-red-500">✗ {errorCount}</span>}
+              <div className="flex gap-6 text-sm font-medium">
+                <span className="text-green-500 flex items-center gap-1">
+                  <CheckCircle className="h-4 w-4" />
+                  {completedCount}
+                </span>
+                {processingCount > 0 && (
+                  <span className="text-blue-500 flex items-center gap-1">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {processingCount}
+                  </span>
+                )}
+                {uploadingCount > 0 && (
+                  <span className="text-yellow-500 flex items-center gap-1">
+                    ⬆ {uploadingCount}
+                  </span>
+                )}
+                {queuedCount > 0 && (
+                  <span className="text-muted-foreground flex items-center gap-1">
+                    ⏸ {queuedCount}
+                  </span>
+                )}
+                {errorCount > 0 && (
+                  <span className="text-red-500 flex items-center gap-1">
+                    <X className="h-4 w-4" />
+                    {errorCount}
+                  </span>
+                )}
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold">{Math.round(progress)}%</span>
+              <div className="flex items-center gap-3">
+                <span className="text-lg font-bold tabular-nums">{Math.round(progress)}%</span>
                 {queuedCount > 0 && (
                   <Button
                     size="sm"
                     variant={isPaused ? "default" : "outline"}
                     onClick={togglePause}
-                    className="h-8"
                   >
                     {isPaused ? (
                       <>
-                        <Play className="h-3 w-3 mr-1" />
+                        <Play className="h-4 w-4 mr-2" />
                         Resume
                       </>
                     ) : (
                       <>
-                        <Pause className="h-3 w-3 mr-1" />
+                        <Pause className="h-4 w-4 mr-2" />
                         Pause
                       </>
                     )}
@@ -439,47 +521,61 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
                 )}
               </div>
             </div>
-            <Progress value={progress} className="h-2" />
+            <Progress value={progress} className="h-3" />
             {isPaused && queuedCount > 0 && (
-              <p className="text-xs text-muted-foreground text-center">
-                Processing paused - {queuedCount} cards waiting
+              <p className="text-sm text-muted-foreground text-center">
+                ⏸ Processing paused - {queuedCount} cards waiting in queue
               </p>
             )}
-          </div>
-        )}
+          </CardContent>
+        </Card>
+      )}
 
-        {/* Capture Grid */}
-        {captures.length > 0 && (
-          <ScrollArea className="h-48">
-            <div className="grid grid-cols-4 gap-2">
-              {captures.map((capture) => (
-                <div key={capture.id} className="relative aspect-square rounded-md overflow-hidden border">
-                  <img 
-                    src={capture.preview} 
-                    alt="Captured card"
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-                    {capture.status === 'completed' && (
-                      <CheckCircle className="h-6 w-6 text-green-500" />
-                    )}
-                    {(capture.status === 'uploading' || capture.status === 'processing' || capture.status === 'queued') && (
-                      <Loader2 className="h-6 w-6 text-white animate-spin" />
-                    )}
-                    {capture.status === 'error' && (
-                      <X className="h-6 w-6 text-red-500" />
-                    )}
+      {/* Capture Grid */}
+      {captures.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Captured Cards</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ScrollArea className="h-64">
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+                {captures.map((capture) => (
+                  <div 
+                    key={capture.id} 
+                    className="relative rounded-lg overflow-hidden border-2 transition-all"
+                    style={{ aspectRatio: '5/7' }}
+                  >
+                    <img 
+                      src={capture.preview} 
+                      alt="Captured card"
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+                      {capture.status === 'completed' && (
+                        <div className="flex flex-col items-center gap-1">
+                          <CheckCircle className="h-8 w-8 text-green-500" />
+                          {capture.cardName && (
+                            <span className="text-xs text-white text-center px-1 line-clamp-2">
+                              {capture.cardName}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {(capture.status === 'uploading' || capture.status === 'processing' || capture.status === 'queued') && (
+                        <Loader2 className="h-8 w-8 text-white animate-spin" />
+                      )}
+                      {capture.status === 'error' && (
+                        <X className="h-8 w-8 text-red-500" />
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          </ScrollArea>
-        )}
-
-        <p className="text-sm text-muted-foreground text-center">
-          Tap the camera button to capture. Processing happens automatically in the background.
-        </p>
-      </CardContent>
-    </Card>
+                ))}
+              </div>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      )}
+    </div>
   );
 };
