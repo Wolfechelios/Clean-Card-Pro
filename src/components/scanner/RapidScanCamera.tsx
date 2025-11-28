@@ -251,7 +251,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
           c.id === captureId ? { ...c, status: 'processing' } : c
         ));
 
-        processCardAnalysis(captureId, signedUrlData.signedUrl);
+        await processCardAnalysis(captureId, signedUrlData.signedUrl);
         processingQueueRef.current.shift();
 
       } catch (error: any) {
@@ -428,7 +428,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
 
               {/* Camera Controls */}
               <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black via-black/80 to-transparent">
-                <div className="flex items-center justify-between max-w-sm mx-auto">
+                <div className="flex items-center justify-center gap-4 max-w-2xl mx-auto">
                   <Button
                     variant="ghost"
                     size="icon"
@@ -446,6 +446,24 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
                   >
                     <Camera className="h-10 w-10" />
                   </Button>
+
+                  {captures.length > 0 && (
+                    <Button
+                      size="lg"
+                      onClick={() => {
+                        if (processingQueueRef.current.length > 0 || queuedCount > 0) {
+                          setIsPaused(false);
+                          toast.success('Processing all captured cards...');
+                          processQueue();
+                        }
+                        stopCamera();
+                        setTimeout(() => onComplete(), 500);
+                      }}
+                      className="bg-green-600 hover:bg-green-700 text-white h-14 px-8 font-semibold"
+                    >
+                      Done ({captures.length})
+                    </Button>
+                  )}
                   
                   <Button
                     variant="ghost"
