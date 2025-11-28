@@ -98,9 +98,11 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
       console.log("Requesting camera access...");
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: facing === 'environment' ? 'environment' : 'user',
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          facingMode: facing === 'environment' ? { exact: 'environment' } : { exact: 'user' },
+          width: { ideal: 3840, min: 1920 },
+          height: { ideal: 2160, min: 1080 },
+          aspectRatio: { ideal: 16/9 },
+          frameRate: { ideal: 30 },
         },
         audio: false,
       });
@@ -150,17 +152,36 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
       
       await new Promise(resolve => setTimeout(resolve, 200));
       
+      // Create high-resolution canvas
       const canvas = document.createElement('canvas');
-      canvas.width = videoRef.current.videoWidth;
-      canvas.height = videoRef.current.videoHeight;
+      const videoWidth = videoRef.current.videoWidth;
+      const videoHeight = videoRef.current.videoHeight;
       
-      const ctx = canvas.getContext('2d');
+      // Use full video resolution or higher
+      canvas.width = Math.max(videoWidth, 3840);
+      canvas.height = Math.max(videoHeight, 2160);
+      
+      const ctx = canvas.getContext('2d', { 
+        alpha: false,
+        desynchronized: true,
+        willReadFrequently: false
+      });
       if (!ctx) return;
 
       setProgressPercent(20);
+      
+      // Optimize canvas rendering for quality
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(videoRef.current, 0, 0);
+      
+      // Scale and draw with high quality
+      const scale = Math.min(canvas.width / videoWidth, canvas.height / videoHeight);
+      const x = (canvas.width - videoWidth * scale) / 2;
+      const y = (canvas.height - videoHeight * scale) / 2;
+      
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(videoRef.current, x, y, videoWidth * scale, videoHeight * scale);
       
       // Stage 2: Processing (33-66%)
       setUploadProgress('processing');
@@ -168,7 +189,8 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
       
       await new Promise(resolve => setTimeout(resolve, 300));
       
-      const imageData = canvas.toDataURL('image/jpeg', 0.95);
+      // Maximum JPEG quality
+      const imageData = canvas.toDataURL('image/jpeg', 1.0);
       
       setProgressPercent(60);
       
