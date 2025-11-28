@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { Camera, Loader2, QrCode, SwitchCamera, X } from "lucide-react";
 import { toast } from "sonner";
 import QrScanner from "react-qr-scanner";
@@ -19,6 +20,8 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
   const [isConnected, setIsConnected] = useState(false);
   const [sessionId, setSessionId] = useState<string>("");
   const [cameraFacing, setCameraFacing] = useState<'environment' | 'user'>('environment');
+  const [uploadProgress, setUploadProgress] = useState<'idle' | 'capturing' | 'processing' | 'uploading' | 'complete'>('idle');
+  const [progressPercent, setProgressPercent] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const channelRef = useRef<any>(null);
@@ -140,18 +143,38 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
   const captureAndSend = async () => {
     if (!videoRef.current || !channelRef.current) return;
 
-    const canvas = document.createElement('canvas');
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-    
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
+    try {
+      // Stage 1: Capturing (0-33%)
+      setUploadProgress('capturing');
+      setProgressPercent(10);
+      
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      const canvas = document.createElement('canvas');
+      canvas.width = videoRef.current.videoWidth;
+      canvas.height = videoRef.current.videoHeight;
+      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      setProgressPercent(20);
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(videoRef.current, 0, 0);
       
-      // Convert to base64 and send
+      // Stage 2: Processing (33-66%)
+      setUploadProgress('processing');
+      setProgressPercent(40);
+      
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
       const imageData = canvas.toDataURL('image/jpeg', 0.95);
+      
+      setProgressPercent(60);
+      
+      // Stage 3: Uploading (66-100%)
+      setUploadProgress('uploading');
+      setProgressPercent(75);
       
       await channelRef.current.send({
         type: 'broadcast',
@@ -159,7 +182,22 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
         payload: { imageData }
       });
 
+      // Complete
+      setProgressPercent(100);
+      setUploadProgress('complete');
+      
       toast.success("Photo sent to computer!");
+      
+      // Reset after brief delay
+      setTimeout(() => {
+        setUploadProgress('idle');
+        setProgressPercent(0);
+      }, 1500);
+    } catch (error) {
+      console.error("Error capturing and sending:", error);
+      toast.error("Failed to send photo");
+      setUploadProgress('idle');
+      setProgressPercent(0);
     }
   };
 
@@ -315,8 +353,34 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
               </Button>
             </div>
 
+            {/* Progress indicator */}
+            {uploadProgress !== 'idle' && (
+              <div className="space-y-2">
+                <Progress value={progressPercent} className="h-3" />
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-muted-foreground font-medium">
+                    {uploadProgress === 'capturing' && '📸 Capturing photo...'}
+                    {uploadProgress === 'processing' && '⚙️ Processing image...'}
+                    {uploadProgress === 'uploading' && '📤 Uploading to PC...'}
+                    {uploadProgress === 'complete' && '✅ Complete!'}
+                  </span>
+                  <span className="text-muted-foreground tabular-nums">
+                    {progressPercent}%
+                  </span>
+                </div>
+                <p className="text-xs text-center text-muted-foreground">
+                  Est. time: ~{uploadProgress === 'complete' ? '0' : '1-2'}s
+                </p>
+              </div>
+            )}
+
             <div className="flex gap-2">
-              <Button onClick={captureAndSend} size="lg" className="flex-1">
+              <Button 
+                onClick={captureAndSend} 
+                size="lg" 
+                className="flex-1"
+                disabled={uploadProgress !== 'idle'}
+              >
                 <Camera className="mr-2 h-5 w-5" />
                 Send Photo
               </Button>
@@ -326,11 +390,13 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
               </Button>
             </div>
 
-            <div className="bg-muted/50 rounded-lg p-3 text-sm text-center">
-              <p className="text-muted-foreground">
-                Photos will be sent to your computer for scanning
-              </p>
-            </div>
+            {uploadProgress === 'idle' && (
+              <div className="bg-muted/50 rounded-lg p-3 text-sm text-center">
+                <p className="text-muted-foreground">
+                  Photos will be sent to your computer for scanning
+                </p>
+              </div>
+            )}
           </div>
         )}
       </CardContent>
