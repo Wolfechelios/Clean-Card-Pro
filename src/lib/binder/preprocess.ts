@@ -1,22 +1,22 @@
 /**
  * Preprocess image for better card detection
- * Enhances contrast, removes noise, and normalizes lighting
+ * Enhances contrast and sharpness for card edge detection
  */
 export async function preprocessImage(imageData: ImageData): Promise<ImageData> {
   const { data, width, height } = imageData;
   const processed = new ImageData(width, height);
 
-  // Convert to grayscale and enhance contrast
+  // Apply adaptive contrast enhancement
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i];
     const g = data[i + 1];
     const b = data[i + 2];
 
-    // Grayscale conversion
+    // Convert to grayscale
     const gray = 0.299 * r + 0.587 * g + 0.114 * b;
 
-    // Simple contrast enhancement
-    const enhanced = Math.min(255, Math.max(0, (gray - 128) * 1.5 + 128));
+    // Strong contrast enhancement for edge detection
+    const enhanced = Math.min(255, Math.max(0, (gray - 128) * 2 + 128));
 
     processed.data[i] = enhanced;
     processed.data[i + 1] = enhanced;
@@ -28,8 +28,8 @@ export async function preprocessImage(imageData: ImageData): Promise<ImageData> 
 }
 
 /**
- * Detect card boundaries in a binder page
- * Returns regions where cards are likely located
+ * Detect card boundaries in a binder page with padding
+ * Returns regions where cards are likely located, with margins removed
  */
 export interface CardRegion {
   x: number;
@@ -46,15 +46,22 @@ export async function detectCardRegions(
   const { width, height } = imageData;
   const regions: CardRegion[] = [];
 
-  // Simple grid-based detection
-  const cardWidth = Math.floor(width / columns);
-  const cardHeight = Math.floor(height / rows);
+  // Calculate base dimensions
+  const baseCardWidth = width / columns;
+  const baseCardHeight = height / rows;
+
+  // Add padding to remove binder edges (10% margin on each side)
+  const paddingX = baseCardWidth * 0.1;
+  const paddingY = baseCardHeight * 0.1;
+
+  const cardWidth = Math.floor(baseCardWidth - (paddingX * 2));
+  const cardHeight = Math.floor(baseCardHeight - (paddingY * 2));
 
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < columns; col++) {
       regions.push({
-        x: col * cardWidth,
-        y: row * cardHeight,
+        x: Math.floor(col * baseCardWidth + paddingX),
+        y: Math.floor(row * baseCardHeight + paddingY),
         width: cardWidth,
         height: cardHeight,
       });
