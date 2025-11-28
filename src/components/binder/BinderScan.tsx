@@ -3,9 +3,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Upload, Camera, Grid3x3, RotateCcw, CheckCircle, XCircle } from "lucide-react";
+import { Upload, Camera, Grid3x3, RotateCcw, CheckCircle, XCircle, Loader2 } from "lucide-react";
 import { SlotProgress } from "./SlotProgress";
 import { detectCardRegions, extractCardImage } from "@/lib/binder/preprocess";
+import { enhancedCardIdentify } from "@/lib/enhancedCardIdentify";
+import { fetchCardPrices } from "@/lib/fetchCardPrices";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -17,10 +19,17 @@ interface BinderScanProps {
 interface ScanResult {
   id: string;
   card_name: string;
+  card_set?: string | null;
+  card_number?: string | null;
+  rarity?: string | null;
   image_url: string;
   thumbnail_url?: string;
   current_price_raw?: number;
+  current_price_psa9?: number;
+  current_price_psa10?: number;
+  suggested_price?: number;
   success: boolean;
+  error?: string;
 }
 
 export function BinderScan({ binderName, onComplete }: BinderScanProps) {
@@ -46,18 +55,27 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
     const { columns, rows } = getLayoutDimensions(layout);
     const totalCards = columns * rows;
     const results: (ScanResult | null)[] = [];
-    let imageUrl = "";
+    let objectUrl = "";
 
     try {
+      // Get authenticated session
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error("Please log in to scan cards");
+        return;
+      }
+
+      // Load image
       const img = new Image();
-      imageUrl = URL.createObjectURL(imageFile);
+      objectUrl = URL.createObjectURL(imageFile);
       
       await new Promise((resolve, reject) => {
         img.onload = resolve;
         img.onerror = reject;
-        img.src = imageUrl;
+        img.src = objectUrl;
       });
 
+      // Create canvas and extract image data
       const canvas = document.createElement("canvas");
       canvas.width = img.width;
       canvas.height = img.height;
@@ -67,95 +85,158 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
       ctx.drawImage(img, 0, 0);
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
+      // Detect individual card regions
       const regions = await detectCardRegions(imageData, columns, rows);
-      setProgress({ total: totalCards, processed: 0, current: "" });
+      setProgress({ total: totalCards, processed: 0, current: "Separating cards..." });
 
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("Not authenticated");
-
+      // Process each card individually
       for (let i = 0; i < regions.length; i++) {
-        setProgress({ total: totalCards, processed: i, current: `Card ${i + 1}` });
+        setProgress({ 
+          total: totalCards, 
+          processed: i, 
+          current: `Processing card ${i + 1} of ${totalCards}` 
+        });
 
-        const region = regions[i];
-        const cardImageData = extractCardImage(canvas, region);
+        try {
+          const region = regions[i];
+          
+          // Extract individual card image
+          const cardImageData = extractCardImage(canvas, region);
+          const response = await fetch(cardImageData);
+          const blob = await response.blob();
 
-        const response = await fetch(cardImageData);
-        const blob = await response.blob();
+          // Upload to storage
+          const cardId = crypto.randomUUID();
+          const fileName = `cards/${cardId}.jpg`;
+          const { error: uploadError } = await supabase.storage
+            .from("card-images")
+            .upload(fileName, blob, {
+              contentType: "image/jpeg",
+              cacheControl: "3600"
+            });
 
-        const cardId = crypto.randomUUID();
-        const fileName = `cards/${cardId}.jpg`;
-        const { error: uploadError } = await supabase.storage
-          .from("card-images")
-          .upload(fileName, blob);
+          if (uploadError) {
+            console.error("Upload error:", uploadError);
+            results.push({
+              id: `failed-${i}`,
+              card_name: "Upload Failed",
+              image_url: cardImageData,
+              success: false,
+              error: uploadError.message
+            });
+            continue;
+          }
 
-        if (uploadError) {
-          console.error("Upload error:", uploadError);
+          // Get public URL for the uploaded image
+          const { data: { publicUrl } } = supabase.storage
+            .from("card-images")
+            .getPublicUrl(fileName);
+
+          // Identify card using enhanced AI
+          let cardData;
+          try {
+            cardData = await enhancedCardIdentify(publicUrl);
+          } catch (identifyError: any) {
+            console.error("Identification error:", identifyError);
+            results.push({
+              id: `failed-${i}`,
+              card_name: "Failed to identify",
+              image_url: publicUrl,
+              success: false,
+              error: identifyError.message
+            });
+            continue;
+          }
+
+          // Fetch pricing data
+          let pricingData;
+          try {
+            pricingData = await fetchCardPrices(
+              cardData.card_name,
+              cardData.card_set,
+              cardData.card_number,
+              cardData.game_type,
+              cardData.sport_type
+            );
+          } catch (pricingError) {
+            console.error("Pricing error:", pricingError);
+            // Continue without pricing data
+            pricingData = {
+              raw: null,
+              psa9: null,
+              psa10: null,
+              suggested: null,
+              ebayUrl: null,
+              source: "none"
+            };
+          }
+
+          // Insert into database
+          const { data: insertedCard, error: insertError } = await supabase
+            .from("cards")
+            .insert({
+              user_id: session.user.id,
+              card_name: cardData.card_name,
+              card_set: cardData.card_set,
+              card_number: cardData.card_number,
+              rarity: cardData.rarity,
+              edition: cardData.edition,
+              game_type: cardData.game_type,
+              sport_type: cardData.sport_type,
+              image_url: publicUrl,
+              thumbnail_url: publicUrl,
+              collection_name: binderName,
+              current_price_raw: pricingData.raw,
+              current_price_psa9: pricingData.psa9,
+              current_price_psa10: pricingData.psa10,
+              suggested_price: pricingData.suggested,
+              ebay_listing_url: pricingData.ebayUrl,
+              ocr_confidence: cardData.confidence,
+            })
+            .select()
+            .single();
+
+          if (insertError) {
+            console.error("Insert error:", insertError);
+            results.push({
+              id: `failed-${i}`,
+              card_name: cardData.card_name || "Insert Failed",
+              image_url: publicUrl,
+              success: false,
+              error: insertError.message
+            });
+            continue;
+          }
+
+          // Success!
           results.push({
-            id: `failed-${i}`,
-            card_name: "Upload Failed",
-            image_url: cardImageData,
-            success: false,
-          });
-          continue;
-        }
-
-        const { data: signedUrlData, error: urlError } = await supabase.storage
-          .from("card-images")
-          .createSignedUrl(fileName, 60 * 60 * 24 * 365); // 1 year
-
-        if (urlError) {
-          console.error("URL error:", urlError);
-          results.push({
-            id: `failed-${i}`,
-            card_name: "URL Generation Failed",
-            image_url: cardImageData,
-            success: false,
-          });
-          continue;
-        }
-
-        const imageUrl = signedUrlData.signedUrl;
-
-        const { data: cardData, error: identifyError } = await supabase.functions
-          .invoke("identify-card", {
-            body: { imageUrl: imageUrl },
-          });
-
-        if (!identifyError && cardData) {
-          const { data: insertedCard } = await supabase.from("cards").insert({
-            user_id: session.user.id,
-            card_name: cardData.cardName || "Unknown Card",
-            card_set: cardData.setName,
-            card_number: cardData.cardNumber,
+            id: insertedCard.id,
+            card_name: cardData.card_name,
+            card_set: cardData.card_set,
+            card_number: cardData.card_number,
             rarity: cardData.rarity,
-            image_url: imageUrl,
-            thumbnail_url: imageUrl,
-            collection_name: binderName,
-            current_price_raw: cardData.pricing?.currentPriceRaw,
-            current_price_psa9: cardData.pricing?.psa9Price,
-            current_price_psa10: cardData.pricing?.psa10Price,
-            suggested_price: cardData.pricing?.suggestedPrice,
-            ocr_raw_text: cardData.rawText,
-          }).select().single();
-
-          results.push({
-            id: insertedCard?.id || `temp-${i}`,
-            card_name: cardData.cardName || "Unknown Card",
-            image_url: imageUrl,
-            thumbnail_url: imageUrl,
-            current_price_raw: cardData.pricing?.currentPriceRaw,
-            success: true,
+            image_url: publicUrl,
+            thumbnail_url: publicUrl,
+            current_price_raw: pricingData.raw || undefined,
+            current_price_psa9: pricingData.psa9 || undefined,
+            current_price_psa10: pricingData.psa10 || undefined,
+            suggested_price: pricingData.suggested || undefined,
+            success: true
           });
-        } else {
+
+        } catch (cardError: any) {
+          console.error(`Error processing card ${i + 1}:`, cardError);
           results.push({
             id: `failed-${i}`,
-            card_name: "Failed to identify",
-            image_url: imageUrl,
+            card_name: "Processing Error",
+            image_url: "",
             success: false,
+            error: cardError.message
           });
         }
       }
 
+      // Complete
       setProgress({ total: totalCards, processed: totalCards, current: "Complete!" });
       setScanResults(results);
       setShowResults(true);
@@ -164,17 +245,22 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
       const failCount = results.filter(r => r && !r.success).length;
       
       if (successCount > 0) {
-        toast.success(`Successfully identified ${successCount} cards${failCount > 0 ? `, ${failCount} failed` : ''}`);
+        toast.success(
+          `Successfully identified and added ${successCount} card${successCount !== 1 ? 's' : ''} to your collection!${
+            failCount > 0 ? ` (${failCount} failed)` : ''
+          }`
+        );
       } else {
-        toast.error("Failed to identify any cards");
+        toast.error("Failed to identify any cards. Please try again with a clearer image.");
       }
-    } catch (error) {
+
+    } catch (error: any) {
       console.error("Error processing binder page:", error);
-      toast.error("Failed to process binder page");
+      toast.error(`Failed to process binder page: ${error.message}`);
       setScanResults([]);
       setShowResults(true);
     } finally {
-      if (imageUrl) URL.revokeObjectURL(imageUrl);
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
       setIsProcessing(false);
     }
   };
@@ -272,41 +358,61 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
               </div>
             </div>
 
-            <div className={`grid gap-4 ${
+            <div className={`grid gap-3 ${
               layout === "3x3" ? "grid-cols-3" : 
               layout === "3x4" ? "grid-cols-3" : 
               "grid-cols-4"
             }`}>
               {scanResults.map((result, index) => (
-                <div key={index} className="relative">
+                <div key={index} className="relative group">
                   {result ? (
                     <div className="relative">
-                      <img
-                        src={result.image_url}
-                        alt={result.card_name}
-                        className="w-full aspect-[3/4] object-cover rounded-lg border border-neutral-700"
-                      />
+                      {result.image_url ? (
+                        <img
+                          src={result.image_url}
+                          alt={result.card_name}
+                          className="w-full aspect-[5/7] object-cover rounded-lg border-2 border-neutral-700 group-hover:border-primary/50 transition-colors"
+                        />
+                      ) : (
+                        <div className="w-full aspect-[5/7] bg-neutral-800 rounded-lg border-2 border-neutral-700 flex items-center justify-center">
+                          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                        </div>
+                      )}
                       <div className="absolute top-2 right-2">
                         {result.success ? (
-                          <CheckCircle className="h-5 w-5 text-green-500 bg-white rounded-full" />
+                          <div className="bg-green-500 rounded-full p-1">
+                            <CheckCircle className="h-4 w-4 text-white" />
+                          </div>
                         ) : (
-                          <XCircle className="h-5 w-5 text-red-500 bg-white rounded-full" />
+                          <div className="bg-red-500 rounded-full p-1">
+                            <XCircle className="h-4 w-4 text-white" />
+                          </div>
                         )}
                       </div>
-                      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2 rounded-b-lg">
-                        <p className="text-xs text-white font-medium truncate">
+                      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/80 to-transparent p-2 rounded-b-lg">
+                        <p className="text-xs text-white font-semibold truncate">
                           {result.card_name}
                         </p>
-                        {result.current_price_raw != null && (
-                          <p className="text-xs text-neutral-300">
-                            ${result.current_price_raw.toFixed(2)}
+                        {result.card_set && (
+                          <p className="text-[10px] text-neutral-300 truncate">
+                            {result.card_set}
+                          </p>
+                        )}
+                        {result.success && result.suggested_price != null && (
+                          <p className="text-xs text-green-400 font-medium">
+                            ${result.suggested_price.toFixed(2)}
+                          </p>
+                        )}
+                        {!result.success && result.error && (
+                          <p className="text-[10px] text-red-400 truncate">
+                            {result.error}
                           </p>
                         )}
                       </div>
                     </div>
                   ) : (
-                    <div className="w-full aspect-[3/4] border-2 border-dashed border-neutral-700 rounded-lg flex items-center justify-center">
-                      <p className="text-sm text-muted-foreground">No card</p>
+                    <div className="w-full aspect-[5/7] border-2 border-dashed border-neutral-700 rounded-lg flex items-center justify-center">
+                      <p className="text-xs text-muted-foreground">Empty slot</p>
                     </div>
                   )}
                 </div>
