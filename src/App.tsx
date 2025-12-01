@@ -14,6 +14,7 @@ import CollectionsPage from "./pages/CollectionsPage";
 import BindersPage from "./pages/BindersPage";
 import SettingsPage from "./pages/SettingsPage";
 import InsightsPage from "./pages/InsightsPage";
+import PerformancePage from "./pages/PerformancePage";
 import VisionTestPage from "./pages/VisionTestPage";
 import MobileScanPage from "./pages/MobileScanPage";
 import MobileScanRedirect from "./pages/MobileScanRedirect";
@@ -107,6 +108,10 @@ const App = () => {
             <Route
               path="/insights"
               element={session ? <AppLayout><InsightsPage /></AppLayout> : <Navigate to="/auth" />}
+            />
+            <Route
+              path="/performance"
+              element={session ? <AppLayout><PerformancePage /></AppLayout> : <Navigate to="/auth" />}
             />
             <Route
               path="/vision-test"
