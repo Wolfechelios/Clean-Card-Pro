@@ -20,6 +20,7 @@ import {
 import { Download, LogOut, Trash2, User, Lock, Upload, ImageOff, Clock, RefreshCw, Database } from "lucide-react";
 import * as XLSX from "xlsx";
 import { Progress } from "@/components/ui/progress";
+import N8nIntegrations from "@/components/settings/N8nIntegrations";
 
 export default function Settings() {
   const navigate = useNavigate();
@@ -649,6 +650,9 @@ export default function Settings() {
           </div>
         </CardContent>
       </Card>
+
+      {/* n8n Workflow Automations */}
+      <N8nIntegrations />
 
       {/* Account Actions */}
       <Card className="bg-card border-border">

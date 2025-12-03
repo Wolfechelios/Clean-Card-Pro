@@ -101,6 +101,77 @@ export type Database = {
         }
         Relationships: []
       }
+      n8n_webhook_logs: {
+        Row: {
+          created_at: string
+          id: string
+          payload: Json | null
+          status: string
+          user_id: string
+          webhook_id: string | null
+          workflow_type: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          payload?: Json | null
+          status?: string
+          user_id: string
+          webhook_id?: string | null
+          workflow_type: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          payload?: Json | null
+          status?: string
+          user_id?: string
+          webhook_id?: string | null
+          workflow_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "n8n_webhook_logs_webhook_id_fkey"
+            columns: ["webhook_id"]
+            isOneToOne: false
+            referencedRelation: "n8n_webhooks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      n8n_webhooks: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean | null
+          updated_at: string
+          user_id: string
+          webhook_name: string | null
+          webhook_url: string
+          workflow_type: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          updated_at?: string
+          user_id: string
+          webhook_name?: string | null
+          webhook_url: string
+          workflow_type: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean | null
+          updated_at?: string
+          user_id?: string
+          webhook_name?: string | null
+          webhook_url?: string
+          workflow_type?: string
+        }
+        Relationships: []
+      }
       price_alerts: {
         Row: {
           alert_type: string
