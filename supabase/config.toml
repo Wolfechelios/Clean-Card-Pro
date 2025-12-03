@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.fetch-card-prices]
 verify_jwt = false
+
+[functions.trigger-n8n]
+verify_jwt = true
