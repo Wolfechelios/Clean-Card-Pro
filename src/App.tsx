@@ -20,6 +20,7 @@ import RoadmapPage from "./pages/RoadmapPage";
 import VisionTestPage from "./pages/VisionTestPage";
 import MobileScanPage from "./pages/MobileScanPage";
 import MobileScanRedirect from "./pages/MobileScanRedirect";
+import PredictionsPage from "./pages/PredictionsPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -134,6 +135,10 @@ const App = () => {
             <Route
               path="/mobile-scanner"
               element={session ? <MobileScanRedirect /> : <Navigate to="/auth" />}
+            />
+            <Route
+              path="/predictions"
+              element={session ? <AppLayout><PredictionsPage /></AppLayout> : <Navigate to="/auth" />}
             />
             <Route path="*" element={<NotFound />} />
           </Routes>
