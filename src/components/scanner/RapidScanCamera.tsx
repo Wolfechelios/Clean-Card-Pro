@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Camera, SwitchCamera, X, CheckCircle, Loader2, Pause, Play, Focus } from "lucide-react";
+import { Camera, SwitchCamera, X, CheckCircle, Loader2, Pause, Play, Focus, Zap, ZapOff } from "lucide-react";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -38,6 +38,8 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   const [captures, setCaptures] = useState<CapturedCard[]>([]);
   const [processing, setProcessing] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [flashEnabled, setFlashEnabled] = useState(false);
+  const [flashSupported, setFlashSupported] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const processingQueueRef = useRef<string[]>([]);
@@ -136,6 +138,13 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
       if (!track) return;
 
       const capabilities = track.getCapabilities?.() as any;
+      
+      // Check for torch/flash support
+      if (capabilities?.torch) {
+        setFlashSupported(true);
+        console.log('Flash/torch supported');
+      }
+      
       if (capabilities?.focusMode?.includes('continuous')) {
         await track.applyConstraints({
           advanced: [{ focusMode: 'continuous' } as any]
@@ -179,12 +188,40 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     }
   };
 
+  // Toggle flash/torch for dim lighting
+  const toggleFlash = async () => {
+    if (!streamRef.current) return;
+    
+    try {
+      const track = streamRef.current.getVideoTracks()[0];
+      if (!track) return;
+
+      const capabilities = track.getCapabilities?.() as any;
+      if (!capabilities?.torch) {
+        toast.info('Flash not supported on this device');
+        return;
+      }
+
+      const newFlashState = !flashEnabled;
+      await track.applyConstraints({
+        advanced: [{ torch: newFlashState } as any]
+      });
+      setFlashEnabled(newFlashState);
+      toast.success(newFlashState ? 'Flash on' : 'Flash off');
+    } catch (e) {
+      console.log('Flash toggle failed:', e);
+      toast.error('Failed to toggle flash');
+    }
+  };
+
   const stopCamera = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
     setIsActive(false);
+    setFlashEnabled(false);
+    setFlashSupported(false);
   };
 
   const toggleCamera = () => {
@@ -594,6 +631,16 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
                     title="Tap to focus"
                   >
                     <Focus className="h-6 w-6" />
+                  </Button>
+                  
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={toggleFlash}
+                    className={`h-12 w-12 ${flashEnabled ? 'text-yellow-400 bg-yellow-400/20' : 'text-white hover:bg-white/20'}`}
+                    title={flashEnabled ? 'Turn off flash' : 'Turn on flash'}
+                  >
+                    {flashEnabled ? <Zap className="h-6 w-6" /> : <ZapOff className="h-6 w-6" />}
                   </Button>
                   
                   <Button
