@@ -133,17 +133,23 @@ Only include alternatives array if confidence is below 0.95. If completely certa
     } catch (e) {
       console.error('Failed to parse AI response as JSON:', content);
       
-      // Check if AI couldn't identify a card
+      // Check if AI couldn't identify a card or image is bad
       const lowerContent = content.toLowerCase();
-      if (lowerContent.includes('cannot identify') || 
+      if (lowerContent.includes('cannot') || 
           lowerContent.includes('no trading card') || 
           lowerContent.includes('no visible') ||
           lowerContent.includes('not a trading card') ||
-          lowerContent.includes('unable to identify')) {
+          lowerContent.includes('unable to') ||
+          lowerContent.includes('completely black') ||
+          lowerContent.includes('black image') ||
+          lowerContent.includes('upload a clear') ||
+          lowerContent.includes('sorry') ||
+          lowerContent.includes('provide any information') ||
+          !lowerContent.includes('{')) {
         return new Response(
           JSON.stringify({
             success: false,
-            error: 'No trading card detected in image. Please ensure the card is clearly visible.',
+            error: 'Could not identify card. Please ensure the card is clearly visible and well-lit.',
             noCardDetected: true
           }),
           {
