@@ -54,42 +54,128 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
 
       const targetDeviceId = deviceId || selectedDeviceId;
       
-      // Build constraints - prefer specific device if selected
-      const constraints: MediaStreamConstraints = targetDeviceId ? {
-        video: {
-          deviceId: { exact: targetDeviceId },
-          width: { ideal: 3840, min: 1920 },
-          height: { ideal: 2160, min: 1080 },
-          aspectRatio: { ideal: 5/7 },
-          frameRate: { ideal: 30 },
-        },
-        audio: false,
-      } : {
-        video: {
-          facingMode: { ideal: cameraFacing },
-          width: { ideal: 3840, min: 1920 },
-          height: { ideal: 2160, min: 1080 },
-          aspectRatio: { ideal: 5/7 },
-          frameRate: { ideal: 30 },
-        },
+      // Build constraints with auto-focus enabled
+      const videoConstraints: Record<string, any> = {
+        width: { ideal: 3840, min: 1920 },
+        height: { ideal: 2160, min: 1080 },
+        aspectRatio: { ideal: 5/7 },
+        frameRate: { ideal: 30 },
+        // Enable continuous auto-focus for card scanning
+        focusMode: 'continuous',
+      };
+
+      if (targetDeviceId) {
+        videoConstraints.deviceId = { exact: targetDeviceId };
+      } else {
+        videoConstraints.facingMode = { ideal: cameraFacing };
+      }
+
+      const constraints: MediaStreamConstraints = {
+        video: videoConstraints,
         audio: false,
       };
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (firstError) {
+        // Fallback without focus constraints if not supported
+        console.warn("Auto-focus not supported, trying without:", firstError);
+        delete (videoConstraints as any).focusMode;
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      }
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.setAttribute('playsinline', 'true');
+        videoRef.current.setAttribute('webkit-playsinline', 'true');
         streamRef.current = stream;
+        
+        // Wait for video to be ready
+        await new Promise<void>((resolve, reject) => {
+          const video = videoRef.current;
+          if (!video) {
+            reject(new Error('Video element not found'));
+            return;
+          }
+          
+          video.onloadedmetadata = () => {
+            video.play().then(() => {
+              console.log('Camera started:', video.videoWidth, 'x', video.videoHeight);
+              resolve();
+            }).catch(reject);
+          };
+          
+          video.onerror = () => reject(new Error('Video error'));
+          
+          // Timeout fallback
+          setTimeout(() => resolve(), 3000);
+        });
+        
         setIsActive(true);
+        
+        // Try to apply advanced focus settings after stream starts
+        applyAutoFocus(stream);
       }
     } catch (error: any) {
       console.error("Camera error:", error);
       if (error.name === 'NotAllowedError') {
         toast.error("Camera permission denied");
+      } else if (error.name === 'NotFoundError') {
+        toast.error("No camera found");
       } else {
-        toast.error("Failed to access camera");
+        toast.error("Failed to access camera: " + error.message);
       }
+    }
+  };
+
+  // Apply auto-focus using ImageCapture API if available
+  const applyAutoFocus = async (stream: MediaStream) => {
+    try {
+      const track = stream.getVideoTracks()[0];
+      if (!track) return;
+
+      const capabilities = track.getCapabilities?.() as any;
+      if (capabilities?.focusMode?.includes('continuous')) {
+        await track.applyConstraints({
+          advanced: [{ focusMode: 'continuous' } as any]
+        });
+        console.log('Continuous auto-focus enabled');
+      }
+    } catch (e) {
+      console.log('Auto-focus not available:', e);
+    }
+  };
+
+  // Manual focus trigger for supported devices
+  const triggerFocus = async () => {
+    if (!streamRef.current) return;
+    
+    try {
+      const track = streamRef.current.getVideoTracks()[0];
+      if (!track) return;
+
+      // Try to trigger single-shot auto-focus
+      const capabilities = track.getCapabilities?.() as any;
+      if (capabilities?.focusMode?.includes('single-shot')) {
+        await track.applyConstraints({
+          advanced: [{ focusMode: 'single-shot' } as any]
+        });
+        toast.success('Focus triggered');
+        
+        // Return to continuous after single-shot
+        setTimeout(async () => {
+          if (capabilities.focusMode.includes('continuous')) {
+            await track.applyConstraints({
+              advanced: [{ focusMode: 'continuous' } as any]
+            });
+          }
+        }, 500);
+      } else {
+        toast.info('Manual focus not supported on this device');
+      }
+    } catch (e) {
+      console.log('Focus trigger failed:', e);
     }
   };
 
@@ -498,6 +584,16 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
                     className="text-white hover:bg-white/20 h-12 w-12"
                   >
                     <SwitchCamera className="h-6 w-6" />
+                  </Button>
+                  
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={triggerFocus}
+                    className="text-white hover:bg-white/20 h-12 w-12"
+                    title="Tap to focus"
+                  >
+                    <Focus className="h-6 w-6" />
                   </Button>
                   
                   <Button
