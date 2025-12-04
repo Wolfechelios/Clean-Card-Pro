@@ -21,6 +21,10 @@ interface CapturedCard {
   preview: string;
   status: 'queued' | 'uploading' | 'processing' | 'completed' | 'error';
   cardName?: string;
+  cardSet?: string;
+  cardNumber?: string;
+  rarity?: string;
+  value?: number | null;
   error?: string;
 }
 
@@ -360,7 +364,11 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
         const updated = prev.map(c => c.id === captureId ? { 
           ...c, 
           status: 'completed' as const, 
-          cardName: cardData?.card_name 
+          cardName: cardData?.card_name,
+          cardSet: cardData?.card_set,
+          cardNumber: cardData?.card_number,
+          rarity: cardData?.rarity,
+          value: pricingData?.pricing?.suggestedPrice || pricingData?.pricing?.currentPriceRaw || null
         } : c);
         capturesRef.current = updated;
         return updated;
@@ -598,36 +606,72 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
           </CardHeader>
           <CardContent>
             <ScrollArea className="h-64">
-              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                 {captures.map((capture) => (
                   <div 
                     key={capture.id} 
-                    className="relative rounded-lg overflow-hidden border-2 transition-all"
-                    style={{ aspectRatio: '5/7' }}
+                    className="relative rounded-lg overflow-hidden border-2 bg-card transition-all"
                   >
-                    <img 
-                      src={capture.preview} 
-                      alt="Captured card"
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/60">
-                      {capture.status === 'completed' && (
-                        <div className="flex flex-col items-center gap-1">
-                          <CheckCircle className="h-8 w-8 text-green-500" />
-                          {capture.cardName && (
-                            <span className="text-xs text-white text-center px-1 line-clamp-2">
-                              {capture.cardName}
-                            </span>
+                    <div className="relative" style={{ aspectRatio: '5/7' }}>
+                      <img 
+                        src={capture.preview} 
+                        alt="Captured card"
+                        className="w-full h-full object-cover"
+                      />
+                      {capture.status !== 'completed' && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+                          {(capture.status === 'uploading' || capture.status === 'processing' || capture.status === 'queued') && (
+                            <Loader2 className="h-8 w-8 text-white animate-spin" />
+                          )}
+                          {capture.status === 'error' && (
+                            <X className="h-8 w-8 text-red-500" />
                           )}
                         </div>
                       )}
-                      {(capture.status === 'uploading' || capture.status === 'processing' || capture.status === 'queued') && (
-                        <Loader2 className="h-8 w-8 text-white animate-spin" />
-                      )}
-                      {capture.status === 'error' && (
-                        <X className="h-8 w-8 text-red-500" />
+                      {capture.status === 'completed' && (
+                        <div className="absolute top-2 right-2">
+                          <CheckCircle className="h-5 w-5 text-green-500 drop-shadow-lg" />
+                        </div>
                       )}
                     </div>
+                    {capture.status === 'completed' && (
+                      <div className="p-2 space-y-1 bg-card">
+                        <p className="text-xs font-medium line-clamp-2 leading-tight">
+                          {capture.cardName || 'Unknown Card'}
+                        </p>
+                        {capture.cardSet && (
+                          <p className="text-xs text-muted-foreground line-clamp-1">
+                            {capture.cardSet}
+                          </p>
+                        )}
+                        {capture.cardNumber && (
+                          <p className="text-xs text-muted-foreground">
+                            #{capture.cardNumber}
+                          </p>
+                        )}
+                        <div className="flex items-center justify-between pt-1">
+                          {capture.rarity && (
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                              {capture.rarity}
+                            </Badge>
+                          )}
+                          {capture.value != null && capture.value > 0 ? (
+                            <span className="text-sm font-bold text-green-600">
+                              ${capture.value.toFixed(2)}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">No price</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {capture.status === 'error' && (
+                      <div className="p-2 bg-destructive/10">
+                        <p className="text-xs text-destructive line-clamp-2">
+                          {capture.error || 'Failed to process'}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
