@@ -519,6 +519,7 @@ export default function NewDashboard() {
         <Card className="bg-neutral-900 border-neutral-800">
           <CardHeader>
             <CardTitle>Rarity Distribution</CardTitle>
+            <p className="text-xs text-muted-foreground">Click a segment to view cards</p>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={250}>
@@ -532,9 +533,19 @@ export default function NewDashboard() {
                   outerRadius={80}
                   fill="#8884d8"
                   dataKey="value"
+                  onClick={(data) => {
+                    if (data && data.name) {
+                      navigate(`/collections?rarity=${encodeURIComponent(data.name)}`);
+                    }
+                  }}
+                  style={{ cursor: 'pointer' }}
                 >
                   {rarityData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    <Cell 
+                      key={`cell-${index}`} 
+                      fill={COLORS[index % COLORS.length]}
+                      className="hover:opacity-80 transition-opacity"
+                    />
                   ))}
                 </Pie>
                 <Tooltip

@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Search, Trash2, TrendingUp, DollarSign, RefreshCw, Edit3, ImageOff } from "lucide-react";
+import { Search, Trash2, TrendingUp, DollarSign, RefreshCw, Edit3, ImageOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -49,6 +50,7 @@ interface CardItem {
 }
 
 export default function Collections() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [cards, setCards] = useState<CardItem[]>([]);
   const [filteredCards, setFilteredCards] = useState<CardItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -72,6 +74,24 @@ export default function Collections() {
 
   const availableSets = Array.from(new Set(cards.map(c => c.card_set).filter(Boolean))) as string[];
   const availableRarities = Array.from(new Set(cards.map(c => c.rarity).filter(Boolean))) as string[];
+
+  // Read rarity filter from URL on mount
+  useEffect(() => {
+    const rarityParam = searchParams.get("rarity");
+    if (rarityParam) {
+      setActiveFilters(prev => ({ ...prev, rarity: [rarityParam] }));
+    }
+  }, []);
+
+  // Clear rarity filter from URL when filters change
+  const clearRarityFilter = () => {
+    setActiveFilters(prev => {
+      const { rarity, ...rest } = prev;
+      return rest;
+    });
+    searchParams.delete("rarity");
+    setSearchParams(searchParams);
+  };
 
   useEffect(() => {
     fetchCards();
@@ -427,6 +447,25 @@ export default function Collections() {
         <h1 className="text-3xl font-bold text-foreground">My Collections</h1>
         <p className="text-muted-foreground">Browse and manage your card collection</p>
       </div>
+
+      {/* Active rarity filter banner */}
+      {activeFilters.rarity?.length === 1 && searchParams.get("rarity") && (
+        <div className="flex items-center gap-2 p-3 bg-primary/10 border border-primary/20 rounded-lg">
+          <span className="text-sm">Showing cards with rarity:</span>
+          <Badge variant="secondary" className="text-sm">
+            {activeFilters.rarity[0]}
+          </Badge>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={clearRarityFilter}
+            className="ml-auto"
+          >
+            <X className="h-4 w-4 mr-1" />
+            Clear Filter
+          </Button>
+        </div>
+      )}
 
       <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
         <div className="relative max-w-md w-full">
