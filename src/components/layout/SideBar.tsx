@@ -1,4 +1,4 @@
-import { LayoutDashboard, ScanLine, FolderOpen, BookOpen, Settings, Lightbulb, Menu, Eye, Activity, Layers, MapPin } from "lucide-react";
+import { LayoutDashboard, ScanLine, FolderOpen, BookOpen, Settings, Lightbulb, Menu, Eye, Activity, Layers, MapPin, Brain } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useState } from "react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -9,6 +9,7 @@ const menuItems = [
   { icon: ScanLine, label: "Scan", path: "/scan" },
   { icon: FolderOpen, label: "Collections", path: "/collections" },
   { icon: BookOpen, label: "Binders", path: "/binders" },
+  { icon: Brain, label: "Value Predictor", path: "/predictions" },
   { icon: Lightbulb, label: "AI Insights", path: "/insights" },
   { icon: Activity, label: "Performance", path: "/performance" },
   { icon: Layers, label: "Architecture", path: "/architecture" },
