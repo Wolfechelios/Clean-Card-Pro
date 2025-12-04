@@ -138,11 +138,18 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
       if (!track) return;
 
       const capabilities = track.getCapabilities?.() as any;
+      const settings = track.getSettings?.() as any;
       
-      // Check for torch/flash support
-      if (capabilities?.torch) {
+      console.log('Camera capabilities:', capabilities);
+      console.log('Camera settings:', settings);
+      
+      // Check for torch/flash support - be thorough
+      if (capabilities?.torch === true || capabilities?.torch !== undefined) {
         setFlashSupported(true);
-        console.log('Flash/torch supported');
+        console.log('Flash/torch IS supported');
+      } else {
+        setFlashSupported(false);
+        console.log('Flash/torch NOT supported by this camera');
       }
       
       if (capabilities?.focusMode?.includes('continuous')) {
@@ -190,27 +197,40 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
 
   // Toggle flash/torch for dim lighting
   const toggleFlash = async () => {
-    if (!streamRef.current) return;
+    if (!streamRef.current) {
+      toast.error('Camera not active');
+      return;
+    }
     
     try {
       const track = streamRef.current.getVideoTracks()[0];
-      if (!track) return;
+      if (!track) {
+        toast.error('No video track found');
+        return;
+      }
 
       const capabilities = track.getCapabilities?.() as any;
+      console.log('Toggle flash - capabilities:', capabilities);
+      
       if (!capabilities?.torch) {
-        toast.info('Flash not supported on this device');
+        toast.info('Flash not available on this camera');
+        setFlashSupported(false);
         return;
       }
 
       const newFlashState = !flashEnabled;
+      console.log('Setting torch to:', newFlashState);
+      
       await track.applyConstraints({
         advanced: [{ torch: newFlashState } as any]
       });
+      
       setFlashEnabled(newFlashState);
-      toast.success(newFlashState ? 'Flash on' : 'Flash off');
-    } catch (e) {
-      console.log('Flash toggle failed:', e);
-      toast.error('Failed to toggle flash');
+      setFlashSupported(true);
+      toast.success(newFlashState ? '🔦 Flash ON' : 'Flash OFF');
+    } catch (e: any) {
+      console.error('Flash toggle failed:', e);
+      toast.error('Failed to toggle flash: ' + (e.message || 'Unknown error'));
     }
   };
 
@@ -625,10 +645,16 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
                     variant="ghost"
                     size="icon"
                     onClick={toggleFlash}
-                    className={`h-12 w-12 ${flashEnabled ? 'text-yellow-400 bg-yellow-400/20' : 'text-white hover:bg-white/20'}`}
-                    title={flashEnabled ? 'Turn off flash' : 'Turn on flash'}
+                    className={`h-12 w-12 transition-all ${
+                      flashEnabled 
+                        ? 'text-yellow-400 bg-yellow-400/30 ring-2 ring-yellow-400' 
+                        : flashSupported 
+                          ? 'text-white hover:bg-white/20' 
+                          : 'text-white/50'
+                    }`}
+                    title={flashEnabled ? 'Turn off flash' : flashSupported ? 'Turn on flash' : 'Flash not available'}
                   >
-                    {flashEnabled ? <Zap className="h-6 w-6" /> : <ZapOff className="h-6 w-6" />}
+                    <Zap className={`h-6 w-6 ${flashEnabled ? 'fill-yellow-400' : ''}`} />
                   </Button>
                   
                   <Button
