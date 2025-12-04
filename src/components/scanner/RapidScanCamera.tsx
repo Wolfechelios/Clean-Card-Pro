@@ -337,7 +337,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
           
           toast.success('Card captured!');
         }
-      }, 'image/jpeg', 0.98);
+      }, 'image/jpeg', 0.85); // Lower quality for faster uploads
     }
   };
 
@@ -354,7 +354,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     });
   };
 
-  const CONCURRENT_LIMIT = 5; // Process 5 cards at a time
+  const CONCURRENT_LIMIT = 10; // Process 10 cards at a time for speed
 
   const processSingleCard = async (captureId: string, blob: Blob): Promise<void> => {
     try {
@@ -450,20 +450,14 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
 
   const processCardAnalysis = async (captureId: string, imageUrl: string) => {
     try {
-      // Run identification and pricing in parallel for speed
-      const [identifyResult, pricingResult] = await Promise.all([
-        supabase.functions.invoke('enhanced-card-identify', { 
-          body: { imageUrl } 
-        }),
-        supabase.functions.invoke('fetch-card-prices', { 
-          body: { imageUrl } 
-        }).catch(() => ({ data: null })) // Don't fail if pricing fails
-      ]);
+      // Use rapid identification endpoint (faster model, no pricing)
+      const identifyResult = await supabase.functions.invoke('rapid-card-identify', { 
+        body: { imageUrl } 
+      });
 
       if (identifyResult.error) throw identifyResult.error;
 
-      const cardData = identifyResult.data?.cardData?.primary || identifyResult.data?.cardData;
-      const pricingData = pricingResult.data;
+      const cardData = identifyResult.data?.cardData;
 
       const { data: insertedCard, error: insertError } = await supabase.from('cards').insert({
         user_id: userId,
@@ -471,18 +465,12 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
         card_set: cardData?.card_set,
         card_number: cardData?.card_number,
         rarity: cardData?.rarity,
-        edition: cardData?.edition,
         game_type: cardData?.game_type,
         sport_type: cardData?.sport_type,
         image_url: imageUrl,
         thumbnail_url: imageUrl,
-        ocr_raw_text: cardData?.description || '',
         ocr_confidence: cardData?.confidence || 0,
-        current_price_raw: pricingData?.pricing?.currentPriceRaw,
-        current_price_psa9: pricingData?.pricing?.currentPricePsa9,
-        current_price_psa10: pricingData?.pricing?.currentPricePsa10,
-        suggested_price: pricingData?.pricing?.suggestedPrice,
-        last_price_update: new Date().toISOString(),
+        // Pricing will be fetched later in batch
       }).select('id').single();
 
       if (insertError) throw insertError;
@@ -495,7 +483,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
           cardSet: cardData?.card_set,
           cardNumber: cardData?.card_number,
           rarity: cardData?.rarity,
-          value: pricingData?.pricing?.suggestedPrice || pricingData?.pricing?.currentPriceRaw || null,
+          value: null, // Pricing fetched later
           dbId: insertedCard?.id
         } : c);
         capturesRef.current = updated;

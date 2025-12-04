@@ -6,6 +6,9 @@ verify_jwt = false
 [functions.enhanced-card-identify]
 verify_jwt = false
 
+[functions.rapid-card-identify]
+verify_jwt = false
+
 [functions.collection-insights]
 verify_jwt = true
 
@@ -17,3 +20,6 @@ verify_jwt = false
 
 [functions.trigger-n8n]
 verify_jwt = true
+
+[functions.predict-card-value]
+verify_jwt = false
