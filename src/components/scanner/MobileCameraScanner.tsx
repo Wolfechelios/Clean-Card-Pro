@@ -3,6 +3,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Camera, Loader2, SwitchCamera, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import { useCameraDevices } from "@/hooks/use-camera-devices";
+import { CameraDeviceSelector } from "./CameraDeviceSelector";
 
 interface MobileCameraScannerProps {
   userId: string;
@@ -16,8 +18,10 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
   const [isInitializing, setIsInitializing] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  
+  const { devices, selectedDeviceId, setSelectedDeviceId, isLoading: devicesLoading, refreshDevices } = useCameraDevices();
 
-  const startCamera = async (facing: 'environment' | 'user' = cameraFacing) => {
+  const startCamera = async (facing: 'environment' | 'user' = cameraFacing, deviceId?: string) => {
     try {
       console.log("=== CAMERA START ===");
       console.log("Facing mode:", facing);
@@ -42,9 +46,26 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
       }
 
       let stream: MediaStream | null = null;
+      const targetDeviceId = deviceId || selectedDeviceId;
 
-      // Try multiple constraint strategies for better mobile compatibility
-      const constraintStrategies = [
+      // Try multiple constraint strategies for better compatibility
+      const constraintStrategies = targetDeviceId ? [
+        // Strategy 0: Use specific device ID (for USB cameras)
+        {
+          video: {
+            deviceId: { exact: targetDeviceId },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          },
+          audio: false
+        },
+        {
+          video: {
+            deviceId: targetDeviceId,
+          },
+          audio: false
+        },
+      ] : [
         // Strategy 1: Exact facingMode (works best on modern mobile browsers)
         {
           video: {
@@ -196,6 +217,11 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
     startCamera(newFacing);
   };
 
+  const handleDeviceChange = (deviceId: string) => {
+    setSelectedDeviceId(deviceId);
+    startCamera(cameraFacing, deviceId);
+  };
+
   const capturePhoto = async () => {
     if (!videoRef.current || !cameraReady) {
       toast.error("Camera not ready");
@@ -253,6 +279,16 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {devices.length > 1 && (
+          <CameraDeviceSelector
+            devices={devices}
+            selectedDeviceId={selectedDeviceId}
+            onDeviceChange={handleDeviceChange}
+            onRefresh={refreshDevices}
+            isLoading={devicesLoading}
+          />
+        )}
+        
         <div className="relative aspect-[3/4] bg-black rounded-lg overflow-hidden">
           <video
             ref={videoRef}

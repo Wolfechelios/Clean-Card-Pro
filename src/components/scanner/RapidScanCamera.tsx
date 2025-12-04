@@ -7,6 +7,8 @@ import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { useCameraDevices } from "@/hooks/use-camera-devices";
+import { CameraDeviceSelector } from "./CameraDeviceSelector";
 
 interface RapidScanCameraProps {
   userId: string;
@@ -35,13 +37,27 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   const processingQueueRef = useRef<string[]>([]);
   const isProcessingRef = useRef(false);
 
-  const startCamera = async () => {
+  const { devices, selectedDeviceId, setSelectedDeviceId, isLoading: devicesLoading, refreshDevices } = useCameraDevices();
+
+  const startCamera = async (deviceId?: string) => {
     try {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const targetDeviceId = deviceId || selectedDeviceId;
+      
+      // Build constraints - prefer specific device if selected
+      const constraints: MediaStreamConstraints = targetDeviceId ? {
+        video: {
+          deviceId: { exact: targetDeviceId },
+          width: { ideal: 3840, min: 1920 },
+          height: { ideal: 2160, min: 1080 },
+          aspectRatio: { ideal: 5/7 },
+          frameRate: { ideal: 30 },
+        },
+        audio: false,
+      } : {
         video: {
           facingMode: { ideal: cameraFacing },
           width: { ideal: 3840, min: 1920 },
@@ -50,7 +66,9 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
           frameRate: { ideal: 30 },
         },
         audio: false,
-      });
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -82,6 +100,14 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     if (isActive) {
       stopCamera();
       setTimeout(() => startCamera(), 100);
+    }
+  };
+
+  const handleDeviceChange = (deviceId: string) => {
+    setSelectedDeviceId(deviceId);
+    if (isActive) {
+      stopCamera();
+      setTimeout(() => startCamera(deviceId), 100);
     }
   };
 
@@ -388,6 +414,19 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
       {/* Camera Viewfinder */}
       <Card className="overflow-hidden">
         <CardContent className="p-0">
+          {/* Device Selector */}
+          {devices.length > 1 && (
+            <div className="p-4 border-b bg-background/80">
+              <CameraDeviceSelector
+                devices={devices}
+                selectedDeviceId={selectedDeviceId}
+                onDeviceChange={handleDeviceChange}
+                onRefresh={refreshDevices}
+                isLoading={devicesLoading}
+              />
+            </div>
+          )}
+          
           <div className="relative bg-black">
             {/* Video container with trading card aspect ratio */}
             <div className="relative mx-auto max-w-md" style={{ aspectRatio: '5/7' }}>
