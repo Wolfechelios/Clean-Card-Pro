@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { useCameraDevices } from "@/hooks/use-camera-devices";
 import { CameraDeviceSelector } from "./CameraDeviceSelector";
+import { ScannedCardList } from "./ScannedCardList";
 
 interface RapidScanCameraProps {
   userId: string;
@@ -26,6 +27,7 @@ interface CapturedCard {
   rarity?: string;
   value?: number | null;
   error?: string;
+  dbId?: string;
 }
 
 const MAX_CAPTURES = 100;
@@ -340,7 +342,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
       const cardData = identifyResult.data?.cardData?.primary || identifyResult.data?.cardData;
       const pricingData = pricingResult.data;
 
-      await supabase.from('cards').insert({
+      const { data: insertedCard, error: insertError } = await supabase.from('cards').insert({
         user_id: userId,
         card_name: cardData?.card_name || 'Unknown Card',
         card_set: cardData?.card_set,
@@ -358,7 +360,9 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
         current_price_psa10: pricingData?.pricing?.currentPricePsa10,
         suggested_price: pricingData?.pricing?.suggestedPrice,
         last_price_update: new Date().toISOString(),
-      });
+      }).select('id').single();
+
+      if (insertError) throw insertError;
 
       setCaptures(prev => {
         const updated = prev.map(c => c.id === captureId ? { 
@@ -368,7 +372,8 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
           cardSet: cardData?.card_set,
           cardNumber: cardData?.card_number,
           rarity: cardData?.rarity,
-          value: pricingData?.pricing?.suggestedPrice || pricingData?.pricing?.currentPriceRaw || null
+          value: pricingData?.pricing?.suggestedPrice || pricingData?.pricing?.currentPriceRaw || null,
+          dbId: insertedCard?.id
         } : c);
         capturesRef.current = updated;
         return updated;
@@ -394,6 +399,14 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
       processQueue();
     }
   }, [captures.length, isPaused]);
+
+  const handleCardUpdate = useCallback((captureId: string, updates: Partial<CapturedCard>) => {
+    setCaptures(prev => {
+      const updated = prev.map(c => c.id === captureId ? { ...c, ...updates } : c);
+      capturesRef.current = updated;
+      return updated;
+    });
+  }, []);
 
   const completedCount = captures.filter(c => c.status === 'completed').length;
   const errorCount = captures.filter(c => c.status === 'error').length;
@@ -679,6 +692,9 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
           </CardContent>
         </Card>
       )}
+
+      {/* Detailed Editable Card List */}
+      <ScannedCardList cards={captures} onCardUpdate={handleCardUpdate} />
     </div>
   );
 };
