@@ -213,6 +213,44 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     });
   };
 
+  const CONCURRENT_LIMIT = 5; // Process 5 cards at a time
+
+  const processSingleCard = async (captureId: string, blob: Blob): Promise<void> => {
+    try {
+      setCaptures(prev => prev.map(c => 
+        c.id === captureId ? { ...c, status: 'uploading' } : c
+      ));
+
+      const fileName = `${userId}/${captureId}.jpg`;
+      const { error: uploadError } = await supabase.storage
+        .from('card-images')
+        .upload(`cards/${fileName}`, blob, {
+          cacheControl: '3600',
+          upsert: false,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: signedUrlData } = await supabase.storage
+        .from('card-images')
+        .createSignedUrl(`cards/${fileName}`, 31536000);
+
+      if (!signedUrlData?.signedUrl) throw new Error('Failed to get signed URL');
+
+      setCaptures(prev => prev.map(c => 
+        c.id === captureId ? { ...c, status: 'processing' } : c
+      ));
+
+      await processCardAnalysis(captureId, signedUrlData.signedUrl);
+
+    } catch (error: any) {
+      console.error('Processing error:', error);
+      setCaptures(prev => prev.map(c => 
+        c.id === captureId ? { ...c, status: 'error', error: error.message } : c
+      ));
+    }
+  };
+
   const processQueue = async () => {
     if (isProcessingRef.current) return;
     if (isPaused) {
@@ -222,16 +260,6 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
 
     if (processingQueueRef.current.length === 0) {
       setProcessing(false);
-      
-      if (captures.length > 0) {
-        const completed = captures.filter(c => c.status === 'completed').length;
-        const errors = captures.filter(c => c.status === 'error').length;
-        const pending = captures.filter(c => c.status === 'queued' || c.status === 'uploading' || c.status === 'processing').length;
-        
-        if (pending === 0 && (completed > 0 || errors > 0)) {
-          toast.success(`Batch complete: ${completed} cards processed${errors > 0 ? `, ${errors} errors` : ''}`);
-        }
-      }
       return;
     }
 
@@ -239,75 +267,40 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     setProcessing(true);
 
     while (processingQueueRef.current.length > 0 && !isPaused) {
-      const captureId = processingQueueRef.current[0];
+      // Get next batch of cards to process concurrently
+      const batchIds = processingQueueRef.current.slice(0, CONCURRENT_LIMIT);
       
-      let currentCapture: CapturedCard | undefined;
+      // Get blob data for each card in batch
+      const batchItems: { id: string; blob: Blob }[] = [];
       setCaptures(prev => {
-        currentCapture = prev.find(c => c.id === captureId);
+        for (const id of batchIds) {
+          const capture = prev.find(c => c.id === id);
+          if (capture) {
+            batchItems.push({ id, blob: capture.blob });
+          }
+        }
         return prev;
       });
-      
-      if (!currentCapture) {
-        processingQueueRef.current.shift();
-        continue;
-      }
 
-      try {
-        setCaptures(prev => prev.map(c => 
-          c.id === captureId ? { ...c, status: 'uploading' } : c
-        ));
+      // Remove batch from queue
+      processingQueueRef.current = processingQueueRef.current.slice(batchIds.length);
 
-        const fileName = `${userId}/${captureId}.jpg`;
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('card-images')
-          .upload(`cards/${fileName}`, currentCapture.blob, {
-            cacheControl: '3600',
-            upsert: false,
-          });
-
-        if (uploadError) throw uploadError;
-
-        const { data: signedUrlData } = await supabase.storage
-          .from('card-images')
-          .createSignedUrl(`cards/${fileName}`, 31536000);
-
-        if (!signedUrlData?.signedUrl) throw new Error('Failed to get signed URL');
-
-        setCaptures(prev => prev.map(c => 
-          c.id === captureId ? { ...c, status: 'processing' } : c
-        ));
-
-        await processCardAnalysis(captureId, signedUrlData.signedUrl);
-        processingQueueRef.current.shift();
-
-      } catch (error: any) {
-        console.error('Processing error:', error);
-        setCaptures(prev => prev.map(c => 
-          c.id === captureId ? { ...c, status: 'error', error: error.message } : c
-        ));
-        processingQueueRef.current.shift();
-      }
+      // Process batch concurrently
+      await Promise.all(
+        batchItems.map(item => processSingleCard(item.id, item.blob))
+      );
     }
 
     isProcessingRef.current = false;
+    setProcessing(false);
     
-    if (isPaused) {
-      setProcessing(false);
-      return;
-    }
-    
-    if (processingQueueRef.current.length === 0) {
-      setProcessing(false);
-      
+    if (!isPaused) {
       const completed = captures.filter(c => c.status === 'completed').length;
       const errors = captures.filter(c => c.status === 'error').length;
       
       if (completed > 0 || errors > 0) {
-        toast.success(`Queue complete: ${completed} cards saved${errors > 0 ? `, ${errors} failed` : ''}`);
+        toast.success(`Complete: ${completed} cards saved${errors > 0 ? `, ${errors} failed` : ''}`);
       }
-    } else {
-      isProcessingRef.current = false;
-      processQueue();
     }
   };
 
