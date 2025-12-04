@@ -6,13 +6,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { Upload, Camera, Loader2, CheckCircle, X, RefreshCw, FolderUp, SwitchCamera, Smartphone } from "lucide-react";
+import { Upload, Camera, Loader2, CheckCircle, X, RefreshCw, FolderUp, SwitchCamera, Smartphone, Usb } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BatchProgress } from "./scanner/BatchProgress";
 import { CardIdentificationEditor } from "./scanner/CardIdentificationEditor";
 import { RemoteScanDesktop } from "./scanner/RemoteScanDesktop";
 import { RemoteScanMobile } from "./scanner/RemoteScanMobile";
 import { RapidScanCamera } from "./scanner/RapidScanCamera";
+import { USBPhoneCameraScanner } from "./scanner/USBPhoneCameraScanner";
 import { analyzeCardFull } from "@/lib/analyzeCardFull";
 import { useIsMobile } from "@/hooks/use-mobile";
 
@@ -747,9 +748,13 @@ const Scanner = ({ userId }: ScannerProps) => {
   return (
     <div className="space-y-6">
       <Tabs defaultValue="upload" className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="upload">Upload</TabsTrigger>
           <TabsTrigger value="camera">Camera</TabsTrigger>
+          <TabsTrigger value="usb">
+            <Usb className="mr-2 h-4 w-4" />
+            USB Phone
+          </TabsTrigger>
           <TabsTrigger value="rapid">
             <Camera className="mr-2 h-4 w-4" />
             Rapid Scan
@@ -1071,11 +1076,24 @@ const Scanner = ({ userId }: ScannerProps) => {
     </Card>
   </TabsContent>
 
+  <TabsContent value="usb">
+    <USBPhoneCameraScanner
+      onImageCaptured={(imageFile) => {
+        setFile(imageFile);
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          setPreview(e.target?.result as string);
+          setTimeout(() => handleScan(), 100);
+        };
+        reader.readAsDataURL(imageFile);
+      }}
+    />
+  </TabsContent>
+
   <TabsContent value="rapid">
     <RapidScanCamera 
       userId={userId}
       onComplete={() => {
-        // Refresh or notify completion
         toast.success('Rapid scan session complete!');
       }}
     />
