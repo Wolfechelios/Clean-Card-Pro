@@ -120,8 +120,15 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
       return;
     }
 
-    const canvas = document.createElement('canvas');
     const video = videoRef.current;
+    
+    // Validate video is actually streaming
+    if (video.videoWidth === 0 || video.videoHeight === 0 || video.readyState < 2) {
+      toast.error('Camera not ready. Please wait for video to load.');
+      return;
+    }
+
+    const canvas = document.createElement('canvas');
     
     // Use high resolution for capture
     const captureWidth = Math.max(video.videoWidth, 2560);
