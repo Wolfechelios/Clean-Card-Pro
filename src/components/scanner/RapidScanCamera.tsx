@@ -287,8 +287,6 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
         ));
         processingQueueRef.current.shift();
       }
-
-      await new Promise(resolve => setTimeout(resolve, 100));
     }
 
     isProcessingRef.current = false;
@@ -315,28 +313,20 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
 
   const processCardAnalysis = async (captureId: string, imageUrl: string) => {
     try {
-      const { data: analysisData, error: analysisError } = await supabase.functions.invoke(
-        'analyze-card-full',
-        { body: { image_url: imageUrl } }
-      );
+      // Run identification and pricing in parallel for speed
+      const [identifyResult, pricingResult] = await Promise.all([
+        supabase.functions.invoke('enhanced-card-identify', { 
+          body: { imageUrl } 
+        }),
+        supabase.functions.invoke('fetch-card-prices', { 
+          body: { imageUrl } 
+        }).catch(() => ({ data: null })) // Don't fail if pricing fails
+      ]);
 
-      if (analysisError) throw analysisError;
+      if (identifyResult.error) throw identifyResult.error;
 
-      const ocrText = analysisData?.vision?.ocr_text || '';
-
-      const { data: enhancedData, error: enhancedError } = await supabase.functions.invoke(
-        'enhanced-card-identify',
-        { body: { imageUrl, ocrText } }
-      );
-
-      if (enhancedError) throw enhancedError;
-
-      const cardData = enhancedData?.cardData?.primary || enhancedData?.cardData;
-
-      const { data: pricingData } = await supabase.functions.invoke(
-        'identify-card',
-        { body: { imageUrl, ocrText } }
-      );
+      const cardData = identifyResult.data?.cardData?.primary || identifyResult.data?.cardData;
+      const pricingData = pricingResult.data;
 
       await supabase.from('cards').insert({
         user_id: userId,
@@ -349,7 +339,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
         sport_type: cardData?.sport_type,
         image_url: imageUrl,
         thumbnail_url: imageUrl,
-        ocr_raw_text: ocrText,
+        ocr_raw_text: cardData?.description || '',
         ocr_confidence: cardData?.confidence || 0,
         current_price_raw: pricingData?.pricing?.currentPriceRaw,
         current_price_psa9: pricingData?.pricing?.currentPricePsa9,
