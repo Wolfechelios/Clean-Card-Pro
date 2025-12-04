@@ -1,6 +1,6 @@
 import { LayoutDashboard, ScanLine, FolderOpen, BookOpen, Settings, Lightbulb, Menu, Eye, Activity, Layers, MapPin, Brain } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 
@@ -21,18 +21,22 @@ const menuItems = [
 export function SideBar() {
   const [open, setOpen] = useState(false);
 
+  const handleNavClick = useCallback(() => {
+    setOpen(false);
+  }, []);
+
   const NavItems = () => (
     <>
       {menuItems.map((item) => (
         <NavLink
           key={item.path}
           to={item.path}
-          onClick={() => setOpen(false)}
-          className="flex items-center gap-3 px-4 py-3 rounded-lg text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-all duration-200 hover:translate-x-1"
+          onClick={handleNavClick}
+          className="flex items-center gap-3 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-fast active:scale-[0.98]"
           activeClassName="bg-accent text-accent-foreground font-medium"
         >
-          <item.icon className="h-5 w-5" />
-          <span>{item.label}</span>
+          <item.icon className="h-5 w-5 flex-shrink-0" />
+          <span className="truncate text-sm sm:text-base">{item.label}</span>
         </NavLink>
       ))}
     </>
@@ -42,21 +46,28 @@ export function SideBar() {
     <>
       {/* Mobile Menu */}
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetTrigger asChild className="lg:hidden fixed top-4 left-4 z-50">
-          <Button variant="outline" size="icon" className="lg:hidden bg-background shadow-lg">
+        <SheetTrigger asChild className="lg:hidden fixed top-2 left-2 sm:top-3 sm:left-3 z-50">
+          <Button 
+            variant="outline" 
+            size="icon" 
+            className="lg:hidden h-10 w-10 bg-background/95 backdrop-blur-sm shadow-lg border-border active:scale-95 transition-fast"
+          >
             <Menu className="h-5 w-5" />
           </Button>
         </SheetTrigger>
-        <SheetContent side="left" className="w-64 p-0 bg-sidebar border-sidebar-border">
-          <nav className="flex flex-col gap-1 p-4 mt-8">
+        <SheetContent 
+          side="left" 
+          className="w-[280px] sm:w-64 p-0 bg-sidebar border-sidebar-border safe-top safe-bottom"
+        >
+          <nav className="flex flex-col gap-1 p-3 sm:p-4 mt-12 overflow-y-auto max-h-[calc(100vh-4rem)] touch-pan-y">
             <NavItems />
           </nav>
         </SheetContent>
       </Sheet>
 
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:block w-64 bg-sidebar border-r border-sidebar-border min-h-screen sticky top-0">
-        <nav className="flex flex-col gap-1 p-4">
+      <aside className="hidden lg:block w-64 bg-sidebar border-r border-sidebar-border min-h-screen sticky top-0 transition-gpu">
+        <nav className="flex flex-col gap-1 p-4 overflow-y-auto max-h-screen">
           <NavItems />
         </nav>
       </aside>
