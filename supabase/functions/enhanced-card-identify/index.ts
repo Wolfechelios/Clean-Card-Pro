@@ -129,9 +129,30 @@ Only include alternatives array if confidence is below 0.95. If completely certa
       // Extract JSON from markdown code blocks if present
       const jsonMatch = content.match(/```json\n([\s\S]+?)\n```/) || content.match(/```\n([\s\S]+?)\n```/);
       const jsonStr = jsonMatch ? jsonMatch[1] : content;
-      cardData = JSON.parse(jsonStr);
+      cardData = JSON.parse(jsonStr.trim());
     } catch (e) {
       console.error('Failed to parse AI response as JSON:', content);
+      
+      // Check if AI couldn't identify a card
+      const lowerContent = content.toLowerCase();
+      if (lowerContent.includes('cannot identify') || 
+          lowerContent.includes('no trading card') || 
+          lowerContent.includes('no visible') ||
+          lowerContent.includes('not a trading card') ||
+          lowerContent.includes('unable to identify')) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: 'No trading card detected in image. Please ensure the card is clearly visible.',
+            noCardDetected: true
+          }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        );
+      }
+      
       throw new Error('Failed to parse card identification response');
     }
 
