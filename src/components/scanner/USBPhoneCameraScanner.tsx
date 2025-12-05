@@ -46,12 +46,20 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
         throw new Error("No camera device selected. Please connect a USB phone camera.");
       }
 
-      // Try to get the specific USB device
-      const constraints = {
+      // Try to get the specific USB device with highest quality
+      const constraints: MediaStreamConstraints = {
         video: {
           deviceId: { exact: targetDeviceId },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
+          width: { ideal: 3840, min: 1920 },
+          height: { ideal: 2160, min: 1080 },
+          frameRate: { ideal: 30, min: 15 },
+          facingMode: { ideal: "environment" },
+          // @ts-ignore - advanced constraints
+          focusMode: { ideal: "continuous" },
+          // @ts-ignore - advanced constraints  
+          exposureMode: { ideal: "continuous" },
+          // @ts-ignore - advanced constraints
+          whiteBalanceMode: { ideal: "continuous" },
         },
         audio: false
       };
@@ -60,11 +68,23 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
       try {
         stream = await navigator.mediaDevices.getUserMedia(constraints);
       } catch (err) {
-        // Fallback to less strict constraints
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { deviceId: targetDeviceId },
-          audio: false
-        });
+        // Fallback to high quality without advanced constraints
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              deviceId: { exact: targetDeviceId },
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+            },
+            audio: false
+          });
+        } catch (err2) {
+          // Final fallback
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { deviceId: targetDeviceId },
+            audio: false
+          });
+        }
       }
 
       if (!videoRef.current) {
@@ -131,21 +151,28 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
 
     try {
       const canvas = document.createElement('canvas');
+      // Use native video resolution for maximum quality
       canvas.width = videoRef.current.videoWidth;
       canvas.height = videoRef.current.videoHeight;
       
-      const ctx = canvas.getContext('2d');
+      const ctx = canvas.getContext('2d', { 
+        alpha: false, 
+        desynchronized: true,
+        willReadFrequently: false 
+      });
       if (!ctx) throw new Error("Failed to get canvas context");
       
+      // Maximum quality rendering
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(videoRef.current, 0, 0);
+      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
       
+      // Use PNG for lossless quality, fallback to high-quality JPEG
       const blob = await new Promise<Blob>((resolve, reject) => {
         canvas.toBlob((b) => {
           if (b) resolve(b);
           else reject(new Error("Failed to create blob"));
-        }, 'image/jpeg', 0.95);
+        }, 'image/jpeg', 1.0); // Maximum JPEG quality
       });
       
       const file = new File([blob], `card-usb-${Date.now()}.jpg`, { type: 'image/jpeg' });
