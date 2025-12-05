@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Camera, SwitchCamera, X, CheckCircle, Loader2, Pause, Play, Focus, Zap, ZapOff } from "lucide-react";
+import { Camera, SwitchCamera, X, CheckCircle, Loader2, Pause, Play, Focus, Zap, ZapOff, Usb, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { useCameraDevices } from "@/hooks/use-camera-devices";
 import { CameraDeviceSelector } from "./CameraDeviceSelector";
 import { ScannedCardList } from "./ScannedCardList";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface RapidScanCameraProps {
   userId: string;
@@ -35,6 +36,7 @@ const MAX_CAPTURES = 100;
 export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) => {
   const [isActive, setIsActive] = useState(false);
   const [cameraFacing, setCameraFacing] = useState<'environment' | 'user'>('environment');
+  const [cameraMode, setCameraMode] = useState<'device' | 'usb'>('device');
   const [captures, setCaptures] = useState<CapturedCard[]>([]);
   const [processing, setProcessing] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -47,6 +49,11 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   const capturesRef = useRef<CapturedCard[]>([]);
 
   const { devices, selectedDeviceId, setSelectedDeviceId, isLoading: devicesLoading, refreshDevices } = useCameraDevices();
+  
+  // Filter USB vs regular devices
+  const usbDevices = devices.filter(d => d.isUSB);
+  const regularDevices = devices.filter(d => !d.isUSB);
+  const hasUSBDevices = usbDevices.length > 0;
 
   const startCamera = async (deviceId?: string) => {
     try {
@@ -56,15 +63,21 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
 
       const targetDeviceId = deviceId || selectedDeviceId;
       
-      // Build constraints with auto-focus enabled
+      // Build constraints - higher quality for USB mode
+      const isUSBMode = cameraMode === 'usb';
       const videoConstraints: Record<string, any> = {
-        width: { ideal: 3840, min: 1920 },
-        height: { ideal: 2160, min: 1080 },
+        width: { ideal: isUSBMode ? 3840 : 2560, min: 1920 },
+        height: { ideal: isUSBMode ? 2160 : 1440, min: 1080 },
         aspectRatio: { ideal: 5/7 },
         frameRate: { ideal: 30 },
-        // Enable continuous auto-focus for card scanning
         focusMode: 'continuous',
       };
+      
+      // USB mode: add advanced quality settings
+      if (isUSBMode) {
+        videoConstraints.exposureMode = 'continuous';
+        videoConstraints.whiteBalanceMode = 'continuous';
+      }
 
       if (targetDeviceId) {
         videoConstraints.deviceId = { exact: targetDeviceId };
@@ -242,6 +255,32 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     setIsActive(false);
     setFlashEnabled(false);
     setFlashSupported(false);
+  };
+
+  // Keyboard shutter trigger for USB mode
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (isActive && (e.code === 'Space' || e.code === 'Enter' || e.key === 'VolumeUp' || e.key === 'VolumeDown')) {
+        e.preventDefault();
+        capturePhoto();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isActive]);
+
+  // Handle mode change
+  const handleModeChange = (mode: string) => {
+    setCameraMode(mode as 'device' | 'usb');
+    if (isActive) {
+      stopCamera();
+    }
+    // Auto-select first device of the chosen mode
+    const targetDevices = mode === 'usb' ? usbDevices : regularDevices;
+    if (targetDevices.length > 0) {
+      setSelectedDeviceId(targetDevices[0].deviceId);
+    }
   };
 
   const toggleCamera = () => {
@@ -551,17 +590,37 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
       {/* Header Stats */}
       <Card>
         <CardContent className="pt-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="space-y-1">
               <h3 className="text-2xl font-bold">Rapid Scan</h3>
               <p className="text-sm text-muted-foreground">
                 Capture cards quickly - processing happens automatically
               </p>
             </div>
-            <Badge variant={processing ? "default" : "secondary"} className="text-lg px-4 py-2">
-              {captures.length}/{MAX_CAPTURES}
-            </Badge>
+            <div className="flex items-center gap-3">
+              {/* Camera Mode Toggle */}
+              <Tabs value={cameraMode} onValueChange={handleModeChange}>
+                <TabsList className="h-9">
+                  <TabsTrigger value="device" className="text-xs px-3">
+                    <Smartphone className="h-3 w-3 mr-1" />
+                    Device
+                  </TabsTrigger>
+                  <TabsTrigger value="usb" className="text-xs px-3" disabled={!hasUSBDevices}>
+                    <Usb className="h-3 w-3 mr-1" />
+                    USB
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+              <Badge variant={processing ? "default" : "secondary"} className="text-lg px-4 py-2">
+                {captures.length}/{MAX_CAPTURES}
+              </Badge>
+            </div>
           </div>
+          {cameraMode === 'usb' && (
+            <p className="text-xs text-muted-foreground mt-2">
+              Press <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">Space</kbd> or <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">Enter</kbd> to capture
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -569,10 +628,10 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
       <Card className="overflow-hidden">
         <CardContent className="p-0">
           {/* Device Selector */}
-          {devices.length > 1 && (
+          {(cameraMode === 'usb' ? usbDevices : devices).length > 1 && (
             <div className="p-4 border-b bg-background/80">
               <CameraDeviceSelector
-                devices={devices}
+                devices={cameraMode === 'usb' ? usbDevices : devices}
                 selectedDeviceId={selectedDeviceId}
                 onDeviceChange={handleDeviceChange}
                 onRefresh={refreshDevices}

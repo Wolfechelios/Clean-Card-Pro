@@ -143,7 +143,7 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
     }
   };
 
-  const capturePhoto = async () => {
+  const capturePhoto = useCallback(async () => {
     if (!videoRef.current || !cameraReady) {
       toast.error("Camera not ready");
       return;
@@ -183,7 +183,7 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
       console.error("Capture error:", error);
       toast.error("Failed to capture photo");
     }
-  };
+  }, [cameraReady, onImageCaptured]);
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -193,6 +193,20 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
     setCameraReady(false);
     setCameraError(null);
   }, []);
+
+  // Keyboard/remote shutter trigger (Space, Enter, or volume keys)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Capture on Space, Enter, or common remote shutter keys
+      if (cameraReady && (e.code === 'Space' || e.code === 'Enter' || e.key === 'VolumeUp' || e.key === 'VolumeDown')) {
+        e.preventDefault();
+        capturePhoto();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [cameraReady, capturePhoto]);
 
   useEffect(() => {
     return () => {
@@ -262,8 +276,8 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
           </div>
         )}
 
-        {/* Camera Preview */}
-        <div className="relative aspect-[3/4] bg-black rounded-lg overflow-hidden">
+        {/* Camera Preview - constrained for desktop */}
+        <div className="relative bg-black rounded-lg overflow-hidden mx-auto max-w-sm md:max-w-md" style={{ aspectRatio: '5/7' }}>
           <video
             ref={videoRef}
             autoPlay
@@ -319,12 +333,20 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
 
           {/* Card frame guide */}
           {cameraReady && (
-            <div className="absolute inset-4 border-2 border-dashed border-primary/50 rounded-lg pointer-events-none">
-              <div className="absolute top-0 left-0 w-6 h-6 border-t-2 border-l-2 border-primary rounded-tl" />
-              <div className="absolute top-0 right-0 w-6 h-6 border-t-2 border-r-2 border-primary rounded-tr" />
-              <div className="absolute bottom-0 left-0 w-6 h-6 border-b-2 border-l-2 border-primary rounded-bl" />
-              <div className="absolute bottom-0 right-0 w-6 h-6 border-b-2 border-r-2 border-primary rounded-br" />
-            </div>
+            <>
+              <div className="absolute inset-4 border-2 border-dashed border-primary/50 rounded-lg pointer-events-none">
+                <div className="absolute top-0 left-0 w-6 h-6 border-t-2 border-l-2 border-primary rounded-tl" />
+                <div className="absolute top-0 right-0 w-6 h-6 border-t-2 border-r-2 border-primary rounded-tr" />
+                <div className="absolute bottom-0 left-0 w-6 h-6 border-b-2 border-l-2 border-primary rounded-bl" />
+                <div className="absolute bottom-0 right-0 w-6 h-6 border-b-2 border-r-2 border-primary rounded-br" />
+              </div>
+              {/* Shutter hint */}
+              <div className="absolute bottom-2 left-0 right-0 text-center pointer-events-none">
+                <span className="text-xs text-white/70 bg-black/50 px-2 py-1 rounded">
+                  Press Space or Enter to capture
+                </span>
+              </div>
+            </>
           )}
         </div>
 
