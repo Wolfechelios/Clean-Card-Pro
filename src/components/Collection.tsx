@@ -251,9 +251,9 @@ const Collection = ({ userId }: CollectionProps) => {
                 variant="outline"
                 size="icon"
                 onClick={() => setViewMode(viewMode === "grid" ? "list" : "grid")}
-                title={viewMode === "grid" ? "Switch to list view" : "Switch to grid view"}
+                aria-label={viewMode === "grid" ? "Switch to list view" : "Switch to grid view"}
               >
-                {viewMode === "grid" ? <List className="h-4 w-4" /> : <Grid3x3 className="h-4 w-4" />}
+                {viewMode === "grid" ? <List className="h-4 w-4" aria-hidden="true" /> : <Grid3x3 className="h-4 w-4" aria-hidden="true" />}
               </Button>
               <Button
                 variant={bulkMode ? "default" : "outline"}
@@ -262,12 +262,13 @@ const Collection = ({ userId }: CollectionProps) => {
                   setBulkMode(!bulkMode);
                   setSelectedCards(new Set());
                 }}
-                title="Toggle bulk select mode"
+                aria-label="Toggle bulk select mode"
+                aria-pressed={bulkMode}
               >
-                <CheckSquare className="h-4 w-4" />
+                <CheckSquare className="h-4 w-4" aria-hidden="true" />
               </Button>
-              <Button onClick={handleExport} variant="outline" className="gap-2">
-                <Download className="h-4 w-4" />
+              <Button onClick={handleExport} variant="outline" className="gap-2" aria-label="Export collection">
+                <Download className="h-4 w-4" aria-hidden="true" />
                 Export
               </Button>
             </div>
@@ -276,22 +277,23 @@ const Collection = ({ userId }: CollectionProps) => {
         <CardContent className="space-y-4">
           <div className="flex gap-2">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
               <Input
                 placeholder="Search by name, set, or number..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
+                aria-label="Search cards"
               />
             </div>
             {bulkMode && selectedCards.size > 0 && (
               <>
-                <Button onClick={handleBulkDelete} variant="destructive">
-                  <Trash2 className="mr-2 h-4 w-4" />
+                <Button onClick={handleBulkDelete} variant="destructive" aria-label={`Delete ${selectedCards.size} selected cards`}>
+                  <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />
                   Delete ({selectedCards.size})
                 </Button>
-                <Button onClick={() => setSelectedCards(new Set())} variant="outline" size="icon">
-                  <X className="h-4 w-4" />
+                <Button onClick={() => setSelectedCards(new Set())} variant="outline" size="icon" aria-label="Clear selection">
+                  <X className="h-4 w-4" aria-hidden="true" />
                 </Button>
               </>
             )}

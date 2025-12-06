@@ -318,16 +318,16 @@ export default function NewDashboard() {
           <p className="text-muted-foreground">Overview of your card collection</p>
         </div>
         <div className="flex gap-2">
-          <Button onClick={() => navigate("/scan")} variant="default">
-            <Camera className="h-4 w-4 mr-2" />
+          <Button onClick={() => navigate("/scan")} variant="default" aria-label="Scan cards">
+            <Camera className="h-4 w-4 mr-2" aria-hidden="true" />
             Scan Cards
           </Button>
-          <Button onClick={() => navigate("/binders")} variant="outline">
-            <BookOpen className="h-4 w-4 mr-2" />
+          <Button onClick={() => navigate("/binders")} variant="outline" aria-label="View binders">
+            <BookOpen className="h-4 w-4 mr-2" aria-hidden="true" />
             Binders
           </Button>
-          <Button onClick={fetchDashboardData} variant="outline" size="icon" disabled={isRefreshing}>
-            <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+          <Button onClick={fetchDashboardData} variant="outline" size="icon" disabled={isRefreshing} aria-label="Refresh dashboard">
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} aria-hidden="true" />
           </Button>
         </div>
       </div>
