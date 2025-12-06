@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { analyzeCardFull } from "@/lib/analyzeCardFull";
-
+import { getScannerSettings } from "./use-scanner-settings";
 export interface OCRResult {
   cardName: string;
   cardSet: string;
@@ -175,8 +175,9 @@ export function useCardScanner({ userId, onScanComplete }: UseCardScannerOptions
         description: pricingData?.notes || "",
       };
 
-      // Auto-confirm and save if confidence >= 75%
-      if (identifiedCard.confidence >= 75) {
+      // Auto-confirm and save if confidence >= threshold
+      const { autoConfirmThreshold } = getScannerSettings();
+      if (identifiedCard.confidence >= autoConfirmThreshold) {
         try {
           const { error: dbError } = await supabase.from("cards").insert({
             user_id: userId,
