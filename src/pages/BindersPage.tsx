@@ -1,16 +1,12 @@
 import { useAuth } from "@/hooks/use-auth";
 import { BinderScan } from "@/components/binder/BinderScan";
-import { Loader2 } from "lucide-react";
+import { BinderSkeleton } from "@/components/ui/loading-skeletons";
 
 export default function BindersPage() {
   const { userId, loading } = useAuth();
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <BinderSkeleton />;
   }
 
   if (!userId) {

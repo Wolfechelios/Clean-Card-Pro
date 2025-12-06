@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, TrendingUp, TrendingDown, Minus, AlertCircle, Lightbulb, Shield, DollarSign } from "lucide-react";
 import { getCollectionInsights, CollectionInsights } from "@/lib/collectionInsights";
 import { useToast } from "@/hooks/use-toast";
+import { InsightsSkeleton } from "@/components/ui/loading-skeletons";
 
 export default function InsightsPage() {
   const [insights, setInsights] = useState<CollectionInsights | null>(null);
@@ -35,11 +36,7 @@ export default function InsightsPage() {
   }, []);
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <InsightsSkeleton />;
   }
 
   if (!insights) {
