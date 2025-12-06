@@ -175,9 +175,9 @@ export function useCardScanner({ userId, onScanComplete }: UseCardScannerOptions
         description: pricingData?.notes || "",
       };
 
-      // Auto-confirm and save if confidence >= threshold
-      const { autoConfirmThreshold } = getScannerSettings();
-      if (identifiedCard.confidence >= autoConfirmThreshold) {
+      // Auto-confirm and save if enabled and confidence >= threshold
+      const { autoConfirmEnabled, autoConfirmThreshold } = getScannerSettings();
+      if (autoConfirmEnabled && identifiedCard.confidence >= autoConfirmThreshold) {
         try {
           const { error: dbError } = await supabase.from("cards").insert({
             user_id: userId,

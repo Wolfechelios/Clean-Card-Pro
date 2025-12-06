@@ -3,10 +3,12 @@ import { useState, useEffect, useCallback } from "react";
 const SCANNER_SETTINGS_KEY = "card-scanner-settings";
 
 export interface ScannerSettings {
+  autoConfirmEnabled: boolean;
   autoConfirmThreshold: number; // 0-100, percentage
 }
 
 const DEFAULT_SETTINGS: ScannerSettings = {
+  autoConfirmEnabled: true,
   autoConfirmThreshold: 75,
 };
 
