@@ -80,24 +80,24 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
       const targetDeviceId = deviceId || selectedDeviceId;
       const isUSBMode = cameraMode === 'usb';
 
-      // Progressive constraint fallback chain
+      // Progressive constraint fallback chain - prioritize high quality
       const constraintOptions = [
-        // Try 1: Full quality with advanced features
+        // Try 1: Maximum quality (4K)
         {
           video: {
             ...(targetDeviceId ? { deviceId: { exact: targetDeviceId } } : { facingMode: { ideal: cameraFacing } }),
-            width: { ideal: isUSBMode ? 3840 : 1920 },
-            height: { ideal: isUSBMode ? 2160 : 1080 },
+            width: { ideal: 3840, min: 1920 },
+            height: { ideal: 2160, min: 1080 },
             frameRate: { ideal: 30 },
           },
           audio: false,
         },
-        // Try 2: Medium quality without exact device
+        // Try 2: High quality (1080p+)
         {
           video: {
             ...(targetDeviceId ? { deviceId: targetDeviceId } : { facingMode: cameraFacing }),
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
+            width: { ideal: 2560 },
+            height: { ideal: 1440 },
           },
           audio: false,
         },
@@ -343,9 +343,9 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
 
     const canvas = document.createElement('canvas');
     
-    // Use high resolution for capture
-    const captureWidth = Math.max(video.videoWidth, 2560);
-    const captureHeight = Math.max(video.videoHeight, 3584); // 5:7 ratio
+    // Use maximum resolution for capture - prioritize quality
+    const captureWidth = Math.max(video.videoWidth, 3840);
+    const captureHeight = Math.max(video.videoHeight, 5376); // 5:7 ratio at 4K width
     
     canvas.width = captureWidth;
     canvas.height = captureHeight;
@@ -427,7 +427,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
           
           toast.success('Card captured!');
         }
-      }, 'image/jpeg', 0.85); // Lower quality for faster uploads
+      }, 'image/jpeg', 0.95); // High quality for better card recognition
     }
   };
 
