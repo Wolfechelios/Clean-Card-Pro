@@ -18,15 +18,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Download, LogOut, Trash2, User, Lock, Upload, ImageOff, Clock, RefreshCw, Database } from "lucide-react";
+import { Download, LogOut, Trash2, User, Lock, Upload, ImageOff, Clock, RefreshCw, Database, ScanLine } from "lucide-react";
 import * as XLSX from "xlsx";
 import { Progress } from "@/components/ui/progress";
 import N8nIntegrations from "@/components/settings/N8nIntegrations";
 import { SettingsSkeleton } from "@/components/ui/loading-skeletons";
+import { useScannerSettings } from "@/hooks/use-scanner-settings";
+import { Slider } from "@/components/ui/slider";
 
 export default function Settings() {
   const navigate = useNavigate();
   const { user, userId, signOut } = useAuth();
+  const { settings: scannerSettings, updateSettings: updateScannerSettings } = useScannerSettings();
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -484,6 +487,42 @@ export default function Settings() {
           <Button variant="outline" onClick={() => setShowPasswordDialog(true)}>
             Change Password
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* Scanner Settings */}
+      <Card className="bg-card border-border">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ScanLine className="h-5 w-5" />
+            Scanner Settings
+          </CardTitle>
+          <CardDescription>Configure card scanning behavior</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="auto-confirm-threshold" className="text-sm font-medium">
+                Auto-Confirm Confidence Threshold: {scannerSettings.autoConfirmThreshold}%
+              </Label>
+              <p className="text-xs text-muted-foreground mt-1 mb-3">
+                Cards with confidence at or above this threshold will be automatically saved without manual confirmation.
+              </p>
+              <Slider
+                id="auto-confirm-threshold"
+                min={50}
+                max={100}
+                step={5}
+                value={[scannerSettings.autoConfirmThreshold]}
+                onValueChange={(value) => updateScannerSettings({ autoConfirmThreshold: value[0] })}
+                className="w-full"
+              />
+              <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                <span>50% (More auto-saves)</span>
+                <span>100% (Always manual)</span>
+              </div>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
