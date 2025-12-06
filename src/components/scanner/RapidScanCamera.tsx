@@ -49,6 +49,16 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   const processingQueueRef = useRef<string[]>([]);
   const isProcessingRef = useRef(false);
   const capturesRef = useRef<CapturedCard[]>([]);
+  const shutterSoundRef = useRef<HTMLAudioElement | null>(null);
+
+  // Initialize shutter sound
+  useEffect(() => {
+    shutterSoundRef.current = new Audio('/sounds/shutter.mp3');
+    shutterSoundRef.current.volume = 0.5;
+    return () => {
+      shutterSoundRef.current = null;
+    };
+  }, []);
 
   const { devices, selectedDeviceId, setSelectedDeviceId, isLoading: devicesLoading, refreshDevices } = useCameraDevices();
   
@@ -400,6 +410,12 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
             processQueue();
           }
           
+          // Play shutter sound
+          if (shutterSoundRef.current) {
+            shutterSoundRef.current.currentTime = 0;
+            shutterSoundRef.current.play().catch(() => {});
+          }
+
           // Haptic feedback on mobile
           if ('vibrate' in navigator) {
             navigator.vibrate(50);
