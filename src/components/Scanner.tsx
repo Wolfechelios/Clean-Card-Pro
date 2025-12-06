@@ -460,90 +460,86 @@ const Scanner = ({ userId }: ScannerProps) => {
 
   const startCamera = async (facingMode: 'environment' | 'user' = cameraFacingMode) => {
     try {
-      console.log('=== Starting Camera ===');
-      console.log('Facing mode:', facingMode);
-      
       // Stop existing stream if any
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
 
-      // Request high-quality camera optimized for card scanning
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          facingMode: { ideal: facingMode },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          aspectRatio: { ideal: 16/9 },
+      // Progressive fallback chain for camera constraints
+      const constraintOptions = [
+        // Try 1: High quality with facing mode
+        {
+          video: {
+            facingMode: { ideal: facingMode },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
+          audio: false,
         },
-        audio: false 
-      });
-      
-      console.log('Camera stream obtained');
+        // Try 2: Basic facing mode
+        {
+          video: { facingMode: facingMode },
+          audio: false,
+        },
+        // Try 3: Just get any camera
+        { video: true, audio: false },
+      ];
+
+      let stream: MediaStream | null = null;
+      let lastError: Error | null = null;
+
+      for (const constraints of constraintOptions) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          break;
+        } catch (err: any) {
+          lastError = err;
+          console.warn('Camera constraint failed, trying fallback:', err.name);
+        }
+      }
+
+      if (!stream) {
+        throw lastError || new Error('Failed to access camera');
+      }
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        // Enable playsinline for iOS compatibility
         videoRef.current.setAttribute('playsinline', 'true');
         videoRef.current.setAttribute('webkit-playsinline', 'true');
         
-        // Wait for video metadata to load
-        await new Promise((resolve, reject) => {
+        await new Promise<void>((resolve) => {
           if (!videoRef.current) {
-            reject(new Error('Video element lost'));
+            resolve();
             return;
           }
           
-          videoRef.current.onloadedmetadata = () => {
-            console.log('Video metadata loaded, dimensions:', 
-              videoRef.current?.videoWidth, 'x', videoRef.current?.videoHeight);
-            resolve(null);
-          };
-          
-          videoRef.current.onerror = (e) => {
-            console.error('Video error:', e);
-            reject(new Error('Video failed to load'));
-          };
-          
-          // Timeout after 10 seconds
-          setTimeout(() => reject(new Error('Video loading timeout')), 10000);
+          videoRef.current.onloadedmetadata = () => resolve();
+          videoRef.current.onerror = () => resolve();
+          setTimeout(() => resolve(), 3000);
         });
         
-        // Explicitly play the video
         try {
           await videoRef.current.play();
-          console.log('Video playing successfully');
-        } catch (playError) {
-          console.error('Video play error:', playError);
-          // Continue anyway as some browsers require user interaction
+        } catch {
+          // Continue anyway - some browsers need user interaction
         }
         
         streamRef.current = stream;
         setIsCameraActive(true);
         setCameraFacingMode(facingMode);
-        toast.success('Camera started successfully');
+        toast.success('Camera ready');
       }
     } catch (error: any) {
-      console.error('=== Camera Error ===');
-      console.error('Error name:', error.name);
-      console.error('Error message:', error.message);
-      console.error('Full error:', error);
+      console.error('Camera error:', error);
       
-      let errorMessage = 'Could not access camera';
+      const messages: Record<string, string> = {
+        NotAllowedError: 'Camera permission denied. Please allow camera access.',
+        NotFoundError: 'No camera found on this device.',
+        NotReadableError: 'Camera is in use by another application.',
+        OverconstrainedError: 'Camera settings not supported.',
+      };
       
-      if (error.name === 'NotAllowedError') {
-        errorMessage = 'Camera permission denied. Please allow camera access in your browser settings.';
-      } else if (error.name === 'NotFoundError') {
-        errorMessage = 'No camera found on this device';
-      } else if (error.name === 'NotReadableError') {
-        errorMessage = 'Camera is already in use by another application';
-      } else if (error.name === 'NotSupportedError') {
-        errorMessage = 'Camera not supported. Make sure you\'re using HTTPS.';
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-      
-      toast.error(errorMessage);
+      toast.error(messages[error.name] || `Camera error: ${error.message}`);
     }
   };
 
