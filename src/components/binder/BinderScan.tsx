@@ -327,7 +327,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
   };
 
   return (
-    <Card className="bg-neutral-900 border-neutral-800">
+    <Card className="bg-card border-border">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Grid3x3 className="h-5 w-5" />
@@ -371,10 +371,10 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
                         <img
                           src={result.image_url}
                           alt={result.card_name}
-                          className="w-full aspect-[5/7] object-cover rounded-lg border-2 border-neutral-700 group-hover:border-primary/50 transition-colors"
+                          className="w-full aspect-[5/7] object-cover rounded-lg border-2 border-border group-hover:border-primary/50 transition-colors"
                         />
                       ) : (
-                        <div className="w-full aspect-[5/7] bg-neutral-800 rounded-lg border-2 border-neutral-700 flex items-center justify-center">
+                        <div className="w-full aspect-[5/7] bg-secondary rounded-lg border-2 border-border flex items-center justify-center">
                           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                         </div>
                       )}
@@ -394,7 +394,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
                           {result.card_name}
                         </p>
                         {result.card_set && (
-                          <p className="text-[10px] text-neutral-300 truncate">
+                          <p className="text-[10px] text-muted-foreground truncate">
                             {result.card_set}
                           </p>
                         )}
@@ -411,7 +411,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
                       </div>
                     </div>
                   ) : (
-                    <div className="w-full aspect-[5/7] border-2 border-dashed border-neutral-700 rounded-lg flex items-center justify-center">
+                    <div className="w-full aspect-[5/7] border-2 border-dashed border-border rounded-lg flex items-center justify-center">
                       <p className="text-xs text-muted-foreground">Empty slot</p>
                     </div>
                   )}
@@ -430,7 +430,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
             <div>
               <Label>Binder Layout</Label>
               <Select value={layout} onValueChange={(v) => setLayout(v as any)}>
-                <SelectTrigger className="bg-neutral-800 border-neutral-700">
+                <SelectTrigger className="bg-secondary border-border">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -447,7 +447,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
                   ref={videoRef}
                   autoPlay
                   playsInline
-                  className="w-full rounded border border-neutral-700"
+                  className="w-full rounded border border-border"
                 />
                 <div className="flex gap-2">
                   <Button onClick={capturePhoto} className="flex-1">
