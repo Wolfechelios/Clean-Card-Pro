@@ -29,6 +29,7 @@ interface CapturedCard {
   value?: number | null;
   error?: string;
   dbId?: string;
+  priceFetching?: boolean;
 }
 
 const MAX_CAPTURES = 100;
@@ -519,6 +520,13 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
 
   // Fetch and update pricing for a card
   const fetchPricingForCard = async (cardId: string, cardData: any) => {
+    // Set loading state for this card
+    setCaptures(prev => {
+      const updated = prev.map(c => c.dbId === cardId ? { ...c, priceFetching: true } : c);
+      capturesRef.current = updated;
+      return updated;
+    });
+
     try {
       const { data: pricing, error } = await supabase.functions.invoke('fetch-card-prices', {
         body: {
@@ -543,18 +551,32 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
           last_price_update: new Date().toISOString(),
         }).eq('id', cardId);
 
-        // Update UI with price
+        // Update UI with price and clear loading state
         setCaptures(prev => {
           const updated = prev.map(c => c.dbId === cardId ? { 
             ...c, 
-            value: pricing.suggested || pricing.raw 
+            value: pricing.suggested || pricing.raw,
+            priceFetching: false,
           } : c);
+          capturesRef.current = updated;
+          return updated;
+        });
+      } else {
+        // Clear loading state if no pricing data
+        setCaptures(prev => {
+          const updated = prev.map(c => c.dbId === cardId ? { ...c, priceFetching: false } : c);
           capturesRef.current = updated;
           return updated;
         });
       }
     } catch (err) {
       console.error('Pricing fetch error for card:', cardId, err);
+      // Clear loading state on error
+      setCaptures(prev => {
+        const updated = prev.map(c => c.dbId === cardId ? { ...c, priceFetching: false } : c);
+        capturesRef.current = updated;
+        return updated;
+      });
     }
   };
 
@@ -1001,7 +1023,12 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
                               {capture.rarity}
                             </Badge>
                           )}
-                          {capture.value != null && capture.value > 0 ? (
+                          {capture.priceFetching ? (
+                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              <span>Loading...</span>
+                            </span>
+                          ) : capture.value != null && capture.value > 0 ? (
                             <span className="text-sm font-bold text-green-600">
                               ${capture.value.toFixed(2)}
                             </span>
