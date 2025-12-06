@@ -48,6 +48,8 @@ interface CardItem {
   collection_name: string | null;
   condition: string | null;
   created_at: string;
+  game_type: string | null;
+  sport_type: string | null;
 }
 
 export default function Collections() {
@@ -76,6 +78,10 @@ export default function Collections() {
 
   const availableSets = Array.from(new Set(cards.map(c => c.card_set).filter(Boolean))) as string[];
   const availableRarities = Array.from(new Set(cards.map(c => c.rarity).filter(Boolean))) as string[];
+  const availableConditions = Array.from(new Set(cards.map(c => c.condition).filter(Boolean))) as string[];
+  const availableGameTypes = Array.from(new Set(cards.map(c => c.game_type).filter(Boolean))) as string[];
+  const availableSportTypes = Array.from(new Set(cards.map(c => c.sport_type).filter(Boolean))) as string[];
+  const availableCollections = Array.from(new Set(cards.map(c => c.collection_name).filter(Boolean))) as string[];
 
   // Read rarity filter from URL on mount
   useEffect(() => {
@@ -132,19 +138,25 @@ export default function Collections() {
   const applyFilters = () => {
     let filtered = [...cards];
 
+    // Text search
     if (searchQuery) {
+      const query = searchQuery.toLowerCase();
       filtered = filtered.filter(card => 
-        card.card_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        card.card_set?.toLowerCase().includes(searchQuery.toLowerCase())
+        card.card_name.toLowerCase().includes(query) ||
+        card.card_set?.toLowerCase().includes(query) ||
+        card.card_number?.toLowerCase().includes(query)
       );
     }
 
+    // Price filters
     if (activeFilters.priceMin !== undefined) {
       filtered = filtered.filter(card => (card.current_price_raw || 0) >= activeFilters.priceMin!);
     }
     if (activeFilters.priceMax !== undefined) {
       filtered = filtered.filter(card => (card.current_price_raw || 0) <= activeFilters.priceMax!);
     }
+
+    // Array filters
     if (activeFilters.rarity?.length) {
       filtered = filtered.filter(card => card.rarity && activeFilters.rarity!.includes(card.rarity));
     }
@@ -154,6 +166,50 @@ export default function Collections() {
     if (activeFilters.cardSet?.length) {
       filtered = filtered.filter(card => card.card_set && activeFilters.cardSet!.includes(card.card_set));
     }
+    if (activeFilters.gameType?.length) {
+      filtered = filtered.filter(card => card.game_type && activeFilters.gameType!.includes(card.game_type));
+    }
+    if (activeFilters.sportType?.length) {
+      filtered = filtered.filter(card => card.sport_type && activeFilters.sportType!.includes(card.sport_type));
+    }
+
+    // Collection name filter
+    if (activeFilters.collectionName) {
+      filtered = filtered.filter(card => card.collection_name === activeFilters.collectionName);
+    }
+
+    // Date filters
+    if (activeFilters.dateFrom) {
+      const fromDate = new Date(activeFilters.dateFrom);
+      filtered = filtered.filter(card => new Date(card.created_at) >= fromDate);
+    }
+    if (activeFilters.dateTo) {
+      const toDate = new Date(activeFilters.dateTo);
+      toDate.setHours(23, 59, 59, 999);
+      filtered = filtered.filter(card => new Date(card.created_at) <= toDate);
+    }
+
+    // Sorting
+    const sortBy = activeFilters.sortBy || 'created_at';
+    const sortOrder = activeFilters.sortOrder || 'desc';
+    
+    filtered.sort((a, b) => {
+      let aVal: any = a[sortBy as keyof CardItem];
+      let bVal: any = b[sortBy as keyof CardItem];
+      
+      // Handle nulls
+      if (aVal === null) aVal = sortBy === 'current_price_raw' ? -Infinity : '';
+      if (bVal === null) bVal = sortBy === 'current_price_raw' ? -Infinity : '';
+      
+      // Compare
+      if (typeof aVal === 'string') {
+        const cmp = aVal.localeCompare(bVal);
+        return sortOrder === 'asc' ? cmp : -cmp;
+      } else {
+        const cmp = aVal - bVal;
+        return sortOrder === 'asc' ? cmp : -cmp;
+      }
+    });
 
     setFilteredCards(filtered);
   };
@@ -540,6 +596,31 @@ export default function Collections() {
             )
           )}
         </div>
+      </div>
+
+      {/* Advanced Filters */}
+      <AdvancedFilters
+        onFilterChange={setActiveFilters}
+        availableSets={availableSets}
+        availableRarities={availableRarities}
+        availableConditions={availableConditions}
+        availableGameTypes={availableGameTypes}
+        availableSportTypes={availableSportTypes}
+        availableCollections={availableCollections}
+        initialFilters={activeFilters}
+      />
+
+      {/* Results count */}
+      <div className="flex items-center justify-between text-sm text-muted-foreground">
+        <span>
+          Showing {filteredCards.length} of {cards.length} cards
+          {Object.keys(activeFilters).filter(k => k !== 'sortBy' && k !== 'sortOrder').length > 0 && ' (filtered)'}
+        </span>
+        {filteredCards.length > 0 && (
+          <span className="font-medium text-foreground">
+            Total Value: ${filteredCards.reduce((sum, c) => sum + (c.current_price_raw || 0), 0).toFixed(2)}
+          </span>
+        )}
       </div>
 
       {filteredCards.length === 0 ? (
