@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DollarSign, CreditCard, TrendingUp, Activity } from "lucide-react";
@@ -12,6 +13,7 @@ interface DashboardStats {
 }
 
 export default function Dashboard() {
+  const { userId } = useAuth();
   const [stats, setStats] = useState<DashboardStats>({
     totalCards: 0,
     totalValue: 0,
@@ -21,18 +23,19 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    fetchStats();
-  }, []);
+    if (userId) {
+      fetchStats();
+    }
+  }, [userId]);
 
   const fetchStats = async () => {
+    if (!userId) return;
+    
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-
       const { data: cards } = await supabase
         .from("cards")
         .select("current_price_raw, created_at")
-        .eq("user_id", session.user.id);
+        .eq("user_id", userId);
 
       if (cards) {
         const totalValue = cards.reduce((sum, card) => sum + (card.current_price_raw || 0), 0);

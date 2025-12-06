@@ -3,9 +3,8 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { Loader2 } from "lucide-react";
+import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import AppLayout from "./components/layout/AppLayout";
 import Auth from "./pages/Auth";
 import NewDashboard from "./pages/NewDashboard";
@@ -25,46 +24,8 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-const App = () => {
-  const [session, setSession] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let priceUpdateTriggered = false;
-
-    const triggerPriceUpdate = (userId: string) => {
-      if (priceUpdateTriggered) return;
-      priceUpdateTriggered = true;
-      
-      // Defer to prevent auth deadlock
-      setTimeout(() => {
-        supabase.functions
-          .invoke('update-prices', { body: { user_id: userId } })
-          .then(() => console.log('Background price update started'))
-          .catch(err => console.error('Price update error:', err));
-      }, 100);
-    };
-
-    // Set up auth state listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setLoading(false);
-      if (session?.user?.id) {
-        triggerPriceUpdate(session.user.id);
-      }
-    });
-
-    // Check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setLoading(false);
-      if (session?.user?.id) {
-        triggerPriceUpdate(session.user.id);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
+function AppRoutes() {
+  const { session, loading } = useAuth();
 
   if (loading) {
     return (
@@ -75,73 +36,81 @@ const App = () => {
   }
 
   return (
+    <Routes>
+      <Route path="/auth" element={<Auth />} />
+      <Route
+        path="/"
+        element={session ? <Navigate to="/dashboard" /> : <Navigate to="/auth" />}
+      />
+      <Route
+        path="/dashboard"
+        element={session ? <AppLayout><NewDashboard /></AppLayout> : <Navigate to="/auth" />}
+      />
+      <Route
+        path="/scan"
+        element={session ? <AppLayout><ScanPage /></AppLayout> : <Navigate to="/auth" />}
+      />
+      <Route
+        path="/collections"
+        element={session ? <AppLayout><CollectionsPage /></AppLayout> : <Navigate to="/auth" />}
+      />
+      <Route
+        path="/binders"
+        element={session ? <AppLayout><BindersPage /></AppLayout> : <Navigate to="/auth" />}
+      />
+      <Route
+        path="/settings"
+        element={session ? <AppLayout><SettingsPage /></AppLayout> : <Navigate to="/auth" />}
+      />
+      <Route
+        path="/insights"
+        element={session ? <AppLayout><InsightsPage /></AppLayout> : <Navigate to="/auth" />}
+      />
+      <Route
+        path="/performance"
+        element={session ? <AppLayout><PerformancePage /></AppLayout> : <Navigate to="/auth" />}
+      />
+      <Route
+        path="/architecture"
+        element={session ? <AppLayout><ArchitecturePage /></AppLayout> : <Navigate to="/auth" />}
+      />
+      <Route
+        path="/roadmap"
+        element={session ? <AppLayout><RoadmapPage /></AppLayout> : <Navigate to="/auth" />}
+      />
+      <Route
+        path="/vision-test"
+        element={session ? <AppLayout><VisionTestPage /></AppLayout> : <Navigate to="/auth" />}
+      />
+      <Route
+        path="/mobile-scan"
+        element={session ? <MobileScanPage /> : <Navigate to="/auth" />}
+      />
+      <Route
+        path="/mobile-scanner"
+        element={session ? <MobileScanRedirect /> : <Navigate to="/auth" />}
+      />
+      <Route
+        path="/predictions"
+        element={session ? <AppLayout><PredictionsPage /></AppLayout> : <Navigate to="/auth" />}
+      />
+      <Route path="*" element={<NotFound />} />
+    </Routes>
+  );
+}
+
+const App = () => {
+  return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/auth" element={<Auth />} />
-            <Route
-              path="/"
-              element={session ? <Navigate to="/dashboard" /> : <Navigate to="/auth" />}
-            />
-            <Route
-              path="/dashboard"
-              element={session ? <AppLayout><NewDashboard /></AppLayout> : <Navigate to="/auth" />}
-            />
-            <Route
-              path="/scan"
-              element={session ? <AppLayout><ScanPage /></AppLayout> : <Navigate to="/auth" />}
-            />
-            <Route
-              path="/collections"
-              element={session ? <AppLayout><CollectionsPage /></AppLayout> : <Navigate to="/auth" />}
-            />
-            <Route
-              path="/binders"
-              element={session ? <AppLayout><BindersPage /></AppLayout> : <Navigate to="/auth" />}
-            />
-            <Route
-              path="/settings"
-              element={session ? <AppLayout><SettingsPage /></AppLayout> : <Navigate to="/auth" />}
-            />
-            <Route
-              path="/insights"
-              element={session ? <AppLayout><InsightsPage /></AppLayout> : <Navigate to="/auth" />}
-            />
-            <Route
-              path="/performance"
-              element={session ? <AppLayout><PerformancePage /></AppLayout> : <Navigate to="/auth" />}
-            />
-            <Route
-              path="/architecture"
-              element={session ? <AppLayout><ArchitecturePage /></AppLayout> : <Navigate to="/auth" />}
-            />
-            <Route
-              path="/roadmap"
-              element={session ? <AppLayout><RoadmapPage /></AppLayout> : <Navigate to="/auth" />}
-            />
-            <Route
-              path="/vision-test"
-              element={session ? <AppLayout><VisionTestPage /></AppLayout> : <Navigate to="/auth" />}
-            />
-            <Route
-              path="/mobile-scan"
-              element={session ? <MobileScanPage /> : <Navigate to="/auth" />}
-            />
-            <Route
-              path="/mobile-scanner"
-              element={session ? <MobileScanRedirect /> : <Navigate to="/auth" />}
-            />
-            <Route
-              path="/predictions"
-              element={session ? <AppLayout><PredictionsPage /></AppLayout> : <Navigate to="/auth" />}
-            />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
+      <AuthProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <AppRoutes />
+          </BrowserRouter>
+        </TooltipProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 };
