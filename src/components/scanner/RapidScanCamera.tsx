@@ -516,6 +516,47 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     }
   };
 
+  // Fetch and update pricing for a card
+  const fetchPricingForCard = async (cardId: string, cardData: any) => {
+    try {
+      const { data: pricing, error } = await supabase.functions.invoke('fetch-card-prices', {
+        body: {
+          cardName: cardData?.card_name,
+          cardSet: cardData?.card_set,
+          cardNumber: cardData?.card_number,
+          gameType: cardData?.game_type,
+          sportType: cardData?.sport_type,
+        }
+      });
+
+      if (error) throw error;
+
+      if (pricing) {
+        // Update card in database
+        await supabase.from('cards').update({
+          current_price_raw: pricing.raw,
+          current_price_psa9: pricing.psa9,
+          current_price_psa10: pricing.psa10,
+          suggested_price: pricing.suggested,
+          ebay_listing_url: pricing.ebayUrl,
+          last_price_update: new Date().toISOString(),
+        }).eq('id', cardId);
+
+        // Update UI with price
+        setCaptures(prev => {
+          const updated = prev.map(c => c.dbId === cardId ? { 
+            ...c, 
+            value: pricing.suggested || pricing.raw 
+          } : c);
+          capturesRef.current = updated;
+          return updated;
+        });
+      }
+    } catch (err) {
+      console.error('Pricing fetch error for card:', cardId, err);
+    }
+  };
+
   const processCardAnalysis = async (captureId: string, imageUrl: string) => {
     try {
       // Use rapid identification endpoint (faster model, no pricing)
@@ -543,6 +584,9 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
 
       if (insertError) throw insertError;
 
+      // Fetch pricing in background (don't block completion)
+      fetchPricingForCard(insertedCard.id, cardData).catch(console.error);
+
       setCaptures(prev => {
         const updated = prev.map(c => c.id === captureId ? { 
           ...c, 
@@ -551,7 +595,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
           cardSet: cardData?.card_set,
           cardNumber: cardData?.card_number,
           rarity: cardData?.rarity,
-          value: null, // Pricing fetched later
+          value: null, // Will update when pricing returns
           dbId: insertedCard?.id
         } : c);
         capturesRef.current = updated;
