@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -50,6 +51,7 @@ interface CardItem {
 }
 
 export default function Collections() {
+  const { userId } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [cards, setCards] = useState<CardItem[]>([]);
   const [filteredCards, setFilteredCards] = useState<CardItem[]>([]);
@@ -157,14 +159,13 @@ export default function Collections() {
   };
 
   const fetchCards = async () => {
+    if (!userId) return;
+    
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-
       const { data, error } = await supabase
         .from("cards")
         .select("*")
-        .eq("user_id", session.user.id)
+        .eq("user_id", userId)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -241,17 +242,16 @@ export default function Collections() {
   };
 
   const handleDeleteRecentImport = async () => {
+    if (!userId) return;
+    
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-
       // Get cards created in the last 5 minutes
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
       
       const { data: recentCards, error: fetchError } = await supabase
         .from("cards")
         .select("id")
-        .eq("user_id", session.user.id)
+        .eq("user_id", userId)
         .gte("created_at", fiveMinutesAgo);
 
       if (fetchError) throw fetchError;
@@ -265,7 +265,7 @@ export default function Collections() {
       const { error } = await supabase
         .from("cards")
         .delete()
-        .eq("user_id", session.user.id)
+        .eq("user_id", userId)
         .gte("created_at", fiveMinutesAgo);
 
       if (error) throw error;
@@ -281,16 +281,15 @@ export default function Collections() {
   };
 
   const checkRecentImports = async () => {
+    if (!userId) return;
+    
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
       
       const { count, error } = await supabase
         .from("cards")
         .select("*", { count: 'exact', head: true })
-        .eq("user_id", session.user.id)
+        .eq("user_id", userId)
         .gte("created_at", fiveMinutesAgo);
 
       if (!error && count !== null) {
@@ -302,14 +301,13 @@ export default function Collections() {
   };
 
   const checkNoImageCards = async () => {
+    if (!userId) return;
+    
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-
       const { count, error } = await supabase
         .from("cards")
         .select("*", { count: 'exact', head: true })
-        .eq("user_id", session.user.id)
+        .eq("user_id", userId)
         .or("image_url.is.null,image_url.eq.");
 
       if (!error && count !== null) {
@@ -321,14 +319,13 @@ export default function Collections() {
   };
 
   const handleDeleteNoImage = async () => {
+    if (!userId) return;
+    
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-
       const { data: noImageCards, error: fetchError } = await supabase
         .from("cards")
         .select("id")
-        .eq("user_id", session.user.id)
+        .eq("user_id", userId)
         .or("image_url.is.null,image_url.eq.");
 
       if (fetchError) throw fetchError;
@@ -342,7 +339,7 @@ export default function Collections() {
       const { error } = await supabase
         .from("cards")
         .delete()
-        .eq("user_id", session.user.id)
+        .eq("user_id", userId)
         .or("image_url.is.null,image_url.eq.");
 
       if (error) throw error;
@@ -396,18 +393,17 @@ export default function Collections() {
   };
 
   const handleUpdatePrices = async () => {
+    if (!userId) {
+      toast.error("You must be logged in to update prices");
+      return;
+    }
+    
     try {
       setIsUpdatingPrices(true);
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        toast.error("You must be logged in to update prices");
-        return;
-      }
-
       toast.loading("Updating prices...", { id: "price-update" });
 
       const { data, error } = await supabase.functions.invoke("update-prices", {
-        body: { user_id: session.user.id },
+        body: { user_id: userId },
       });
 
       if (error) throw error;
