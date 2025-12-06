@@ -175,6 +175,46 @@ export function useCardScanner({ userId, onScanComplete }: UseCardScannerOptions
         description: pricingData?.notes || "",
       };
 
+      // Auto-confirm and save if confidence >= 75%
+      if (identifiedCard.confidence >= 75) {
+        try {
+          const { error: dbError } = await supabase.from("cards").insert({
+            user_id: userId,
+            card_name: identifiedCard.card_name,
+            card_set: identifiedCard.card_set,
+            card_number: identifiedCard.card_number,
+            rarity: identifiedCard.rarity,
+            edition: identifiedCard.edition,
+            condition: pricingData?.condition || "ungraded",
+            sport_type: identifiedCard.sport_type,
+            game_type: identifiedCard.game_type,
+            notes: identifiedCard.description,
+            ocr_confidence: identifiedCard.confidence,
+            ocr_raw_text: ocr.rawText,
+            current_price_raw: pricingData?.currentPriceRaw,
+            current_price_psa9: pricingData?.currentPricePsa9,
+            current_price_psa10: pricingData?.currentPricePsa10,
+            suggested_price: pricingData?.suggestedPrice,
+            ebay_listing_url: pricingData?.ebayListingUrl,
+            image_url: imageUrl,
+            thumbnail_url: imageUrl,
+            last_price_update: new Date().toISOString(),
+          });
+
+          if (dbError) throw dbError;
+
+          toast.success(`Card auto-saved: ${identifiedCard.card_name} (${identifiedCard.confidence}% confidence)`);
+          clearSelection();
+          setScanProgress(100);
+          onScanComplete?.();
+          return;
+        } catch (error: any) {
+          console.error("Auto-save error:", error);
+          toast.warning("Auto-save failed, please confirm manually");
+        }
+      }
+
+      // Show confirmation editor for low confidence cards
       setPendingCard({
         identifiedCard,
         alternatives,
