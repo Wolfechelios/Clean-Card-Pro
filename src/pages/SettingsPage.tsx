@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +25,7 @@ import N8nIntegrations from "@/components/settings/N8nIntegrations";
 
 export default function Settings() {
   const navigate = useNavigate();
+  const { user, userId, signOut } = useAuth();
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -51,16 +53,18 @@ export default function Settings() {
   }, []);
 
   const loadUserData = async () => {
+    if (!userId) {
+      setIsLoading(false);
+      return;
+    }
+    
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      setEmail(user.email || "");
+      setEmail(user?.email || "");
 
       const { data: profile } = await supabase
         .from("profiles")
         .select("username")
-        .eq("id", user.id)
+        .eq("id", userId)
         .maybeSingle();
 
       if (profile) {
@@ -74,15 +78,14 @@ export default function Settings() {
   };
 
   const handleUpdateProfile = async () => {
+    if (!userId) return;
+    
     setIsSaving(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
       const { error } = await supabase
         .from("profiles")
         .update({ username })
-        .eq("id", user.id);
+        .eq("id", userId);
 
       if (error) throw error;
 
@@ -124,14 +127,13 @@ export default function Settings() {
   };
 
   const handleExportData = async () => {
+    if (!userId) return;
+    
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
       const { data: cards, error } = await supabase
         .from("cards")
         .select("*")
-        .eq("user_id", user.id);
+        .eq("user_id", userId);
 
       if (error) throw error;
 
@@ -150,7 +152,7 @@ export default function Settings() {
 
   const handleSignOut = async () => {
     try {
-      await supabase.auth.signOut();
+      await signOut();
       navigate("/auth");
       toast.success("Signed out successfully");
     } catch (error) {
@@ -166,12 +168,13 @@ export default function Settings() {
     setImporting(true);
     setImportProgress(0);
 
+    if (!userId) {
+      toast.error("You must be logged in to import cards");
+      setImporting(false);
+      return;
+    }
+
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        toast.error("You must be logged in to import cards");
-        return;
-      }
 
       const reader = new FileReader();
       reader.onload = async (e) => {
@@ -195,7 +198,7 @@ export default function Settings() {
           for (let i = 0; i < jsonData.length; i += batchSize) {
             const batch = jsonData.slice(i, i + batchSize);
             const cardsToInsert = batch.map((row: any) => ({
-              user_id: user.id,
+              user_id: userId,
               card_name: row["Card Name"] || row["card_name"] || "Unknown Card",
               card_set: row["Set"] || row["card_set"] || null,
               card_number: row["Card Number"] || row["card_number"] || null,
@@ -235,15 +238,14 @@ export default function Settings() {
   };
 
   const loadCollectionStats = async () => {
+    if (!userId) return;
+    
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
       // Get total cards count
       const { count: total } = await supabase
         .from("cards")
         .select("*", { count: 'exact', head: true })
-        .eq("user_id", user.id);
+        .eq("user_id", userId);
       
       setTotalCards(total || 0);
 
@@ -251,7 +253,7 @@ export default function Settings() {
       const { count: noImage } = await supabase
         .from("cards")
         .select("*", { count: 'exact', head: true })
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .or("image_url.is.null,image_url.eq.");
       
       setNoImageCount(noImage || 0);
@@ -261,7 +263,7 @@ export default function Settings() {
       const { count: recent } = await supabase
         .from("cards")
         .select("*", { count: 'exact', head: true })
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .gte("created_at", fiveMinutesAgo);
       
       setRecentImportCount(recent || 0);
@@ -270,7 +272,7 @@ export default function Settings() {
       const { count: unknown } = await supabase
         .from("cards")
         .select("*", { count: 'exact', head: true })
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .eq("card_name", "Unknown Card");
       
       setUnknownCardCount(unknown || 0);
@@ -280,14 +282,13 @@ export default function Settings() {
   };
 
   const handleDeleteNoImage = async () => {
+    if (!userId) return;
+    
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
       const { error } = await supabase
         .from("cards")
         .delete()
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .or("image_url.is.null,image_url.eq.");
 
       if (error) throw error;
@@ -303,15 +304,14 @@ export default function Settings() {
   };
 
   const handleDeleteRecent = async () => {
+    if (!userId) return;
+    
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
       const { error } = await supabase
         .from("cards")
         .delete()
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .gte("created_at", fiveMinutesAgo);
 
       if (error) throw error;
@@ -327,14 +327,13 @@ export default function Settings() {
   };
 
   const handleClearAll = async () => {
+    if (!userId) return;
+    
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
       const { error } = await supabase
         .from("cards")
         .delete()
-        .eq("user_id", user.id);
+        .eq("user_id", userId);
 
       if (error) throw error;
 
@@ -349,14 +348,13 @@ export default function Settings() {
   };
 
   const handleDeleteUnknown = async () => {
+    if (!userId) return;
+    
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
       const { error } = await supabase
         .from("cards")
         .delete()
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .eq("card_name", "Unknown Card");
 
       if (error) throw error;
@@ -372,18 +370,17 @@ export default function Settings() {
   };
 
   const handleUpdatePrices = async () => {
+    if (!userId) {
+      toast.error("You must be logged in to update prices");
+      return;
+    }
+    
     try {
       setIsUpdatingPrices(true);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        toast.error("You must be logged in to update prices");
-        return;
-      }
-
       toast.loading("Updating prices...", { id: "price-update" });
 
       const { data, error } = await supabase.functions.invoke("update-prices", {
-        body: { user_id: user.id },
+        body: { user_id: userId },
       });
 
       if (error) throw error;
@@ -403,17 +400,16 @@ export default function Settings() {
   };
 
   const handleDeleteAccount = async () => {
+    if (!userId) return;
+    
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
       // Delete all user data
-      await supabase.from("cards").delete().eq("user_id", user.id);
-      await supabase.from("profiles").delete().eq("id", user.id);
+      await supabase.from("cards").delete().eq("user_id", userId);
+      await supabase.from("profiles").delete().eq("id", userId);
       
       // Note: Actual user deletion from auth.users requires admin privileges
       // For now, we'll sign them out after deleting their data
-      await supabase.auth.signOut();
+      await signOut();
       
       navigate("/auth");
       toast.success("Account data deleted successfully");
