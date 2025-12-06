@@ -62,42 +62,53 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
       }
 
       const targetDeviceId = deviceId || selectedDeviceId;
-      
-      // Build constraints - higher quality for USB mode
       const isUSBMode = cameraMode === 'usb';
-      const videoConstraints: Record<string, any> = {
-        width: { ideal: isUSBMode ? 3840 : 2560, min: 1920 },
-        height: { ideal: isUSBMode ? 2160 : 1440, min: 1080 },
-        aspectRatio: { ideal: 5/7 },
-        frameRate: { ideal: 30 },
-        focusMode: 'continuous',
-      };
-      
-      // USB mode: add advanced quality settings
-      if (isUSBMode) {
-        videoConstraints.exposureMode = 'continuous';
-        videoConstraints.whiteBalanceMode = 'continuous';
+
+      // Progressive constraint fallback chain
+      const constraintOptions = [
+        // Try 1: Full quality with advanced features
+        {
+          video: {
+            ...(targetDeviceId ? { deviceId: { exact: targetDeviceId } } : { facingMode: { ideal: cameraFacing } }),
+            width: { ideal: isUSBMode ? 3840 : 1920 },
+            height: { ideal: isUSBMode ? 2160 : 1080 },
+            frameRate: { ideal: 30 },
+          },
+          audio: false,
+        },
+        // Try 2: Medium quality without exact device
+        {
+          video: {
+            ...(targetDeviceId ? { deviceId: targetDeviceId } : { facingMode: cameraFacing }),
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
+          audio: false,
+        },
+        // Try 3: Basic constraints
+        {
+          video: targetDeviceId ? { deviceId: targetDeviceId } : { facingMode: cameraFacing },
+          audio: false,
+        },
+        // Try 4: Minimal - just get any camera
+        { video: true, audio: false },
+      ];
+
+      let stream: MediaStream | null = null;
+      let lastError: Error | null = null;
+
+      for (const constraints of constraintOptions) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          break;
+        } catch (err: any) {
+          lastError = err;
+          console.warn('Constraint failed, trying fallback:', err.name);
+        }
       }
 
-      if (targetDeviceId) {
-        videoConstraints.deviceId = { exact: targetDeviceId };
-      } else {
-        videoConstraints.facingMode = { ideal: cameraFacing };
-      }
-
-      const constraints: MediaStreamConstraints = {
-        video: videoConstraints,
-        audio: false,
-      };
-
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-      } catch (firstError) {
-        // Fallback without focus constraints if not supported
-        console.warn("Auto-focus not supported, trying without:", firstError);
-        delete (videoConstraints as any).focusMode;
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      if (!stream) {
+        throw lastError || new Error('Failed to access camera');
       }
 
       if (videoRef.current) {
@@ -106,7 +117,6 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
         videoRef.current.setAttribute('webkit-playsinline', 'true');
         streamRef.current = stream;
         
-        // Wait for video to be ready
         await new Promise<void>((resolve, reject) => {
           const video = videoRef.current;
           if (!video) {
@@ -115,32 +125,31 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
           }
           
           video.onloadedmetadata = () => {
-            video.play().then(() => {
-              console.log('Camera started:', video.videoWidth, 'x', video.videoHeight);
-              resolve();
-            }).catch(reject);
+            video.play()
+              .then(() => {
+                console.log('Camera started:', video.videoWidth, 'x', video.videoHeight);
+                resolve();
+              })
+              .catch(() => resolve()); // Continue anyway - some browsers need user interaction
           };
           
           video.onerror = () => reject(new Error('Video error'));
-          
-          // Timeout fallback
           setTimeout(() => resolve(), 3000);
         });
         
         setIsActive(true);
-        
-        // Try to apply advanced focus settings after stream starts
         applyAutoFocus(stream);
+        toast.success('Camera ready');
       }
     } catch (error: any) {
       console.error("Camera error:", error);
-      if (error.name === 'NotAllowedError') {
-        toast.error("Camera permission denied");
-      } else if (error.name === 'NotFoundError') {
-        toast.error("No camera found");
-      } else {
-        toast.error("Failed to access camera: " + error.message);
-      }
+      const messages: Record<string, string> = {
+        NotAllowedError: "Camera permission denied. Please allow camera access.",
+        NotFoundError: "No camera found on this device.",
+        NotReadableError: "Camera is in use by another application.",
+        OverconstrainedError: "Camera doesn't support requested settings.",
+      };
+      toast.error(messages[error.name] || `Camera error: ${error.message}`);
     }
   };
 

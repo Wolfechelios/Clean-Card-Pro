@@ -30,38 +30,36 @@ const App = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Set up auth state listener FIRST
+    let priceUpdateTriggered = false;
+
+    const triggerPriceUpdate = (userId: string) => {
+      if (priceUpdateTriggered) return;
+      priceUpdateTriggered = true;
+      
+      // Defer to prevent auth deadlock
+      setTimeout(() => {
+        supabase.functions
+          .invoke('update-prices', { body: { user_id: userId } })
+          .then(() => console.log('Background price update started'))
+          .catch(err => console.error('Price update error:', err));
+      }, 100);
+    };
+
+    // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       setLoading(false);
-      
-      // Defer Supabase function calls to prevent deadlock
       if (session?.user?.id) {
-        setTimeout(() => {
-          supabase.functions
-            .invoke('update-prices', {
-              body: { user_id: session.user.id }
-            })
-            .then(() => console.log('Background price update started'))
-            .catch(err => console.error('Price update error:', err));
-        }, 0);
+        triggerPriceUpdate(session.user.id);
       }
     });
 
-    // THEN check for existing session
+    // Check for existing session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setLoading(false);
-      
       if (session?.user?.id) {
-        setTimeout(() => {
-          supabase.functions
-            .invoke('update-prices', {
-              body: { user_id: session.user.id }
-            })
-            .then(() => console.log('Background price update started'))
-            .catch(err => console.error('Price update error:', err));
-        }, 0);
+        triggerPriceUpdate(session.user.id);
       }
     });
 
