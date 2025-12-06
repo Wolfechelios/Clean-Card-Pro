@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Camera, SwitchCamera, X, CheckCircle, Loader2, Pause, Play, Focus, Zap, ZapOff, Usb, Smartphone } from "lucide-react";
+import { Camera, SwitchCamera, X, CheckCircle, Loader2, Pause, Play, Focus, Zap, ZapOff, Usb, Smartphone, RefreshCw, DollarSign } from "lucide-react";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -42,6 +42,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   const [isPaused, setIsPaused] = useState(false);
   const [flashEnabled, setFlashEnabled] = useState(false);
   const [flashSupported, setFlashSupported] = useState(false);
+  const [isRefreshingPrices, setIsRefreshingPrices] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const processingQueueRef = useRef<string[]>([]);
@@ -557,6 +558,48 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     }
   };
 
+  // Batch refresh all prices for completed cards
+  const refreshAllPrices = async () => {
+    const completedCards = captures.filter(c => c.status === 'completed' && c.dbId);
+    if (completedCards.length === 0) {
+      toast.info('No completed cards to refresh prices for');
+      return;
+    }
+
+    setIsRefreshingPrices(true);
+    toast.info(`Refreshing prices for ${completedCards.length} cards...`);
+
+    let successCount = 0;
+    let errorCount = 0;
+
+    // Process in batches of 5 to avoid overwhelming the API
+    const batchSize = 5;
+    for (let i = 0; i < completedCards.length; i += batchSize) {
+      const batch = completedCards.slice(i, i + batchSize);
+      
+      await Promise.all(batch.map(async (card) => {
+        try {
+          await fetchPricingForCard(card.dbId!, {
+            card_name: card.cardName,
+            card_set: card.cardSet,
+            card_number: card.cardNumber,
+          });
+          successCount++;
+        } catch (err) {
+          console.error('Batch price refresh error:', err);
+          errorCount++;
+        }
+      }));
+    }
+
+    setIsRefreshingPrices(false);
+    if (errorCount > 0) {
+      toast.warning(`Refreshed ${successCount} prices, ${errorCount} failed`);
+    } else {
+      toast.success(`Successfully refreshed ${successCount} card prices`);
+    }
+  };
+
   const processCardAnalysis = async (captureId: string, imageUrl: string) => {
     try {
       // Use rapid identification endpoint (faster model, no pricing)
@@ -849,6 +892,27 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-lg font-bold tabular-nums">{Math.round(progress)}%</span>
+                {completedCount > 0 && queuedCount === 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={refreshAllPrices}
+                    disabled={isRefreshingPrices}
+                    className="gap-2"
+                  >
+                    {isRefreshingPrices ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Refreshing...
+                      </>
+                    ) : (
+                      <>
+                        <DollarSign className="h-4 w-4" />
+                        Refresh Prices
+                      </>
+                    )}
+                  </Button>
+                )}
                 {queuedCount > 0 && (
                   <Button
                     size="sm"
