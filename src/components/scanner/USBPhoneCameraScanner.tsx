@@ -31,12 +31,11 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
       setCameraError(null);
       setIsInitializing(true);
 
-      // Stop any existing stream
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
 
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error("Camera not supported in this browser");
       }
 
@@ -46,45 +45,49 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
         throw new Error("No camera device selected. Please connect a USB phone camera.");
       }
 
-      // Try to get the specific USB device with highest quality
-      const constraints: MediaStreamConstraints = {
-        video: {
-          deviceId: { exact: targetDeviceId },
-          width: { ideal: 3840, min: 1920 },
-          height: { ideal: 2160, min: 1080 },
-          frameRate: { ideal: 30, min: 15 },
-          facingMode: { ideal: "environment" },
-          // @ts-ignore - advanced constraints
-          focusMode: { ideal: "continuous" },
-          // @ts-ignore - advanced constraints  
-          exposureMode: { ideal: "continuous" },
-          // @ts-ignore - advanced constraints
-          whiteBalanceMode: { ideal: "continuous" },
+      // Progressive fallback chain - start with best quality, fall back gracefully
+      const constraintOptions = [
+        // Try 1: High quality with exact device
+        {
+          video: {
+            deviceId: { exact: targetDeviceId },
+            width: { ideal: 3840 },
+            height: { ideal: 2160 },
+            frameRate: { ideal: 30 },
+          },
+          audio: false,
         },
-        audio: false
-      };
+        // Try 2: Medium quality with exact device
+        {
+          video: {
+            deviceId: { exact: targetDeviceId },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
+          audio: false,
+        },
+        // Try 3: Basic with device ID (not exact)
+        {
+          video: { deviceId: targetDeviceId },
+          audio: false,
+        },
+      ];
 
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
-      } catch (err) {
-        // Fallback to high quality without advanced constraints
+      let stream: MediaStream | null = null;
+      let lastError: Error | null = null;
+
+      for (const constraints of constraintOptions) {
         try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              deviceId: { exact: targetDeviceId },
-              width: { ideal: 1920 },
-              height: { ideal: 1080 },
-            },
-            audio: false
-          });
-        } catch (err2) {
-          // Final fallback
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: { deviceId: targetDeviceId },
-            audio: false
-          });
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          break;
+        } catch (err: any) {
+          lastError = err;
+          console.warn('USB camera constraint failed, trying fallback:', err.name);
         }
+      }
+
+      if (!stream) {
+        throw lastError || new Error('Failed to access USB camera');
       }
 
       if (!videoRef.current) {
@@ -103,10 +106,14 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
         }
         videoRef.current.onloadedmetadata = () => resolve(null);
         videoRef.current.onerror = () => reject(new Error("Video failed to load"));
-        setTimeout(() => reject(new Error("Video loading timeout")), 10000);
+        setTimeout(() => resolve(null), 5000); // Resolve after timeout instead of reject
       });
 
-      await videoRef.current.play();
+      try {
+        await videoRef.current.play();
+      } catch {
+        // Some browsers need user interaction - continue anyway
+      }
 
       streamRef.current = stream;
       setCameraReady(true);
@@ -120,17 +127,14 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
       setIsInitializing(false);
       setCameraReady(false);
       
-      let errorMessage = "Failed to access USB camera";
-      if (error.name === 'NotAllowedError') {
-        errorMessage = "Camera permission denied. Please allow camera access.";
-      } else if (error.name === 'NotFoundError') {
-        errorMessage = "USB camera not found. Make sure your phone is connected.";
-      } else if (error.name === 'NotReadableError') {
-        errorMessage = "Camera is in use by another app.";
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
+      const messages: Record<string, string> = {
+        NotAllowedError: "Camera permission denied. Please allow camera access.",
+        NotFoundError: "USB camera not found. Make sure your phone is connected.",
+        NotReadableError: "Camera is in use by another app.",
+        OverconstrainedError: "Camera settings not supported. Try a different device.",
+      };
       
+      const errorMessage = messages[error.name] || error.message || "Failed to access USB camera";
       setCameraError(errorMessage);
       toast.error(errorMessage);
     }
