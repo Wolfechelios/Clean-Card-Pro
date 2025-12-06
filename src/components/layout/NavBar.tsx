@@ -33,8 +33,9 @@ export function NavBar() {
           variant="ghost" 
           size="icon" 
           className="h-9 w-9 sm:h-10 sm:w-10 text-muted-foreground hover:text-foreground transition-fast active:scale-95"
+          aria-label="View notifications"
         >
-          <Bell className="h-4 w-4 sm:h-5 sm:w-5" />
+          <Bell className="h-4 w-4 sm:h-5 sm:w-5" aria-hidden="true" />
         </Button>
         
         <DropdownMenu>
@@ -43,8 +44,9 @@ export function NavBar() {
               variant="ghost" 
               size="icon" 
               className="h-9 w-9 sm:h-10 sm:w-10 text-muted-foreground hover:text-foreground transition-fast active:scale-95"
+              aria-label="Open user menu"
             >
-              <User className="h-4 w-4 sm:h-5 sm:w-5" />
+              <User className="h-4 w-4 sm:h-5 sm:w-5" aria-hidden="true" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48 z-50 bg-popover">
@@ -55,7 +57,7 @@ export function NavBar() {
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleSignOut} className="text-destructive cursor-pointer">
-              <LogOut className="mr-2 h-4 w-4" />
+              <LogOut className="mr-2 h-4 w-4" aria-hidden="true" />
               Sign Out
             </DropdownMenuItem>
           </DropdownMenuContent>

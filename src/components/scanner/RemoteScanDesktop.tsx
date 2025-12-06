@@ -121,8 +121,8 @@ export const RemoteScanDesktop = ({ userId, onImageReceived }: RemoteScanDesktop
               Scan this QR code with your phone to use its camera
             </CardDescription>
           </div>
-          <Button onClick={refreshSession} variant="outline" size="icon">
-            <RefreshCw className="h-4 w-4" />
+          <Button onClick={refreshSession} variant="outline" size="icon" aria-label="Refresh QR code session">
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
           </Button>
         </div>
       </CardHeader>

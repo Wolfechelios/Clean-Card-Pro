@@ -34,8 +34,9 @@ export function SideBar() {
           onClick={handleNavClick}
           className="flex items-center gap-3 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-fast active:scale-[0.98]"
           activeClassName="bg-accent text-accent-foreground font-medium"
+          aria-label={`Navigate to ${item.label}`}
         >
-          <item.icon className="h-5 w-5 flex-shrink-0" />
+          <item.icon className="h-5 w-5 flex-shrink-0" aria-hidden="true" />
           <span className="truncate text-sm sm:text-base">{item.label}</span>
         </NavLink>
       ))}
@@ -51,23 +52,36 @@ export function SideBar() {
             variant="outline" 
             size="icon" 
             className="lg:hidden h-10 w-10 bg-background/95 backdrop-blur-sm shadow-lg border-border active:scale-95 transition-fast"
+            aria-label="Open navigation menu"
           >
-            <Menu className="h-5 w-5" />
+            <Menu className="h-5 w-5" aria-hidden="true" />
           </Button>
         </SheetTrigger>
         <SheetContent 
           side="left" 
           className="w-[280px] sm:w-64 p-0 bg-sidebar border-sidebar-border safe-top safe-bottom"
+          aria-label="Navigation menu"
         >
-          <nav className="flex flex-col gap-1 p-3 sm:p-4 mt-12 overflow-y-auto max-h-[calc(100vh-4rem)] touch-pan-y">
+          <nav 
+            className="flex flex-col gap-1 p-3 sm:p-4 mt-12 overflow-y-auto max-h-[calc(100vh-4rem)] touch-pan-y"
+            aria-label="Main navigation"
+            role="navigation"
+          >
             <NavItems />
           </nav>
         </SheetContent>
       </Sheet>
 
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:block w-64 bg-sidebar border-r border-sidebar-border min-h-screen sticky top-0 transition-gpu">
-        <nav className="flex flex-col gap-1 p-4 overflow-y-auto max-h-screen">
+      <aside 
+        className="hidden lg:block w-64 bg-sidebar border-r border-sidebar-border min-h-screen sticky top-0 transition-gpu"
+        aria-label="Sidebar navigation"
+      >
+        <nav 
+          className="flex flex-col gap-1 p-4 overflow-y-auto max-h-screen"
+          aria-label="Main navigation"
+          role="navigation"
+        >
           <NavItems />
         </nav>
       </aside>
