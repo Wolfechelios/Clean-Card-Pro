@@ -50,13 +50,17 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   const isProcessingRef = useRef(false);
   const capturesRef = useRef<CapturedCard[]>([]);
   const shutterSoundRef = useRef<HTMLAudioElement | null>(null);
+  const errorSoundRef = useRef<HTMLAudioElement | null>(null);
 
-  // Initialize shutter sound
+  // Initialize sounds
   useEffect(() => {
     shutterSoundRef.current = new Audio('/sounds/shutter.mp3');
     shutterSoundRef.current.volume = 0.5;
+    errorSoundRef.current = new Audio('/sounds/error.mp3');
+    errorSoundRef.current.volume = 0.6;
     return () => {
       shutterSoundRef.current = null;
+      errorSoundRef.current = null;
     };
   }, []);
 
@@ -476,6 +480,11 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
 
     } catch (error: any) {
       console.error('Processing error:', error);
+      // Play error sound
+      if (errorSoundRef.current) {
+        errorSoundRef.current.currentTime = 0;
+        errorSoundRef.current.play().catch(() => {});
+      }
       setCaptures(prev => {
         const updated = prev.map(c => c.id === captureId ? { ...c, status: 'error' as const, error: error.message } : c);
         capturesRef.current = updated;
