@@ -22,6 +22,7 @@ import { Download, LogOut, Trash2, User, Lock, Upload, ImageOff, Clock, RefreshC
 import * as XLSX from "xlsx";
 import { Progress } from "@/components/ui/progress";
 import N8nIntegrations from "@/components/settings/N8nIntegrations";
+import { SettingsSkeleton } from "@/components/ui/loading-skeletons";
 
 export default function Settings() {
   const navigate = useNavigate();
@@ -420,12 +421,7 @@ export default function Settings() {
   };
 
   if (isLoading) {
-    return (
-      <div className="space-y-6">
-        <div className="h-8 w-48 bg-muted animate-pulse rounded" />
-        <div className="h-64 bg-muted animate-pulse rounded" />
-      </div>
-    );
+    return <SettingsSkeleton />;
   }
 
   return (

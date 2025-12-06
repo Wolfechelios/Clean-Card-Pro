@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Database } from "@/integrations/supabase/types";
 import {
@@ -31,6 +32,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { analyzeCardFull } from "@/lib/analyzeCardFull";
+import { DashboardSkeleton } from "@/components/ui/loading-skeletons";
 
 type CardType = Database["public"]["Tables"]["cards"]["Row"];
 
@@ -56,6 +58,7 @@ interface BulkScanResult {
 }
 
 export default function NewDashboard() {
+  const { userId, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState<DashboardStats>({
     totalCards: 0,
@@ -80,8 +83,11 @@ export default function NewDashboard() {
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [bulkItems, setBulkItems] = useState<BulkScanResult[]>([]);
   const [bulkProgress, setBulkProgress] = useState(0);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
 
   useEffect(() => {
+    if (authLoading) return;
+    
     fetchDashboardData();
 
     // Set up real-time subscription for card changes
@@ -105,20 +111,21 @@ export default function NewDashboard() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [authLoading, userId]);
 
   const fetchDashboardData = async () => {
-    setIsRefreshing(true);
-    const { data: session } = await supabase.auth.getSession();
-    if (!session.session) {
+    if (!userId) {
+      setIsInitialLoading(false);
       setIsRefreshing(false);
       return;
     }
+    
+    setIsRefreshing(true);
 
     const { data: cards } = await supabase
       .from("cards")
       .select("*")
-      .eq("user_id", session.session.user.id)
+      .eq("user_id", userId)
       .order("created_at", { ascending: false });
 
     if (cards) {
@@ -207,6 +214,7 @@ export default function NewDashboard() {
 
       setValueOverTime(valueTimeData);
     }
+    setIsInitialLoading(false);
     setIsRefreshing(false);
   };
 
@@ -309,6 +317,10 @@ export default function NewDashboard() {
       setBulkUploading(false);
     }
   };
+
+  if (authLoading || isInitialLoading) {
+    return <DashboardSkeleton />;
+  }
 
   return (
     <div className="space-y-6">
