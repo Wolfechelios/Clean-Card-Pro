@@ -31,14 +31,14 @@ export function SlotCard({
     <Card
       className={cn(
         "relative aspect-[3/4] overflow-hidden transition-all cursor-pointer group",
-        isEmpty && "border-dashed border-2 bg-neutral-900/50",
+        isEmpty && "border-dashed border-2 bg-card/50",
         isProcessing && "animate-pulse",
         className
       )}
       onClick={onClick}
     >
       {isEmpty ? (
-        <div className="flex flex-col items-center justify-center h-full text-neutral-600">
+        <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
           <ImageIcon className="h-8 w-8 mb-2" />
           <span className="text-xs">Empty Slot</span>
         </div>
@@ -66,7 +66,7 @@ export function SlotCard({
             <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2">
               <p className="text-xs text-white font-medium truncate">{cardName}</p>
               {price != null && (
-                <p className="text-xs text-neutral-300">${price.toFixed(2)}</p>
+                <p className="text-xs text-muted-foreground">${price.toFixed(2)}</p>
               )}
             </div>
           )}

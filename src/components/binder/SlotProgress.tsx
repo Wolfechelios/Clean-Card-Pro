@@ -12,7 +12,7 @@ export function SlotProgress({ total, processed, current }: SlotProgressProps) {
   const percentage = total > 0 ? (processed / total) * 100 : 0;
 
   return (
-    <Card className="bg-neutral-900 border-neutral-800">
+    <Card className="bg-card border-border">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Loader2 className="h-4 w-4 animate-spin" />
@@ -21,14 +21,14 @@ export function SlotProgress({ total, processed, current }: SlotProgressProps) {
       </CardHeader>
       <CardContent className="space-y-3">
         <Progress value={percentage} className="h-2" />
-        <div className="flex justify-between text-sm text-neutral-400">
+        <div className="flex justify-between text-sm text-muted-foreground">
           <span>
             {processed} of {total} cards processed
           </span>
           <span>{Math.round(percentage)}%</span>
         </div>
         {current && (
-          <p className="text-xs text-neutral-500">
+          <p className="text-xs text-muted-foreground/70">
             Currently processing: {current}
           </p>
         )}

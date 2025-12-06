@@ -113,7 +113,7 @@ export function BinderEditor({ binderName, cards, onUpdate }: BinderEditorProps)
   };
 
   return (
-    <Card className="bg-neutral-900 border-neutral-800">
+    <Card className="bg-card border-border">
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2">
@@ -122,7 +122,7 @@ export function BinderEditor({ binderName, cards, onUpdate }: BinderEditorProps)
           </CardTitle>
           <div className="flex gap-2">
             <Select value={layout} onValueChange={(v) => setLayout(v as any)}>
-              <SelectTrigger className="w-32 bg-neutral-800 border-neutral-700">
+              <SelectTrigger className="w-32 bg-secondary border-border">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -154,7 +154,7 @@ export function BinderEditor({ binderName, cards, onUpdate }: BinderEditorProps)
         />
 
         <Dialog open={selectedSlot !== null} onOpenChange={() => setSelectedSlot(null)}>
-          <DialogContent className="bg-neutral-900 border-neutral-800 max-w-2xl">
+          <DialogContent className="bg-card border-border max-w-2xl">
             <DialogHeader>
               <DialogTitle>Select Card for Slot {(selectedSlot || 0) + 1}</DialogTitle>
             </DialogHeader>

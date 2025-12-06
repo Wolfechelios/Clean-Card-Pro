@@ -334,60 +334,60 @@ export default function NewDashboard() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card className="bg-neutral-900 border-neutral-800">
+        <Card className="bg-card border-border">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-neutral-400">Total Cards</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Total Cards</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">{stats.totalCards}</div>
-            <p className="text-xs text-neutral-500 mt-1">
+            <p className="text-xs text-muted-foreground/70 mt-1">
               <Package className="inline h-3 w-3 mr-1" />
               {stats.recentScans} scanned today
             </p>
           </CardContent>
         </Card>
 
-        <Card className="bg-neutral-900 border-neutral-800">
+        <Card className="bg-card border-border">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-neutral-400">Total Value</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Total Value</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">${stats.totalValue.toFixed(2)}</div>
-            <p className="text-xs text-neutral-500 mt-1">
+            <p className="text-xs text-muted-foreground/70 mt-1">
               <DollarSign className="inline h-3 w-3 mr-1" />${stats.avgCardValue.toFixed(2)} avg per card
             </p>
           </CardContent>
         </Card>
 
-        <Card className="bg-neutral-900 border-neutral-800">
+        <Card className="bg-card border-border">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-neutral-400">Value Trend</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Value Trend</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold flex items-center gap-2">
               {stats.valueChange >= 0 ? (
                 <>
-                  <TrendingUp className="h-6 w-6 text-green-500" />
-                  <span className="text-green-500">+{stats.valueChange.toFixed(1)}%</span>
+                  <TrendingUp className="h-6 w-6 text-success" />
+                  <span className="text-success">+{stats.valueChange.toFixed(1)}%</span>
                 </>
               ) : (
                 <>
-                  <TrendingDown className="h-6 w-6 text-red-500" />
-                  <span className="text-red-500">{stats.valueChange.toFixed(1)}%</span>
+                  <TrendingDown className="h-6 w-6 text-destructive" />
+                  <span className="text-destructive">{stats.valueChange.toFixed(1)}%</span>
                 </>
               )}
             </div>
-            <p className="text-xs text-neutral-500 mt-1">vs last week</p>
+            <p className="text-xs text-muted-foreground/70 mt-1">vs last week</p>
           </CardContent>
         </Card>
 
-        <Card className="bg-neutral-900 border-neutral-800">
+        <Card className="bg-card border-border">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-neutral-400">Top Rarity</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Top Rarity</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">{stats.topRarity}</div>
-            <p className="text-xs text-neutral-500 mt-1">
+            <p className="text-xs text-muted-foreground/70 mt-1">
               <Star className="inline h-3 w-3 mr-1" />
               Most common in collection
             </p>
@@ -398,14 +398,14 @@ export default function NewDashboard() {
       {/* 🔍 Scan Center Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Quick single scan */}
-        <Card className="bg-neutral-900 border-neutral-800">
+        <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <ScanIcon className="h-4 w-4 text-emerald-400" />
+              <ScanIcon className="h-4 w-4 text-success" />
               Quick Single Scan
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2 text-xs text-neutral-300">
+          <CardContent className="space-y-2 text-xs text-muted-foreground">
             <p>Open the dedicated scan lab to drag in a single card and run full AI analysis (OCR + condition).</p>
             <Button size="sm" className="mt-2" onClick={() => navigate("/scan")}>
               <Camera className="h-4 w-4 mr-2" />
@@ -415,14 +415,14 @@ export default function NewDashboard() {
         </Card>
 
         {/* Binder page scan */}
-        <Card className="bg-neutral-900 border-neutral-800">
+        <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <BookOpen className="h-4 w-4 text-sky-400" />
+              <BookOpen className="h-4 w-4 text-primary" />
               Binder Page Scan
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2 text-xs text-neutral-300">
+          <CardContent className="space-y-2 text-xs text-muted-foreground">
             <p>
               Upload a full 9-pocket binder page. The image is stored in
               <code className="ml-1">card-images/binder/</code> and ready for your multi-card OCR pipeline.
@@ -440,14 +440,14 @@ export default function NewDashboard() {
         </Card>
 
         {/* Bulk scan */}
-        <Card className="bg-neutral-900 border-neutral-800">
+        <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <Activity className="h-4 w-4 text-amber-400" />
+              <Activity className="h-4 w-4 text-primary" />
               Bulk Scan
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2 text-xs text-neutral-300">
+          <CardContent className="space-y-2 text-xs text-muted-foreground">
             <p>
               Select multiple card images to batch upload to
               <code className="ml-1">card-images/bulk/</code> and run full analysis on each (Vision + Gemini).
@@ -463,22 +463,22 @@ export default function NewDashboard() {
             {(bulkUploading || bulkProgress > 0) && (
               <div className="mt-2 space-y-1">
                 <Progress value={bulkProgress} className="h-2" />
-                <p className="text-[11px] text-neutral-400">{bulkProgress}% complete</p>
+                <p className="text-[11px] text-muted-foreground">{bulkProgress}% complete</p>
               </div>
             )}
-            {bulkError && <p className="text-[11px] text-red-400 mt-1">{bulkError}</p>}
+            {bulkError && <p className="text-[11px] text-destructive mt-1">{bulkError}</p>}
             {bulkItems.length > 0 && (
-              <div className="mt-2 max-h-24 overflow-auto rounded bg-neutral-800/60 p-2 space-y-1">
+              <div className="mt-2 max-h-24 overflow-auto rounded bg-secondary/60 p-2 space-y-1">
                 {bulkItems.map((item, idx) => (
                   <div key={idx} className="flex items-center justify-between text-[11px]">
                     <span className="truncate max-w-[60%]">{item.imageUrl || `Item ${idx + 1}`}</span>
                     <span
                       className={
                         item.status === "success"
-                          ? "text-emerald-400"
+                          ? "text-success"
                           : item.status === "error"
-                            ? "text-red-400"
-                            : "text-neutral-400"
+                            ? "text-destructive"
+                            : "text-muted-foreground"
                       }
                     >
                       {item.status}
@@ -493,7 +493,7 @@ export default function NewDashboard() {
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="bg-neutral-900 border-neutral-800">
+        <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle>Value Over Time</CardTitle>
           </CardHeader>
@@ -516,7 +516,7 @@ export default function NewDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="bg-neutral-900 border-neutral-800">
+        <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle>Rarity Distribution</CardTitle>
             <p className="text-xs text-muted-foreground">Click a segment to view cards</p>
@@ -562,14 +562,14 @@ export default function NewDashboard() {
 
       {/* Bottom Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="bg-neutral-900 border-neutral-800">
+        <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle>Top Valuable Cards</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
               {topCards.map((card, idx) => (
-                <div key={card.id} className="flex items-center gap-3 p-2 rounded bg-neutral-800/50">
+                <div key={card.id} className="flex items-center gap-3 p-2 rounded bg-secondary/50">
                   <img
                     src={card.thumbnail_url || card.image_url}
                     alt={card.card_name}
@@ -577,11 +577,11 @@ export default function NewDashboard() {
                   />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{card.card_name}</p>
-                    <p className="text-xs text-neutral-400">{card.card_set}</p>
+                    <p className="text-xs text-muted-foreground">{card.card_set}</p>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-green-500">${(card.current_price_raw || 0).toFixed(2)}</p>
-                    <p className="text-xs text-neutral-500">#{idx + 1}</p>
+                    <p className="font-bold text-success">${(card.current_price_raw || 0).toFixed(2)}</p>
+                    <p className="text-xs text-muted-foreground/70">#{idx + 1}</p>
                   </div>
                 </div>
               ))}
@@ -589,14 +589,14 @@ export default function NewDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="bg-neutral-900 border-neutral-800">
+        <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle>Recent Activity</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
               {recentCards.map((card) => (
-                <div key={card.id} className="flex items-center gap-3 p-2 rounded bg-neutral-800/50">
+                <div key={card.id} className="flex items-center gap-3 p-2 rounded bg-secondary/50">
                   <img
                     src={card.thumbnail_url || card.image_url}
                     alt={card.card_name}
@@ -604,7 +604,7 @@ export default function NewDashboard() {
                   />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{card.card_name}</p>
-                    <p className="text-xs text-neutral-400">{new Date(card.created_at).toLocaleDateString()}</p>
+                    <p className="text-xs text-muted-foreground">{new Date(card.created_at).toLocaleDateString()}</p>
                   </div>
                   <div className="text-right">
                     <p className="font-medium">${(card.current_price_raw || 0).toFixed(2)}</p>
