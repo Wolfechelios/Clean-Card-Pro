@@ -25,6 +25,7 @@ import N8nIntegrations from "@/components/settings/N8nIntegrations";
 import { SettingsSkeleton } from "@/components/ui/loading-skeletons";
 import { useScannerSettings } from "@/hooks/use-scanner-settings";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 
 export default function Settings() {
   const navigate = useNavigate();
@@ -499,30 +500,48 @@ export default function Settings() {
           </CardTitle>
           <CardDescription>Configure card scanning behavior</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="auto-confirm-threshold" className="text-sm font-medium">
-                Auto-Confirm Confidence Threshold: {scannerSettings.autoConfirmThreshold}%
+        <CardContent className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="auto-confirm-toggle" className="text-sm font-medium">
+                Auto-Confirm Cards
               </Label>
-              <p className="text-xs text-muted-foreground mt-1 mb-3">
-                Cards with confidence at or above this threshold will be automatically saved without manual confirmation.
+              <p className="text-xs text-muted-foreground">
+                Automatically save cards when confidence is high enough
               </p>
-              <Slider
-                id="auto-confirm-threshold"
-                min={50}
-                max={100}
-                step={5}
-                value={[scannerSettings.autoConfirmThreshold]}
-                onValueChange={(value) => updateScannerSettings({ autoConfirmThreshold: value[0] })}
-                className="w-full"
-              />
-              <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                <span>50% (More auto-saves)</span>
-                <span>100% (Always manual)</span>
+            </div>
+            <Switch
+              id="auto-confirm-toggle"
+              checked={scannerSettings.autoConfirmEnabled}
+              onCheckedChange={(checked) => updateScannerSettings({ autoConfirmEnabled: checked })}
+            />
+          </div>
+
+          {scannerSettings.autoConfirmEnabled && (
+            <div className="space-y-3 pt-2 border-t border-border">
+              <div>
+                <Label htmlFor="auto-confirm-threshold" className="text-sm font-medium">
+                  Confidence Threshold: {scannerSettings.autoConfirmThreshold}%
+                </Label>
+                <p className="text-xs text-muted-foreground mt-1 mb-3">
+                  Cards with confidence at or above this threshold will be automatically saved.
+                </p>
+                <Slider
+                  id="auto-confirm-threshold"
+                  min={50}
+                  max={100}
+                  step={5}
+                  value={[scannerSettings.autoConfirmThreshold]}
+                  onValueChange={(value) => updateScannerSettings({ autoConfirmThreshold: value[0] })}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                  <span>50% (More auto-saves)</span>
+                  <span>100% (Only certain matches)</span>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </CardContent>
       </Card>
 
