@@ -5,6 +5,9 @@ export interface CardPricing {
   psa9: number | null;
   psa10: number | null;
   suggested: number | null;
+  ebayRaw: number | null;
+  ebayPsa9: number | null;
+  ebayPsa10: number | null;
   ebayUrl: string | null;
   source: string;
 }

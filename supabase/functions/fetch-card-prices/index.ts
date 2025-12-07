@@ -5,6 +5,9 @@ interface PricingResult {
   psa9: number | null;
   psa10: number | null;
   suggested: number | null;
+  ebayRaw: number | null;
+  ebayPsa9: number | null;
+  ebayPsa10: number | null;
   ebayUrl: string | null;
   source: string;
 }
@@ -30,7 +33,7 @@ Deno.serve(async (req) => {
     const searchQuery = `${cardName} ${cardSet || ""} ${cardNumber || ""}`.trim();
     const sources: string[] = [];
     
-    // Determine which sources to use based on card type
+    // Determine which primary source to use based on card type
     const isTCG = gameType && ["pokemon", "yugioh", "yu-gi-oh", "mtg", "magic"].some(
       type => gameType.toLowerCase().includes(type)
     );
@@ -38,51 +41,52 @@ Deno.serve(async (req) => {
       sportType.toLowerCase()
     );
 
-    // Fetch prices from all relevant sources in parallel
-    const promises: Promise<PriceData>[] = [fetchEbayPrices(searchQuery)];
+    // Fetch eBay separately (always as reference)
+    const ebayPromise = fetchEbayPrices(searchQuery);
     
+    // Fetch primary source based on card type
+    let primaryPromise: Promise<PriceData>;
     if (isSportsCard) {
-      promises.push(fetchSportsCardProPrices(searchQuery));
-    }
-    
-    if (isTCG) {
-      promises.push(fetchPriceChartingPrices(cardName, cardSet, gameType));
-    }
-
-    const results = await Promise.all(promises);
-    
-    const ebayPrices = results[0];
-    sources.push("eBay");
-    
-    let sportsCardProPrices: PriceData = { raw: null, psa9: null, psa10: null, suggested: null };
-    let priceChartingPrices: PriceData = { raw: null, psa9: null, psa10: null, suggested: null };
-    
-    if (isSportsCard && results[1]) {
-      sportsCardProPrices = results[1];
-      if (sportsCardProPrices.raw) sources.push("SportsCardPro");
-    }
-    
-    if (isTCG) {
-      const tcgIndex = isSportsCard ? 2 : 1;
-      if (results[tcgIndex]) {
-        priceChartingPrices = results[tcgIndex];
-        if (priceChartingPrices.raw) sources.push("PriceCharting");
-      }
+      primaryPromise = fetchSportsCardProPrices(searchQuery);
+      sources.push("SportsCardPro");
+    } else if (isTCG) {
+      primaryPromise = fetchPriceChartingPrices(cardName, cardSet, gameType);
+      sources.push("PriceCharting");
+    } else {
+      // Fallback: try both and use whichever returns data
+      const [scp, pc] = await Promise.all([
+        fetchSportsCardProPrices(searchQuery),
+        fetchPriceChartingPrices(cardName, cardSet, gameType)
+      ]);
+      primaryPromise = Promise.resolve(scp.raw ? scp : pc);
+      sources.push(scp.raw ? "SportsCardPro" : pc.raw ? "PriceCharting" : "None");
     }
 
-    // Merge results using median strategy when multiple sources available
-    const allRawPrices = [ebayPrices.raw, sportsCardProPrices.raw, priceChartingPrices.raw].filter(p => p !== null) as number[];
-    const allPsa9Prices = [ebayPrices.psa9, sportsCardProPrices.psa9, priceChartingPrices.psa9].filter(p => p !== null) as number[];
-    const allPsa10Prices = [ebayPrices.psa10, sportsCardProPrices.psa10, priceChartingPrices.psa10].filter(p => p !== null) as number[];
-    
+    const [primaryPrices, ebayPrices] = await Promise.all([primaryPromise, ebayPromise]);
+
+    // Use primary source for main prices, eBay as separate reference
     const result: PricingResult = {
-      raw: getMedian(allRawPrices),
-      psa9: getMedian(allPsa9Prices),
-      psa10: getMedian(allPsa10Prices),
-      suggested: getMedian(allRawPrices),
+      // Primary prices from SportsCardPro or PriceCharting
+      raw: primaryPrices.raw,
+      psa9: primaryPrices.psa9,
+      psa10: primaryPrices.psa10,
+      suggested: primaryPrices.suggested ?? primaryPrices.raw,
+      // eBay as separate reference
+      ebayRaw: ebayPrices.raw,
+      ebayPsa9: ebayPrices.psa9,
+      ebayPsa10: ebayPrices.psa10,
       ebayUrl: ebayPrices.ebayUrl ?? null,
-      source: sources.join(" + ")
+      source: sources.join(" + ") + " (eBay ref)"
     };
+
+    // Fallback to eBay if primary source has no data
+    if (result.raw === null && ebayPrices.raw !== null) {
+      result.raw = ebayPrices.raw;
+      result.psa9 = ebayPrices.psa9;
+      result.psa10 = ebayPrices.psa10;
+      result.suggested = ebayPrices.raw;
+      result.source = "eBay (fallback)";
+    }
 
     console.log("Pricing result:", result);
 
@@ -100,13 +104,6 @@ Deno.serve(async (req) => {
     );
   }
 });
-
-function getMedian(prices: number[]): number | null {
-  if (prices.length === 0) return null;
-  prices.sort((a, b) => a - b);
-  const mid = Math.floor(prices.length / 2);
-  return prices.length % 2 !== 0 ? prices[mid] : (prices[mid - 1] + prices[mid]) / 2;
-}
 
 async function fetchEbayPrices(searchQuery: string): Promise<PriceData> {
   try {
@@ -170,18 +167,19 @@ async function fetchSportsCardProPrices(searchQuery: string): Promise<PriceData>
 
     const html = await response.text();
     const prices = extractPricesFromHtml(html);
+    const gradedPrices = extractGradedPrices(html);
     
-    if (prices.length === 0) {
+    if (prices.length === 0 && !gradedPrices.ungraded) {
       return { raw: null, psa9: null, psa10: null, suggested: null };
     }
 
-    const median = getMedian(prices) ?? 0;
+    const median = getMedian(prices);
     
     return {
-      raw: parseFloat(median.toFixed(2)),
-      psa9: null,
-      psa10: null,
-      suggested: parseFloat(median.toFixed(2)),
+      raw: gradedPrices.ungraded ?? median,
+      psa9: gradedPrices.psa9,
+      psa10: gradedPrices.psa10,
+      suggested: gradedPrices.ungraded ?? median,
     };
   } catch (error) {
     console.error("Error fetching SportsCardPro prices:", error);
@@ -191,7 +189,6 @@ async function fetchSportsCardProPrices(searchQuery: string): Promise<PriceData>
 
 async function fetchPriceChartingPrices(cardName: string, cardSet: string | null, gameType: string | null): Promise<PriceData> {
   try {
-    // Map game type to PriceCharting category
     let category = "pokemon";
     if (gameType) {
       const gt = gameType.toLowerCase();
@@ -218,23 +215,27 @@ async function fetchPriceChartingPrices(cardName: string, cardSet: string | null
     }
 
     const html = await response.text();
-    
-    // PriceCharting has specific price columns for graded cards
     const gradedPrices = extractGradedPrices(html);
     const prices = extractPricesFromHtml(html);
-    
-    const median = prices.length > 0 ? getMedian(prices) ?? 0 : 0;
+    const median = getMedian(prices);
     
     return {
-      raw: gradedPrices.ungraded ?? (median > 0 ? parseFloat(median.toFixed(2)) : null),
+      raw: gradedPrices.ungraded ?? median,
       psa9: gradedPrices.psa9,
       psa10: gradedPrices.psa10,
-      suggested: median > 0 ? parseFloat(median.toFixed(2)) : null,
+      suggested: gradedPrices.ungraded ?? median,
     };
   } catch (error) {
     console.error("Error fetching PriceCharting prices:", error);
     return { raw: null, psa9: null, psa10: null, suggested: null };
   }
+}
+
+function getMedian(prices: number[]): number | null {
+  if (prices.length === 0) return null;
+  const sorted = [...prices].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
 function extractPricesFromHtml(html: string): number[] {
@@ -262,10 +263,9 @@ function extractGradedPrices(html: string): { ungraded: number | null; psa9: num
   let psa9: number | null = null;
   let psa10: number | null = null;
 
-  // Look for PriceCharting specific graded price patterns
-  const ungradedMatch = html.match(/ungraded.*?\$([0-9,]+\.\d{2})/i);
-  const psa9Match = html.match(/psa\s*9.*?\$([0-9,]+\.\d{2})/i);
-  const psa10Match = html.match(/psa\s*10.*?\$([0-9,]+\.\d{2})/i);
+  const ungradedMatch = html.match(/ungraded.*?\$([0-9,]+\.\d{2})/i) || html.match(/raw.*?\$([0-9,]+\.\d{2})/i);
+  const psa9Match = html.match(/psa\s*9.*?\$([0-9,]+\.\d{2})/i) || html.match(/grade.*?9.*?\$([0-9,]+\.\d{2})/i);
+  const psa10Match = html.match(/psa\s*10.*?\$([0-9,]+\.\d{2})/i) || html.match(/grade.*?10.*?\$([0-9,]+\.\d{2})/i);
 
   if (ungradedMatch) ungraded = parseFloat(ungradedMatch[1].replace(/,/g, ""));
   if (psa9Match) psa9 = parseFloat(psa9Match[1].replace(/,/g, ""));
