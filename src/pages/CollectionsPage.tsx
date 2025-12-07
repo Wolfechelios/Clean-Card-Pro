@@ -6,7 +6,7 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Search, Trash2, TrendingUp, DollarSign, RefreshCw, Edit3, ImageOff, X } from "lucide-react";
+import { Search, Trash2, TrendingUp, DollarSign, RefreshCw, Edit3, ImageOff, X, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -35,6 +35,7 @@ import AdvancedFilters, { FilterConfig } from "@/components/collections/Advanced
 import ImportExport from "@/components/collections/ImportExport";
 import PriceAlerts from "@/components/collections/PriceAlerts";
 import PortfolioView from "@/components/collections/PortfolioView";
+import Card3DViewer from "@/components/Card3DViewer";
 
 interface CardItem {
   id: string;
@@ -69,6 +70,7 @@ export default function Collections() {
   const [showDeleteNoImage, setShowDeleteNoImage] = useState(false);
   const [noImageCount, setNoImageCount] = useState(0);
   const [showBulkEdit, setShowBulkEdit] = useState(false);
+  const [cardDetail, setCardDetail] = useState<CardItem | null>(null);
   const [bulkEditData, setBulkEditData] = useState({
     condition: "",
     rarity: "",
@@ -636,10 +638,11 @@ export default function Collections() {
           {filteredCards.map((card, index) => (
             <Card 
               key={card.id} 
-              className="bg-card border-border hover:shadow-xl hover:scale-105 transition-all duration-300 overflow-hidden group relative animate-in fade-in slide-in-from-bottom-4"
+              className="bg-card border-border hover:shadow-xl hover:scale-105 transition-all duration-300 overflow-hidden group relative animate-in fade-in slide-in-from-bottom-4 cursor-pointer"
               style={{ animationDelay: `${index * 50}ms` }}
+              onClick={() => setCardDetail(card)}
             >
-              <div className="absolute top-2 left-2 z-10 transition-transform duration-200 hover:scale-110">
+              <div className="absolute top-2 left-2 z-10 transition-transform duration-200 hover:scale-110" onClick={(e) => e.stopPropagation()}>
                 <Checkbox
                   checked={selectedCards.has(card.id)}
                   onCheckedChange={() => toggleCardSelection(card.id)}
@@ -650,9 +653,23 @@ export default function Collections() {
                 variant="destructive"
                 size="icon"
                 className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-all duration-200 hover:scale-110 shadow-lg"
-                onClick={() => setCardToDelete(card.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCardToDelete(card.id);
+                }}
               >
                 <Trash2 className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="secondary"
+                size="icon"
+                className="absolute top-2 right-12 z-10 opacity-0 group-hover:opacity-100 transition-all duration-200 hover:scale-110 shadow-lg"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCardDetail(card);
+                }}
+              >
+                <Eye className="h-4 w-4" />
               </Button>
               <CardHeader className="p-0">
                 <div className="aspect-[3/4] overflow-hidden bg-muted">
@@ -827,6 +844,80 @@ export default function Collections() {
             </Button>
             <Button onClick={handleBulkEdit}>
               Update {selectedCards.size} Card(s)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Card Detail Modal with 3D Viewer */}
+      <Dialog open={!!cardDetail} onOpenChange={(open) => !open && setCardDetail(null)}>
+        <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-xl">{cardDetail?.card_name}</DialogTitle>
+            <DialogDescription>
+              {cardDetail?.card_set || "Unknown Set"} {cardDetail?.card_number && `• #${cardDetail.card_number}`}
+            </DialogDescription>
+          </DialogHeader>
+          
+          {cardDetail && (
+            <div className="space-y-6 py-4">
+              {/* 3D Viewer */}
+              <div className="flex justify-center">
+                <Card3DViewer
+                  frontImageUrl={cardDetail.image_url}
+                  width={400}
+                  height={300}
+                />
+              </div>
+              
+              {/* Card Details */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-muted-foreground text-xs">Condition</Label>
+                  <p className="font-medium">{cardDetail.condition || "Not specified"}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground text-xs">Rarity</Label>
+                  <p className="font-medium">{cardDetail.rarity || "Unknown"}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground text-xs">Game Type</Label>
+                  <p className="font-medium">{cardDetail.game_type || "Not specified"}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground text-xs">Sport Type</Label>
+                  <p className="font-medium">{cardDetail.sport_type || "Not specified"}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground text-xs">Collection</Label>
+                  <p className="font-medium">{cardDetail.collection_name || "No collection"}</p>
+                </div>
+                <div>
+                  <Label className="text-muted-foreground text-xs">Current Value</Label>
+                  <p className="font-medium text-lg text-primary">
+                    {cardDetail.current_price_raw ? `$${cardDetail.current_price_raw.toFixed(2)}` : "N/A"}
+                  </p>
+                </div>
+              </div>
+              
+              {/* Badges */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {cardDetail.rarity && (
+                  <Badge variant="secondary">{cardDetail.rarity}</Badge>
+                )}
+                {cardDetail.condition && (
+                  <Badge variant="outline">{cardDetail.condition}</Badge>
+                )}
+                {cardDetail.game_type && (
+                  <Badge>{cardDetail.game_type}</Badge>
+                )}
+              </div>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCardDetail(null)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
