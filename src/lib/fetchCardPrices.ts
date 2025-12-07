@@ -4,10 +4,14 @@ export interface CardPricing {
   raw: number | null;
   psa9: number | null;
   psa10: number | null;
+  cgc9: number | null;
+  cgc10: number | null;
   suggested: number | null;
   ebayRaw: number | null;
   ebayPsa9: number | null;
   ebayPsa10: number | null;
+  ebayCgc9: number | null;
+  ebayCgc10: number | null;
   ebayUrl: string | null;
   source: string;
 }
