@@ -1,3 +1,5 @@
+import { supabase } from "@/integrations/supabase/client";
+
 export type EnhancedCardData = {
   card_name: string;
   card_set: string | null;
@@ -16,25 +18,17 @@ export async function enhancedCardIdentify(
   imageUrl: string,
   ocrText?: string
 ): Promise<EnhancedCardData> {
-  const res = await fetch(
-    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/enhanced-card-identify`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        imageUrl,
-        ocrText,
-      }),
-    }
-  );
+  const { data, error } = await supabase.functions.invoke("enhanced-card-identify", {
+    body: {
+      imageUrl,
+      ocrText,
+    },
+  });
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`enhanced-card-identify failed: ${res.status} – ${text}`);
+  if (error) {
+    throw new Error(`enhanced-card-identify failed: ${error.message}`);
   }
 
-  const data = await res.json();
-  
   if (!data.success) {
     throw new Error(data.error || "Failed to identify card");
   }

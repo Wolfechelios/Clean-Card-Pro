@@ -1,4 +1,5 @@
 // src/lib/analyzeCardFull.ts
+import { supabase } from "@/integrations/supabase/client";
 
 export type VisionLabel = {
   description: string;
@@ -68,22 +69,19 @@ export async function analyzeCardFull(
     cardName?: string;
   }
 ): Promise<FullCardAnalysis> {
-  const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-card-full`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+  const { data, error } = await supabase.functions.invoke("analyze-card-full", {
+    body: {
       image_url: imageUrl,
       card_id: opts?.cardId,
       game: opts?.game,
       set_code: opts?.setCode,
       card_name: opts?.cardName,
-    }),
+    },
   });
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`analyze-card-full failed: ${res.status} – ${text}`);
+  if (error) {
+    throw new Error(`analyze-card-full failed: ${error.message}`);
   }
 
-  return (await res.json()) as FullCardAnalysis;
+  return data as FullCardAnalysis;
 }
