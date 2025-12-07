@@ -1,19 +1,54 @@
 // components/Card3DViewer.tsx
 "use client";
 
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three-stdlib";
+import { Button } from "@/components/ui/button";
+import { RotateCcw, ZoomIn, ZoomOut, Pause, Play } from "lucide-react";
 
 type Card3DViewerProps = {
   frontImageUrl: string;
-  backImageUrl?: string; // optional for now
+  backImageUrl?: string;
   width?: number;
   height?: number;
 };
 
 const Card3DViewer: React.FC<Card3DViewerProps> = ({ frontImageUrl, backImageUrl, width = 400, height = 300 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const cardMeshRef = useRef<THREE.Mesh | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const controlsRef = useRef<OrbitControls | null>(null);
+  const [autoRotate, setAutoRotate] = useState(true);
+  const autoRotateRef = useRef(autoRotate);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    autoRotateRef.current = autoRotate;
+  }, [autoRotate]);
+
+  const handleZoomIn = () => {
+    if (cameraRef.current) {
+      cameraRef.current.position.z = Math.max(1.5, cameraRef.current.position.z - 0.5);
+      controlsRef.current?.update();
+    }
+  };
+
+  const handleZoomOut = () => {
+    if (cameraRef.current) {
+      cameraRef.current.position.z = Math.min(6, cameraRef.current.position.z + 0.5);
+      controlsRef.current?.update();
+    }
+  };
+
+  const handleReset = () => {
+    if (cameraRef.current && cardMeshRef.current && controlsRef.current) {
+      cameraRef.current.position.set(0, 0, 3);
+      cardMeshRef.current.rotation.set(-0.1, 0.4, 0);
+      controlsRef.current.target.set(0, 0, 0);
+      controlsRef.current.update();
+    }
+  };
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -23,6 +58,7 @@ const Card3DViewer: React.FC<Card3DViewerProps> = ({ frontImageUrl, backImageUrl
 
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
     camera.position.set(0, 0, 3);
+    cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(width, height);
@@ -50,8 +86,7 @@ const Card3DViewer: React.FC<Card3DViewerProps> = ({ frontImageUrl, backImageUrl
     const frontTexture = loader.load(frontImageUrl);
     frontTexture.colorSpace = THREE.SRGBColorSpace;
 
-    const backTexture = backImageUrl ? loader.load(backImageUrl) : loader.load(frontImageUrl); // fallback
-
+    const backTexture = backImageUrl ? loader.load(backImageUrl) : loader.load(frontImageUrl);
     backTexture.colorSpace = THREE.SRGBColorSpace;
 
     const sideMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
@@ -66,6 +101,7 @@ const Card3DViewer: React.FC<Card3DViewerProps> = ({ frontImageUrl, backImageUrl
 
     const cardMesh = new THREE.Mesh(geometry, materials);
     scene.add(cardMesh);
+    cardMeshRef.current = cardMesh;
 
     cardMesh.rotation.y = 0.4;
     cardMesh.rotation.x = -0.1;
@@ -73,13 +109,22 @@ const Card3DViewer: React.FC<Card3DViewerProps> = ({ frontImageUrl, backImageUrl
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enablePan = false;
     controls.enableZoom = true;
+    controls.minDistance = 1.5;
+    controls.maxDistance = 6;
     controls.target.set(0, 0, 0);
     controls.update();
+    controlsRef.current = controls;
 
     let animationFrameId: number;
 
     const animate = () => {
       animationFrameId = requestAnimationFrame(animate);
+      
+      // Auto-rotate the card
+      if (autoRotateRef.current && cardMesh) {
+        cardMesh.rotation.y += 0.005;
+      }
+      
       renderer.render(scene, camera);
     };
     animate();
@@ -107,16 +152,57 @@ const Card3DViewer: React.FC<Card3DViewerProps> = ({ frontImageUrl, backImageUrl
   }, [frontImageUrl, backImageUrl, width, height]);
 
   return (
-    <div
-      ref={containerRef}
-      style={{
-        width: "100%",
-        maxWidth: width,
-        height,
-        borderRadius: 12,
-        overflow: "hidden",
-      }}
-    />
+    <div className="relative" style={{ width: "100%", maxWidth: width }}>
+      <div
+        ref={containerRef}
+        style={{
+          width: "100%",
+          height,
+          borderRadius: 12,
+          overflow: "hidden",
+        }}
+      />
+      
+      {/* Controls overlay */}
+      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-background/80 backdrop-blur-sm rounded-lg p-1 border border-border shadow-lg">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => setAutoRotate(!autoRotate)}
+          title={autoRotate ? "Pause rotation" : "Resume rotation"}
+        >
+          {autoRotate ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={handleZoomIn}
+          title="Zoom in"
+        >
+          <ZoomIn className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={handleZoomOut}
+          title="Zoom out"
+        >
+          <ZoomOut className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={handleReset}
+          title="Reset view"
+        >
+          <RotateCcw className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
   );
 };
 
