@@ -4,10 +4,14 @@ interface PricingResult {
   raw: number | null;
   psa9: number | null;
   psa10: number | null;
+  cgc9: number | null;
+  cgc10: number | null;
   suggested: number | null;
   ebayRaw: number | null;
   ebayPsa9: number | null;
   ebayPsa10: number | null;
+  ebayCgc9: number | null;
+  ebayCgc10: number | null;
   ebayUrl: string | null;
   source: string;
 }
@@ -16,6 +20,8 @@ interface PriceData {
   raw: number | null;
   psa9: number | null;
   psa10: number | null;
+  cgc9: number | null;
+  cgc10: number | null;
   suggested: number | null;
   ebayUrl?: string | null;
 }
@@ -70,11 +76,15 @@ Deno.serve(async (req) => {
       raw: primaryPrices.raw,
       psa9: primaryPrices.psa9,
       psa10: primaryPrices.psa10,
+      cgc9: primaryPrices.cgc9,
+      cgc10: primaryPrices.cgc10,
       suggested: primaryPrices.suggested ?? primaryPrices.raw,
       // eBay as separate reference
       ebayRaw: ebayPrices.raw,
       ebayPsa9: ebayPrices.psa9,
       ebayPsa10: ebayPrices.psa10,
+      ebayCgc9: ebayPrices.cgc9,
+      ebayCgc10: ebayPrices.cgc10,
       ebayUrl: ebayPrices.ebayUrl ?? null,
       source: sources.join(" + ") + " (eBay ref)"
     };
@@ -84,6 +94,8 @@ Deno.serve(async (req) => {
       result.raw = ebayPrices.raw;
       result.psa9 = ebayPrices.psa9;
       result.psa10 = ebayPrices.psa10;
+      result.cgc9 = ebayPrices.cgc9;
+      result.cgc10 = ebayPrices.cgc10;
       result.suggested = ebayPrices.raw;
       result.source = "eBay (fallback)";
     }
@@ -121,28 +133,32 @@ async function fetchEbayPrices(searchQuery: string): Promise<PriceData> {
 
     if (!response.ok) {
       console.error("eBay fetch failed:", response.status);
-      return { raw: null, psa9: null, psa10: null, suggested: null, ebayUrl };
+      return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null, ebayUrl };
     }
 
     const html = await response.text();
     const prices = extractPricesFromHtml(html);
+    const gradedPrices = extractGradedPrices(html);
     
     if (prices.length === 0) {
-      return { raw: null, psa9: null, psa10: null, suggested: null, ebayUrl };
+      return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null, ebayUrl };
     }
 
     const median = getMedian(prices) ?? 0;
     
+    // Use extracted graded prices if available, otherwise estimate from raw
     return {
       raw: parseFloat(median.toFixed(2)),
-      psa9: parseFloat((median * 2.5).toFixed(2)),
-      psa10: parseFloat((median * 4).toFixed(2)),
+      psa9: gradedPrices.psa9 ?? parseFloat((median * 2.5).toFixed(2)),
+      psa10: gradedPrices.psa10 ?? parseFloat((median * 4).toFixed(2)),
+      cgc9: gradedPrices.cgc9 ?? parseFloat((median * 2.2).toFixed(2)),
+      cgc10: gradedPrices.cgc10 ?? parseFloat((median * 3.5).toFixed(2)),
       suggested: parseFloat(median.toFixed(2)),
       ebayUrl,
     };
   } catch (error) {
     console.error("Error fetching eBay prices:", error);
-    return { raw: null, psa9: null, psa10: null, suggested: null, ebayUrl: null };
+    return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null, ebayUrl: null };
   }
 }
 
@@ -162,7 +178,7 @@ async function fetchSportsCardProPrices(searchQuery: string): Promise<PriceData>
 
     if (!response.ok) {
       console.error("SportsCardPro fetch failed:", response.status);
-      return { raw: null, psa9: null, psa10: null, suggested: null };
+      return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null };
     }
 
     const html = await response.text();
@@ -170,7 +186,7 @@ async function fetchSportsCardProPrices(searchQuery: string): Promise<PriceData>
     const gradedPrices = extractGradedPrices(html);
     
     if (prices.length === 0 && !gradedPrices.ungraded) {
-      return { raw: null, psa9: null, psa10: null, suggested: null };
+      return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null };
     }
 
     const median = getMedian(prices);
@@ -179,11 +195,13 @@ async function fetchSportsCardProPrices(searchQuery: string): Promise<PriceData>
       raw: gradedPrices.ungraded ?? median,
       psa9: gradedPrices.psa9,
       psa10: gradedPrices.psa10,
+      cgc9: gradedPrices.cgc9,
+      cgc10: gradedPrices.cgc10,
       suggested: gradedPrices.ungraded ?? median,
     };
   } catch (error) {
     console.error("Error fetching SportsCardPro prices:", error);
-    return { raw: null, psa9: null, psa10: null, suggested: null };
+    return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null };
   }
 }
 
@@ -211,7 +229,7 @@ async function fetchPriceChartingPrices(cardName: string, cardSet: string | null
 
     if (!response.ok) {
       console.error("PriceCharting fetch failed:", response.status);
-      return { raw: null, psa9: null, psa10: null, suggested: null };
+      return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null };
     }
 
     const html = await response.text();
@@ -223,11 +241,13 @@ async function fetchPriceChartingPrices(cardName: string, cardSet: string | null
       raw: gradedPrices.ungraded ?? median,
       psa9: gradedPrices.psa9,
       psa10: gradedPrices.psa10,
+      cgc9: gradedPrices.cgc9,
+      cgc10: gradedPrices.cgc10,
       suggested: gradedPrices.ungraded ?? median,
     };
   } catch (error) {
     console.error("Error fetching PriceCharting prices:", error);
-    return { raw: null, psa9: null, psa10: null, suggested: null };
+    return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null };
   }
 }
 
@@ -258,18 +278,35 @@ function extractPricesFromHtml(html: string): number[] {
   return prices;
 }
 
-function extractGradedPrices(html: string): { ungraded: number | null; psa9: number | null; psa10: number | null } {
+function extractGradedPrices(html: string): { 
+  ungraded: number | null; 
+  psa9: number | null; 
+  psa10: number | null; 
+  cgc9: number | null; 
+  cgc10: number | null;
+} {
   let ungraded: number | null = null;
   let psa9: number | null = null;
   let psa10: number | null = null;
+  let cgc9: number | null = null;
+  let cgc10: number | null = null;
 
+  // Ungraded/Raw prices
   const ungradedMatch = html.match(/ungraded.*?\$([0-9,]+\.\d{2})/i) || html.match(/raw.*?\$([0-9,]+\.\d{2})/i);
+  
+  // PSA grades
   const psa9Match = html.match(/psa\s*9.*?\$([0-9,]+\.\d{2})/i) || html.match(/grade.*?9.*?\$([0-9,]+\.\d{2})/i);
   const psa10Match = html.match(/psa\s*10.*?\$([0-9,]+\.\d{2})/i) || html.match(/grade.*?10.*?\$([0-9,]+\.\d{2})/i);
+  
+  // CGC grades
+  const cgc9Match = html.match(/cgc\s*9.*?\$([0-9,]+\.\d{2})/i);
+  const cgc10Match = html.match(/cgc\s*10.*?\$([0-9,]+\.\d{2})/i) || html.match(/cgc\s*(?:perfect\s*)?10.*?\$([0-9,]+\.\d{2})/i);
 
   if (ungradedMatch) ungraded = parseFloat(ungradedMatch[1].replace(/,/g, ""));
   if (psa9Match) psa9 = parseFloat(psa9Match[1].replace(/,/g, ""));
   if (psa10Match) psa10 = parseFloat(psa10Match[1].replace(/,/g, ""));
+  if (cgc9Match) cgc9 = parseFloat(cgc9Match[1].replace(/,/g, ""));
+  if (cgc10Match) cgc10 = parseFloat(cgc10Match[1].replace(/,/g, ""));
 
-  return { ungraded, psa9, psa10 };
+  return { ungraded, psa9, psa10, cgc9, cgc10 };
 }
