@@ -18,6 +18,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { ValuePrediction } from "@/components/cards/ValuePrediction";
+import Card3DViewer from "@/components/Card3DViewer";
 import { toast } from "sonner";
 
 interface CardItem {
@@ -255,43 +256,55 @@ export default function PredictionsPage() {
                 {/* Selected Card Preview */}
                 <Card>
                   <CardContent className="p-4">
-                    <div className="flex items-center gap-4">
-                      <img
-                        src={selectedCard.image_url}
-                        alt={selectedCard.card_name}
-                        className="w-24 h-32 object-cover rounded-lg shadow-lg"
-                      />
-                      <div className="flex-1">
-                        <h2 className="text-xl font-bold">{selectedCard.card_name}</h2>
-                        <p className="text-muted-foreground">{selectedCard.card_set}</p>
-                        <div className="flex items-center gap-2 mt-2">
-                          {selectedCard.rarity && (
-                            <Badge variant="secondary">{selectedCard.rarity}</Badge>
-                          )}
-                          {selectedCard.game_type && (
-                            <Badge variant="outline">{selectedCard.game_type}</Badge>
-                          )}
+                    <div className="flex flex-col lg:flex-row gap-6">
+                      <div className="flex items-start gap-4 flex-1">
+                        <img
+                          src={selectedCard.image_url}
+                          alt={selectedCard.card_name}
+                          className="w-24 h-32 object-cover rounded-lg shadow-lg"
+                        />
+                        <div className="flex-1">
+                          <h2 className="text-xl font-bold">{selectedCard.card_name}</h2>
+                          <p className="text-muted-foreground">{selectedCard.card_set}</p>
+                          <div className="flex items-center gap-2 mt-2">
+                            {selectedCard.rarity && (
+                              <Badge variant="secondary">{selectedCard.rarity}</Badge>
+                            )}
+                            {selectedCard.game_type && (
+                              <Badge variant="outline">{selectedCard.game_type}</Badge>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-3 gap-4 mt-4">
+                            <div>
+                              <p className="text-xs text-muted-foreground">Raw</p>
+                              <p className="font-semibold">
+                                ${selectedCard.current_price_raw?.toFixed(2) || "N/A"}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">PSA 9</p>
+                              <p className="font-semibold">
+                                ${selectedCard.current_price_psa9?.toFixed(2) || "N/A"}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">PSA 10</p>
+                              <p className="font-semibold">
+                                ${selectedCard.current_price_psa10?.toFixed(2) || "N/A"}
+                              </p>
+                            </div>
+                          </div>
                         </div>
-                        <div className="grid grid-cols-3 gap-4 mt-4">
-                          <div>
-                            <p className="text-xs text-muted-foreground">Raw</p>
-                            <p className="font-semibold">
-                              ${selectedCard.current_price_raw?.toFixed(2) || "N/A"}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted-foreground">PSA 9</p>
-                            <p className="font-semibold">
-                              ${selectedCard.current_price_psa9?.toFixed(2) || "N/A"}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted-foreground">PSA 10</p>
-                            <p className="font-semibold">
-                              ${selectedCard.current_price_psa10?.toFixed(2) || "N/A"}
-                            </p>
-                          </div>
-                        </div>
+                      </div>
+                      
+                      {/* 3D View */}
+                      <div className="flex-shrink-0">
+                        <p className="text-sm font-medium text-muted-foreground mb-2">3D View</p>
+                        <Card3DViewer
+                          frontImageUrl={selectedCard.image_url}
+                          width={320}
+                          height={240}
+                        />
                       </div>
                     </div>
                   </CardContent>
