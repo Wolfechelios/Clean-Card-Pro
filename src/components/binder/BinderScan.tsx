@@ -1,15 +1,16 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Upload, Camera, Grid3x3, RotateCcw, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { Upload, Camera, Grid3x3, RotateCcw, CheckCircle, XCircle, Loader2, X } from "lucide-react";
 import { SlotProgress } from "./SlotProgress";
 import { detectCardRegions, extractCardImage } from "@/lib/binder/preprocess";
-import { enhancedCardIdentify } from "@/lib/enhancedCardIdentify";
 import { fetchCardPrices } from "@/lib/fetchCardPrices";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useCameraZoom } from "@/hooks/use-camera-zoom";
+import { ZoomControls } from "@/components/scanner/ZoomControls";
 
 interface BinderScanProps {
   binderName: string;
@@ -32,6 +33,34 @@ interface ScanResult {
   error?: string;
 }
 
+interface ProcessingCard {
+  index: number;
+  imageUrl: string;
+  status: 'uploading' | 'identifying' | 'pricing' | 'saving' | 'complete' | 'error';
+  cardName?: string;
+}
+
+// Use rapid-card-identify for faster OCR (same as rapid scan)
+async function rapidCardIdentify(imageUrl: string) {
+  const { data, error } = await supabase.functions.invoke('rapid-card-identify', {
+    body: { imageUrl }
+  });
+  
+  if (error) throw error;
+  if (!data?.success) throw new Error(data?.error || 'Card identification failed');
+  
+  return {
+    card_name: data.cardName || 'Unknown Card',
+    card_set: data.setName || null,
+    card_number: data.cardNumber || null,
+    rarity: data.rarity || null,
+    edition: null,
+    game_type: data.gameType || null,
+    sport_type: data.sportType || null,
+    confidence: data.confidence || 0.5
+  };
+}
+
 export function BinderScan({ binderName, onComplete }: BinderScanProps) {
   const [layout, setLayout] = useState<"3x3" | "3x4" | "4x3">("3x3");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -42,10 +71,32 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [processingCards, setProcessingCards] = useState<ProcessingCard[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  
+  const { zoomLevel, zoomCapabilities, detectZoomCapabilities, setZoom, zoomIn, zoomOut, resetZoom } = useCameraZoom({
+    streamRef
+  });
 
-  const getLayoutDimensions = (layout: string) => {
-    const [cols, rows] = layout.split("x").map(Number);
+  const getLayoutDimensions = (layoutStr: string) => {
+    const [cols, rows] = layoutStr.split("x").map(Number);
     return { columns: cols, rows };
+  };
+
+  const { columns, rows } = getLayoutDimensions(layout);
+
+  // Initialize zoom when camera becomes active
+  useEffect(() => {
+    if (isCameraActive && streamRef.current) {
+      detectZoomCapabilities();
+    }
+  }, [isCameraActive, detectZoomCapabilities]);
+
+  const updateProcessingCard = (index: number, updates: Partial<ProcessingCard>) => {
+    setProcessingCards(prev => prev.map(card => 
+      card.index === index ? { ...card, ...updates } : card
+    ));
   };
 
   const processBinderPage = async (imageFile: File) => {
@@ -68,6 +119,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
       // Load image
       const img = new Image();
       objectUrl = URL.createObjectURL(imageFile);
+      setPreviewImage(objectUrl);
       
       await new Promise((resolve, reject) => {
         img.onload = resolve;
@@ -89,6 +141,19 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
       const regions = await detectCardRegions(imageData, columns, rows);
       setProgress({ total: totalCards, processed: 0, current: "Separating cards..." });
 
+      // Initialize processing cards with preview images
+      const initialProcessingCards: ProcessingCard[] = [];
+      for (let i = 0; i < regions.length; i++) {
+        const region = regions[i];
+        const cardImageData = extractCardImage(canvas, region);
+        initialProcessingCards.push({
+          index: i,
+          imageUrl: cardImageData,
+          status: 'uploading'
+        });
+      }
+      setProcessingCards(initialProcessingCards);
+
       // Process each card individually
       for (let i = 0; i < regions.length; i++) {
         setProgress({ 
@@ -105,6 +170,8 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
           const response = await fetch(cardImageData);
           const blob = await response.blob();
 
+          updateProcessingCard(i, { status: 'uploading' });
+
           // Upload to storage
           const cardId = crypto.randomUUID();
           const fileName = `cards/${cardId}.jpg`;
@@ -117,6 +184,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
 
           if (uploadError) {
             console.error("Upload error:", uploadError);
+            updateProcessingCard(i, { status: 'error' });
             results.push({
               id: `failed-${i}`,
               card_name: "Upload Failed",
@@ -132,12 +200,16 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
             .from("card-images")
             .getPublicUrl(fileName);
 
-          // Identify card using enhanced AI
+          updateProcessingCard(i, { status: 'identifying' });
+
+          // Identify card using rapid OCR (same as rapid scan)
           let cardData;
           try {
-            cardData = await enhancedCardIdentify(publicUrl);
+            cardData = await rapidCardIdentify(publicUrl);
+            updateProcessingCard(i, { cardName: cardData.card_name });
           } catch (identifyError: any) {
             console.error("Identification error:", identifyError);
+            updateProcessingCard(i, { status: 'error' });
             results.push({
               id: `failed-${i}`,
               card_name: "Failed to identify",
@@ -147,6 +219,8 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
             });
             continue;
           }
+
+          updateProcessingCard(i, { status: 'pricing' });
 
           // Fetch pricing data
           let pricingData;
@@ -160,7 +234,6 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
             );
           } catch (pricingError) {
             console.error("Pricing error:", pricingError);
-            // Continue without pricing data
             pricingData = {
               raw: null,
               psa9: null,
@@ -170,6 +243,8 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
               source: "none"
             };
           }
+
+          updateProcessingCard(i, { status: 'saving' });
 
           // Insert into database
           const { data: insertedCard, error: insertError } = await supabase
@@ -198,6 +273,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
 
           if (insertError) {
             console.error("Insert error:", insertError);
+            updateProcessingCard(i, { status: 'error' });
             results.push({
               id: `failed-${i}`,
               card_name: cardData.card_name || "Insert Failed",
@@ -207,6 +283,8 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
             });
             continue;
           }
+
+          updateProcessingCard(i, { status: 'complete' });
 
           // Success!
           results.push({
@@ -226,6 +304,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
 
         } catch (cardError: any) {
           console.error(`Error processing card ${i + 1}:`, cardError);
+          updateProcessingCard(i, { status: 'error' });
           results.push({
             id: `failed-${i}`,
             card_name: "Processing Error",
@@ -240,6 +319,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
       setProgress({ total: totalCards, processed: totalCards, current: "Complete!" });
       setScanResults(results);
       setShowResults(true);
+      setProcessingCards([]);
       
       const successCount = results.filter(r => r?.success).length;
       const failCount = results.filter(r => r && !r.success).length;
@@ -259,15 +339,20 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
       toast.error(`Failed to process binder page: ${error.message}`);
       setScanResults([]);
       setShowResults(true);
+      setProcessingCards([]);
     } finally {
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
       setIsProcessing(false);
     }
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) processBinderPage(file);
+    if (file) {
+      // Show preview before processing
+      const objectUrl = URL.createObjectURL(file);
+      setPreviewImage(objectUrl);
+      processBinderPage(file);
+    }
   };
 
   const handleRetry = () => {
@@ -282,16 +367,23 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
     setScanResults([]);
     setShowResults(false);
     setLastImageFile(null);
+    setPreviewImage(null);
+    setProcessingCards([]);
     setProgress({ total: 0, processed: 0, current: "" });
   };
 
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
+        video: { 
+          facingMode: "environment",
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        },
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        streamRef.current = stream;
         setIsCameraActive(true);
       }
     } catch (error) {
@@ -309,21 +401,155 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
     if (!ctx) return;
 
     ctx.drawImage(videoRef.current, 0, 0);
+    
+    // Play shutter sound
+    const shutterSound = new Audio('/sounds/shutter.mp3');
+    shutterSound.play().catch(() => {});
+    
     canvas.toBlob((blob) => {
       if (blob) {
         const file = new File([blob], "binder-scan.jpg", { type: "image/jpeg" });
-        processBinderPage(file);
         stopCamera();
+        processBinderPage(file);
       }
-    });
+    }, 'image/jpeg', 0.95);
   };
 
   const stopCamera = () => {
-    if (videoRef.current?.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach((track) => track.stop());
-      setIsCameraActive(false);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setIsCameraActive(false);
+  };
+
+  // Render grid overlay for camera preview
+  const renderGridOverlay = () => {
+    const cellWidth = 100 / columns;
+    const cellHeight = 100 / rows;
+    
+    return (
+      <div className="absolute inset-0 pointer-events-none">
+        {/* Grid lines */}
+        {Array.from({ length: columns - 1 }).map((_, i) => (
+          <div
+            key={`v-${i}`}
+            className="absolute top-0 bottom-0 w-0.5 bg-primary/60"
+            style={{ left: `${(i + 1) * cellWidth}%` }}
+          />
+        ))}
+        {Array.from({ length: rows - 1 }).map((_, i) => (
+          <div
+            key={`h-${i}`}
+            className="absolute left-0 right-0 h-0.5 bg-primary/60"
+            style={{ top: `${(i + 1) * cellHeight}%` }}
+          />
+        ))}
+        
+        {/* Corner markers for each cell */}
+        {Array.from({ length: columns * rows }).map((_, i) => {
+          const col = i % columns;
+          const row = Math.floor(i / columns);
+          return (
+            <div
+              key={`cell-${i}`}
+              className="absolute"
+              style={{
+                left: `${col * cellWidth + 2}%`,
+                top: `${row * cellHeight + 2}%`,
+                width: `${cellWidth - 4}%`,
+                height: `${cellHeight - 4}%`
+              }}
+            >
+              {/* Corner markers */}
+              <div className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 border-primary/80" />
+              <div className="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2 border-primary/80" />
+              <div className="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2 border-primary/80" />
+              <div className="absolute bottom-0 right-0 w-3 h-3 border-b-2 border-r-2 border-primary/80" />
+            </div>
+          );
+        })}
+        
+        {/* Layout indicator */}
+        <div className="absolute top-2 left-2 bg-background/80 px-2 py-1 rounded text-xs font-medium">
+          {layout} Layout
+        </div>
+      </div>
+    );
+  };
+
+  // Render processing visualization
+  const renderProcessingView = () => {
+    return (
+      <div className="space-y-4">
+        {/* Preview image with processing overlay */}
+        <div className="relative">
+          {previewImage && (
+            <img 
+              src={previewImage} 
+              alt="Binder page" 
+              className="w-full rounded-lg border border-border opacity-50"
+            />
+          )}
+          
+          {/* Processing cards grid overlay */}
+          <div 
+            className={`absolute inset-0 grid gap-1 p-1 ${
+              layout === "3x3" ? "grid-cols-3" : 
+              layout === "3x4" ? "grid-cols-3" : 
+              "grid-cols-4"
+            }`}
+          >
+            {processingCards.map((card) => (
+              <div 
+                key={card.index} 
+                className="relative aspect-[5/7] rounded overflow-hidden border-2 border-border bg-background/80"
+              >
+                <img 
+                  src={card.imageUrl} 
+                  alt={`Card ${card.index + 1}`}
+                  className="w-full h-full object-cover"
+                />
+                
+                {/* Status overlay */}
+                <div className={`absolute inset-0 flex flex-col items-center justify-center ${
+                  card.status === 'complete' ? 'bg-green-500/20' :
+                  card.status === 'error' ? 'bg-red-500/20' :
+                  'bg-background/60'
+                }`}>
+                  {card.status === 'complete' ? (
+                    <CheckCircle className="h-6 w-6 text-green-500" />
+                  ) : card.status === 'error' ? (
+                    <XCircle className="h-6 w-6 text-red-500" />
+                  ) : (
+                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  )}
+                  
+                  <span className="text-[10px] mt-1 font-medium text-center px-1">
+                    {card.status === 'uploading' && 'Uploading...'}
+                    {card.status === 'identifying' && 'Identifying...'}
+                    {card.status === 'pricing' && 'Getting prices...'}
+                    {card.status === 'saving' && 'Saving...'}
+                    {card.status === 'complete' && (card.cardName || 'Done')}
+                    {card.status === 'error' && 'Failed'}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        
+        {/* Progress bar */}
+        <SlotProgress
+          total={progress.total}
+          processed={progress.processed}
+          current={progress.current}
+        />
+      </div>
+    );
   };
 
   return (
@@ -420,11 +646,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
             </div>
           </div>
         ) : isProcessing ? (
-          <SlotProgress
-            total={progress.total}
-            processed={progress.processed}
-            current={progress.current}
-          />
+          renderProcessingView()
         ) : (
           <>
             <div>
@@ -443,19 +665,41 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
 
             {isCameraActive ? (
               <div className="space-y-3">
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  className="w-full rounded border border-border"
-                />
+                <div className="relative rounded-lg overflow-hidden border border-border">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    className="w-full"
+                  />
+                  {renderGridOverlay()}
+                  
+                  {/* Zoom controls */}
+                  {zoomCapabilities.supported && (
+                    <ZoomControls
+                      zoomLevel={zoomLevel}
+                      minZoom={zoomCapabilities.min}
+                      maxZoom={zoomCapabilities.max}
+                      supported={zoomCapabilities.supported}
+                      onZoomIn={zoomIn}
+                      onZoomOut={zoomOut}
+                      onZoomChange={setZoom}
+                      onReset={resetZoom}
+                    />
+                  )}
+                </div>
+                
+                <p className="text-xs text-muted-foreground text-center">
+                  Align your binder page with the grid above
+                </p>
+                
                 <div className="flex gap-2">
                   <Button onClick={capturePhoto} className="flex-1">
                     <Camera className="h-4 w-4 mr-2" />
                     Capture Photo
                   </Button>
                   <Button onClick={stopCamera} variant="outline">
-                    Cancel
+                    <X className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
