@@ -5,6 +5,8 @@ import { Camera, Loader2, SwitchCamera, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useCameraDevices } from "@/hooks/use-camera-devices";
 import { CameraDeviceSelector } from "./CameraDeviceSelector";
+import { useCameraZoom } from "@/hooks/use-camera-zoom";
+import { ZoomControls } from "./ZoomControls";
 
 interface MobileCameraScannerProps {
   userId: string;
@@ -20,6 +22,11 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
   const streamRef = useRef<MediaStream | null>(null);
   
   const { devices, selectedDeviceId, setSelectedDeviceId, isLoading: devicesLoading, refreshDevices } = useCameraDevices();
+  
+  // Zoom controls
+  const { zoomLevel, zoomCapabilities, detectZoomCapabilities, setZoom, zoomIn, zoomOut, resetZoom } = useCameraZoom({
+    streamRef,
+  });
 
   const startCamera = async (facing: 'environment' | 'user' = cameraFacing, deviceId?: string) => {
     try {
@@ -180,6 +187,7 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
       setCameraFacing(facing);
       setCameraReady(true);
       setIsInitializing(false);
+      detectZoomCapabilities();
       toast.success("Camera ready!");
       
     } catch (error: any) {
@@ -321,14 +329,29 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
           )}
           
           {cameraReady && (
-            <Button
-              onClick={toggleCamera}
-              variant="secondary"
-              size="icon"
-              className="absolute top-4 right-4 rounded-full bg-black/70 hover:bg-black/80"
-            >
-              <SwitchCamera className="h-5 w-5 text-white" />
-            </Button>
+            <>
+              <Button
+                onClick={toggleCamera}
+                variant="secondary"
+                size="icon"
+                className="absolute top-4 right-4 rounded-full bg-black/70 hover:bg-black/80"
+              >
+                <SwitchCamera className="h-5 w-5 text-white" />
+              </Button>
+              
+              {/* Zoom Controls */}
+              <ZoomControls
+                zoomLevel={zoomLevel}
+                minZoom={zoomCapabilities.min}
+                maxZoom={zoomCapabilities.max}
+                supported={zoomCapabilities.supported}
+                onZoomIn={zoomIn}
+                onZoomOut={zoomOut}
+                onZoomChange={setZoom}
+                onReset={resetZoom}
+                variant="overlay"
+              />
+            </>
           )}
         </div>
 

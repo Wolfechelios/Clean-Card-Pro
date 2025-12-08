@@ -157,6 +157,12 @@ const Scanner = ({ userId }: ScannerProps) => {
               onStop={camera.stopCamera}
               onToggle={camera.toggleCamera}
               onCapture={camera.capturePhoto}
+              zoomLevel={camera.zoomLevel}
+              zoomCapabilities={camera.zoomCapabilities}
+              onZoomIn={camera.zoomIn}
+              onZoomOut={camera.zoomOut}
+              onZoomChange={camera.setZoom}
+              onZoomReset={camera.resetZoom}
             />
           )}
         </TabsContent>

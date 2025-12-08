@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Camera, SwitchCamera, X, CheckCircle, Loader2, Pause, Play, Focus, Zap, ZapOff, Usb, Smartphone, RefreshCw, DollarSign } from "lucide-react";
+import { Camera, SwitchCamera, X, CheckCircle, Loader2, Pause, Play, Focus, Zap, ZapOff, Usb, Smartphone, RefreshCw, DollarSign, ZoomIn, ZoomOut } from "lucide-react";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -11,6 +11,8 @@ import { useCameraDevices } from "@/hooks/use-camera-devices";
 import { CameraDeviceSelector } from "./CameraDeviceSelector";
 import { ScannedCardList } from "./ScannedCardList";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useCameraZoom } from "@/hooks/use-camera-zoom";
+import { ZoomControls } from "./ZoomControls";
 
 interface RapidScanCameraProps {
   userId: string;
@@ -65,6 +67,11 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   }, []);
 
   const { devices, selectedDeviceId, setSelectedDeviceId, isLoading: devicesLoading, refreshDevices } = useCameraDevices();
+  
+  // Zoom controls
+  const { zoomLevel, zoomCapabilities, detectZoomCapabilities, setZoom, zoomIn, zoomOut, resetZoom } = useCameraZoom({
+    streamRef,
+  });
   
   // Filter USB vs regular devices
   const usbDevices = devices.filter(d => d.isUSB);
@@ -155,6 +162,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
         
         setIsActive(true);
         applyAutoFocus(stream);
+        detectZoomCapabilities();
         toast.success('Camera ready');
       }
     } catch (error: any) {
@@ -821,8 +829,21 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
                 </div>
               </div>
 
+              {/* Zoom Controls */}
+              <ZoomControls
+                zoomLevel={zoomLevel}
+                minZoom={zoomCapabilities.min}
+                maxZoom={zoomCapabilities.max}
+                supported={zoomCapabilities.supported}
+                onZoomIn={zoomIn}
+                onZoomOut={zoomOut}
+                onZoomChange={setZoom}
+                onReset={resetZoom}
+                variant="overlay"
+              />
+
               {/* Camera Controls */}
-              <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black via-black/80 to-transparent">
+              <div className="absolute bottom-20 left-0 right-0 p-6 bg-gradient-to-t from-black via-black/80 to-transparent">
                 <div className="flex items-center justify-center gap-4 max-w-2xl mx-auto">
                   <Button
                     variant="ghost"

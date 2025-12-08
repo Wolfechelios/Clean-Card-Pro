@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
+import { useCameraZoom } from "./use-camera-zoom";
 
 interface UseCameraCaptureOptions {
   onCapture: (file: File) => void;
@@ -10,6 +11,11 @@ export function useCameraCapture({ onCapture }: UseCameraCaptureOptions) {
   const [cameraFacingMode, setCameraFacingMode] = useState<'environment' | 'user'>('environment');
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  // Zoom controls
+  const { zoomLevel, zoomCapabilities, detectZoomCapabilities, setZoom, zoomIn, zoomOut, resetZoom } = useCameraZoom({
+    streamRef,
+  });
 
   const startCamera = useCallback(async (facingMode: 'environment' | 'user' = cameraFacingMode) => {
     try {
@@ -75,6 +81,7 @@ export function useCameraCapture({ onCapture }: UseCameraCaptureOptions) {
         streamRef.current = stream;
         setIsCameraActive(true);
         setCameraFacingMode(facingMode);
+        detectZoomCapabilities();
         toast.success('Camera ready');
       }
     } catch (error: any) {
@@ -136,5 +143,12 @@ export function useCameraCapture({ onCapture }: UseCameraCaptureOptions) {
     stopCamera,
     toggleCamera,
     capturePhoto,
+    // Zoom controls
+    zoomLevel,
+    zoomCapabilities,
+    zoomIn,
+    zoomOut,
+    setZoom,
+    resetZoom,
   };
 }
