@@ -163,7 +163,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
         setIsActive(true);
         applyAutoFocus(stream);
         detectZoomCapabilities();
-        toast.success('Camera ready');
+        // Silent start - no toast on mobile for cleaner UX
       }
     } catch (error: any) {
       console.error("Camera error:", error);
@@ -422,7 +422,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
             processQueue();
           }
           
-          // Play shutter sound
+          // Play shutter sound - this is the only feedback needed
           if (shutterSoundRef.current) {
             shutterSoundRef.current.currentTime = 0;
             shutterSoundRef.current.play().catch(() => {});
@@ -432,8 +432,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
           if ('vibrate' in navigator) {
             navigator.vibrate(50);
           }
-          
-          toast.success('Card captured!');
+          // No toast notification - audio + haptic feedback is enough
         }
       }, 'image/jpeg', 0.95); // High quality for better card recognition
     }
@@ -737,50 +736,42 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   const progress = captures.length > 0 ? (completedCount / captures.length) * 100 : 0;
 
   return (
-    <div className="w-full max-w-4xl mx-auto space-y-4">
-      {/* Header Stats */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="space-y-1">
-              <h3 className="text-2xl font-bold">Rapid Scan</h3>
-              <p className="text-sm text-muted-foreground">
-                Capture cards quickly - processing happens automatically
-              </p>
+    <div className="w-full max-w-4xl mx-auto space-y-2 md:space-y-4">
+      {/* Minimal Header - Hidden on mobile when camera active */}
+      <div className={`${isActive ? 'hidden md:block' : ''}`}>
+        <Card>
+          <CardContent className="py-3 md:pt-6">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <h3 className="text-lg md:text-2xl font-bold truncate">Rapid Scan</h3>
+                <Badge variant={processing ? "default" : "secondary"} className="text-sm md:text-lg px-2 md:px-4 py-1">
+                  {captures.length}/{MAX_CAPTURES}
+                </Badge>
+              </div>
+              <div className="flex items-center gap-2">
+                {/* Camera Mode Toggle - Compact on mobile */}
+                <Tabs value={cameraMode} onValueChange={handleModeChange}>
+                  <TabsList className="h-8">
+                    <TabsTrigger value="device" className="text-xs px-2">
+                      <Smartphone className="h-3 w-3" />
+                    </TabsTrigger>
+                    <TabsTrigger value="usb" className="text-xs px-2" disabled={!hasUSBDevices}>
+                      <Usb className="h-3 w-3" />
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              {/* Camera Mode Toggle */}
-              <Tabs value={cameraMode} onValueChange={handleModeChange}>
-                <TabsList className="h-9">
-                  <TabsTrigger value="device" className="text-xs px-3">
-                    <Smartphone className="h-3 w-3 mr-1" />
-                    Device
-                  </TabsTrigger>
-                  <TabsTrigger value="usb" className="text-xs px-3" disabled={!hasUSBDevices}>
-                    <Usb className="h-3 w-3 mr-1" />
-                    USB
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
-              <Badge variant={processing ? "default" : "secondary"} className="text-lg px-4 py-2">
-                {captures.length}/{MAX_CAPTURES}
-              </Badge>
-            </div>
-          </div>
-          {cameraMode === 'usb' && (
-            <p className="text-xs text-muted-foreground mt-2">
-              Press <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">Space</kbd> or <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">Enter</kbd> to capture
-            </p>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
 
-      {/* Camera Viewfinder */}
-      <Card className="overflow-hidden">
+      {/* Camera Viewfinder - Full screen on mobile */}
+      <Card className="overflow-hidden md:rounded-lg rounded-none md:mx-0 -mx-4">
         <CardContent className="p-0">
-          {/* Device Selector */}
+          {/* Device Selector - Hidden on mobile when scanning */}
           {(cameraMode === 'usb' ? usbDevices : devices).length > 1 && (
-            <div className="p-4 border-b bg-background/80">
+            <div className="hidden md:block p-4 border-b bg-background/80">
               <CameraDeviceSelector
                 devices={cameraMode === 'usb' ? usbDevices : devices}
                 selectedDeviceId={selectedDeviceId}
@@ -792,8 +783,8 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
           )}
           
           <div className="relative bg-black">
-            {/* Video container with trading card aspect ratio */}
-            <div className="relative mx-auto max-w-md" style={{ aspectRatio: '5/7' }}>
+            {/* Video container - Fullscreen feel on mobile */}
+            <div className="relative mx-auto md:max-w-md w-full" style={{ aspectRatio: '5/7' }}>
               <video
                 ref={videoRef}
                 autoPlay
@@ -802,122 +793,115 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
                 className="w-full h-full object-cover"
               />
               
-              {/* Trading Card Guide Overlay */}
+              {/* Minimal Corner Guides Only */}
               <div className="absolute inset-0 pointer-events-none">
-                {/* Corner guides */}
                 <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 140" preserveAspectRatio="none">
                   {/* Top-left corner */}
-                  <path d="M 10 10 L 10 20 M 10 10 L 20 10" stroke="white" strokeWidth="0.5" fill="none" opacity="0.8"/>
+                  <path d="M 8 8 L 8 18 M 8 8 L 18 8" stroke="white" strokeWidth="0.6" fill="none" opacity="0.7"/>
                   {/* Top-right corner */}
-                  <path d="M 90 10 L 90 20 M 90 10 L 80 10" stroke="white" strokeWidth="0.5" fill="none" opacity="0.8"/>
+                  <path d="M 92 8 L 92 18 M 92 8 L 82 8" stroke="white" strokeWidth="0.6" fill="none" opacity="0.7"/>
                   {/* Bottom-left corner */}
-                  <path d="M 10 130 L 10 120 M 10 130 L 20 130" stroke="white" strokeWidth="0.5" fill="none" opacity="0.8"/>
+                  <path d="M 8 132 L 8 122 M 8 132 L 18 132" stroke="white" strokeWidth="0.6" fill="none" opacity="0.7"/>
                   {/* Bottom-right corner */}
-                  <path d="M 90 130 L 90 120 M 90 130 L 80 130" stroke="white" strokeWidth="0.5" fill="none" opacity="0.8"/>
-                  
-                  {/* Center alignment guides */}
-                  <line x1="50" y1="0" x2="50" y2="10" stroke="white" strokeWidth="0.3" opacity="0.5" strokeDasharray="1,2"/>
-                  <line x1="50" y1="130" x2="50" y2="140" stroke="white" strokeWidth="0.3" opacity="0.5" strokeDasharray="1,2"/>
+                  <path d="M 92 132 L 92 122 M 92 132 L 82 132" stroke="white" strokeWidth="0.6" fill="none" opacity="0.7"/>
                 </svg>
-                
-                {/* Instruction overlay */}
-                <div className="absolute top-4 left-0 right-0 text-center">
-                  <div className="inline-flex items-center gap-2 bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full">
-                    <Focus className="h-4 w-4 text-white" />
-                    <span className="text-white text-sm font-medium">Align card with guides</span>
-                  </div>
-                </div>
               </div>
 
-              {/* Zoom Controls */}
-              <ZoomControls
-                zoomLevel={zoomLevel}
-                minZoom={zoomCapabilities.min}
-                maxZoom={zoomCapabilities.max}
-                supported={zoomCapabilities.supported}
-                onZoomIn={zoomIn}
-                onZoomOut={zoomOut}
-                onZoomChange={setZoom}
-                onReset={resetZoom}
-                variant="overlay"
-              />
+              {/* Mobile: Floating count badge - top right */}
+              <div className="md:hidden absolute top-3 right-3">
+                <Badge variant="secondary" className="bg-black/60 text-white border-0 text-sm px-2 py-1 backdrop-blur-sm">
+                  {captures.length}/{MAX_CAPTURES}
+                </Badge>
+              </div>
 
-              {/* Camera Controls */}
-              <div className="absolute bottom-20 left-0 right-0 p-6 bg-gradient-to-t from-black via-black/80 to-transparent">
-                <div className="flex items-center justify-center gap-4 max-w-2xl mx-auto">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={toggleCamera}
-                    className="text-white hover:bg-white/20 h-12 w-12"
-                  >
-                    <SwitchCamera className="h-6 w-6" />
-                  </Button>
-                  
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={triggerFocus}
-                    className="text-white hover:bg-white/20 h-12 w-12"
-                    title="Tap to focus"
-                  >
-                    <Focus className="h-6 w-6" />
-                  </Button>
-                  
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={toggleFlash}
-                    className={`h-12 w-12 transition-all ${
-                      flashEnabled 
-                        ? 'text-yellow-400 bg-yellow-400/30 ring-2 ring-yellow-400' 
-                        : flashSupported 
-                          ? 'text-white hover:bg-white/20' 
-                          : 'text-white/50'
-                    }`}
-                    title={flashEnabled ? 'Turn off flash' : flashSupported ? 'Turn on flash' : 'Flash not available'}
-                  >
-                    <Zap className={`h-6 w-6 ${flashEnabled ? 'fill-yellow-400' : ''}`} />
-                  </Button>
-                  
-                  <Button
-                    size="lg"
-                    onClick={capturePhoto}
-                    disabled={captures.length >= MAX_CAPTURES}
-                    className="rounded-full h-20 w-20 shadow-2xl"
-                  >
-                    <Camera className="h-10 w-10" />
-                  </Button>
+              {/* Zoom Controls - Repositioned for mobile */}
+              <div className="absolute top-3 left-3">
+                <ZoomControls
+                  zoomLevel={zoomLevel}
+                  minZoom={zoomCapabilities.min}
+                  maxZoom={zoomCapabilities.max}
+                  supported={zoomCapabilities.supported}
+                  onZoomIn={zoomIn}
+                  onZoomOut={zoomOut}
+                  onZoomChange={setZoom}
+                  onReset={resetZoom}
+                  variant="overlay"
+                />
+              </div>
 
-                  {captures.length > 0 && (
+              {/* Mobile-Optimized Controls - Bottom bar */}
+              <div className="absolute bottom-0 left-0 right-0 pb-safe">
+                <div className="bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-12 pb-4 px-4">
+                  <div className="flex items-center justify-between max-w-md mx-auto">
+                    {/* Left controls - smaller */}
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={toggleCamera}
+                        className="text-white hover:bg-white/20 h-10 w-10"
+                      >
+                        <SwitchCamera className="h-5 w-5" />
+                      </Button>
+                      
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={toggleFlash}
+                        className={`h-10 w-10 ${
+                          flashEnabled 
+                            ? 'text-yellow-400 bg-yellow-400/30' 
+                            : flashSupported 
+                              ? 'text-white hover:bg-white/20' 
+                              : 'text-white/30'
+                        }`}
+                      >
+                        <Zap className={`h-5 w-5 ${flashEnabled ? 'fill-yellow-400' : ''}`} />
+                      </Button>
+                    </div>
+                    
+                    {/* Center - Shutter button - Compact */}
                     <Button
-                      size="lg"
-                      onClick={() => {
-                        if (processingQueueRef.current.length > 0 || queuedCount > 0) {
-                          setIsPaused(false);
-                          toast.success('Processing all captured cards...');
-                          processQueue();
-                        }
-                        stopCamera();
-                        setTimeout(() => onComplete(), 500);
-                      }}
-                      className="bg-green-600 hover:bg-green-700 text-white h-14 px-8 font-semibold"
+                      size="icon"
+                      onClick={capturePhoto}
+                      disabled={captures.length >= MAX_CAPTURES}
+                      className="rounded-full h-14 w-14 md:h-16 md:w-16 bg-white hover:bg-white/90 text-black shadow-lg"
                     >
-                      Done ({captures.length})
+                      <Camera className="h-6 w-6 md:h-7 md:w-7" />
                     </Button>
-                  )}
-                  
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => {
-                      stopCamera();
-                      onComplete();
-                    }}
-                    className="text-white hover:bg-white/20 h-12 w-12"
-                  >
-                    <X className="h-6 w-6" />
-                  </Button>
+
+                    {/* Right controls */}
+                    <div className="flex items-center gap-1">
+                      {captures.length > 0 ? (
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            if (processingQueueRef.current.length > 0 || queuedCount > 0) {
+                              setIsPaused(false);
+                              processQueue();
+                            }
+                            stopCamera();
+                            setTimeout(() => onComplete(), 300);
+                          }}
+                          className="bg-green-600 hover:bg-green-700 text-white h-10 px-3 text-sm font-medium"
+                        >
+                          Done
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            stopCamera();
+                            onComplete();
+                          }}
+                          className="text-white hover:bg-white/20 h-10 w-10"
+                        >
+                          <X className="h-5 w-5" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -925,60 +909,50 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
         </CardContent>
       </Card>
 
-      {/* Progress Section */}
+      {/* Compact Progress Section - Mobile optimized */}
       {captures.length > 0 && (
-        <Card>
-          <CardContent className="pt-6 space-y-4">
-            <div className="flex justify-between items-center">
-              <div className="flex gap-6 text-sm font-medium">
-                <span className="text-green-500 flex items-center gap-1">
-                  <CheckCircle className="h-4 w-4" />
+        <Card className="md:mx-0 -mx-4 rounded-none md:rounded-lg">
+          <CardContent className="py-3 md:pt-6 md:space-y-4 space-y-2">
+            <div className="flex justify-between items-center gap-2">
+              <div className="flex gap-3 md:gap-6 text-xs md:text-sm font-medium flex-wrap">
+                <span className="text-success flex items-center gap-1">
+                  <CheckCircle className="h-3 w-3 md:h-4 md:w-4" />
                   {completedCount}
                 </span>
-                {processingCount > 0 && (
+                {(processingCount > 0 || uploadingCount > 0) && (
                   <span className="text-blue-500 flex items-center gap-1">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    {processingCount}
-                  </span>
-                )}
-                {uploadingCount > 0 && (
-                  <span className="text-yellow-500 flex items-center gap-1">
-                    ⬆ {uploadingCount}
+                    <Loader2 className="h-3 w-3 md:h-4 md:w-4 animate-spin" />
+                    {processingCount + uploadingCount}
                   </span>
                 )}
                 {queuedCount > 0 && (
-                  <span className="text-muted-foreground flex items-center gap-1">
-                    ⏸ {queuedCount}
+                  <span className="text-muted-foreground">
+                    +{queuedCount}
                   </span>
                 )}
                 {errorCount > 0 && (
-                  <span className="text-red-500 flex items-center gap-1">
-                    <X className="h-4 w-4" />
+                  <span className="text-destructive flex items-center gap-1">
+                    <X className="h-3 w-3 md:h-4 md:w-4" />
                     {errorCount}
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-3">
-                <span className="text-lg font-bold tabular-nums">{Math.round(progress)}%</span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm md:text-lg font-bold tabular-nums">{Math.round(progress)}%</span>
                 {completedCount > 0 && queuedCount === 0 && (
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={refreshAllPrices}
                     disabled={isRefreshingPrices}
-                    className="gap-2"
+                    className="gap-1 h-8 px-2 md:px-3 text-xs md:text-sm"
                   >
                     {isRefreshingPrices ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Refreshing...
-                      </>
+                      <Loader2 className="h-3 w-3 animate-spin" />
                     ) : (
-                      <>
-                        <DollarSign className="h-4 w-4" />
-                        Refresh Prices
-                      </>
+                      <DollarSign className="h-3 w-3" />
                     )}
+                    <span className="hidden md:inline">{isRefreshingPrices ? 'Refreshing...' : 'Prices'}</span>
                   </Button>
                 )}
                 {queuedCount > 0 && (
@@ -986,28 +960,14 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
                     size="sm"
                     variant={isPaused ? "default" : "outline"}
                     onClick={togglePause}
+                    className="h-8 px-2 md:px-3"
                   >
-                    {isPaused ? (
-                      <>
-                        <Play className="h-4 w-4 mr-2" />
-                        Resume
-                      </>
-                    ) : (
-                      <>
-                        <Pause className="h-4 w-4 mr-2" />
-                        Pause
-                      </>
-                    )}
+                    {isPaused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
                   </Button>
                 )}
               </div>
             </div>
-            <Progress value={progress} className="h-3" />
-            {isPaused && queuedCount > 0 && (
-              <p className="text-sm text-muted-foreground text-center">
-                ⏸ Processing paused - {queuedCount} cards waiting in queue
-              </p>
-            )}
+            <Progress value={progress} className="h-2 md:h-3" />
           </CardContent>
         </Card>
       )}
