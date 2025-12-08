@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { useCameraDevices } from "@/hooks/use-camera-devices";
 import { CameraDeviceSelector } from "./CameraDeviceSelector";
 import { Badge } from "@/components/ui/badge";
+import { useCameraZoom } from "@/hooks/use-camera-zoom";
+import { ZoomControls } from "./ZoomControls";
 
 interface USBPhoneCameraScannerProps {
   onImageCaptured: (imageFile: File) => void;
@@ -19,6 +21,11 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
   const streamRef = useRef<MediaStream | null>(null);
   
   const { devices, selectedDeviceId, setSelectedDeviceId, isLoading: devicesLoading, refreshDevices } = useCameraDevices();
+  
+  // Zoom controls
+  const { zoomLevel, zoomCapabilities, detectZoomCapabilities, setZoom, zoomIn, zoomOut, resetZoom } = useCameraZoom({
+    streamRef,
+  });
 
   // Filter to show USB devices first
   const usbDevices = devices.filter(d => d.isUSB);
@@ -118,6 +125,7 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
       streamRef.current = stream;
       setCameraReady(true);
       setIsInitializing(false);
+      detectZoomCapabilities();
       
       const selectedDevice = devices.find(d => d.deviceId === targetDeviceId);
       toast.success(`Connected to ${selectedDevice?.label || 'USB Camera'}`);
@@ -345,11 +353,24 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
                 <div className="absolute bottom-0 right-0 w-6 h-6 border-b-2 border-r-2 border-primary rounded-br" />
               </div>
               {/* Shutter hint */}
-              <div className="absolute bottom-2 left-0 right-0 text-center pointer-events-none">
+              <div className="absolute bottom-16 left-0 right-0 text-center pointer-events-none">
                 <span className="text-xs text-white/70 bg-black/50 px-2 py-1 rounded">
                   Press Space or Enter to capture
                 </span>
               </div>
+              
+              {/* Zoom Controls */}
+              <ZoomControls
+                zoomLevel={zoomLevel}
+                minZoom={zoomCapabilities.min}
+                maxZoom={zoomCapabilities.max}
+                supported={zoomCapabilities.supported}
+                onZoomIn={zoomIn}
+                onZoomOut={zoomOut}
+                onZoomChange={setZoom}
+                onReset={resetZoom}
+                variant="overlay"
+              />
             </>
           )}
         </div>

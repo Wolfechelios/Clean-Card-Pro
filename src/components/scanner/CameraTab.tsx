@@ -1,6 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Camera, SwitchCamera, X } from "lucide-react";
+import { ZoomControls } from "./ZoomControls";
 
 interface CameraTabProps {
   isCameraActive: boolean;
@@ -9,6 +10,16 @@ interface CameraTabProps {
   onStop: () => void;
   onToggle: () => void;
   onCapture: () => void;
+  zoomLevel?: number;
+  zoomCapabilities?: {
+    supported: boolean;
+    min: number;
+    max: number;
+  };
+  onZoomIn?: () => void;
+  onZoomOut?: () => void;
+  onZoomChange?: (level: number) => void;
+  onZoomReset?: () => void;
 }
 
 export function CameraTab({
@@ -18,6 +29,12 @@ export function CameraTab({
   onStop,
   onToggle,
   onCapture,
+  zoomLevel = 1,
+  zoomCapabilities = { supported: false, min: 1, max: 10 },
+  onZoomIn = () => {},
+  onZoomOut = () => {},
+  onZoomChange = () => {},
+  onZoomReset = () => {},
 }: CameraTabProps) {
   return (
     <Card className="shadow-card">
@@ -79,6 +96,19 @@ export function CameraTab({
                   Align card within frame
                 </div>
               </div>
+
+              {/* Zoom Controls */}
+              <ZoomControls
+                zoomLevel={zoomLevel}
+                minZoom={zoomCapabilities.min}
+                maxZoom={zoomCapabilities.max}
+                supported={zoomCapabilities.supported}
+                onZoomIn={onZoomIn}
+                onZoomOut={onZoomOut}
+                onZoomChange={onZoomChange}
+                onReset={onZoomReset}
+                variant="overlay"
+              />
             </div>
             
             <div className="flex gap-2">
