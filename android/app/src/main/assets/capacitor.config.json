@@ -1,0 +1,16 @@
+{
+	"appId": "com.wolfchelios.okcomputer",
+	"appName": "cleancards",
+	"webDir": "dist",
+	"server": {
+		"url": "https://215e08f1-661d-43bb-917d-ae09df3c0a39.lovableproject.com?forceHideBadge=true",
+		"cleartext": true
+	},
+	"plugins": {
+		"SplashScreen": {
+			"launchShowDuration": 2000,
+			"backgroundColor": "#1a1a1a",
+			"showSpinner": false
+		}
+	}
+}
