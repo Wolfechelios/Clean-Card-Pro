@@ -1,7 +1,7 @@
 import React, { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Download, Upload, FileSpreadsheet, AlertCircle, ExternalLink } from "lucide-react";
+import { Download, Upload, FileSpreadsheet, AlertCircle, ExternalLink, ImageIcon, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -9,6 +9,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 
 interface ServiceImportExportProps {
   userId: string | null;
@@ -23,6 +25,8 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
   const [importFormat, setImportFormat] = useState<ImportFormat>("generic");
+  const [lookupImages, setLookupImages] = useState(true);
+  const [imageLookupProgress, setImageLookupProgress] = useState<{ current: number; total: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // SportsCardPro format columns
@@ -180,6 +184,75 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
     return conditionMap[condition] || "ungraded";
   };
 
+  const lookupCardImage = async (cardId: string, cardName: string, cardSet: string | null, gameType: string | null): Promise<string | null> => {
+    try {
+      // Build search query for card image
+      const searchQuery = [cardName, cardSet, gameType].filter(Boolean).join(" ");
+      
+      // Use Lovable AI to generate/find a representative image description
+      const { data, error } = await supabase.functions.invoke("generate-card-image-url", {
+        body: { cardName, cardSet, gameType, searchQuery }
+      });
+
+      if (error || !data?.imageUrl) {
+        // Fallback: construct a search-based placeholder that shows card info
+        return `https://placehold.co/300x400/1a1a2e/eee?text=${encodeURIComponent(cardName.substring(0, 20))}`;
+      }
+
+      return data.imageUrl;
+    } catch (err) {
+      console.error("Image lookup error:", err);
+      return null;
+    }
+  };
+
+  const processImageLookups = async (cardIds: string[]) => {
+    if (!lookupImages || cardIds.length === 0) return;
+
+    setImageLookupProgress({ current: 0, total: cardIds.length });
+    
+    // Fetch inserted cards
+    const { data: cards, error } = await supabase
+      .from("cards")
+      .select("id, card_name, card_set, game_type, sport_type")
+      .in("id", cardIds);
+
+    if (error || !cards) {
+      console.error("Failed to fetch imported cards for image lookup");
+      return;
+    }
+
+    // Process in batches of 3 to avoid rate limits
+    const batchSize = 3;
+    let processed = 0;
+
+    for (let i = 0; i < cards.length; i += batchSize) {
+      const batch = cards.slice(i, i + batchSize);
+      
+      await Promise.all(batch.map(async (card) => {
+        const imageUrl = await lookupCardImage(
+          card.id,
+          card.card_name,
+          card.card_set,
+          card.game_type || card.sport_type
+        );
+
+        if (imageUrl) {
+          await supabase
+            .from("cards")
+            .update({ image_url: imageUrl, thumbnail_url: imageUrl })
+            .eq("id", card.id);
+        }
+      }));
+
+      processed += batch.length;
+      setImageLookupProgress({ current: processed, total: cardIds.length });
+    }
+
+    setImageLookupProgress(null);
+    toast.success(`Updated images for ${processed} cards`);
+  };
+
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !userId) return;
@@ -205,28 +278,43 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
 
           const batchSize = 10;
           let imported = 0;
+          const importedCardIds: string[] = [];
 
           for (let i = 0; i < jsonData.length; i += batchSize) {
             const batch = jsonData.slice(i, i + batchSize);
             const cardsToInsert = batch.map((row: any) => parseRowByFormat(row, importFormat, userId));
 
-            const { error } = await supabase.from("cards").insert(cardsToInsert);
+            const { data: insertedCards, error } = await supabase
+              .from("cards")
+              .insert(cardsToInsert)
+              .select("id");
+              
             if (error) {
               console.error("Batch import error:", error);
             } else {
               imported += batch.length;
+              if (insertedCards) {
+                importedCardIds.push(...insertedCards.map(c => c.id));
+              }
             }
 
             setImportProgress(Math.round(((i + batch.length) / jsonData.length) * 100));
           }
 
           toast.success(`Successfully imported ${imported} cards`);
+          setImporting(false);
+          
+          // Process image lookups after import
+          if (lookupImages && importedCardIds.length > 0) {
+            await processImageLookups(importedCardIds);
+          }
+          
           onComplete();
         } catch (error) {
           console.error("Import error:", error);
           toast.error("Failed to process file");
-        } finally {
           setImporting(false);
+        } finally {
           setImportProgress(0);
           if (fileInputRef.current) {
             fileInputRef.current.value = "";
@@ -309,6 +397,19 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
               <span>{importProgress}%</span>
             </div>
             <Progress value={importProgress} />
+          </div>
+        )}
+
+        {imageLookupProgress && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="flex items-center gap-2">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Looking up card images...
+              </span>
+              <span>{imageLookupProgress.current}/{imageLookupProgress.total}</span>
+            </div>
+            <Progress value={(imageLookupProgress.current / imageLookupProgress.total) * 100} />
           </div>
         )}
 
@@ -407,18 +508,33 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
             </TabsContent>
           </Tabs>
 
+          <div className="flex items-center space-x-2">
+            <Checkbox 
+              id="lookup-images" 
+              checked={lookupImages}
+              onCheckedChange={(checked) => setLookupImages(checked === true)}
+              disabled={importing || !!imageLookupProgress}
+            />
+            <Label htmlFor="lookup-images" className="text-sm cursor-pointer">
+              <span className="flex items-center gap-1">
+                <ImageIcon className="h-3 w-3" />
+                Look up card images after import
+              </span>
+            </Label>
+          </div>
+
           <input
             ref={fileInputRef}
             type="file"
             accept=".xlsx,.xls,.csv"
             onChange={handleFileUpload}
             className="hidden"
-            disabled={importing}
+            disabled={importing || !!imageLookupProgress}
           />
           <Button 
-            variant="outline" 
+            variant="outline"
             onClick={() => fileInputRef.current?.click()}
-            disabled={importing || !userId}
+            disabled={importing || !!imageLookupProgress || !userId}
             className="w-full"
           >
             <Upload className="h-4 w-4 mr-2" />
