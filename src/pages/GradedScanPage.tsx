@@ -24,9 +24,9 @@ interface GradedCardData {
 }
 
 const GRADING_COMPANIES = [
-  { id: "PSA", name: "PSA", color: "bg-red-500", description: "Professional Sports Authenticator" },
-  { id: "CGC", name: "CGC", color: "bg-blue-500", description: "Certified Guaranty Company" },
-  { id: "Beckett", name: "Beckett", color: "bg-orange-500", description: "Beckett Grading Services" },
+  { id: "PSA", name: "PSA", color: "bg-destructive", description: "Professional Sports Authenticator" },
+  { id: "CGC", name: "CGC", color: "bg-primary", description: "Certified Guaranty Company" },
+  { id: "Beckett", name: "Beckett", color: "bg-warning", description: "Beckett Grading Services" },
 ];
 
 export default function GradedScanPage() {
@@ -76,7 +76,7 @@ export default function GradedScanPage() {
     } finally {
       setScanning(false);
     }
-  }, [autoVerify]);
+  }, [autoVerify, userId]);
 
   const verifyCard = async (data: GradedCardData) => {
     if (!data.certNumber || !data.gradingCompany) {
