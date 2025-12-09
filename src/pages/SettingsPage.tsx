@@ -18,10 +18,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Download, LogOut, Trash2, User, Lock, Upload, ImageOff, Clock, RefreshCw, Database, ScanLine } from "lucide-react";
-import * as XLSX from "xlsx";
-import { Progress } from "@/components/ui/progress";
+import { LogOut, Trash2, User, Lock, ImageOff, Clock, RefreshCw, Database, ScanLine } from "lucide-react";
 import N8nIntegrations from "@/components/settings/N8nIntegrations";
+import ServiceImportExport from "@/components/settings/ServiceImportExport";
 import { SettingsSkeleton } from "@/components/ui/loading-skeletons";
 import { useScannerSettings } from "@/hooks/use-scanner-settings";
 import { Slider } from "@/components/ui/slider";
@@ -39,9 +38,6 @@ export default function Settings() {
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [importing, setImporting] = useState(false);
-  const [importProgress, setImportProgress] = useState(0);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [showDeleteNoImage, setShowDeleteNoImage] = useState(false);
   const [noImageCount, setNoImageCount] = useState(0);
   const [showDeleteRecent, setShowDeleteRecent] = useState(false);
@@ -131,30 +127,6 @@ export default function Settings() {
     }
   };
 
-  const handleExportData = async () => {
-    if (!userId) return;
-    
-    try {
-      const { data: cards, error } = await supabase
-        .from("cards")
-        .select("*")
-        .eq("user_id", userId);
-
-      if (error) throw error;
-
-      const worksheet = XLSX.utils.json_to_sheet(cards || []);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Cards");
-      
-      XLSX.writeFile(workbook, `card-collection-${new Date().toISOString().split('T')[0]}.xlsx`);
-      
-      toast.success("Collection exported successfully");
-    } catch (error) {
-      console.error("Error exporting data:", error);
-      toast.error("Failed to export collection");
-    }
-  };
-
   const handleSignOut = async () => {
     try {
       await signOut();
@@ -166,81 +138,6 @@ export default function Settings() {
     }
   };
 
-  const handleImportData = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    setImporting(true);
-    setImportProgress(0);
-
-    if (!userId) {
-      toast.error("You must be logged in to import cards");
-      setImporting(false);
-      return;
-    }
-
-    try {
-
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        try {
-          const data = new Uint8Array(e.target?.result as ArrayBuffer);
-          const workbook = XLSX.read(data, { type: "array" });
-          const sheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[sheetName];
-          const jsonData = XLSX.utils.sheet_to_json(worksheet);
-
-          if (jsonData.length === 0) {
-            toast.error("No data found in file");
-            setImporting(false);
-            return;
-          }
-
-          // Process cards in batches
-          const batchSize = 10;
-          let imported = 0;
-
-          for (let i = 0; i < jsonData.length; i += batchSize) {
-            const batch = jsonData.slice(i, i + batchSize);
-            const cardsToInsert = batch.map((row: any) => ({
-              user_id: userId,
-              card_name: row["Card Name"] || row["card_name"] || "Unknown Card",
-              card_set: row["Set"] || row["card_set"] || null,
-              card_number: row["Card Number"] || row["card_number"] || null,
-              rarity: row["Rarity"] || row["rarity"] || null,
-              condition: row["Condition"] || row["condition"] || "ungraded",
-              current_price_raw: parseFloat(row["Price (Raw)"] || row["Price"] || row["current_price_raw"] || 0),
-              current_price_psa9: parseFloat(row["Price (PSA 9)"] || row["current_price_psa9"] || 0),
-              current_price_psa10: parseFloat(row["Price (PSA 10)"] || row["current_price_psa10"] || 0),
-              collection_name: row["Collection"] || row["collection_name"] || null,
-              image_url: row["Image URL"] || row["image_url"] || "https://placehold.co/300x400?text=No+Image",
-            }));
-
-            await supabase.from("cards").insert(cardsToInsert);
-            imported += batch.length;
-            setImportProgress(Math.round(((i + batch.length) / jsonData.length) * 100));
-          }
-
-          toast.success(`Successfully imported ${imported} cards`);
-        } catch (error) {
-          console.error("Import error:", error);
-          toast.error("Failed to process file");
-        } finally {
-          setImporting(false);
-          setImportProgress(0);
-          if (fileInputRef.current) {
-            fileInputRef.current.value = "";
-          }
-        }
-      };
-
-      reader.readAsArrayBuffer(file);
-    } catch (error) {
-      console.error("File read error:", error);
-      toast.error("Failed to read file");
-      setImporting(false);
-    }
-  };
 
   const loadCollectionStats = async () => {
     if (!userId) return;
@@ -645,61 +542,12 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      {/* Data Management */}
-      <Card className="bg-card border-border">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Download className="h-5 w-5" />
-            Import / Export
-          </CardTitle>
-          <CardDescription>Import or export your collection data</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {importing && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span>Importing cards...</span>
-                <span>{importProgress}%</span>
-              </div>
-              <Progress value={importProgress} />
-            </div>
-          )}
-          
-          <div>
-            <p className="text-sm text-muted-foreground mb-2">
-              Export your entire card collection as an Excel file
-            </p>
-            <Button variant="outline" onClick={handleExportData}>
-              <Download className="h-4 w-4 mr-2" />
-              Export Collection
-            </Button>
-          </div>
-
-          <Separator />
-
-          <div>
-            <p className="text-sm text-muted-foreground mb-2">
-              Import cards from Excel or CSV file. Required column: Card Name
-            </p>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              onChange={handleImportData}
-              className="hidden"
-              disabled={importing}
-            />
-            <Button 
-              variant="outline" 
-              onClick={() => fileInputRef.current?.click()}
-              disabled={importing}
-            >
-              <Upload className="h-4 w-4 mr-2" />
-              Import Collection
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Data Management - Service Import/Export */}
+      <ServiceImportExport 
+        userId={userId} 
+        totalCards={totalCards} 
+        onComplete={loadCollectionStats} 
+      />
 
       {/* n8n Workflow Automations */}
       <N8nIntegrations />
