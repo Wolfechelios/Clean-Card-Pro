@@ -20,6 +20,7 @@ import VisionTestPage from "./pages/VisionTestPage";
 import MobileScanPage from "./pages/MobileScanPage";
 import MobileScanRedirect from "./pages/MobileScanRedirect";
 import PredictionsPage from "./pages/PredictionsPage";
+import GradedScanPage from "./pages/GradedScanPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -93,6 +94,10 @@ function AppRoutes() {
       <Route
         path="/predictions"
         element={session ? <AppLayout><PredictionsPage /></AppLayout> : <Navigate to="/auth" />}
+      />
+      <Route
+        path="/graded"
+        element={session ? <AppLayout><GradedScanPage /></AppLayout> : <Navigate to="/auth" />}
       />
       <Route path="*" element={<NotFound />} />
     </Routes>
