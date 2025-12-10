@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Camera, Upload, Shield, CheckCircle2, XCircle, ExternalLink, RefreshCw, Award } from "lucide-react";
+import { Loader2, Camera, Upload, Shield, CheckCircle2, XCircle, ExternalLink, RefreshCw, Award, Focus } from "lucide-react";
+import { getMaxQualityStream, captureMaxQualityPhoto, triggerFastFocus } from "@/lib/camera-optimizations";
 
 interface GradedCardData {
   gradingCompany: "PSA" | "CGC" | "Beckett" | null;
@@ -149,16 +150,33 @@ export default function GradedScanPage() {
 
   const startCamera = async () => {
     try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
-      });
+      const mediaStream = await getMaxQualityStream("environment");
       setStream(mediaStream);
       setCameraActive(true);
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
+        videoRef.current.setAttribute("playsinline", "true");
+        await new Promise<void>((resolve) => {
+          if (!videoRef.current) return resolve();
+          videoRef.current.onloadedmetadata = () => resolve();
+          setTimeout(() => resolve(), 3000);
+        });
+        await videoRef.current.play();
+        
+        const settings = mediaStream.getVideoTracks()[0]?.getSettings?.();
+        console.log(`Graded scanner camera ready: ${settings?.width}x${settings?.height}`);
+        toast.success(`Camera ready (${settings?.width}x${settings?.height})`);
       }
     } catch (err) {
+      console.error("Camera error:", err);
       toast.error("Failed to access camera");
+    }
+  };
+
+  const handleTriggerFocus = async () => {
+    if (stream) {
+      const success = await triggerFastFocus(stream);
+      if (success) toast.success("Focus triggered");
     }
   };
 
@@ -173,14 +191,19 @@ export default function GradedScanPage() {
   const capturePhoto = async () => {
     if (!videoRef.current || !userId) return;
 
-    const canvas = document.createElement("canvas");
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-    const ctx = canvas.getContext("2d");
-    ctx?.drawImage(videoRef.current, 0, 0);
+    try {
+      // Trigger fast focus before capture
+      if (stream) {
+        await triggerFastFocus(stream);
+        await new Promise(resolve => setTimeout(resolve, 150));
+      }
 
-    canvas.toBlob(async (blob) => {
-      if (!blob) return;
+      // Capture with anti-glare and OCR enhancement
+      const blob = await captureMaxQualityPhoto(videoRef.current, {
+        applyAntiGlareFilter: true,
+        enhanceOCR: true,
+        quality: 0.98,
+      });
 
       const previewUrl = URL.createObjectURL(blob);
       setPreview(previewUrl);
@@ -203,7 +226,10 @@ export default function GradedScanPage() {
       if (urlData?.signedUrl) {
         await processImage(urlData.signedUrl);
       }
-    }, "image/jpeg", 0.95);
+    } catch (err) {
+      console.error("Capture error:", err);
+      toast.error("Failed to capture photo");
+    }
   };
 
   const saveToCollection = async () => {
@@ -329,6 +355,9 @@ export default function GradedScanPage() {
                     <div className="absolute inset-0 border-4 border-primary/50 rounded-lg pointer-events-none" />
                   </div>
                   <div className="flex gap-2">
+                    <Button onClick={handleTriggerFocus} variant="outline" size="icon">
+                      <Focus className="h-4 w-4" />
+                    </Button>
                     <Button onClick={capturePhoto} className="flex-1 gap-2">
                       <Camera className="h-4 w-4" />
                       Capture
