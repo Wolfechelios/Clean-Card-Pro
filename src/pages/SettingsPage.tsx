@@ -21,6 +21,7 @@ import {
 import { LogOut, Trash2, User, Lock, ImageOff, Clock, RefreshCw, Database, ScanLine } from "lucide-react";
 import N8nIntegrations from "@/components/settings/N8nIntegrations";
 import ServiceImportExport from "@/components/settings/ServiceImportExport";
+import DeviceStorageSettings from "@/components/settings/DeviceStorageSettings";
 import { SettingsSkeleton } from "@/components/ui/loading-skeletons";
 import { useScannerSettings } from "@/hooks/use-scanner-settings";
 import { Slider } from "@/components/ui/slider";
@@ -551,6 +552,9 @@ export default function Settings() {
 
       {/* n8n Workflow Automations */}
       <N8nIntegrations />
+
+      {/* Device Storage (Android/iOS only) */}
+      <DeviceStorageSettings />
 
       {/* Account Actions */}
       <Card className="bg-card border-border">

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Camera, SwitchCamera, X, CheckCircle, Loader2, Pause, Play, Focus, Zap, ZapOff, Usb, Smartphone, RefreshCw, DollarSign, ZoomIn, ZoomOut } from "lucide-react";
+import { Camera, SwitchCamera, X, CheckCircle, Loader2, Pause, Play, Focus, Zap, ZapOff, Usb, Smartphone, RefreshCw, DollarSign, ZoomIn, ZoomOut, ImagePlus } from "lucide-react";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -13,6 +13,9 @@ import { ScannedCardList } from "./ScannedCardList";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
 import { ZoomControls } from "./ZoomControls";
+import { useNativeCamera } from "@/hooks/use-native-camera";
+import { useNativeStorage } from "@/hooks/use-native-storage";
+import { isNativePlatform, isAndroid } from "@/lib/platform";
 
 interface RapidScanCameraProps {
   userId: string;
