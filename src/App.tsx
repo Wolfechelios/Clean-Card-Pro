@@ -16,7 +16,7 @@ import InsightsPage from "./pages/InsightsPage";
 import PerformancePage from "./pages/PerformancePage";
 import ArchitecturePage from "./pages/ArchitecturePage";
 import RoadmapPage from "./pages/RoadmapPage";
-import VisionTestPage from "./pages/VisionTestPage";
+
 import MobileScanPage from "./pages/MobileScanPage";
 import MobileScanRedirect from "./pages/MobileScanRedirect";
 import PredictionsPage from "./pages/PredictionsPage";
@@ -80,10 +80,6 @@ function AppRoutes() {
       <Route
         path="/roadmap"
         element={session ? <AppLayout><RoadmapPage /></AppLayout> : <Navigate to="/auth" />}
-      />
-      <Route
-        path="/vision-test"
-        element={session ? <AppLayout><VisionTestPage /></AppLayout> : <Navigate to="/auth" />}
       />
       <Route
         path="/mobile-scan"

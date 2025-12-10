@@ -1,4 +1,4 @@
-import { LayoutDashboard, ScanLine, FolderOpen, BookOpen, Settings, Lightbulb, Menu, Eye, Activity, Layers, MapPin, Brain, Award, Search, BarChart3 } from "lucide-react";
+import { LayoutDashboard, ScanLine, FolderOpen, BookOpen, Settings, Lightbulb, Menu, Activity, Layers, MapPin, Brain, Award, Search, BarChart3 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useState, useCallback } from "react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -17,7 +17,7 @@ const menuItems = [
   { icon: Activity, label: "Performance", path: "/performance" },
   { icon: Layers, label: "Architecture", path: "/architecture" },
   { icon: MapPin, label: "Roadmap", path: "/roadmap" },
-  { icon: Eye, label: "Vision Test", path: "/vision-test" },
+  
   { icon: Settings, label: "Settings", path: "/settings" },
 ];
 
