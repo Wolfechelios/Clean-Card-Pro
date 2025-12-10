@@ -1,6 +1,12 @@
 import { useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
 import { useCameraZoom } from "./use-camera-zoom";
+import { 
+  getMaxQualityStream, 
+  captureMaxQualityPhoto, 
+  applyFastAutofocus,
+  triggerFastFocus 
+} from "@/lib/camera-optimizations";
 
 interface UseCameraCaptureOptions {
   onCapture: (file: File) => void;
@@ -23,39 +29,8 @@ export function useCameraCapture({ onCapture }: UseCameraCaptureOptions) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
 
-      // Progressive fallback chain for camera constraints
-      const constraintOptions = [
-        {
-          video: {
-            facingMode: { ideal: facingMode },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-          },
-          audio: false,
-        },
-        {
-          video: { facingMode: facingMode },
-          audio: false,
-        },
-        { video: true, audio: false },
-      ];
-
-      let stream: MediaStream | null = null;
-      let lastError: Error | null = null;
-
-      for (const constraints of constraintOptions) {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia(constraints);
-          break;
-        } catch (err: any) {
-          lastError = err;
-          console.warn('Camera constraint failed, trying fallback:', err.name);
-        }
-      }
-
-      if (!stream) {
-        throw lastError || new Error('Failed to access camera');
-      }
+      // Use maximum quality stream with fast autofocus
+      const stream = await getMaxQualityStream(facingMode);
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -82,7 +57,11 @@ export function useCameraCapture({ onCapture }: UseCameraCaptureOptions) {
         setIsCameraActive(true);
         setCameraFacingMode(facingMode);
         detectZoomCapabilities();
-        toast.success('Camera ready');
+        
+        // Log actual resolution
+        const settings = stream.getVideoTracks()[0]?.getSettings?.();
+        console.log(`Camera ready: ${settings?.width}x${settings?.height}`);
+        toast.success(`Camera ready (${settings?.width}x${settings?.height})`);
       }
     } catch (error: any) {
       console.error('Camera error:', error);
@@ -111,27 +90,41 @@ export function useCameraCapture({ onCapture }: UseCameraCaptureOptions) {
     startCamera(newMode);
   }, [cameraFacingMode, startCamera]);
 
-  const capturePhoto = useCallback(() => {
+  // Trigger fast focus before capture
+  const triggerFocus = useCallback(async () => {
+    if (streamRef.current) {
+      const success = await triggerFastFocus(streamRef.current);
+      if (success) {
+        toast.success('Focus triggered');
+      }
+    }
+  }, []);
+
+  const capturePhoto = useCallback(async () => {
     if (!videoRef.current) return;
 
-    const canvas = document.createElement('canvas');
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-    const ctx = canvas.getContext('2d');
-    
-    if (ctx) {
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(videoRef.current, 0, 0);
-      
-      canvas.toBlob((blob) => {
-        if (blob) {
-          const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
-          onCapture(file);
-          stopCamera();
-          toast.success('Photo captured!');
-        }
-      }, 'image/jpeg', 0.98);
+    try {
+      // Trigger fast focus before capture
+      if (streamRef.current) {
+        await triggerFastFocus(streamRef.current);
+        // Brief delay for focus to settle
+        await new Promise(resolve => setTimeout(resolve, 150));
+      }
+
+      // Capture with anti-glare and OCR enhancement
+      const blob = await captureMaxQualityPhoto(videoRef.current, {
+        applyAntiGlareFilter: true,
+        enhanceOCR: true,
+        quality: 0.98,
+      });
+
+      const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
+      onCapture(file);
+      stopCamera();
+      toast.success('Photo captured!');
+    } catch (error: any) {
+      console.error('Capture error:', error);
+      toast.error('Failed to capture photo');
     }
   }, [onCapture, stopCamera]);
 
@@ -143,6 +136,7 @@ export function useCameraCapture({ onCapture }: UseCameraCaptureOptions) {
     stopCamera,
     toggleCamera,
     capturePhoto,
+    triggerFocus,
     // Zoom controls
     zoomLevel,
     zoomCapabilities,

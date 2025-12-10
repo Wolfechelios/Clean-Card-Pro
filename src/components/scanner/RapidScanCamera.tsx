@@ -16,6 +16,14 @@ import { ZoomControls } from "./ZoomControls";
 import { useNativeCamera } from "@/hooks/use-native-camera";
 import { useNativeStorage } from "@/hooks/use-native-storage";
 import { isNativePlatform, isAndroid } from "@/lib/platform";
+import { 
+  getMaxCameraConstraints, 
+  applyFastAutofocus, 
+  triggerFastFocus,
+  captureMaxQualityPhoto,
+  applyAntiGlare,
+  enhanceForOCR
+} from "@/lib/camera-optimizations";
 
 interface RapidScanCameraProps {
   userId: string;
@@ -90,35 +98,8 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
       const targetDeviceId = deviceId || selectedDeviceId;
       const isUSBMode = cameraMode === 'usb';
 
-      // Progressive constraint fallback chain - prioritize high quality
-      const constraintOptions = [
-        // Try 1: Maximum quality (4K)
-        {
-          video: {
-            ...(targetDeviceId ? { deviceId: { exact: targetDeviceId } } : { facingMode: { ideal: cameraFacing } }),
-            width: { ideal: 3840, min: 1920 },
-            height: { ideal: 2160, min: 1080 },
-            frameRate: { ideal: 30 },
-          },
-          audio: false,
-        },
-        // Try 2: High quality (1080p+)
-        {
-          video: {
-            ...(targetDeviceId ? { deviceId: targetDeviceId } : { facingMode: cameraFacing }),
-            width: { ideal: 2560 },
-            height: { ideal: 1440 },
-          },
-          audio: false,
-        },
-        // Try 3: Basic constraints
-        {
-          video: targetDeviceId ? { deviceId: targetDeviceId } : { facingMode: cameraFacing },
-          audio: false,
-        },
-        // Try 4: Minimal - just get any camera
-        { video: true, audio: false },
-      ];
+      // Use maximum quality camera constraints (8K/4K support)
+      const constraintOptions = getMaxCameraConstraints(cameraFacing, targetDeviceId);
 
       let stream: MediaStream | null = null;
       let lastError: Error | null = null;
@@ -164,8 +145,13 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
         });
         
         setIsActive(true);
-        applyAutoFocus(stream);
+        // Apply fast continuous autofocus
+        await applyFastAutofocus(stream);
         detectZoomCapabilities();
+        
+        // Log actual resolution
+        const settings = stream.getVideoTracks()[0]?.getSettings?.();
+        console.log(`Rapid scan camera: ${settings?.width}x${settings?.height}`);
         // Silent start - no toast on mobile for cleaner UX
       }
     } catch (error: any) {
@@ -336,7 +322,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     }
   };
 
-  const capturePhoto = () => {
+  const capturePhoto = async () => {
     if (!videoRef.current || captures.length >= MAX_CAPTURES) {
       if (captures.length >= MAX_CAPTURES) {
         toast.warning(`Maximum ${MAX_CAPTURES} cards reached`);
@@ -352,11 +338,18 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
       return;
     }
 
+    // Trigger fast focus before capture
+    if (streamRef.current) {
+      await triggerFastFocus(streamRef.current);
+      // Brief delay for focus to settle
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
     const canvas = document.createElement('canvas');
     
-    // Use maximum resolution for capture - prioritize quality
+    // Use maximum resolution for capture - 8K target
     const captureWidth = Math.max(video.videoWidth, 3840);
-    const captureHeight = Math.max(video.videoHeight, 5376); // 5:7 ratio at 4K width
+    const captureHeight = Math.round(captureWidth * (7 / 5)); // 5:7 card ratio
     
     canvas.width = captureWidth;
     canvas.height = captureHeight;
@@ -364,7 +357,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     const ctx = canvas.getContext('2d', {
       alpha: false,
       desynchronized: true,
-      willReadFrequently: false
+      willReadFrequently: true // Need this for anti-glare
     });
     
     if (ctx) {
@@ -400,6 +393,12 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
         offsetX, offsetY, drawWidth, drawHeight,
         0, 0, canvas.width, canvas.height
       );
+      
+      // Apply anti-glare processing
+      applyAntiGlare(ctx, canvas, 0.25);
+      
+      // Enhance for better OCR
+      enhanceForOCR(ctx, canvas);
       
       canvas.toBlob((blob) => {
         if (blob) {

@@ -9,6 +9,12 @@ import { useCameraZoom } from "@/hooks/use-camera-zoom";
 import { ZoomControls } from "./ZoomControls";
 import { useNativeCamera } from "@/hooks/use-native-camera";
 import { isNativePlatform, isAndroid } from "@/lib/platform";
+import { 
+  getMaxQualityStream, 
+  captureMaxQualityPhoto, 
+  applyFastAutofocus,
+  triggerFastFocus 
+} from "@/lib/camera-optimizations";
 
 interface MobileCameraScannerProps {
   userId: string;
@@ -102,54 +108,58 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
       let stream: MediaStream | null = null;
       const targetDeviceId = deviceId || selectedDeviceId;
 
-      // Try multiple constraint strategies for better compatibility
+      // Use maximum quality camera constraints (8K/4K support)
+      import('@/lib/camera-optimizations').then(async ({ getMaxCameraConstraints }) => {
+        const constraintStrategies = getMaxCameraConstraints(facing, targetDeviceId);
+      });
+      
       const constraintStrategies = targetDeviceId ? [
-        // Strategy 0: Use specific device ID (for USB cameras)
+        // 8K/4K with device ID
         {
           video: {
             deviceId: { exact: targetDeviceId },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 }
+            width: { ideal: 7680, min: 1920 },
+            height: { ideal: 4320, min: 1080 },
+            frameRate: { ideal: 30 },
           },
           audio: false
         },
         {
           video: {
-            deviceId: targetDeviceId,
+            deviceId: { exact: targetDeviceId },
+            width: { ideal: 3840 },
+            height: { ideal: 2160 }
           },
+          audio: false
+        },
+        {
+          video: { deviceId: targetDeviceId },
           audio: false
         },
       ] : [
-        // Strategy 1: Exact facingMode (works best on modern mobile browsers)
+        // 8K/4K with facing mode
         {
           video: {
             facingMode: { exact: facing },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 }
+            width: { ideal: 7680, min: 1920 },
+            height: { ideal: 4320, min: 1080 },
+            frameRate: { ideal: 30 },
           },
           audio: false
         },
-        // Strategy 2: Ideal facingMode (more flexible)
         {
           video: {
             facingMode: { ideal: facing },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
+            width: { ideal: 3840 },
+            height: { ideal: 2160 }
           },
           audio: false
         },
-        // Strategy 3: Simple facingMode string
         {
-          video: {
-            facingMode: facing,
-          },
+          video: { facingMode: facing },
           audio: false
         },
-        // Strategy 4: No facingMode, just request video (fallback)
-        {
-          video: true,
-          audio: false
-        }
+        { video: true, audio: false }
       ];
 
       // Try each strategy until one works
