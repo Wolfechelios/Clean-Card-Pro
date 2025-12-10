@@ -101,6 +101,69 @@ export type Database = {
         }
         Relationships: []
       }
+      graded_pricing_cache: {
+        Row: {
+          cache_key: string
+          card_identifier: Json
+          created_at: string
+          expires_at: string
+          grade: string | null
+          grader: string | null
+          id: string
+          response_data: Json
+        }
+        Insert: {
+          cache_key: string
+          card_identifier: Json
+          created_at?: string
+          expires_at: string
+          grade?: string | null
+          grader?: string | null
+          id?: string
+          response_data: Json
+        }
+        Update: {
+          cache_key?: string
+          card_identifier?: Json
+          created_at?: string
+          expires_at?: string
+          grade?: string | null
+          grader?: string | null
+          id?: string
+          response_data?: Json
+        }
+        Relationships: []
+      }
+      grader_premiums: {
+        Row: {
+          created_at: string
+          grade: string
+          grader: string
+          id: string
+          notes: string | null
+          premium_multiplier: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          grade: string
+          grader: string
+          id?: string
+          notes?: string | null
+          premium_multiplier?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          grade?: string
+          grader?: string
+          id?: string
+          notes?: string | null
+          premium_multiplier?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       n8n_webhook_logs: {
         Row: {
           created_at: string
