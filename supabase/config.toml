@@ -38,3 +38,9 @@ verify_jwt = true
 
 [functions.advanced-analytics]
 verify_jwt = true
+
+[functions.graded-card-pricing]
+verify_jwt = true
+
+[functions.grade-equivalents]
+verify_jwt = true
