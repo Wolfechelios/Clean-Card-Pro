@@ -11,6 +11,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
 import { ZoomControls } from "@/components/scanner/ZoomControls";
+import { getMaxQualityStream, captureMaxQualityPhoto, applyFastAutofocus } from "@/lib/camera-optimizations";
 
 interface BinderScanProps {
   binderName: string;
@@ -374,45 +375,45 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
 
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { 
-          facingMode: "environment",
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
-        },
-      });
+      // Use maximum quality camera with fast autofocus
+      const stream = await getMaxQualityStream('environment');
+      
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
         setIsCameraActive(true);
+        
+        // Log resolution
+        const settings = stream.getVideoTracks()[0]?.getSettings?.();
+        console.log(`Binder camera started: ${settings?.width}x${settings?.height}`);
       }
     } catch (error) {
       toast.error("Failed to access camera");
     }
   };
 
-  const capturePhoto = () => {
+  const capturePhoto = async () => {
     if (!videoRef.current) return;
 
-    const canvas = document.createElement("canvas");
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    ctx.drawImage(videoRef.current, 0, 0);
-    
-    // Play shutter sound
-    const shutterSound = new Audio('/sounds/shutter.mp3');
-    shutterSound.play().catch(() => {});
-    
-    canvas.toBlob((blob) => {
-      if (blob) {
-        const file = new File([blob], "binder-scan.jpg", { type: "image/jpeg" });
-        stopCamera();
-        processBinderPage(file);
-      }
-    }, 'image/jpeg', 0.95);
+    try {
+      // Capture with anti-glare and OCR enhancement
+      const blob = await captureMaxQualityPhoto(videoRef.current, {
+        applyAntiGlareFilter: true,
+        enhanceOCR: true,
+        quality: 0.98,
+      });
+      
+      // Play shutter sound
+      const shutterSound = new Audio('/sounds/shutter.mp3');
+      shutterSound.play().catch(() => {});
+      
+      const file = new File([blob], "binder-scan.jpg", { type: "image/jpeg" });
+      stopCamera();
+      processBinderPage(file);
+    } catch (error) {
+      console.error('Capture error:', error);
+      toast.error('Failed to capture photo');
+    }
   };
 
   const stopCamera = () => {
