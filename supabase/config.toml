@@ -32,3 +32,9 @@ verify_jwt = true
 
 [functions.verify-graded-card]
 verify_jwt = true
+
+[functions.visual-similarity]
+verify_jwt = true
+
+[functions.advanced-analytics]
+verify_jwt = true

@@ -21,6 +21,8 @@ import MobileScanPage from "./pages/MobileScanPage";
 import MobileScanRedirect from "./pages/MobileScanRedirect";
 import PredictionsPage from "./pages/PredictionsPage";
 import GradedScanPage from "./pages/GradedScanPage";
+import VisualSearchPage from "./pages/VisualSearchPage";
+import AdvancedAnalyticsPage from "./pages/AdvancedAnalyticsPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -98,6 +100,14 @@ function AppRoutes() {
       <Route
         path="/graded"
         element={session ? <AppLayout><GradedScanPage /></AppLayout> : <Navigate to="/auth" />}
+      />
+      <Route
+        path="/visual-search"
+        element={session ? <AppLayout><VisualSearchPage /></AppLayout> : <Navigate to="/auth" />}
+      />
+      <Route
+        path="/analytics"
+        element={session ? <AppLayout><AdvancedAnalyticsPage /></AppLayout> : <Navigate to="/auth" />}
       />
       <Route path="*" element={<NotFound />} />
     </Routes>
