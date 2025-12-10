@@ -1,12 +1,14 @@
 import { useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Camera, Loader2, SwitchCamera, AlertCircle } from "lucide-react";
+import { Camera, Loader2, SwitchCamera, AlertCircle, ImagePlus } from "lucide-react";
 import { toast } from "sonner";
 import { useCameraDevices } from "@/hooks/use-camera-devices";
 import { CameraDeviceSelector } from "./CameraDeviceSelector";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
 import { ZoomControls } from "./ZoomControls";
+import { useNativeCamera } from "@/hooks/use-native-camera";
+import { isNativePlatform, isAndroid } from "@/lib/platform";
 
 interface MobileCameraScannerProps {
   userId: string;
@@ -18,15 +20,60 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [cameraFacing, setCameraFacing] = useState<'environment' | 'user'>('environment');
   const [isInitializing, setIsInitializing] = useState(true);
+  const [useNativeMode, setUseNativeMode] = useState(isNativePlatform());
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   
   const { devices, selectedDeviceId, setSelectedDeviceId, isLoading: devicesLoading, refreshDevices } = useCameraDevices();
+  const { isNative, takePhoto: takeNativePhoto, pickFromGallery, checkPermissions } = useNativeCamera();
   
   // Zoom controls
   const { zoomLevel, zoomCapabilities, detectZoomCapabilities, setZoom, zoomIn, zoomOut, resetZoom } = useCameraZoom({
     streamRef,
   });
+
+  // Native camera capture (Android/iOS)
+  const captureNativePhoto = async () => {
+    try {
+      setIsInitializing(true);
+      const hasPermission = await checkPermissions();
+      if (!hasPermission) {
+        toast.error("Camera permission required");
+        setIsInitializing(false);
+        return;
+      }
+
+      const result = await takeNativePhoto();
+      if (result) {
+        const file = new File([result.blob], `card-${Date.now()}.jpg`, { type: 'image/jpeg' });
+        onImageCaptured(file);
+        toast.success("Photo captured!");
+      }
+      setIsInitializing(false);
+    } catch (error: any) {
+      console.error("Native capture error:", error);
+      toast.error(error.message || "Failed to capture photo");
+      setIsInitializing(false);
+    }
+  };
+
+  // Pick from gallery (Android/iOS)
+  const pickFromGalleryHandler = async () => {
+    try {
+      setIsInitializing(true);
+      const result = await pickFromGallery();
+      if (result) {
+        const file = new File([result.blob], `card-${Date.now()}.jpg`, { type: 'image/jpeg' });
+        onImageCaptured(file);
+        toast.success("Image selected!");
+      }
+      setIsInitializing(false);
+    } catch (error: any) {
+      console.error("Gallery pick error:", error);
+      toast.error(error.message || "Failed to select image");
+      setIsInitializing(false);
+    }
+  };
 
   const startCamera = async (facing: 'environment' | 'user' = cameraFacing, deviceId?: string) => {
     try {
@@ -267,15 +314,79 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
   };
 
   useEffect(() => {
-    startCamera();
+    // Only start web camera if not using native mode
+    if (!isNative) {
+      startCamera();
+    } else {
+      setIsInitializing(false);
+      setCameraReady(true);
+    }
     
     return () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
     };
-  }, []);
+  }, [isNative]);
 
+  // Native Android/iOS camera UI
+  if (isNative) {
+    return (
+      <Card className="shadow-card">
+        <CardHeader>
+          <CardTitle>
+            {isAndroid() ? 'Android' : 'Mobile'} Camera
+          </CardTitle>
+          <CardDescription>
+            Tap to capture cards using your device camera
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="relative aspect-[3/4] bg-card rounded-lg overflow-hidden flex flex-col items-center justify-center border-2 border-dashed border-border">
+            <Camera className="h-16 w-16 text-muted-foreground mb-4" />
+            <p className="text-muted-foreground text-center px-4">
+              Tap a button below to capture or select a card image
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <Button 
+              onClick={captureNativePhoto} 
+              size="lg" 
+              className="w-full"
+              disabled={isInitializing}
+            >
+              {isInitializing ? (
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+              ) : (
+                <Camera className="mr-2 h-5 w-5" />
+              )}
+              Take Photo
+            </Button>
+            
+            <Button 
+              onClick={pickFromGalleryHandler} 
+              size="lg" 
+              variant="outline"
+              className="w-full"
+              disabled={isInitializing}
+            >
+              <ImagePlus className="mr-2 h-5 w-5" />
+              Gallery
+            </Button>
+          </div>
+
+          <div className="text-xs text-muted-foreground space-y-1">
+            <p>• High quality capture for accurate card recognition</p>
+            <p>• Position card in good lighting for best results</p>
+            <p>• Fill the frame with the card for optimal scanning</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Web camera UI (fallback for non-native platforms)
   return (
     <Card className="shadow-card">
       <CardHeader>
