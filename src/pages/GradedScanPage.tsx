@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -153,25 +153,42 @@ export default function GradedScanPage() {
       const mediaStream = await getMaxQualityStream("environment");
       setStream(mediaStream);
       setCameraActive(true);
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-        videoRef.current.setAttribute("playsinline", "true");
-        await new Promise<void>((resolve) => {
-          if (!videoRef.current) return resolve();
-          videoRef.current.onloadedmetadata = () => resolve();
-          setTimeout(() => resolve(), 3000);
-        });
-        await videoRef.current.play();
-        
-        const settings = mediaStream.getVideoTracks()[0]?.getSettings?.();
-        console.log(`Graded scanner camera ready: ${settings?.width}x${settings?.height}`);
-        toast.success(`Camera ready (${settings?.width}x${settings?.height})`);
-      }
     } catch (err) {
       console.error("Camera error:", err);
       toast.error("Failed to access camera");
     }
   };
+
+  // Attach stream to video element when both are ready
+  const attachStream = useCallback(async () => {
+    if (stream && videoRef.current && !videoRef.current.srcObject) {
+      videoRef.current.srcObject = stream;
+      videoRef.current.setAttribute("playsinline", "true");
+      videoRef.current.setAttribute("webkit-playsinline", "true");
+      
+      await new Promise<void>((resolve) => {
+        if (!videoRef.current) return resolve();
+        videoRef.current.onloadedmetadata = () => resolve();
+        setTimeout(() => resolve(), 3000);
+      });
+      
+      try {
+        await videoRef.current.play();
+        const settings = stream.getVideoTracks()[0]?.getSettings?.();
+        console.log(`Graded scanner camera ready: ${settings?.width}x${settings?.height}`);
+        toast.success(`Camera ready (${settings?.width}x${settings?.height})`);
+      } catch {
+        // Some browsers need user interaction
+      }
+    }
+  }, [stream]);
+
+  // Effect to attach stream when video element becomes available
+  useEffect(() => {
+    if (cameraActive && stream) {
+      attachStream();
+    }
+  }, [cameraActive, stream, attachStream]);
 
   const handleTriggerFocus = async () => {
     if (stream) {
