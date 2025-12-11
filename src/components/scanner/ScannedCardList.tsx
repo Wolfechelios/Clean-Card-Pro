@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Edit2, DollarSign, Hash, Layers, Sparkles } from "lucide-react";
+import { Edit2, DollarSign, Hash, Layers, Sparkles, Trash2, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -26,6 +26,7 @@ interface ScannedCard {
 interface ScannedCardListProps {
   cards: ScannedCard[];
   onCardUpdate: (id: string, updates: Partial<ScannedCard>) => void;
+  onCardDelete?: (id: string) => void;
 }
 
 const RARITY_OPTIONS = [
@@ -44,7 +45,7 @@ const RARITY_OPTIONS = [
   "Reverse Holo",
 ];
 
-export const ScannedCardList = ({ cards, onCardUpdate }: ScannedCardListProps) => {
+export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete }: ScannedCardListProps) => {
   const [editingCard, setEditingCard] = useState<ScannedCard | null>(null);
   const [editForm, setEditForm] = useState({
     cardName: "",
@@ -54,6 +55,7 @@ export const ScannedCardList = ({ cards, onCardUpdate }: ScannedCardListProps) =
     value: "",
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const completedCards = cards.filter(c => c.status === 'completed');
   const totalValue = completedCards.reduce((sum, c) => sum + (c.value || 0), 0);
@@ -67,6 +69,31 @@ export const ScannedCardList = ({ cards, onCardUpdate }: ScannedCardListProps) =
       rarity: card.rarity || "",
       value: card.value?.toString() || "",
     });
+  };
+
+  const handleDelete = async (card: ScannedCard) => {
+    if (!onCardDelete) return;
+    
+    setDeletingId(card.id);
+    try {
+      // If we have a database ID, delete from database
+      if (card.dbId) {
+        const { error } = await supabase
+          .from('cards')
+          .delete()
+          .eq('id', card.dbId);
+
+        if (error) throw error;
+      }
+
+      onCardDelete(card.id);
+      toast.success('Card deleted');
+    } catch (error: any) {
+      console.error('Failed to delete card:', error);
+      toast.error('Failed to delete card');
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const handleSave = async () => {
@@ -168,14 +195,30 @@ export const ScannedCardList = ({ cards, onCardUpdate }: ScannedCardListProps) =
                   <p className="text-xs text-muted-foreground">No price</p>
                 )}
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => openEditDialog(card)}
-                className="shrink-0"
-              >
-                <Edit2 className="h-4 w-4" />
-              </Button>
+              <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => openEditDialog(card)}
+                >
+                  <Edit2 className="h-4 w-4" />
+                </Button>
+                {onCardDelete && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleDelete(card)}
+                    disabled={deletingId === card.id}
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                  >
+                    {deletingId === card.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </Button>
+                )}
+              </div>
             </div>
           ))}
         </CardContent>
