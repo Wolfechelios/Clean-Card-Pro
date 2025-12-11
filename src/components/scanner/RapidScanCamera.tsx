@@ -683,6 +683,16 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     });
   }, []);
 
+  const handleCardDelete = useCallback((captureId: string) => {
+    setCaptures(prev => {
+      const updated = prev.filter(c => c.id !== captureId);
+      capturesRef.current = updated;
+      return updated;
+    });
+    // Also remove from processing queue if queued
+    processingQueueRef.current = processingQueueRef.current.filter(id => id !== captureId);
+  }, []);
+
   const completedCount = captures.filter(c => c.status === 'completed').length;
   const errorCount = captures.filter(c => c.status === 'error').length;
   const processingCount = captures.filter(c => c.status === 'processing').length;
@@ -1015,7 +1025,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
       )}
 
       {/* Detailed Editable Card List */}
-      <ScannedCardList cards={captures} onCardUpdate={handleCardUpdate} />
+      <ScannedCardList cards={captures} onCardUpdate={handleCardUpdate} onCardDelete={handleCardDelete} />
     </div>
   );
 };
