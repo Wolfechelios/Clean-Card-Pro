@@ -189,9 +189,9 @@ export const enhanceForOCR = (
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = imageData.data;
   
-  // Apply subtle contrast enhancement
-  const contrast = 1.1;
-  const factor = (259 * (contrast * 255 + 255)) / (255 * (259 - contrast * 255));
+  // Apply subtle contrast enhancement (contrast value: -255 to 255, using 20 for subtle boost)
+  const contrast = 20;
+  const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
   
   for (let i = 0; i < data.length; i += 4) {
     data[i] = Math.min(255, Math.max(0, factor * (data[i] - 128) + 128));
