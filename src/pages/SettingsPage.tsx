@@ -22,6 +22,7 @@ import { LogOut, Trash2, User, Lock, ImageOff, Clock, RefreshCw, Database, ScanL
 import N8nIntegrations from "@/components/settings/N8nIntegrations";
 import ServiceImportExport from "@/components/settings/ServiceImportExport";
 import DeviceStorageSettings from "@/components/settings/DeviceStorageSettings";
+import { BulkRarityReanalyze } from "@/components/collections/BulkRarityReanalyze";
 import { SettingsSkeleton } from "@/components/ui/loading-skeletons";
 import { useScannerSettings } from "@/hooks/use-scanner-settings";
 import { Slider } from "@/components/ui/slider";
@@ -48,6 +49,7 @@ export default function Settings() {
   const [isUpdatingPrices, setIsUpdatingPrices] = useState(false);
   const [showDeleteUnknown, setShowDeleteUnknown] = useState(false);
   const [unknownCardCount, setUnknownCardCount] = useState(0);
+  const [nullRarityCount, setNullRarityCount] = useState(0);
 
   useEffect(() => {
     loadUserData();
@@ -179,6 +181,15 @@ export default function Settings() {
         .eq("card_name", "Unknown Card");
       
       setUnknownCardCount(unknown || 0);
+
+      // Get null rarity cards count
+      const { count: nullRarity } = await supabase
+        .from("cards")
+        .select("*", { count: 'exact', head: true })
+        .eq("user_id", userId)
+        .is("rarity", null);
+      
+      setNullRarityCount(nullRarity || 0);
     } catch (error) {
       console.error("Error loading collection stats:", error);
     }
@@ -539,6 +550,14 @@ export default function Settings() {
                 Clear Entire Collection {totalCards > 0 ? `(${totalCards} cards)` : ''}
               </Button>
             </div>
+
+            <Separator />
+
+            {/* Bulk Rarity Re-analyze */}
+            <BulkRarityReanalyze 
+              nullRarityCount={nullRarityCount} 
+              onComplete={loadCollectionStats} 
+            />
           </div>
         </CardContent>
       </Card>

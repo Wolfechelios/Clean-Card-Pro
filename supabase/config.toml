@@ -44,3 +44,6 @@ verify_jwt = true
 
 [functions.grade-equivalents]
 verify_jwt = true
+
+[functions.bulk-reanalyze-rarity]
+verify_jwt = true
