@@ -89,11 +89,13 @@ const Collection = ({ userId }: CollectionProps) => {
   const fetchCards = async () => {
     setIsLoading(true);
     try {
+      // Fetch all cards - override Supabase default 1000 row limit
       const { data, error } = await supabase
         .from("cards")
         .select("*")
         .eq("user_id", userId)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .range(0, 49999); // Support up to 50k cards
 
       if (error) throw error;
       setCards(data || []);

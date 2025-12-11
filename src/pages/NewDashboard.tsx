@@ -126,7 +126,8 @@ export default function NewDashboard() {
       .from("cards")
       .select("*")
       .eq("user_id", userId)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .range(0, 49999);
 
     if (cards) {
       const totalValue = cards.reduce((sum, card) => sum + (card.current_price_raw || 0), 0);
