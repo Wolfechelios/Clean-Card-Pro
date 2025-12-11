@@ -276,6 +276,12 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
             return;
           }
 
+          // Log column headers for debugging
+          const firstRow = jsonData[0] as any;
+          const columnNames = Object.keys(firstRow);
+          console.log("CSV Columns found:", columnNames);
+          console.log("First row data:", firstRow);
+
           const batchSize = 10;
           let imported = 0;
           const importedCardIds: string[] = [];
@@ -360,22 +366,61 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
         };
       
       case "collx":
-        // Collx CSV format - common column names from Collx exports
+        // Smart column finder - searches for columns containing keywords
+        const findColumn = (row: any, ...keywords: string[]): string | null => {
+          const keys = Object.keys(row);
+          for (const keyword of keywords) {
+            const found = keys.find(k => k.toLowerCase().includes(keyword.toLowerCase()));
+            if (found && row[found]) return row[found];
+          }
+          return null;
+        };
+        
+        const cardName = findColumn(row, "player", "name", "title", "card") || 
+                        row["Player Name"] || row["Card Name"] || row["Title"] || row["Name"] || 
+                        row["player_name"] || row["card_name"] || "Unknown Card";
+        
+        const cardSet = findColumn(row, "set", "product", "brand", "year") ||
+                       row["Set Name"] || row["Set"] || row["Product"] || row["Brand"] || null;
+        
+        const cardNumber = findColumn(row, "number", "card #", "#") ||
+                          row["Card Number"] || row["Card #"] || row["Number"] || row["card_number"] || null;
+        
+        const parallel = findColumn(row, "parallel", "variation", "variant", "rarity") ||
+                        row["Parallel"] || row["Variation"] || row["Rarity"] || null;
+        
+        const condition = findColumn(row, "condition", "grade") ||
+                         row["Condition"] || row["Grade"] || "";
+        
+        const value = findColumn(row, "value", "price", "worth", "estimate") ||
+                     row["Value"] || row["Price"] || row["Estimated Value"] || "0";
+        
+        const sport = findColumn(row, "sport", "category", "type") ||
+                     row["Sport"] || row["Category"] || null;
+        
+        const imageUrl = findColumn(row, "image", "photo", "picture", "url") ||
+                        row["Image URL"] || row["Image"] || row["Photo URL"] || null;
+        
+        const notes = findColumn(row, "notes", "description", "comment") ||
+                     row["Notes"] || row["Description"] || null;
+        
+        console.log("Parsed Collx row:", { cardName, cardSet, cardNumber, parallel, condition, value, sport });
+        
         return {
           user_id: userId,
-          card_name: row["Player Name"] || row["Card Name"] || row["Title"] || row["Name"] || "Unknown Card",
-          card_set: row["Set Name"] || row["Set"] || row["Product"] || null,
-          card_number: row["Card Number"] || row["Card #"] || row["Number"] || null,
-          rarity: row["Parallel"] || row["Variation"] || row["Rarity"] || null,
-          edition: row["Parallel"] || row["Variation"] || null,
-          condition: mapCollxCondition(row["Condition"] || row["Grade"] || ""),
-          sport_type: row["Sport"] || row["Category"] || null,
-          game_type: row["Category"] === "Pokemon" || row["Category"] === "Magic" || row["Category"] === "Yu-Gi-Oh" 
-            ? row["Category"] : null,
-          current_price_raw: parseFloat(row["Value"] || row["Price"] || row["Estimated Value"] || 0) || null,
-          collection_name: row["Collection"] || null,
-          notes: row["Notes"] || row["Description"] || null,
-          image_url: row["Image URL"] || row["Image"] || row["Photo URL"] || "https://placehold.co/300x400?text=Collx+Import",
+          card_name: cardName,
+          card_set: cardSet,
+          card_number: cardNumber,
+          rarity: parallel,
+          edition: parallel,
+          condition: mapCollxCondition(condition),
+          sport_type: sport,
+          game_type: sport === "Pokemon" || sport === "Magic" || sport === "Yu-Gi-Oh" || sport === "TCG" 
+            ? sport : null,
+          current_price_raw: parseFloat(String(value).replace(/[$,]/g, "")) || null,
+          collection_name: null,
+          notes: notes,
+          image_url: imageUrl || "https://placehold.co/300x400?text=Collx+Import",
         };
       
       default: // generic
