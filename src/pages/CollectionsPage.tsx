@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Search, Trash2, TrendingUp, DollarSign, RefreshCw, Edit3, ImageOff, X, Eye } from "lucide-react";
+import { Search, Trash2, RefreshCw, Edit3, ImageOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -36,6 +36,7 @@ import ImportExport from "@/components/collections/ImportExport";
 import PriceAlerts from "@/components/collections/PriceAlerts";
 import PortfolioView from "@/components/collections/PortfolioView";
 import Card3DViewer from "@/components/Card3DViewer";
+import { CardThumbnail } from "@/components/collections/CardThumbnail";
 
 interface CardItem {
   id: string;
@@ -486,9 +487,9 @@ export default function Collections() {
       <div className="space-y-6">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-10 w-full max-w-md" />
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {[...Array(8)].map((_, i) => (
-            <Skeleton key={i} className="h-80" />
+        <div className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(140px,1fr))]">
+          {[...Array(24)].map((_, i) => (
+            <Skeleton key={i} className="aspect-square rounded-lg" />
           ))}
         </div>
       </div>
@@ -634,81 +635,22 @@ export default function Collections() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-          {filteredCards.map((card, index) => (
-            <Card 
-              key={card.id} 
-              className="bg-card border-border hover:shadow-xl hover:scale-105 transition-all duration-300 overflow-hidden group relative animate-in fade-in slide-in-from-bottom-4 cursor-pointer"
-              style={{ animationDelay: `${index * 50}ms` }}
+        <div className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(140px,1fr))]">
+          {filteredCards.map((card) => (
+            <CardThumbnail
+              key={card.id}
+              id={card.id}
+              cardName={card.card_name}
+              cardSet={card.card_set}
+              cardNumber={card.card_number}
+              imageUrl={card.image_url}
+              thumbnailUrl={card.thumbnail_url}
+              price={card.current_price_raw}
+              isSelected={selectedCards.has(card.id)}
+              onSelect={toggleCardSelection}
+              onDelete={setCardToDelete}
               onClick={() => setCardDetail(card)}
-            >
-              <div className="absolute top-2 left-2 z-10 transition-transform duration-200 hover:scale-110" onClick={(e) => e.stopPropagation()}>
-                <Checkbox
-                  checked={selectedCards.has(card.id)}
-                  onCheckedChange={() => toggleCardSelection(card.id)}
-                  className="bg-background border-2 shadow-lg"
-                />
-              </div>
-              <Button
-                variant="destructive"
-                size="icon"
-                className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-all duration-200 hover:scale-110 shadow-lg"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setCardToDelete(card.id);
-                }}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="secondary"
-                size="icon"
-                className="absolute top-2 right-12 z-10 opacity-0 group-hover:opacity-100 transition-all duration-200 hover:scale-110 shadow-lg"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setCardDetail(card);
-                }}
-              >
-                <Eye className="h-4 w-4" />
-              </Button>
-              <CardHeader className="p-0">
-                <div className="aspect-[3/4] overflow-hidden bg-muted">
-                  <img
-                    src={card.thumbnail_url || card.image_url}
-                    alt={card.card_name}
-                    loading="lazy"
-                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
-                  />
-                </div>
-              </CardHeader>
-              <CardContent className="p-3 sm:p-4">
-                <CardTitle className="text-sm sm:text-base font-semibold text-foreground truncate">
-                  {card.card_name}
-                </CardTitle>
-                {card.card_set && (
-                  <p className="text-xs sm:text-sm text-muted-foreground mt-1 truncate">{card.card_set}</p>
-                )}
-                <div className="flex items-center gap-2 mt-2 flex-wrap">
-                  {card.collection_name && (
-                    <Badge variant="secondary" className="text-xs">
-                      {card.collection_name}
-                    </Badge>
-                  )}
-                  {card.condition && (
-                    <Badge variant="outline" className="text-xs">
-                      {card.condition}
-                    </Badge>
-                  )}
-                </div>
-              </CardContent>
-              <CardFooter className="p-3 sm:p-4 pt-0">
-                {card.current_price_raw && (
-                  <p className="text-base sm:text-lg font-bold text-foreground">
-                    ${card.current_price_raw.toFixed(2)}
-                  </p>
-                )}
-              </CardFooter>
-            </Card>
+            />
           ))}
         </div>
       )}
