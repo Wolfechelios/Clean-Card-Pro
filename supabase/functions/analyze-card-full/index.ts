@@ -95,7 +95,7 @@ serve(async (req: Request): Promise<Response> => {
     "card_name": "Name of the card/character",
     "set": "Set name if visible",
     "card_number": "Card number (e.g., 25/102 for Pokemon, LART-EN035 for Yu-Gi-Oh)",
-    "rarity": "Rarity symbol or indicator",
+    "rarity": "REQUIRED - See rarity detection rules below",
     "game_type": "Pokemon/Magic/YuGiOh/Sports/etc"
   },
   "condition": {
@@ -117,6 +117,14 @@ serve(async (req: Request): Promise<Response> => {
   "labels": ["descriptive", "keywords", "about", "the", "card"]
 }
 
+RARITY DETECTION - ALWAYS IDENTIFY RARITY:
+- Pokemon: Look for rarity symbol bottom right (Circle=Common, Diamond=Uncommon, Star=Rare, Star H=Holo Rare, Rainbow/Full Art/Secret Rare for special cards)
+- Yu-Gi-Oh: Common, Rare (silver name), Super Rare (holo image), Ultra Rare (gold name+holo), Secret Rare (diagonal pattern), Ultimate Rare (embossed), Ghost Rare, Starlight Rare
+- MTG: Common (black set symbol), Uncommon (silver), Rare (gold), Mythic Rare (orange)
+- Sports: Base, Rookie Card (RC), Parallel, Refractor, Prizm, Auto, Numbered (/25, /99, etc.), 1/1
+- If you see holographic/prismatic effects, special borders, or serial numbers - it's NOT Common
+- NEVER return null for rarity - always make your best determination
+
 CRITICAL FOR YU-GI-OH CARDS:
 - Look for the SET NUMBER on the right side, just below the card artwork
 - Format: [SET CODE]-EN[NUMBER] (e.g., "LART-EN035", "SDK-EN001", "LOB-EN001")
@@ -124,7 +132,7 @@ CRITICAL FOR YU-GI-OH CARDS:
 - Include this set number in the card_number field
 - This is the MOST IMPORTANT identifier for Yu-Gi-Oh cards
 
-Be thorough with OCR extraction, especially for Yu-Gi-Oh set numbers in [CODE]-EN[NUMBER] format. Analyze card condition carefully looking at centering, corners, edges, surface quality, and any damage. Grade estimate should be PSA-style (1-10 scale).`
+Be thorough with OCR extraction. Analyze card condition carefully. Grade estimate should be PSA-style (1-10 scale).`
               },
               {
                 type: "image_url",

@@ -25,21 +25,29 @@ serve(async (req) => {
 
     console.log('Rapid card identification...');
 
-    // Shorter, focused prompt for faster processing
+    // Shorter, focused prompt for faster processing with better rarity detection
     const prompt = `Identify this trading card. Return JSON only:
 {
   "card_name": "name",
   "card_set": "set name or null",
   "card_number": "number or null",
-  "rarity": "rarity or null",
+  "rarity": "REQUIRED - Common/Uncommon/Rare/Holo Rare/Ultra Rare/Secret Rare/Rookie Card/Refractor/Prizm/Parallel/Base/etc",
   "game_type": "Pokemon/MTG/YuGiOh/Sports or null",
   "sport_type": "sport type or null",
   "confidence": 0.0-1.0
 }
 
+RARITY RULES:
+- Pokemon: Circle=Common, Diamond=Uncommon, Star=Rare, Star H=Holo Rare, Rainbow/Full Art=Secret Rare
+- Yu-Gi-Oh: Check name color (silver=Rare, gold=Ultra Rare), holo pattern (Super/Secret/Ultimate/Ghost/Starlight)
+- Sports: Base, RC (Rookie Card), Refractor, Prizm, Mosaic, Parallel, Auto, Numbered
+- MTG: Black symbol=Common, Silver=Uncommon, Gold=Rare, Orange=Mythic Rare
+- If holographic/prismatic/numbered - NOT Common
+- NEVER return null for rarity
+
 For Yu-Gi-Oh: use SET NUMBER format like LART-EN035 for card_number.
 For sports: include player name in card_name.
-JSON only, no explanation.`;
+JSON only.`;
 
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
