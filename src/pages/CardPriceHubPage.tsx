@@ -244,12 +244,12 @@ export default function CardPriceHubPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <Label htmlFor="grader">Grader</Label>
-                      <Select value={grader} onValueChange={setGrader}>
+                      <Select value={grader || "all"} onValueChange={(v) => setGrader(v === "all" ? "" : v)}>
                         <SelectTrigger>
                           <SelectValue placeholder="All graders" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">All Graders</SelectItem>
+                          <SelectItem value="all">All Graders</SelectItem>
                           <SelectItem value="PSA">PSA</SelectItem>
                           <SelectItem value="BGS">BGS (Beckett)</SelectItem>
                           <SelectItem value="CGC">CGC</SelectItem>
@@ -258,12 +258,12 @@ export default function CardPriceHubPage() {
                     </div>
                     <div>
                       <Label htmlFor="grade">Grade</Label>
-                      <Select value={grade} onValueChange={setGrade}>
+                      <Select value={grade || "all"} onValueChange={(v) => setGrade(v === "all" ? "" : v)}>
                         <SelectTrigger>
                           <SelectValue placeholder="All grades" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">All Grades</SelectItem>
+                          <SelectItem value="all">All Grades</SelectItem>
                           {getGradeOptions(grader || "PSA").map((g) => (
                             <SelectItem key={g} value={g}>{g}</SelectItem>
                           ))}
@@ -360,12 +360,12 @@ export default function CardPriceHubPage() {
 
                   <div>
                     <Label>Target Grader (optional)</Label>
-                    <Select value={targetGrader} onValueChange={setTargetGrader}>
+                    <Select value={targetGrader || "all"} onValueChange={(v) => setTargetGrader(v === "all" ? "" : v)}>
                       <SelectTrigger>
                         <SelectValue placeholder="All graders" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">All Graders</SelectItem>
+                        <SelectItem value="all">All Graders</SelectItem>
                         {["PSA", "BGS", "CGC"].filter(g => g !== sourceGrader).map((g) => (
                           <SelectItem key={g} value={g}>{g}</SelectItem>
                         ))}
