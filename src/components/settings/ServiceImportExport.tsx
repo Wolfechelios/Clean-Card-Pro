@@ -44,18 +44,42 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
   const [activeSection, setActiveSection] = useState<"import" | "verify">("import");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Helper to fetch all cards with pagination (Supabase limits to 1000 per request)
+  const fetchAllCards = async () => {
+    if (!userId) return [];
+    
+    const allCards: any[] = [];
+    const pageSize = 1000;
+    let page = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from("cards")
+        .select("*")
+        .eq("user_id", userId)
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        allCards.push(...data);
+        page++;
+        hasMore = data.length === pageSize;
+      } else {
+        hasMore = false;
+      }
+    }
+    return allCards;
+  };
+
   // SportsCardPro format columns
   const exportToSportsCardPro = async () => {
     if (!userId) return;
     
     try {
-      const { data: cards, error } = await supabase
-        .from("cards")
-        .select("*")
-        .eq("user_id", userId)
-        .range(0, 49999);
+      const cards = await fetchAllCards();
 
-      if (error) throw error;
       if (!cards || cards.length === 0) {
         toast.error("No cards to export");
         return;
@@ -90,13 +114,8 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
     if (!userId) return;
     
     try {
-      const { data: cards, error } = await supabase
-        .from("cards")
-        .select("*")
-        .eq("user_id", userId)
-        .range(0, 49999);
+      const cards = await fetchAllCards();
 
-      if (error) throw error;
       if (!cards || cards.length === 0) {
         toast.error("No cards to export");
         return;
@@ -130,13 +149,8 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
     if (!userId) return;
     
     try {
-      const { data: cards, error } = await supabase
-        .from("cards")
-        .select("*")
-        .eq("user_id", userId)
-        .range(0, 49999);
+      const cards = await fetchAllCards();
 
-      if (error) throw error;
       if (!cards || cards.length === 0) {
         toast.error("No cards to export");
         return;

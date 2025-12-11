@@ -122,16 +122,38 @@ export default function NewDashboard() {
     
     setIsRefreshing(true);
 
-    const { data: cards, error: cardsError } = await supabase
-      .from("cards")
-      .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .range(0, 49999);
+    // Fetch all cards using pagination (Supabase limits to 1000 per request)
+    const allCards: CardType[] = [];
+    const pageSize = 1000;
+    let page = 0;
+    let hasMore = true;
 
-    console.log("Dashboard fetch - cards count:", cards?.length, "error:", cardsError);
+    while (hasMore) {
+      const { data: cards, error } = await supabase
+        .from("cards")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .range(page * pageSize, (page + 1) * pageSize - 1);
 
-    if (cards) {
+      if (error) {
+        console.error("Error fetching cards:", error);
+        break;
+      }
+
+      if (cards && cards.length > 0) {
+        allCards.push(...cards);
+        page++;
+        hasMore = cards.length === pageSize;
+      } else {
+        hasMore = false;
+      }
+    }
+
+    console.log("Dashboard fetch - total cards:", allCards.length);
+
+    if (allCards.length > 0) {
+      const cards = allCards;
       const totalValue = cards.reduce((sum, card) => sum + (card.current_price_raw || 0), 0);
       const avgValue = cards.length > 0 ? totalValue / cards.length : 0;
 
