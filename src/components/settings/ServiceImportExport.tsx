@@ -1,7 +1,7 @@
 import React, { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Download, Upload, FileSpreadsheet, AlertCircle, ExternalLink, ImageIcon, Loader2 } from "lucide-react";
+import { Download, Upload, FileSpreadsheet, AlertCircle, ExternalLink, ImageIcon, Loader2, Check, X, Edit2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -11,6 +11,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface ServiceImportExportProps {
   userId: string | null;
@@ -21,12 +24,24 @@ interface ServiceImportExportProps {
 type ExportFormat = "sportscardpro" | "pricecharting" | "generic";
 type ImportFormat = "sportscardpro" | "pricecharting" | "generic" | "collx";
 
+interface CardToVerify {
+  id: string;
+  card_name: string;
+  card_set: string | null;
+  image_url: string;
+  confidence: number;
+  suggested_name?: string;
+  suggested_set?: string;
+}
+
 export default function ServiceImportExport({ userId, totalCards, onComplete }: ServiceImportExportProps) {
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
   const [importFormat, setImportFormat] = useState<ImportFormat>("generic");
   const [lookupImages, setLookupImages] = useState(true);
   const [imageLookupProgress, setImageLookupProgress] = useState<{ current: number; total: number } | null>(null);
+  const [cardsToVerify, setCardsToVerify] = useState<CardToVerify[]>([]);
+  const [activeSection, setActiveSection] = useState<"import" | "verify">("import");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // SportsCardPro format columns
@@ -214,7 +229,7 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
     // Fetch inserted cards
     const { data: cards, error } = await supabase
       .from("cards")
-      .select("id, card_name, card_set, game_type, sport_type")
+      .select("id, card_name, card_set, game_type, sport_type, image_url")
       .in("id", cardIds);
 
     if (error || !cards) {
@@ -225,11 +240,13 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
     // Process in batches of 3 to avoid rate limits
     const batchSize = 3;
     let processed = 0;
+    const lowConfidenceCards: CardToVerify[] = [];
 
     for (let i = 0; i < cards.length; i += batchSize) {
       const batch = cards.slice(i, i + batchSize);
       
       await Promise.all(batch.map(async (card) => {
+        // First get image
         const imageUrl = await lookupCardImage(
           card.id,
           card.card_name,
@@ -238,10 +255,46 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
         );
 
         if (imageUrl) {
-          await supabase
-            .from("cards")
-            .update({ image_url: imageUrl, thumbnail_url: imageUrl })
-            .eq("id", card.id);
+          // Now run OCR/identification on the image to verify card
+          try {
+            const { data: identifyData, error: identifyError } = await supabase.functions.invoke("enhanced-card-identify", {
+              body: { imageUrl }
+            });
+
+            const confidence = identifyData?.cardData?.confidence ?? 100;
+            const suggestedName = identifyData?.cardData?.card_name;
+            const suggestedSet = identifyData?.cardData?.card_set;
+
+            // Update card with image and OCR confidence
+            await supabase
+              .from("cards")
+              .update({ 
+                image_url: imageUrl, 
+                thumbnail_url: imageUrl,
+                ocr_confidence: confidence 
+              })
+              .eq("id", card.id);
+
+            // If confidence < 90%, add to verification queue
+            if (confidence < 90) {
+              lowConfidenceCards.push({
+                id: card.id,
+                card_name: card.card_name,
+                card_set: card.card_set,
+                image_url: imageUrl,
+                confidence,
+                suggested_name: suggestedName,
+                suggested_set: suggestedSet
+              });
+            }
+          } catch (err) {
+            console.error("Card identification error:", err);
+            // Still update image even if OCR fails
+            await supabase
+              .from("cards")
+              .update({ image_url: imageUrl, thumbnail_url: imageUrl })
+              .eq("id", card.id);
+          }
         }
       }));
 
@@ -250,7 +303,48 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
     }
 
     setImageLookupProgress(null);
-    toast.success(`Updated images for ${processed} cards`);
+    
+    if (lowConfidenceCards.length > 0) {
+      setCardsToVerify(lowConfidenceCards);
+      setActiveSection("verify");
+      toast.info(`${lowConfidenceCards.length} cards need verification (confidence < 90%)`);
+    } else {
+      toast.success(`Updated images for ${processed} cards`);
+    }
+  };
+
+  const handleVerifyCard = async (cardId: string, newName: string, newSet: string | null) => {
+    const { error } = await supabase
+      .from("cards")
+      .update({ card_name: newName, card_set: newSet, ocr_confidence: 100 })
+      .eq("id", cardId);
+
+    if (error) {
+      toast.error("Failed to update card");
+      return;
+    }
+
+    setCardsToVerify(prev => prev.filter(c => c.id !== cardId));
+    toast.success("Card verified");
+  };
+
+  const handleDismissCard = (cardId: string) => {
+    setCardsToVerify(prev => prev.filter(c => c.id !== cardId));
+  };
+
+  const handleVerifyAll = async () => {
+    // Keep all cards as-is but mark as verified
+    const updates = cardsToVerify.map(card => 
+      supabase
+        .from("cards")
+        .update({ ocr_confidence: 100 })
+        .eq("id", card.id)
+    );
+    
+    await Promise.all(updates);
+    setCardsToVerify([]);
+    setActiveSection("import");
+    toast.success("All cards verified");
   };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -469,180 +563,349 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
   return (
     <Card className="bg-card border-border">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <FileSpreadsheet className="h-5 w-5" />
-          Import / Export
+        <CardTitle className="flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <FileSpreadsheet className="h-5 w-5" />
+            Import / Export
+          </span>
+          {cardsToVerify.length > 0 && (
+            <Badge variant="destructive" className="text-xs">
+              {cardsToVerify.length} needs verification
+            </Badge>
+          )}
         </CardTitle>
         <CardDescription>Import from or export to external services</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        {importing && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span>Importing cards...</span>
-              <span>{importProgress}%</span>
-            </div>
-            <Progress value={importProgress} />
-          </div>
-        )}
-
-        {imageLookupProgress && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="flex items-center gap-2">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Looking up card images...
-              </span>
-              <span>{imageLookupProgress.current}/{imageLookupProgress.total}</span>
-            </div>
-            <Progress value={(imageLookupProgress.current / imageLookupProgress.total) * 100} />
-          </div>
-        )}
-
-        {/* Export Section */}
-        <div className="space-y-4">
-          <h3 className="font-semibold text-sm">Export Collection</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Button 
-              variant="outline" 
-              onClick={exportToSportsCardPro}
-              disabled={totalCards === 0}
-              className="flex-col h-auto py-3"
-            >
-              <Download className="h-4 w-4 mb-1" />
-              <span className="text-xs">SportsCardPro</span>
-              <span className="text-[10px] text-muted-foreground">(.csv)</span>
-            </Button>
-            <Button 
-              variant="outline" 
-              onClick={exportToPriceCharting}
-              disabled={totalCards === 0}
-              className="flex-col h-auto py-3"
-            >
-              <Download className="h-4 w-4 mb-1" />
-              <span className="text-xs">PriceCharting</span>
-              <span className="text-[10px] text-muted-foreground">(.csv)</span>
-            </Button>
-            <Button 
-              variant="outline" 
-              onClick={exportToGeneric}
-              disabled={totalCards === 0}
-              className="flex-col h-auto py-3"
-            >
-              <Download className="h-4 w-4 mb-1" />
-              <span className="text-xs">Full Export</span>
-              <span className="text-[10px] text-muted-foreground">(.xlsx)</span>
-            </Button>
-          </div>
-          {totalCards === 0 && (
-            <p className="text-xs text-muted-foreground">No cards to export</p>
-          )}
-        </div>
-
-        <Separator />
-
-        {/* Import Section */}
-        <div className="space-y-4">
-          <h3 className="font-semibold text-sm">Import Collection</h3>
-          
-          <Alert>
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription className="text-xs">
-              Select the format that matches your file source, then upload your CSV or Excel file.
-            </AlertDescription>
-          </Alert>
-
-          <Tabs value={importFormat} onValueChange={(v) => setImportFormat(v as ImportFormat)}>
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="generic" className="text-xs">Generic</TabsTrigger>
-              <TabsTrigger value="collx" className="text-xs">Collx</TabsTrigger>
-              <TabsTrigger value="sportscardpro" className="text-xs">SportsCardPro</TabsTrigger>
-              <TabsTrigger value="pricecharting" className="text-xs">PriceCharting</TabsTrigger>
+        {/* Section Tabs */}
+        {cardsToVerify.length > 0 && (
+          <Tabs value={activeSection} onValueChange={(v) => setActiveSection(v as "import" | "verify")}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="import">Import / Export</TabsTrigger>
+              <TabsTrigger value="verify" className="relative">
+                Verify Cards
+                <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">{cardsToVerify.length}</Badge>
+              </TabsTrigger>
             </TabsList>
-            
-            <TabsContent value="generic" className="space-y-3 mt-4">
-              <p className="text-xs text-muted-foreground">
-                Standard format with columns: Card Name, Set, Card Number, Rarity, Condition, Price, etc.
-              </p>
-            </TabsContent>
-
-            <TabsContent value="collx" className="space-y-3 mt-4">
-              <p className="text-xs text-muted-foreground">
-                Import from Collx exports. Expected columns: Player Name, Set Name, Card Number, Parallel, Condition, Value, Sport
-              </p>
-              <a 
-                href="https://www.collx.app" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-              >
-                Visit Collx <ExternalLink className="h-3 w-3" />
-              </a>
-            </TabsContent>
-            
-            <TabsContent value="sportscardpro" className="space-y-3 mt-4">
-              <p className="text-xs text-muted-foreground">
-                Import from SportsCardPro exports. Expected columns: Player/Card Name, Year, Set, Card Number, Variation, Grade, Sport
-              </p>
-              <a 
-                href="https://www.sportscardpro.com" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-              >
-                Visit SportsCardPro <ExternalLink className="h-3 w-3" />
-              </a>
-            </TabsContent>
-            
-            <TabsContent value="pricecharting" className="space-y-3 mt-4">
-              <p className="text-xs text-muted-foreground">
-                Import from PriceCharting exports. Expected columns: product-name, console-name, upc, condition, quantity
-              </p>
-              <a 
-                href="https://www.pricecharting.com" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-              >
-                Visit PriceCharting <ExternalLink className="h-3 w-3" />
-              </a>
-            </TabsContent>
           </Tabs>
+        )}
 
-          <div className="flex items-center space-x-2">
-            <Checkbox 
-              id="lookup-images" 
-              checked={lookupImages}
-              onCheckedChange={(checked) => setLookupImages(checked === true)}
-              disabled={importing || !!imageLookupProgress}
-            />
-            <Label htmlFor="lookup-images" className="text-sm cursor-pointer">
-              <span className="flex items-center gap-1">
-                <ImageIcon className="h-3 w-3" />
-                Look up card images after import
-              </span>
-            </Label>
+        {/* Verification Section */}
+        {activeSection === "verify" && cardsToVerify.length > 0 && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                These cards had low OCR confidence (&lt;90%). Please verify the card details.
+              </p>
+              <Button variant="outline" size="sm" onClick={handleVerifyAll}>
+                <Check className="h-3 w-3 mr-1" />
+                Accept All
+              </Button>
+            </div>
+            
+            <ScrollArea className="h-[400px] pr-4">
+              <div className="space-y-4">
+                {cardsToVerify.map((card) => (
+                  <VerificationCard
+                    key={card.id}
+                    card={card}
+                    onVerify={handleVerifyCard}
+                    onDismiss={handleDismissCard}
+                  />
+                ))}
+              </div>
+            </ScrollArea>
           </div>
+        )}
 
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            onChange={handleFileUpload}
-            className="hidden"
-            disabled={importing || !!imageLookupProgress}
-          />
-          <Button 
-            variant="outline"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={importing || !!imageLookupProgress || !userId}
-            className="w-full"
-          >
-            <Upload className="h-4 w-4 mr-2" />
-            Import {importFormat === "generic" ? "CSV/Excel" : importFormat === "collx" ? "Collx" : importFormat === "sportscardpro" ? "SportsCardPro" : "PriceCharting"} File
-          </Button>
-        </div>
+        {/* Import/Export Section */}
+        {(activeSection === "import" || cardsToVerify.length === 0) && (
+          <>
+            {importing && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span>Importing cards...</span>
+                  <span>{importProgress}%</span>
+                </div>
+                <Progress value={importProgress} />
+              </div>
+            )}
+
+            {imageLookupProgress && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Looking up & verifying card images...
+                  </span>
+                  <span>{imageLookupProgress.current}/{imageLookupProgress.total}</span>
+                </div>
+                <Progress value={(imageLookupProgress.current / imageLookupProgress.total) * 100} />
+              </div>
+            )}
+
+            {/* Export Section */}
+            <div className="space-y-4">
+              <h3 className="font-semibold text-sm">Export Collection</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <Button 
+                  variant="outline" 
+                  onClick={exportToSportsCardPro}
+                  disabled={totalCards === 0}
+                  className="flex-col h-auto py-3"
+                >
+                  <Download className="h-4 w-4 mb-1" />
+                  <span className="text-xs">SportsCardPro</span>
+                  <span className="text-[10px] text-muted-foreground">(.csv)</span>
+                </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={exportToPriceCharting}
+                  disabled={totalCards === 0}
+                  className="flex-col h-auto py-3"
+                >
+                  <Download className="h-4 w-4 mb-1" />
+                  <span className="text-xs">PriceCharting</span>
+                  <span className="text-[10px] text-muted-foreground">(.csv)</span>
+                </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={exportToGeneric}
+                  disabled={totalCards === 0}
+                  className="flex-col h-auto py-3"
+                >
+                  <Download className="h-4 w-4 mb-1" />
+                  <span className="text-xs">Full Export</span>
+                  <span className="text-[10px] text-muted-foreground">(.xlsx)</span>
+                </Button>
+              </div>
+              {totalCards === 0 && (
+                <p className="text-xs text-muted-foreground">No cards to export</p>
+              )}
+            </div>
+
+            <Separator />
+
+            {/* Import Section */}
+            <div className="space-y-4">
+              <h3 className="font-semibold text-sm">Import Collection</h3>
+              
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription className="text-xs">
+                  Select the format that matches your file source, then upload your CSV or Excel file.
+                </AlertDescription>
+              </Alert>
+
+              <Tabs value={importFormat} onValueChange={(v) => setImportFormat(v as ImportFormat)}>
+                <TabsList className="grid w-full grid-cols-4">
+                  <TabsTrigger value="generic" className="text-xs">Generic</TabsTrigger>
+                  <TabsTrigger value="collx" className="text-xs">Collx</TabsTrigger>
+                  <TabsTrigger value="sportscardpro" className="text-xs">SportsCardPro</TabsTrigger>
+                  <TabsTrigger value="pricecharting" className="text-xs">PriceCharting</TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="generic" className="space-y-3 mt-4">
+                  <p className="text-xs text-muted-foreground">
+                    Standard format with columns: Card Name, Set, Card Number, Rarity, Condition, Price, etc.
+                  </p>
+                </TabsContent>
+
+                <TabsContent value="collx" className="space-y-3 mt-4">
+                  <p className="text-xs text-muted-foreground">
+                    Import from Collx exports. Expected columns: Player Name, Set Name, Card Number, Parallel, Condition, Value, Sport
+                  </p>
+                  <a 
+                    href="https://www.collx.app" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                  >
+                    Visit Collx <ExternalLink className="h-3 w-3" />
+                  </a>
+                </TabsContent>
+                
+                <TabsContent value="sportscardpro" className="space-y-3 mt-4">
+                  <p className="text-xs text-muted-foreground">
+                    Import from SportsCardPro exports. Expected columns: Player/Card Name, Year, Set, Card Number, Variation, Grade, Sport
+                  </p>
+                  <a 
+                    href="https://www.sportscardpro.com" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                  >
+                    Visit SportsCardPro <ExternalLink className="h-3 w-3" />
+                  </a>
+                </TabsContent>
+                
+                <TabsContent value="pricecharting" className="space-y-3 mt-4">
+                  <p className="text-xs text-muted-foreground">
+                    Import from PriceCharting exports. Expected columns: product-name, console-name, upc, condition, quantity
+                  </p>
+                  <a 
+                    href="https://www.pricecharting.com" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                  >
+                    Visit PriceCharting <ExternalLink className="h-3 w-3" />
+                  </a>
+                </TabsContent>
+              </Tabs>
+
+              <div className="flex items-center space-x-2">
+                <Checkbox 
+                  id="lookup-images" 
+                  checked={lookupImages}
+                  onCheckedChange={(checked) => setLookupImages(checked === true)}
+                  disabled={importing || !!imageLookupProgress}
+                />
+                <Label htmlFor="lookup-images" className="text-sm cursor-pointer">
+                  <span className="flex items-center gap-1">
+                    <ImageIcon className="h-3 w-3" />
+                    Look up card images after import (runs OCR verification)
+                  </span>
+                </Label>
+              </div>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                onChange={handleFileUpload}
+                className="hidden"
+                disabled={importing || !!imageLookupProgress}
+              />
+              <Button 
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={importing || !!imageLookupProgress || !userId}
+                className="w-full"
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                Import {importFormat === "generic" ? "CSV/Excel" : importFormat === "collx" ? "Collx" : importFormat === "sportscardpro" ? "SportsCardPro" : "PriceCharting"} File
+              </Button>
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
+  );
+}
+
+// Verification Card Component
+function VerificationCard({ 
+  card, 
+  onVerify, 
+  onDismiss 
+}: { 
+  card: CardToVerify;
+  onVerify: (id: string, name: string, set: string | null) => void;
+  onDismiss: (id: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editedName, setEditedName] = useState(card.card_name);
+  const [editedSet, setEditedSet] = useState(card.card_set || "");
+
+  const handleSave = () => {
+    onVerify(card.id, editedName, editedSet || null);
+    setEditing(false);
+  };
+
+  const handleUseSuggestion = () => {
+    if (card.suggested_name) {
+      setEditedName(card.suggested_name);
+      setEditedSet(card.suggested_set || "");
+      setEditing(true);
+    }
+  };
+
+  return (
+    <div className="flex gap-3 p-3 bg-muted/50 rounded-lg border border-border">
+      <div className="w-20 h-28 flex-shrink-0 rounded overflow-hidden bg-background">
+        <img 
+          src={card.image_url} 
+          alt={card.card_name}
+          className="w-full h-full object-cover"
+          onError={(e) => {
+            (e.target as HTMLImageElement).src = "https://placehold.co/80x112?text=No+Image";
+          }}
+        />
+      </div>
+      
+      <div className="flex-1 space-y-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1">
+            {editing ? (
+              <div className="space-y-2">
+                <Input 
+                  value={editedName}
+                  onChange={(e) => setEditedName(e.target.value)}
+                  placeholder="Card name"
+                  className="h-8 text-sm"
+                />
+                <Input 
+                  value={editedSet}
+                  onChange={(e) => setEditedSet(e.target.value)}
+                  placeholder="Card set"
+                  className="h-8 text-sm"
+                />
+              </div>
+            ) : (
+              <>
+                <p className="font-medium text-sm">{card.card_name}</p>
+                <p className="text-xs text-muted-foreground">{card.card_set || "Unknown set"}</p>
+              </>
+            )}
+          </div>
+          <Badge variant="outline" className="text-[10px] shrink-0">
+            {Math.round(card.confidence)}% conf
+          </Badge>
+        </div>
+
+        {card.suggested_name && card.suggested_name !== card.card_name && !editing && (
+          <Alert className="py-2">
+            <AlertDescription className="text-xs">
+              <span className="font-medium">OCR suggests:</span> {card.suggested_name}
+              {card.suggested_set && ` (${card.suggested_set})`}
+              <Button 
+                variant="link" 
+                size="sm" 
+                className="h-auto p-0 ml-2 text-xs"
+                onClick={handleUseSuggestion}
+              >
+                Use this
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        <div className="flex gap-2">
+          {editing ? (
+            <>
+              <Button size="sm" variant="default" onClick={handleSave} className="h-7 text-xs">
+                <Check className="h-3 w-3 mr-1" /> Save
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditing(false)} className="h-7 text-xs">
+                Cancel
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button size="sm" variant="outline" onClick={() => setEditing(true)} className="h-7 text-xs">
+                <Edit2 className="h-3 w-3 mr-1" /> Edit
+              </Button>
+              <Button size="sm" variant="default" onClick={() => onVerify(card.id, card.card_name, card.card_set)} className="h-7 text-xs">
+                <Check className="h-3 w-3 mr-1" /> Confirm
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => onDismiss(card.id)} className="h-7 text-xs text-muted-foreground">
+                <X className="h-3 w-3" />
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
