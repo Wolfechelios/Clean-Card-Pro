@@ -31,6 +31,7 @@ export function useBatchScanner({ userId, onCardReady }: UseBatchScannerOptions)
   const [batchCards, setBatchCards] = useState<BatchCard[]>([]);
   const [batchQueue, setBatchQueue] = useState<ScanJob[]>([]);
   const [currentBatchIndex, setCurrentBatchIndex] = useState(0);
+  const [isProcessing, setIsProcessing] = useState(false);
   const isProcessingRef = useRef(false);
 
   const addFilesToBatch = useCallback((files: File[]) => {
@@ -74,6 +75,7 @@ export function useBatchScanner({ userId, onCardReady }: UseBatchScannerOptions)
       setBatchQueue([]);
       setCurrentBatchIndex(0);
       isProcessingRef.current = false;
+      setIsProcessing(false);
       return;
     }
 
@@ -190,6 +192,7 @@ export function useBatchScanner({ userId, onCardReady }: UseBatchScannerOptions)
     setBatchQueue(pendingJobs);
     setCurrentBatchIndex(0);
     isProcessingRef.current = true;
+    setIsProcessing(true);
     
     if (pendingJobs.length > 0) {
       processNextCard(pendingJobs, 0);
@@ -226,13 +229,14 @@ export function useBatchScanner({ userId, onCardReady }: UseBatchScannerOptions)
     setBatchQueue([]);
     setCurrentBatchIndex(0);
     isProcessingRef.current = false;
+    setIsProcessing(false);
   }, []);
 
   return {
     scanJobs,
     batchCards,
     currentBatchIndex,
-    isProcessing: isProcessingRef.current,
+    isProcessing,
     
     addFilesToBatch,
     startBatchProcessing,

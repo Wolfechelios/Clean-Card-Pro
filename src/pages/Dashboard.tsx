@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,13 +22,7 @@ export default function Dashboard() {
   });
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    if (userId) {
-      fetchStats();
-    }
-  }, [userId]);
-
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     if (!userId) return;
     
     try {
@@ -58,7 +52,13 @@ export default function Dashboard() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [userId]);
+
+  useEffect(() => {
+    if (userId) {
+      fetchStats();
+    }
+  }, [userId, fetchStats]);
 
   if (isLoading) {
     return (

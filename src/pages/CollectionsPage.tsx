@@ -106,6 +106,8 @@ export default function Collections() {
   };
 
   useEffect(() => {
+    if (!userId) return;
+    
     fetchCards();
     checkRecentImports();
     checkNoImageCards();
@@ -133,7 +135,8 @@ export default function Collections() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
 
   useEffect(() => {
     applyFilters();
