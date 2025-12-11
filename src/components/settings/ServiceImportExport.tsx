@@ -52,7 +52,8 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
       const { data: cards, error } = await supabase
         .from("cards")
         .select("*")
-        .eq("user_id", userId);
+        .eq("user_id", userId)
+        .range(0, 49999);
 
       if (error) throw error;
       if (!cards || cards.length === 0) {
@@ -92,7 +93,8 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
       const { data: cards, error } = await supabase
         .from("cards")
         .select("*")
-        .eq("user_id", userId);
+        .eq("user_id", userId)
+        .range(0, 49999);
 
       if (error) throw error;
       if (!cards || cards.length === 0) {
@@ -131,7 +133,8 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
       const { data: cards, error } = await supabase
         .from("cards")
         .select("*")
-        .eq("user_id", userId);
+        .eq("user_id", userId)
+        .range(0, 49999);
 
       if (error) throw error;
       if (!cards || cards.length === 0) {

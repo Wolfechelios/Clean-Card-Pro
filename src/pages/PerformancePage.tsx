@@ -27,7 +27,8 @@ export default function PerformancePage() {
         .from("cards")
         .select("*")
         .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .range(0, 49999);
 
       if (error) throw error;
 

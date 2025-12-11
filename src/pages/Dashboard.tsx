@@ -29,7 +29,8 @@ export default function Dashboard() {
       const { data: cards } = await supabase
         .from("cards")
         .select("current_price_raw, created_at")
-        .eq("user_id", userId);
+        .eq("user_id", userId)
+        .range(0, 49999);
 
       if (cards) {
         const totalValue = cards.reduce((sum, card) => sum + (card.current_price_raw || 0), 0);

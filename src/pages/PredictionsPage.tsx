@@ -56,7 +56,8 @@ export default function PredictionsPage() {
         .from("cards")
         .select("*")
         .eq("user_id", user.id)
-        .order("suggested_price", { ascending: false, nullsFirst: false });
+        .order("suggested_price", { ascending: false, nullsFirst: false })
+        .range(0, 49999);
 
       if (error) throw error;
       setCards(data || []);
