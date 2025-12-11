@@ -122,12 +122,14 @@ export default function NewDashboard() {
     
     setIsRefreshing(true);
 
-    const { data: cards } = await supabase
+    const { data: cards, error: cardsError } = await supabase
       .from("cards")
       .select("*")
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .range(0, 49999);
+
+    console.log("Dashboard fetch - cards count:", cards?.length, "error:", cardsError);
 
     if (cards) {
       const totalValue = cards.reduce((sum, card) => sum + (card.current_price_raw || 0), 0);
