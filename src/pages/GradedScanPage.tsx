@@ -215,10 +215,10 @@ export default function GradedScanPage() {
         await new Promise(resolve => setTimeout(resolve, 150));
       }
 
-      // Capture with anti-glare and OCR enhancement
+      // Capture with anti-glare but disable OCR enhancement to avoid color issues
       const blob = await captureMaxQualityPhoto(videoRef.current, {
         applyAntiGlareFilter: true,
-        enhanceOCR: true,
+        enhanceOCR: false,
         quality: 0.98,
       });
 
