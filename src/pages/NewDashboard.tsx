@@ -33,6 +33,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { analyzeCardFull } from "@/lib/analyzeCardFull";
 import { DashboardSkeleton } from "@/components/ui/loading-skeletons";
+import { CardDetailModal, CardData } from "@/components/cards/CardDetailModal";
 
 type CardType = Database["public"]["Tables"]["cards"]["Row"];
 
@@ -84,6 +85,8 @@ export default function NewDashboard() {
   const [bulkItems, setBulkItems] = useState<BulkScanResult[]>([]);
   const [bulkProgress, setBulkProgress] = useState(0);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [selectedCard, setSelectedCard] = useState<CardData | null>(null);
+  const [showCardDetail, setShowCardDetail] = useState(false);
 
   useEffect(() => {
     if (authLoading) return;
@@ -606,7 +609,27 @@ export default function NewDashboard() {
           <CardContent>
             <div className="space-y-3">
               {topCards.map((card, idx) => (
-                <div key={card.id} className="flex items-center gap-3 p-2 rounded bg-secondary/50">
+                <button
+                  key={card.id}
+                  className="flex items-center gap-3 p-2 rounded bg-secondary/50 w-full text-left hover:bg-secondary/80 transition-colors"
+                  onClick={() => {
+                    setSelectedCard({
+                      id: card.id,
+                      card_name: card.card_name,
+                      card_set: card.card_set,
+                      card_number: card.card_number,
+                      rarity: card.rarity,
+                      image_url: card.image_url,
+                      thumbnail_url: card.thumbnail_url,
+                      current_price_raw: card.current_price_raw,
+                      collection_name: card.collection_name,
+                      condition: card.condition,
+                      game_type: card.game_type,
+                      sport_type: card.sport_type,
+                    });
+                    setShowCardDetail(true);
+                  }}
+                >
                   <img
                     src={card.thumbnail_url || card.image_url}
                     alt={card.card_name}
@@ -620,7 +643,7 @@ export default function NewDashboard() {
                     <p className="font-bold text-success">${(card.current_price_raw || 0).toFixed(2)}</p>
                     <p className="text-xs text-muted-foreground/70">#{idx + 1}</p>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           </CardContent>
@@ -633,7 +656,27 @@ export default function NewDashboard() {
           <CardContent>
             <div className="space-y-3">
               {recentCards.map((card) => (
-                <div key={card.id} className="flex items-center gap-3 p-2 rounded bg-secondary/50">
+                <button
+                  key={card.id}
+                  className="flex items-center gap-3 p-2 rounded bg-secondary/50 w-full text-left hover:bg-secondary/80 transition-colors"
+                  onClick={() => {
+                    setSelectedCard({
+                      id: card.id,
+                      card_name: card.card_name,
+                      card_set: card.card_set,
+                      card_number: card.card_number,
+                      rarity: card.rarity,
+                      image_url: card.image_url,
+                      thumbnail_url: card.thumbnail_url,
+                      current_price_raw: card.current_price_raw,
+                      collection_name: card.collection_name,
+                      condition: card.condition,
+                      game_type: card.game_type,
+                      sport_type: card.sport_type,
+                    });
+                    setShowCardDetail(true);
+                  }}
+                >
                   <img
                     src={card.thumbnail_url || card.image_url}
                     alt={card.card_name}
@@ -646,12 +689,29 @@ export default function NewDashboard() {
                   <div className="text-right">
                     <p className="font-medium">${(card.current_price_raw || 0).toFixed(2)}</p>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           </CardContent>
         </Card>
       </div>
+
+      {/* Card Detail Modal */}
+      <CardDetailModal
+        card={selectedCard}
+        open={showCardDetail}
+        onOpenChange={setShowCardDetail}
+        onUpdate={(updatedCard) => {
+          setTopCards(topCards.map(c => c.id === updatedCard.id ? { ...c, ...updatedCard } : c));
+          setRecentCards(recentCards.map(c => c.id === updatedCard.id ? { ...c, ...updatedCard } : c));
+          setSelectedCard(updatedCard);
+        }}
+        onDelete={(cardId) => {
+          setTopCards(topCards.filter(c => c.id !== cardId));
+          setRecentCards(recentCards.filter(c => c.id !== cardId));
+          fetchDashboardData();
+        }}
+      />
     </div>
   );
 }

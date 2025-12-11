@@ -8,8 +8,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Search, Trash2, RefreshCw, Edit3, ImageOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,12 +30,9 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import AdvancedFilters, { FilterConfig } from "@/components/collections/AdvancedFilters";
-import ImportExport from "@/components/collections/ImportExport";
-import PriceAlerts from "@/components/collections/PriceAlerts";
-import PortfolioView from "@/components/collections/PortfolioView";
-import Card3DViewer from "@/components/Card3DViewer";
 import { CardThumbnail } from "@/components/collections/CardThumbnail";
 import { VirtualizedCardGrid } from "@/components/collections/VirtualizedCardGrid";
+import { CardDetailModal, CardData } from "@/components/cards/CardDetailModal";
 
 interface CardItem {
   id: string;
@@ -72,7 +67,8 @@ export default function Collections() {
   const [showDeleteNoImage, setShowDeleteNoImage] = useState(false);
   const [noImageCount, setNoImageCount] = useState(0);
   const [showBulkEdit, setShowBulkEdit] = useState(false);
-  const [cardDetail, setCardDetail] = useState<CardItem | null>(null);
+  const [cardDetail, setCardDetail] = useState<CardData | null>(null);
+  const [showCardDetail, setShowCardDetail] = useState(false);
   const [bulkEditData, setBulkEditData] = useState({
     condition: "",
     rarity: "",
@@ -644,7 +640,10 @@ export default function Collections() {
           selectedCards={selectedCards}
           onSelect={toggleCardSelection}
           onDelete={setCardToDelete}
-          onCardClick={setCardDetail}
+          onCardClick={(card) => {
+            setCardDetail(card);
+            setShowCardDetail(true);
+          }}
         />
       )}
 
@@ -784,79 +783,20 @@ export default function Collections() {
         </DialogContent>
       </Dialog>
 
-      {/* Card Detail Modal with 3D Viewer */}
-      <Dialog open={!!cardDetail} onOpenChange={(open) => !open && setCardDetail(null)}>
-        <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-xl">{cardDetail?.card_name}</DialogTitle>
-            <DialogDescription>
-              {cardDetail?.card_set || "Unknown Set"} {cardDetail?.card_number && `• #${cardDetail.card_number}`}
-            </DialogDescription>
-          </DialogHeader>
-          
-          {cardDetail && (
-            <div className="space-y-6 py-4">
-              {/* 3D Viewer */}
-              <div className="flex justify-center">
-                <Card3DViewer
-                  frontImageUrl={cardDetail.image_url}
-                  width={400}
-                  height={300}
-                />
-              </div>
-              
-              {/* Card Details */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-muted-foreground text-xs">Condition</Label>
-                  <p className="font-medium">{cardDetail.condition || "Not specified"}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground text-xs">Rarity</Label>
-                  <p className="font-medium">{cardDetail.rarity || "Unknown"}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground text-xs">Game Type</Label>
-                  <p className="font-medium">{cardDetail.game_type || "Not specified"}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground text-xs">Sport Type</Label>
-                  <p className="font-medium">{cardDetail.sport_type || "Not specified"}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground text-xs">Collection</Label>
-                  <p className="font-medium">{cardDetail.collection_name || "No collection"}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground text-xs">Current Value</Label>
-                  <p className="font-medium text-lg text-primary">
-                    {cardDetail.current_price_raw ? `$${cardDetail.current_price_raw.toFixed(2)}` : "N/A"}
-                  </p>
-                </div>
-              </div>
-              
-              {/* Badges */}
-              <div className="flex items-center gap-2 flex-wrap">
-                {cardDetail.rarity && (
-                  <Badge variant="secondary">{cardDetail.rarity}</Badge>
-                )}
-                {cardDetail.condition && (
-                  <Badge variant="outline">{cardDetail.condition}</Badge>
-                )}
-                {cardDetail.game_type && (
-                  <Badge>{cardDetail.game_type}</Badge>
-                )}
-              </div>
-            </div>
-          )}
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCardDetail(null)}>
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Card Detail Modal with Edit/Delete */}
+      <CardDetailModal
+        card={cardDetail}
+        open={showCardDetail}
+        onOpenChange={setShowCardDetail}
+        onUpdate={(updatedCard) => {
+          setCards(cards.map(c => c.id === updatedCard.id ? { ...c, ...updatedCard } : c));
+          setCardDetail(updatedCard);
+        }}
+        onDelete={(cardId) => {
+          setCards(cards.filter(c => c.id !== cardId));
+          setFilteredCards(filteredCards.filter(c => c.id !== cardId));
+        }}
+      />
     </div>
   );
 }
