@@ -108,10 +108,7 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
       let stream: MediaStream | null = null;
       const targetDeviceId = deviceId || selectedDeviceId;
 
-      // Use maximum quality camera constraints (8K/4K support)
-      import('@/lib/camera-optimizations').then(async ({ getMaxCameraConstraints }) => {
-        const constraintStrategies = getMaxCameraConstraints(facing, targetDeviceId);
-      });
+      // Build constraint strategies for maximum quality
       
       const constraintStrategies = targetDeviceId ? [
         // 8K/4K with device ID
@@ -294,23 +291,17 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
     }
 
     try {
-      const canvas = document.createElement('canvas');
-      canvas.width = videoRef.current.videoWidth;
-      canvas.height = videoRef.current.videoHeight;
-      
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error("Failed to get canvas context");
-      
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(videoRef.current, 0, 0);
-      
-      // Convert to blob
-      const blob = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob((b) => {
-          if (b) resolve(b);
-          else reject(new Error("Failed to create blob"));
-        }, 'image/jpeg', 0.95);
+      // Trigger focus before capture
+      if (streamRef.current) {
+        await triggerFastFocus(streamRef.current);
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+
+      // Use optimized capture with anti-glare and OCR enhancement
+      const blob = await captureMaxQualityPhoto(videoRef.current, {
+        applyAntiGlareFilter: true,
+        enhanceOCR: false, // Disable OCR enhancement to avoid color issues
+        quality: 0.95,
       });
       
       const file = new File([blob], `card-${Date.now()}.jpg`, { type: 'image/jpeg' });
