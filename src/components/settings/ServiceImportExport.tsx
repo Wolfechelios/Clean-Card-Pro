@@ -19,7 +19,7 @@ interface ServiceImportExportProps {
 }
 
 type ExportFormat = "sportscardpro" | "pricecharting" | "generic";
-type ImportFormat = "sportscardpro" | "pricecharting" | "generic";
+type ImportFormat = "sportscardpro" | "pricecharting" | "generic" | "collx";
 
 export default function ServiceImportExport({ userId, totalCards, onComplete }: ServiceImportExportProps) {
   const [importing, setImporting] = useState(false);
@@ -359,6 +359,25 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
           image_url: "https://placehold.co/300x400?text=Imported",
         };
       
+      case "collx":
+        // Collx CSV format - common column names from Collx exports
+        return {
+          user_id: userId,
+          card_name: row["Player Name"] || row["Card Name"] || row["Title"] || row["Name"] || "Unknown Card",
+          card_set: row["Set Name"] || row["Set"] || row["Product"] || null,
+          card_number: row["Card Number"] || row["Card #"] || row["Number"] || null,
+          rarity: row["Parallel"] || row["Variation"] || row["Rarity"] || null,
+          edition: row["Parallel"] || row["Variation"] || null,
+          condition: mapCollxCondition(row["Condition"] || row["Grade"] || ""),
+          sport_type: row["Sport"] || row["Category"] || null,
+          game_type: row["Category"] === "Pokemon" || row["Category"] === "Magic" || row["Category"] === "Yu-Gi-Oh" 
+            ? row["Category"] : null,
+          current_price_raw: parseFloat(row["Value"] || row["Price"] || row["Estimated Value"] || 0) || null,
+          collection_name: row["Collection"] || null,
+          notes: row["Notes"] || row["Description"] || null,
+          image_url: row["Image URL"] || row["Image"] || row["Photo URL"] || "https://placehold.co/300x400?text=Collx+Import",
+        };
+      
       default: // generic
         return {
           user_id: userId,
@@ -378,6 +397,28 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
           image_url: row["Image URL"] || row["image_url"] || "https://placehold.co/300x400?text=Imported",
         };
     }
+  };
+
+  const mapCollxCondition = (condition: string): string => {
+    const conditionLower = condition.toLowerCase();
+    if (conditionLower.includes("psa") || conditionLower.includes("bgs") || conditionLower.includes("cgc")) {
+      return condition; // Keep graded conditions as-is
+    }
+    const conditionMap: Record<string, string> = {
+      "mint": "mint",
+      "near mint": "near-mint",
+      "nm": "near-mint",
+      "excellent": "excellent",
+      "ex": "excellent",
+      "good": "good",
+      "gd": "good",
+      "fair": "fair",
+      "poor": "poor",
+      "raw": "ungraded",
+      "ungraded": "ungraded",
+      "": "ungraded",
+    };
+    return conditionMap[conditionLower] || "ungraded";
   };
 
   return (
@@ -467,8 +508,9 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
           </Alert>
 
           <Tabs value={importFormat} onValueChange={(v) => setImportFormat(v as ImportFormat)}>
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="generic" className="text-xs">Generic</TabsTrigger>
+              <TabsTrigger value="collx" className="text-xs">Collx</TabsTrigger>
               <TabsTrigger value="sportscardpro" className="text-xs">SportsCardPro</TabsTrigger>
               <TabsTrigger value="pricecharting" className="text-xs">PriceCharting</TabsTrigger>
             </TabsList>
@@ -477,6 +519,20 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
               <p className="text-xs text-muted-foreground">
                 Standard format with columns: Card Name, Set, Card Number, Rarity, Condition, Price, etc.
               </p>
+            </TabsContent>
+
+            <TabsContent value="collx" className="space-y-3 mt-4">
+              <p className="text-xs text-muted-foreground">
+                Import from Collx exports. Expected columns: Player Name, Set Name, Card Number, Parallel, Condition, Value, Sport
+              </p>
+              <a 
+                href="https://www.collx.app" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+              >
+                Visit Collx <ExternalLink className="h-3 w-3" />
+              </a>
             </TabsContent>
             
             <TabsContent value="sportscardpro" className="space-y-3 mt-4">
@@ -538,7 +594,7 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
             className="w-full"
           >
             <Upload className="h-4 w-4 mr-2" />
-            Import {importFormat === "generic" ? "CSV/Excel" : importFormat === "sportscardpro" ? "SportsCardPro" : "PriceCharting"} File
+            Import {importFormat === "generic" ? "CSV/Excel" : importFormat === "collx" ? "Collx" : importFormat === "sportscardpro" ? "SportsCardPro" : "PriceCharting"} File
           </Button>
         </div>
       </CardContent>
