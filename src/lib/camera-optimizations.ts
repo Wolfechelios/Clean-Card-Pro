@@ -213,9 +213,21 @@ export const captureMaxQualityPhoto = (
   } = {}
 ): Promise<Blob> => {
   return new Promise((resolve, reject) => {
+    // Validate video is ready with valid dimensions
+    if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
+      console.error('Video not ready for capture:', {
+        video: !!video,
+        width: video?.videoWidth,
+        height: video?.videoHeight,
+        readyState: video?.readyState,
+      });
+      reject(new Error('Video not ready for capture. Please wait for camera to initialize.'));
+      return;
+    }
+
     const {
       applyAntiGlareFilter = true,
-      enhanceOCR = true,
+      enhanceOCR = false, // Disabled by default to avoid color issues
       quality = 0.98,
       targetAspectRatio,
     } = options;

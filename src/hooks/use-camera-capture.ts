@@ -37,14 +37,44 @@ export function useCameraCapture({ onCapture }: UseCameraCaptureOptions) {
         videoRef.current.setAttribute('playsinline', 'true');
         videoRef.current.setAttribute('webkit-playsinline', 'true');
         
-        await new Promise<void>((resolve) => {
+        // Wait for video to be ready to play
+        await new Promise<void>((resolve, reject) => {
           if (!videoRef.current) {
+            reject(new Error('Video element not found'));
+            return;
+          }
+          
+          const video = videoRef.current;
+          
+          const onCanPlay = () => {
+            video.removeEventListener('canplay', onCanPlay);
+            video.removeEventListener('error', onError);
+            clearTimeout(timeout);
+            resolve();
+          };
+          
+          const onError = (e: Event) => {
+            video.removeEventListener('canplay', onCanPlay);
+            video.removeEventListener('error', onError);
+            clearTimeout(timeout);
+            reject(new Error('Video failed to load'));
+          };
+          
+          // Check if already ready
+          if (video.readyState >= 3) {
             resolve();
             return;
           }
-          videoRef.current.onloadedmetadata = () => resolve();
-          videoRef.current.onerror = () => resolve();
-          setTimeout(() => resolve(), 3000);
+          
+          video.addEventListener('canplay', onCanPlay);
+          video.addEventListener('error', onError);
+          
+          const timeout = setTimeout(() => {
+            video.removeEventListener('canplay', onCanPlay);
+            video.removeEventListener('error', onError);
+            // Resolve anyway after timeout - video might still work
+            resolve();
+          }, 5000);
         });
         
         try {
@@ -75,7 +105,7 @@ export function useCameraCapture({ onCapture }: UseCameraCaptureOptions) {
       
       toast.error(messages[error.name] || `Camera error: ${error.message}`);
     }
-  }, [cameraFacingMode]);
+  }, [cameraFacingMode, detectZoomCapabilities]);
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -101,7 +131,21 @@ export function useCameraCapture({ onCapture }: UseCameraCaptureOptions) {
   }, []);
 
   const capturePhoto = useCallback(async () => {
-    if (!videoRef.current) return;
+    if (!videoRef.current) {
+      toast.error('Camera not initialized');
+      return;
+    }
+
+    // Check if video is ready
+    if (videoRef.current.readyState < 2 || videoRef.current.videoWidth === 0) {
+      toast.error('Camera not ready. Please wait and try again.');
+      console.error('Video not ready:', {
+        readyState: videoRef.current.readyState,
+        videoWidth: videoRef.current.videoWidth,
+        videoHeight: videoRef.current.videoHeight,
+      });
+      return;
+    }
 
     try {
       // Trigger fast focus before capture
@@ -124,7 +168,7 @@ export function useCameraCapture({ onCapture }: UseCameraCaptureOptions) {
       toast.success('Photo captured!');
     } catch (error: any) {
       console.error('Capture error:', error);
-      toast.error('Failed to capture photo');
+      toast.error(error.message || 'Failed to capture photo');
     }
   }, [onCapture, stopCamera]);
 
