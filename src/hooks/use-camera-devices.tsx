@@ -54,16 +54,19 @@ export const useCameraDevices = () => {
       setDevices(videoDevices);
       
       // Auto-select first USB device if available, otherwise first device
-      if (videoDevices.length > 0 && !selectedDeviceId) {
+      // Only auto-select if no device is currently selected
+      setSelectedDeviceId(prev => {
+        if (prev) return prev; // Keep existing selection
+        if (videoDevices.length === 0) return "";
         const usbDevice = videoDevices.find(d => d.isUSB);
-        setSelectedDeviceId(usbDevice?.deviceId || videoDevices[0].deviceId);
-      }
+        return usbDevice?.deviceId || videoDevices[0].deviceId;
+      });
     } catch (error) {
       console.error("Error enumerating devices:", error);
     } finally {
       setIsLoading(false);
     }
-  }, [selectedDeviceId]);
+  }, []);
 
   useEffect(() => {
     refreshDevices();

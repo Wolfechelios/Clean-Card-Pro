@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Camera, SwitchCamera, X, CheckCircle, Loader2, Pause, Play, Focus, Zap, ZapOff, Usb, Smartphone, RefreshCw, DollarSign, ZoomIn, ZoomOut, ImagePlus } from "lucide-react";
+import { Camera, SwitchCamera, X, CheckCircle, Loader2, Pause, Play, Zap, Usb, Smartphone, RefreshCw, DollarSign, ImagePlus } from "lucide-react";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -13,9 +13,7 @@ import { ScannedCardList } from "./ScannedCardList";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
 import { ZoomControls } from "./ZoomControls";
-import { useNativeCamera } from "@/hooks/use-native-camera";
-import { useNativeStorage } from "@/hooks/use-native-storage";
-import { isNativePlatform, isAndroid } from "@/lib/platform";
+import { isNativePlatform } from "@/lib/platform";
 import { 
   getMaxCameraConstraints, 
   applyFastAutofocus, 
@@ -148,6 +146,8 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
         // Apply fast continuous autofocus
         await applyFastAutofocus(stream);
         detectZoomCapabilities();
+        // Check flash support
+        checkFlashSupport(stream);
         
         // Log actual resolution
         const settings = stream.getVideoTracks()[0]?.getSettings?.();
@@ -166,19 +166,14 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     }
   };
 
-  // Apply auto-focus using ImageCapture API if available
-  const applyAutoFocus = async (stream: MediaStream) => {
+  // Check flash/torch support when camera starts
+  const checkFlashSupport = async (stream: MediaStream) => {
     try {
       const track = stream.getVideoTracks()[0];
       if (!track) return;
 
       const capabilities = track.getCapabilities?.() as any;
-      const settings = track.getSettings?.() as any;
       
-      console.log('Camera capabilities:', capabilities);
-      console.log('Camera settings:', settings);
-      
-      // Check for torch/flash support - be thorough
       if (capabilities?.torch === true || capabilities?.torch !== undefined) {
         setFlashSupported(true);
         console.log('Flash/torch IS supported');
@@ -186,47 +181,9 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
         setFlashSupported(false);
         console.log('Flash/torch NOT supported by this camera');
       }
-      
-      if (capabilities?.focusMode?.includes('continuous')) {
-        await track.applyConstraints({
-          advanced: [{ focusMode: 'continuous' } as any]
-        });
-        console.log('Continuous auto-focus enabled');
-      }
     } catch (e) {
-      console.log('Auto-focus not available:', e);
-    }
-  };
-
-  // Manual focus trigger for supported devices
-  const triggerFocus = async () => {
-    if (!streamRef.current) return;
-    
-    try {
-      const track = streamRef.current.getVideoTracks()[0];
-      if (!track) return;
-
-      // Try to trigger single-shot auto-focus
-      const capabilities = track.getCapabilities?.() as any;
-      if (capabilities?.focusMode?.includes('single-shot')) {
-        await track.applyConstraints({
-          advanced: [{ focusMode: 'single-shot' } as any]
-        });
-        toast.success('Focus triggered');
-        
-        // Return to continuous after single-shot
-        setTimeout(async () => {
-          if (capabilities.focusMode.includes('continuous')) {
-            await track.applyConstraints({
-              advanced: [{ focusMode: 'continuous' } as any]
-            });
-          }
-        }, 500);
-      } else {
-        toast.info('Manual focus not supported on this device');
-      }
-    } catch (e) {
-      console.log('Focus trigger failed:', e);
+      console.log('Flash check failed:', e);
+      setFlashSupported(false);
     }
   };
 
