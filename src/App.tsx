@@ -99,6 +99,10 @@ function AppRoutes() {
         element={session ? <AppLayout><GradedScanPage /></AppLayout> : <Navigate to="/auth" />}
       />
       <Route
+        path="/graded-scan"
+        element={session ? <AppLayout><GradedScanPage /></AppLayout> : <Navigate to="/auth" />}
+      />
+      <Route
         path="/visual-search"
         element={session ? <AppLayout><VisualSearchPage /></AppLayout> : <Navigate to="/auth" />}
       />
