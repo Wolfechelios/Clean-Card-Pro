@@ -52,15 +52,32 @@ export default function PredictionsPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data, error } = await supabase
-        .from("cards")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("suggested_price", { ascending: false, nullsFirst: false })
-        .range(0, 49999);
+      // Fetch all cards using pagination
+      const allCards: any[] = [];
+      const pageSize = 1000;
+      let page = 0;
+      let hasMore = true;
 
-      if (error) throw error;
-      setCards(data || []);
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from("cards")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("suggested_price", { ascending: false, nullsFirst: false })
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          allCards.push(...data);
+          page++;
+          hasMore = data.length === pageSize;
+        } else {
+          hasMore = false;
+        }
+      }
+
+      setCards(allCards);
     } catch (error) {
       console.error("Error fetching cards:", error);
       toast.error("Failed to load cards");

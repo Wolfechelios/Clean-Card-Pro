@@ -89,17 +89,34 @@ const Collection = ({ userId }: CollectionProps) => {
   const fetchCards = async () => {
     setIsLoading(true);
     try {
-      // Fetch all cards - override Supabase default 1000 row limit
-      const { data, error } = await supabase
-        .from("cards")
-        .select("*")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false })
-        .range(0, 49999); // Support up to 50k cards
+      // Fetch all cards using pagination (Supabase limits to 1000 per request)
+      const allCards: CardData[] = [];
+      const pageSize = 1000;
+      let page = 0;
+      let hasMore = true;
 
-      if (error) throw error;
-      setCards(data || []);
-      setFilteredCards(data || []);
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from("cards")
+          .select("*")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false })
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          allCards.push(...data);
+          page++;
+          hasMore = data.length === pageSize;
+        } else {
+          hasMore = false;
+        }
+      }
+
+      console.log("Collection fetch - total cards:", allCards.length);
+      setCards(allCards);
+      setFilteredCards(allCards);
     } catch (error: any) {
       console.error("Error fetching cards:", error);
       toast.error("Failed to load collection");

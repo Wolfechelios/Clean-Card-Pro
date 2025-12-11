@@ -22,19 +22,35 @@ export default function PerformancePage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
-      // Get total cards and recent cards for metrics
-      const { data: cards, error } = await supabase
-        .from("cards")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .range(0, 49999);
+      // Fetch all cards using pagination
+      const allCards: any[] = [];
+      const pageSize = 1000;
+      let page = 0;
+      let hasMore = true;
 
-      if (error) throw error;
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from("cards")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          allCards.push(...data);
+          page++;
+          hasMore = data.length === pageSize;
+        } else {
+          hasMore = false;
+        }
+      }
 
       // Calculate metrics
-      const totalCards = cards?.length || 0;
-      const recentCards = cards?.slice(0, 100) || [];
+      const cards = allCards;
+      const totalCards = cards.length;
+      const recentCards = cards.slice(0, 100);
       
       // Average OCR confidence (accuracy proxy)
       const avgConfidence = recentCards.reduce((sum, card) => sum + (card.ocr_confidence || 95), 0) / (recentCards.length || 1);

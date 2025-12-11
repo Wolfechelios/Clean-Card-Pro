@@ -26,15 +26,31 @@ export default function Dashboard() {
     if (!userId) return;
     
     try {
-      const { data: cards } = await supabase
-        .from("cards")
-        .select("current_price_raw, created_at")
-        .eq("user_id", userId)
-        .range(0, 49999);
+      // Fetch all cards using pagination
+      const allCards: any[] = [];
+      const pageSize = 1000;
+      let page = 0;
+      let hasMore = true;
 
-      if (cards) {
-        const totalValue = cards.reduce((sum, card) => sum + (card.current_price_raw || 0), 0);
-        const recentScans = cards.filter(card => {
+      while (hasMore) {
+        const { data } = await supabase
+          .from("cards")
+          .select("current_price_raw, created_at")
+          .eq("user_id", userId)
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+
+        if (data && data.length > 0) {
+          allCards.push(...data);
+          page++;
+          hasMore = data.length === pageSize;
+        } else {
+          hasMore = false;
+        }
+      }
+
+      if (allCards.length > 0) {
+        const totalValue = allCards.reduce((sum, card) => sum + (card.current_price_raw || 0), 0);
+        const recentScans = allCards.filter(card => {
           const cardDate = new Date(card.created_at);
           const weekAgo = new Date();
           weekAgo.setDate(weekAgo.getDate() - 7);
@@ -42,10 +58,10 @@ export default function Dashboard() {
         }).length;
 
         setStats({
-          totalCards: cards.length,
+          totalCards: allCards.length,
           totalValue,
           recentScans,
-          avgCardValue: cards.length > 0 ? totalValue / cards.length : 0,
+          avgCardValue: allCards.length > 0 ? totalValue / allCards.length : 0,
         });
       }
     } catch (error) {
