@@ -18,23 +18,28 @@ async function verifyPSA(certNumber: string): Promise<VerificationResult> {
   const verificationUrl = `https://www.psacard.com/cert/${certNumber}`;
   
   try {
-    // PSA verification page - we check if the cert exists by fetching the page
     const response = await fetch(verificationUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
       },
+      redirect: "follow",
     });
-
-    if (!response.ok) {
-      return { verified: false, verificationUrl };
-    }
 
     const html = await response.text();
     
-    // Check if the cert was found (PSA shows specific content for valid certs)
-    const isValid = !html.includes("Cert Not Found") && 
-                    !html.includes("No results found") &&
-                    html.includes("PSA Certification Verification");
+    // Check for explicit "not found" messages
+    const notFound = html.toLowerCase().includes("cert not found") || 
+                     html.toLowerCase().includes("no results found") ||
+                     html.toLowerCase().includes("invalid cert");
+    
+    // Check for PSA certification page indicators
+    const hasPositiveIndicators = html.includes("PSA") && 
+                                  (html.includes("Certification") || 
+                                   html.includes("Grade") ||
+                                   html.includes("cert"));
+
+    const isValid = !notFound && hasPositiveIndicators && response.ok;
 
     // Try to extract card details from the page
     let cardName = "";
@@ -48,6 +53,8 @@ async function verifyPSA(certNumber: string): Promise<VerificationResult> {
     const nameMatch = html.match(/Card:\s*<[^>]*>([^<]+)/i);
     if (nameMatch) cardName = nameMatch[1].trim();
 
+    console.log(`PSA verification: status=${response.status}, notFound=${notFound}, hasPositive=${hasPositiveIndicators}`);
+
     return {
       verified: isValid,
       verificationUrl,
@@ -57,7 +64,7 @@ async function verifyPSA(certNumber: string): Promise<VerificationResult> {
     };
   } catch (error) {
     console.error("PSA verification error:", error);
-    return { verified: false, verificationUrl, error: "Failed to verify" };
+    return { verified: false, verificationUrl, error: "Could not auto-verify - please check manually" };
   }
 }
 
@@ -67,20 +74,35 @@ async function verifyCGC(certNumber: string): Promise<VerificationResult> {
   try {
     const response = await fetch(verificationUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
       },
+      redirect: "follow",
     });
 
-    if (!response.ok) {
-      return { verified: false, verificationUrl };
-    }
-
+    // CGC redirects to the cert page if valid, returns 200 for lookup page
+    // A successful lookup typically shows the certification details
     const html = await response.text();
     
-    // CGC shows certification details for valid certs
-    const isValid = !html.includes("not found") && 
-                    !html.includes("No certification") &&
-                    (html.includes("CGC") || html.includes("certification"));
+    // Check for explicit "not found" messages
+    const notFound = html.toLowerCase().includes("not found") || 
+                     html.toLowerCase().includes("no certification") ||
+                     html.toLowerCase().includes("invalid cert") ||
+                     html.toLowerCase().includes("no results");
+    
+    // Check for positive indicators - CGC pages typically have these
+    const hasPositiveIndicators = html.includes("CGC") || 
+                                  html.includes("certlookup") ||
+                                  html.includes("Certification") ||
+                                  html.includes("Grade:") ||
+                                  response.status === 200;
+
+    // If we got a valid response without "not found", consider it potentially valid
+    // User can click through to verify manually
+    const isValid = !notFound && hasPositiveIndicators && response.ok;
+
+    console.log(`CGC verification: status=${response.status}, notFound=${notFound}, hasPositive=${hasPositiveIndicators}`);
 
     return {
       verified: isValid,
@@ -88,7 +110,8 @@ async function verifyCGC(certNumber: string): Promise<VerificationResult> {
     };
   } catch (error) {
     console.error("CGC verification error:", error);
-    return { verified: false, verificationUrl, error: "Failed to verify" };
+    // Return verification URL even on error so user can check manually
+    return { verified: false, verificationUrl, error: "Could not auto-verify - please check manually" };
   }
 }
 
@@ -98,20 +121,28 @@ async function verifyBeckett(certNumber: string): Promise<VerificationResult> {
   try {
     const response = await fetch(verificationUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
       },
+      redirect: "follow",
     });
-
-    if (!response.ok) {
-      return { verified: false, verificationUrl };
-    }
 
     const html = await response.text();
     
-    // Beckett shows card details for valid serial numbers
-    const isValid = !html.includes("not found") && 
-                    !html.includes("No results") &&
-                    (html.includes("Beckett") || html.includes("BGS") || html.includes("BVG"));
+    // Check for explicit "not found" messages
+    const notFound = html.toLowerCase().includes("not found") || 
+                     html.toLowerCase().includes("no results") ||
+                     html.toLowerCase().includes("invalid");
+    
+    // Check for Beckett/BGS indicators
+    const hasPositiveIndicators = html.includes("Beckett") || 
+                                  html.includes("BGS") || 
+                                  html.includes("BVG") ||
+                                  html.includes("Grade");
+
+    const isValid = !notFound && hasPositiveIndicators && response.ok;
+
+    console.log(`Beckett verification: status=${response.status}, notFound=${notFound}, hasPositive=${hasPositiveIndicators}`);
 
     return {
       verified: isValid,
@@ -119,7 +150,7 @@ async function verifyBeckett(certNumber: string): Promise<VerificationResult> {
     };
   } catch (error) {
     console.error("Beckett verification error:", error);
-    return { verified: false, verificationUrl, error: "Failed to verify" };
+    return { verified: false, verificationUrl, error: "Could not auto-verify - please check manually" };
   }
 }
 
