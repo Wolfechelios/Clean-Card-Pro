@@ -37,6 +37,7 @@ import PriceAlerts from "@/components/collections/PriceAlerts";
 import PortfolioView from "@/components/collections/PortfolioView";
 import Card3DViewer from "@/components/Card3DViewer";
 import { CardThumbnail } from "@/components/collections/CardThumbnail";
+import { VirtualizedCardGrid } from "@/components/collections/VirtualizedCardGrid";
 
 interface CardItem {
   id: string;
@@ -635,24 +636,13 @@ export default function Collections() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(140px,1fr))]">
-          {filteredCards.map((card) => (
-            <CardThumbnail
-              key={card.id}
-              id={card.id}
-              cardName={card.card_name}
-              cardSet={card.card_set}
-              cardNumber={card.card_number}
-              imageUrl={card.image_url}
-              thumbnailUrl={card.thumbnail_url}
-              price={card.current_price_raw}
-              isSelected={selectedCards.has(card.id)}
-              onSelect={toggleCardSelection}
-              onDelete={setCardToDelete}
-              onClick={() => setCardDetail(card)}
-            />
-          ))}
-        </div>
+        <VirtualizedCardGrid
+          cards={filteredCards}
+          selectedCards={selectedCards}
+          onSelect={toggleCardSelection}
+          onDelete={setCardToDelete}
+          onCardClick={setCardDetail}
+        />
       )}
 
       <AlertDialog open={!!cardToDelete} onOpenChange={(open) => !open && setCardToDelete(null)}>
