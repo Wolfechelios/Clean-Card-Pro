@@ -19,8 +19,7 @@ import {
   applyFastAutofocus, 
   triggerFastFocus,
   captureMaxQualityPhoto,
-  applyAntiGlare,
-  enhanceForOCR
+  applyAntiGlare
 } from "@/lib/camera-optimizations";
 
 interface RapidScanCameraProps {
@@ -351,11 +350,8 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
         0, 0, canvas.width, canvas.height
       );
       
-      // Apply anti-glare processing
+      // Apply anti-glare processing only (OCR enhancement disabled to avoid color issues)
       applyAntiGlare(ctx, canvas, 0.25);
-      
-      // Enhance for better OCR
-      enhanceForOCR(ctx, canvas);
       
       canvas.toBlob((blob) => {
         if (blob) {
