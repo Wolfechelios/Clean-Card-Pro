@@ -16,10 +16,13 @@ import {
   Target,
   Zap,
   ArrowRight,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { ValuePrediction } from "@/components/cards/ValuePrediction";
 import Card3DViewer from "@/components/Card3DViewer";
 import { toast } from "sonner";
+import { CardDetailModal, CardData } from "@/components/cards/CardDetailModal";
 
 interface CardItem {
   id: string;
@@ -42,6 +45,7 @@ export default function PredictionsPage() {
   const [priceHistory, setPriceHistory] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [showCardDetailModal, setShowCardDetailModal] = useState(false);
 
   useEffect(() => {
     fetchCards();
@@ -282,8 +286,22 @@ export default function PredictionsPage() {
                           className="w-24 h-32 object-cover rounded-lg shadow-lg"
                         />
                         <div className="flex-1">
-                          <h2 className="text-xl font-bold">{selectedCard.card_name}</h2>
-                          <p className="text-muted-foreground">{selectedCard.card_set}</p>
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <h2 className="text-xl font-bold">{selectedCard.card_name}</h2>
+                              <p className="text-muted-foreground">{selectedCard.card_set}</p>
+                            </div>
+                            <div className="flex gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setShowCardDetailModal(true)}
+                              >
+                                <Pencil className="h-4 w-4 mr-1" />
+                                Edit
+                              </Button>
+                            </div>
+                          </div>
                           <div className="flex items-center gap-2 mt-2">
                             {selectedCard.rarity && (
                               <Badge variant="secondary">{selectedCard.rarity}</Badge>
@@ -379,6 +397,35 @@ export default function PredictionsPage() {
           </Card>
         )}
       </div>
+
+      {/* Card Detail Modal */}
+      {selectedCard && (
+        <CardDetailModal
+          card={{
+            id: selectedCard.id,
+            card_name: selectedCard.card_name,
+            card_set: selectedCard.card_set,
+            card_number: selectedCard.card_number,
+            rarity: selectedCard.rarity,
+            image_url: selectedCard.image_url,
+            current_price_raw: selectedCard.current_price_raw,
+            collection_name: null,
+            condition: null,
+            game_type: selectedCard.game_type,
+            sport_type: selectedCard.sport_type,
+          }}
+          open={showCardDetailModal}
+          onOpenChange={setShowCardDetailModal}
+          onUpdate={(updatedCard) => {
+            setCards(cards.map(c => c.id === updatedCard.id ? { ...c, ...updatedCard } : c));
+            setSelectedCard({ ...selectedCard, ...updatedCard });
+          }}
+          onDelete={(cardId) => {
+            setCards(cards.filter(c => c.id !== cardId));
+            setSelectedCard(null);
+          }}
+        />
+      )}
     </div>
   );
 }
