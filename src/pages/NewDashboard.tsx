@@ -8,12 +8,13 @@ import {
   TrendingDown,
   DollarSign,
   Package,
-  Activity,
   Star,
   RefreshCw,
   Scan as ScanIcon,
   BookOpen,
   Camera,
+  Activity,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
@@ -105,7 +106,6 @@ export default function NewDashboard() {
         },
         (payload) => {
           console.log('Dashboard card change detected:', payload);
-          // Refresh dashboard on any card change
           fetchDashboardData();
         }
       )
@@ -125,7 +125,6 @@ export default function NewDashboard() {
     
     setIsRefreshing(true);
 
-    // Fetch all cards using pagination (Supabase limits to 1000 per request)
     const allCards: CardType[] = [];
     const pageSize = 1000;
     let page = 0;
@@ -152,8 +151,6 @@ export default function NewDashboard() {
         hasMore = false;
       }
     }
-
-    console.log("Dashboard fetch - total cards:", allCards.length);
 
     if (allCards.length > 0) {
       const cards = allCards;
@@ -246,9 +243,7 @@ export default function NewDashboard() {
     setIsRefreshing(false);
   };
 
-  const COLORS = ["#8b5cf6", "#ec4899", "#10b981", "#f59e0b", "#3b82f6", "#6366f1"];
-
-  // ----- SCAN HANDLERS -----
+  const COLORS = ["hsl(173, 80%, 50%)", "hsl(262, 83%, 58%)", "hsl(152, 76%, 43%)", "hsl(38, 92%, 50%)", "hsl(210, 80%, 55%)", "hsl(330, 80%, 55%)"];
 
   const handleBinderFileChange: React.ChangeEventHandler<HTMLInputElement> = async (event) => {
     const file = event.target.files?.[0];
@@ -271,8 +266,6 @@ export default function NewDashboard() {
       const { data } = supabase.storage.from("card-images").getPublicUrl(filePath);
       const publicUrl = data.publicUrl;
 
-      // Hook this into your binder pipeline when ready:
-      // await fetch("/functions/v1/processBinderUpload", { ... })
       console.log("Binder page uploaded:", publicUrl);
     } catch (err: any) {
       setBinderError(err?.message ?? "Binder scan failed.");
@@ -325,7 +318,6 @@ export default function NewDashboard() {
           const publicUrl = data.publicUrl;
           item.imageUrl = publicUrl;
 
-          // Full analysis (Vision + Gemini)
           await analyzeCardFull(publicUrl);
 
           item.status = "success";
@@ -351,14 +343,15 @@ export default function NewDashboard() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-8">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold mb-2">Dashboard</h1>
+          <h1 className="text-3xl font-bold mb-1">Dashboard</h1>
           <p className="text-muted-foreground">Overview of your card collection</p>
         </div>
-        <div className="flex gap-2">
-          <Button onClick={() => navigate("/scan")} variant="default" aria-label="Scan cards">
+        <div className="flex gap-3">
+          <Button onClick={() => navigate("/scan")} className="shadow-glow" aria-label="Scan cards">
             <Camera className="h-4 w-4 mr-2" aria-hidden="true" />
             Scan Cards
           </Button>
@@ -373,124 +366,126 @@ export default function NewDashboard() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card className="bg-card border-border">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        <Card className="stat-card hover-lift">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Cards</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <Package className="h-4 w-4" />
+              Total Cards
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{stats.totalCards}</div>
-            <p className="text-xs text-muted-foreground/70 mt-1">
-              <Package className="inline h-3 w-3 mr-1" />
+            <div className="text-3xl font-bold text-gradient-primary">{stats.totalCards.toLocaleString()}</div>
+            <p className="text-xs text-muted-foreground mt-2">
+              <Zap className="inline h-3 w-3 mr-1 text-primary" />
               {stats.recentScans} scanned today
             </p>
           </CardContent>
         </Card>
 
-        <Card className="bg-card border-border">
+        <Card className="stat-card hover-lift">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Value</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <DollarSign className="h-4 w-4" />
+              Total Value
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">${stats.totalValue.toFixed(2)}</div>
-            <p className="text-xs text-muted-foreground/70 mt-1">
-              <DollarSign className="inline h-3 w-3 mr-1" />${stats.avgCardValue.toFixed(2)} avg per card
+            <div className="text-3xl font-bold">${stats.totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+            <p className="text-xs text-muted-foreground mt-2">
+              ${stats.avgCardValue.toFixed(2)} avg per card
             </p>
           </CardContent>
         </Card>
 
-        <Card className="bg-card border-border">
+        <Card className="stat-card hover-lift">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Value Trend</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              {stats.valueChange >= 0 ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+              Value Trend
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold flex items-center gap-2">
-              {stats.valueChange >= 0 ? (
-                <>
-                  <TrendingUp className="h-6 w-6 text-success" />
-                  <span className="text-success">+{stats.valueChange.toFixed(1)}%</span>
-                </>
-              ) : (
-                <>
-                  <TrendingDown className="h-6 w-6 text-destructive" />
-                  <span className="text-destructive">{stats.valueChange.toFixed(1)}%</span>
-                </>
-              )}
+            <div className={`text-3xl font-bold ${stats.valueChange >= 0 ? "text-success" : "text-destructive"}`}>
+              {stats.valueChange >= 0 ? "+" : ""}{stats.valueChange.toFixed(1)}%
             </div>
-            <p className="text-xs text-muted-foreground/70 mt-1">vs last week</p>
+            <p className="text-xs text-muted-foreground mt-2">vs last week</p>
           </CardContent>
         </Card>
 
-        <Card className="bg-card border-border">
+        <Card className="stat-card hover-lift">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Top Rarity</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+              <Star className="h-4 w-4" />
+              Top Rarity
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">{stats.topRarity}</div>
-            <p className="text-xs text-muted-foreground/70 mt-1">
-              <Star className="inline h-3 w-3 mr-1" />
-              Most common in collection
-            </p>
+            <p className="text-xs text-muted-foreground mt-2">Most common in collection</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* 🔍 Scan Center Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Quick single scan */}
-        <Card className="bg-card border-border">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <ScanIcon className="h-4 w-4 text-success" />
+      {/* Scan Center Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <Card className="hover-lift">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <div className="h-8 w-8 rounded-lg bg-success/10 flex items-center justify-center">
+                <ScanIcon className="h-4 w-4 text-success" />
+              </div>
               Quick Single Scan
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2 text-xs text-muted-foreground">
-            <p>Open the dedicated scan lab to drag in a single card and run full AI analysis (OCR + condition).</p>
-            <Button size="sm" className="mt-2" onClick={() => navigate("/scan")}>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Open the dedicated scan lab to drag in a single card and run full AI analysis.
+            </p>
+            <Button size="sm" onClick={() => navigate("/scan")} className="w-full sm:w-auto">
               <Camera className="h-4 w-4 mr-2" />
               Open Scan Lab
             </Button>
           </CardContent>
         </Card>
 
-        {/* Binder page scan */}
-        <Card className="bg-card border-border">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <BookOpen className="h-4 w-4 text-primary" />
+        <Card className="hover-lift">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                <BookOpen className="h-4 w-4 text-primary" />
+              </div>
               Binder Page Scan
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2 text-xs text-muted-foreground">
-            <p>
-              Upload a full 9-pocket binder page. The image is stored in
-              <code className="ml-1">card-images/binder/</code> and ready for your multi-card OCR pipeline.
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Upload a full 9-pocket binder page for multi-card OCR processing.
             </p>
             <Input
               type="file"
               accept="image/*"
               disabled={binderUploading}
               onChange={handleBinderFileChange}
-              className="mt-1 text-xs"
+              className="text-sm"
             />
-            {binderUploading && <p className="text-[11px] text-emerald-400 mt-1">Uploading binder page…</p>}
-            {binderError && <p className="text-[11px] text-red-400 mt-1">{binderError}</p>}
+            {binderUploading && <p className="text-xs text-primary animate-pulse">Uploading binder page…</p>}
+            {binderError && <p className="text-xs text-destructive">{binderError}</p>}
           </CardContent>
         </Card>
 
-        {/* Bulk scan */}
-        <Card className="bg-card border-border">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm font-semibold">
-              <Activity className="h-4 w-4 text-primary" />
+        <Card className="hover-lift">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
+                <Activity className="h-4 w-4 text-accent" />
+              </div>
               Bulk Scan
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2 text-xs text-muted-foreground">
-            <p>
-              Select multiple card images to batch upload to
-              <code className="ml-1">card-images/bulk/</code> and run full analysis on each (Vision + Gemini).
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Select multiple card images to batch upload and run full analysis.
             </p>
             <Input
               type="file"
@@ -498,26 +493,26 @@ export default function NewDashboard() {
               multiple
               disabled={bulkUploading}
               onChange={handleBulkFilesChange}
-              className="mt-1 text-xs"
+              className="text-sm"
             />
             {(bulkUploading || bulkProgress > 0) && (
-              <div className="mt-2 space-y-1">
+              <div className="space-y-2">
                 <Progress value={bulkProgress} className="h-2" />
-                <p className="text-[11px] text-muted-foreground">{bulkProgress}% complete</p>
+                <p className="text-xs text-muted-foreground">{bulkProgress}% complete</p>
               </div>
             )}
-            {bulkError && <p className="text-[11px] text-destructive mt-1">{bulkError}</p>}
+            {bulkError && <p className="text-xs text-destructive">{bulkError}</p>}
             {bulkItems.length > 0 && (
-              <div className="mt-2 max-h-24 overflow-auto rounded bg-secondary/60 p-2 space-y-1">
+              <div className="max-h-24 overflow-auto rounded-lg bg-secondary/50 p-3 space-y-1.5">
                 {bulkItems.map((item, idx) => (
-                  <div key={idx} className="flex items-center justify-between text-[11px]">
-                    <span className="truncate max-w-[60%]">{item.imageUrl || `Item ${idx + 1}`}</span>
+                  <div key={idx} className="flex items-center justify-between text-xs">
+                    <span className="truncate max-w-[60%] text-muted-foreground">{item.imageUrl || `Item ${idx + 1}`}</span>
                     <span
                       className={
                         item.status === "success"
-                          ? "text-success"
+                          ? "text-success font-medium"
                           : item.status === "error"
-                            ? "text-destructive"
+                            ? "text-destructive font-medium"
                             : "text-muted-foreground"
                       }
                     >
@@ -532,37 +527,46 @@ export default function NewDashboard() {
       </div>
 
       {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="bg-card border-border">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <Card className="hover-lift">
           <CardHeader>
-            <CardTitle>Value Over Time</CardTitle>
+            <CardTitle className="text-base">Value Over Time</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={250}>
+            <ResponsiveContainer width="100%" height={260}>
               <LineChart data={valueOverTime}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#404040" />
-                <XAxis dataKey="name" stroke="#888" fontSize={12} />
-                <YAxis stroke="#888" fontSize={12} />
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.5} />
+                <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} />
+                <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: "#171717",
-                    border: "1px solid #404040",
+                    backgroundColor: "hsl(var(--popover))",
+                    border: "1px solid hsl(var(--border))",
+                    borderRadius: "8px",
+                    boxShadow: "var(--shadow-lg)",
                   }}
-                  labelStyle={{ color: "#fff" }}
+                  labelStyle={{ color: "hsl(var(--foreground))" }}
                 />
-                <Line type="monotone" dataKey="value" stroke="#8b5cf6" strokeWidth={2} />
+                <Line 
+                  type="monotone" 
+                  dataKey="value" 
+                  stroke="hsl(173, 80%, 50%)" 
+                  strokeWidth={2.5}
+                  dot={{ fill: "hsl(173, 80%, 50%)", strokeWidth: 0, r: 4 }}
+                  activeDot={{ r: 6, fill: "hsl(173, 80%, 50%)", stroke: "hsl(var(--background))", strokeWidth: 2 }}
+                />
               </LineChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
 
-        <Card className="bg-card border-border">
+        <Card className="hover-lift">
           <CardHeader>
-            <CardTitle>Rarity Distribution</CardTitle>
+            <CardTitle className="text-base">Rarity Distribution</CardTitle>
             <p className="text-xs text-muted-foreground">Click a segment to view cards</p>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={250}>
+            <ResponsiveContainer width="100%" height={260}>
               <PieChart>
                 <Pie
                   data={rarityData}
@@ -570,7 +574,8 @@ export default function NewDashboard() {
                   cy="50%"
                   labelLine={false}
                   label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                  outerRadius={80}
+                  outerRadius={90}
+                  innerRadius={45}
                   fill="#8884d8"
                   dataKey="value"
                   onClick={(data) => {
@@ -590,8 +595,10 @@ export default function NewDashboard() {
                 </Pie>
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: "#171717",
-                    border: "1px solid #404040",
+                    backgroundColor: "hsl(var(--popover))",
+                    border: "1px solid hsl(var(--border))",
+                    borderRadius: "8px",
+                    boxShadow: "var(--shadow-lg)",
                   }}
                 />
               </PieChart>
@@ -601,96 +608,120 @@ export default function NewDashboard() {
       </div>
 
       {/* Bottom Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="bg-card border-border">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <Card className="hover-lift">
           <CardHeader>
-            <CardTitle>Top Valuable Cards</CardTitle>
+            <CardTitle className="text-base flex items-center gap-2">
+              <DollarSign className="h-4 w-4 text-success" />
+              Top Valuable Cards
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {topCards.map((card, idx) => (
-                <button
-                  key={card.id}
-                  className="flex items-center gap-3 p-2 rounded bg-secondary/50 w-full text-left hover:bg-secondary/80 transition-colors"
-                  onClick={() => {
-                    setSelectedCard({
-                      id: card.id,
-                      card_name: card.card_name,
-                      card_set: card.card_set,
-                      card_number: card.card_number,
-                      rarity: card.rarity,
-                      image_url: card.image_url,
-                      thumbnail_url: card.thumbnail_url,
-                      current_price_raw: card.current_price_raw,
-                      collection_name: card.collection_name,
-                      condition: card.condition,
-                      game_type: card.game_type,
-                      sport_type: card.sport_type,
-                    });
-                    setShowCardDetail(true);
-                  }}
-                >
-                  <img
-                    src={card.thumbnail_url || card.image_url}
-                    alt={card.card_name}
-                    className="w-12 h-12 object-cover rounded"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{card.card_name}</p>
-                    <p className="text-xs text-muted-foreground">{card.card_set}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-bold text-success">${(card.current_price_raw || 0).toFixed(2)}</p>
-                    <p className="text-xs text-muted-foreground/70">#{idx + 1}</p>
-                  </div>
-                </button>
-              ))}
+            <div className="space-y-2">
+              {topCards.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Package className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">No cards yet. Start scanning!</p>
+                </div>
+              ) : (
+                topCards.map((card, idx) => (
+                  <button
+                    key={card.id}
+                    className="flex items-center gap-3 p-3 rounded-lg bg-secondary/40 hover:bg-secondary/70 w-full text-left transition-all group"
+                    onClick={() => {
+                      setSelectedCard({
+                        id: card.id,
+                        card_name: card.card_name,
+                        card_set: card.card_set,
+                        card_number: card.card_number,
+                        rarity: card.rarity,
+                        image_url: card.image_url,
+                        thumbnail_url: card.thumbnail_url,
+                        current_price_raw: card.current_price_raw,
+                        collection_name: card.collection_name,
+                        condition: card.condition,
+                        game_type: card.game_type,
+                        sport_type: card.sport_type,
+                      });
+                      setShowCardDetail(true);
+                    }}
+                  >
+                    <div className="relative">
+                      <img
+                        src={card.thumbnail_url || card.image_url}
+                        alt={card.card_name}
+                        className="w-12 h-12 object-cover rounded-lg border border-border/50"
+                      />
+                      <span className="absolute -top-1 -left-1 h-5 w-5 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center">
+                        {idx + 1}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate group-hover:text-primary transition-colors">{card.card_name}</p>
+                      <p className="text-xs text-muted-foreground truncate">{card.card_set}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-bold text-success">${(card.current_price_raw || 0).toFixed(2)}</p>
+                    </div>
+                  </button>
+                ))
+              )}
             </div>
           </CardContent>
         </Card>
 
-        <Card className="bg-card border-border">
+        <Card className="hover-lift">
           <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Activity className="h-4 w-4 text-primary" />
+              Recent Activity
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-3">
-              {recentCards.map((card) => (
-                <button
-                  key={card.id}
-                  className="flex items-center gap-3 p-2 rounded bg-secondary/50 w-full text-left hover:bg-secondary/80 transition-colors"
-                  onClick={() => {
-                    setSelectedCard({
-                      id: card.id,
-                      card_name: card.card_name,
-                      card_set: card.card_set,
-                      card_number: card.card_number,
-                      rarity: card.rarity,
-                      image_url: card.image_url,
-                      thumbnail_url: card.thumbnail_url,
-                      current_price_raw: card.current_price_raw,
-                      collection_name: card.collection_name,
-                      condition: card.condition,
-                      game_type: card.game_type,
-                      sport_type: card.sport_type,
-                    });
-                    setShowCardDetail(true);
-                  }}
-                >
-                  <img
-                    src={card.thumbnail_url || card.image_url}
-                    alt={card.card_name}
-                    className="w-12 h-12 object-cover rounded"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate">{card.card_name}</p>
-                    <p className="text-xs text-muted-foreground">{new Date(card.created_at).toLocaleDateString()}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-medium">${(card.current_price_raw || 0).toFixed(2)}</p>
-                  </div>
-                </button>
-              ))}
+            <div className="space-y-2">
+              {recentCards.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Activity className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">No recent activity</p>
+                </div>
+              ) : (
+                recentCards.map((card) => (
+                  <button
+                    key={card.id}
+                    className="flex items-center gap-3 p-3 rounded-lg bg-secondary/40 hover:bg-secondary/70 w-full text-left transition-all group"
+                    onClick={() => {
+                      setSelectedCard({
+                        id: card.id,
+                        card_name: card.card_name,
+                        card_set: card.card_set,
+                        card_number: card.card_number,
+                        rarity: card.rarity,
+                        image_url: card.image_url,
+                        thumbnail_url: card.thumbnail_url,
+                        current_price_raw: card.current_price_raw,
+                        collection_name: card.collection_name,
+                        condition: card.condition,
+                        game_type: card.game_type,
+                        sport_type: card.sport_type,
+                      });
+                      setShowCardDetail(true);
+                    }}
+                  >
+                    <img
+                      src={card.thumbnail_url || card.image_url}
+                      alt={card.card_name}
+                      className="w-12 h-12 object-cover rounded-lg border border-border/50"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate group-hover:text-primary transition-colors">{card.card_name}</p>
+                      <p className="text-xs text-muted-foreground">{new Date(card.created_at).toLocaleDateString()}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-medium">${(card.current_price_raw || 0).toFixed(2)}</p>
+                    </div>
+                  </button>
+                ))
+              )}
             </div>
           </CardContent>
         </Card>
