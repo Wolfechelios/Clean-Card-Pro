@@ -1,4 +1,4 @@
-import { LayoutDashboard, ScanLine, FolderOpen, BookOpen, Settings, Lightbulb, Menu, Activity, Layers, MapPin, Brain, Award, Search, BarChart3, DollarSign } from "lucide-react";
+import { LayoutDashboard, ScanLine, FolderOpen, BookOpen, Settings, Lightbulb, Menu, Activity, Layers, MapPin, Brain, Award, Search, BarChart3, DollarSign, Sparkles } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useState, useCallback } from "react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -18,7 +18,6 @@ const menuItems = [
   { icon: Activity, label: "Performance", path: "/performance" },
   { icon: Layers, label: "Architecture", path: "/architecture" },
   { icon: MapPin, label: "Roadmap", path: "/roadmap" },
-  
   { icon: Settings, label: "Settings", path: "/settings" },
 ];
 
@@ -30,32 +29,32 @@ export function SideBar() {
   }, []);
 
   const NavItems = () => (
-    <>
+    <div className="space-y-1">
       {menuItems.map((item) => (
         <NavLink
           key={item.path}
           to={item.path}
           onClick={handleNavClick}
-          className="flex items-center gap-3 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-fast active:scale-[0.98]"
-          activeClassName="bg-accent text-accent-foreground font-medium"
+          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all duration-200 active:scale-[0.98] group"
+          activeClassName="bg-sidebar-accent text-primary font-medium shadow-sm"
           aria-label={`Navigate to ${item.label}`}
         >
-          <item.icon className="h-5 w-5 flex-shrink-0" aria-hidden="true" />
-          <span className="truncate text-sm sm:text-base">{item.label}</span>
+          <item.icon className="h-[18px] w-[18px] flex-shrink-0 group-hover:text-primary transition-colors" aria-hidden="true" />
+          <span className="truncate text-sm">{item.label}</span>
         </NavLink>
       ))}
-    </>
+    </div>
   );
 
   return (
     <>
       {/* Mobile Menu */}
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetTrigger asChild className="lg:hidden fixed top-2 left-2 sm:top-3 sm:left-3 z-50">
+        <SheetTrigger asChild className="lg:hidden fixed top-3 left-3 z-50">
           <Button 
             variant="outline" 
-            size="icon" 
-            className="lg:hidden h-10 w-10 bg-background/95 backdrop-blur-sm shadow-lg border-border active:scale-95 transition-fast"
+            size="icon-sm" 
+            className="lg:hidden glass shadow-lg border-border/50 active:scale-95 transition-all"
             aria-label="Open navigation menu"
           >
             <Menu className="h-5 w-5" aria-hidden="true" />
@@ -63,11 +62,23 @@ export function SideBar() {
         </SheetTrigger>
         <SheetContent 
           side="left" 
-          className="w-[280px] sm:w-64 p-0 bg-sidebar border-sidebar-border safe-top safe-bottom"
+          className="w-[280px] p-0 bg-sidebar border-sidebar-border safe-top safe-bottom"
           aria-label="Navigation menu"
         >
+          {/* Logo */}
+          <div className="p-4 border-b border-sidebar-border">
+            <div className="flex items-center gap-2.5">
+              <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center">
+                <Sparkles className="h-5 w-5 text-primary-foreground" />
+              </div>
+              <div>
+                <h1 className="text-base font-bold text-foreground">Card Scanner</h1>
+                <p className="text-2xs text-sidebar-foreground">Premium Edition</p>
+              </div>
+            </div>
+          </div>
           <nav 
-            className="flex flex-col gap-1 p-3 sm:p-4 mt-12 overflow-y-auto max-h-[calc(100vh-4rem)] touch-pan-y"
+            className="flex flex-col gap-1 p-3 overflow-y-auto max-h-[calc(100vh-5rem)] touch-pan-y"
             aria-label="Main navigation"
             role="navigation"
           >
@@ -78,16 +89,33 @@ export function SideBar() {
 
       {/* Desktop Sidebar */}
       <aside 
-        className="hidden lg:block w-64 bg-sidebar border-r border-sidebar-border min-h-screen sticky top-0 transition-gpu"
+        className="hidden lg:flex lg:flex-col w-60 bg-sidebar border-r border-sidebar-border min-h-screen sticky top-0 transition-gpu"
         aria-label="Sidebar navigation"
       >
+        {/* Logo */}
+        <div className="p-4 border-b border-sidebar-border">
+          <div className="flex items-center gap-2.5">
+            <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-glow">
+              <Sparkles className="h-5 w-5 text-primary-foreground" />
+            </div>
+            <div>
+              <h1 className="text-base font-bold text-foreground">Card Scanner</h1>
+              <p className="text-2xs text-sidebar-foreground">Premium Edition</p>
+            </div>
+          </div>
+        </div>
         <nav 
-          className="flex flex-col gap-1 p-4 overflow-y-auto max-h-screen"
+          className="flex-1 flex flex-col gap-1 p-3 overflow-y-auto"
           aria-label="Main navigation"
           role="navigation"
         >
           <NavItems />
         </nav>
+        
+        {/* Footer */}
+        <div className="p-4 border-t border-sidebar-border">
+          <p className="text-2xs text-sidebar-foreground/60 text-center">v2.0 Pro</p>
+        </div>
       </aside>
     </>
   );

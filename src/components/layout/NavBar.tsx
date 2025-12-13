@@ -1,4 +1,4 @@
-import { Bell, User, LogOut, CreditCard } from "lucide-react";
+import { Bell, User, LogOut, Settings, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -22,41 +22,61 @@ export function NavBar() {
   };
 
   return (
-    <nav className="h-12 sm:h-14 bg-card border-b border-border flex items-center justify-between px-3 sm:px-6 sticky top-0 z-40 transition-fast">
-      <div className="flex items-center gap-2 sm:gap-3">
-        <CreditCard className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
-        <h1 className="text-base sm:text-lg font-bold text-foreground truncate">Card Scanner</h1>
+    <nav className="h-14 sm:h-16 bg-card/80 glass border-b border-border/50 flex items-center justify-between px-4 sm:px-6 sticky top-0 z-40 transition-fast">
+      {/* Mobile: Show logo, Desktop: Empty space (logo in sidebar) */}
+      <div className="flex items-center gap-2.5 lg:hidden pl-10">
+        <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-glow">
+          <Sparkles className="h-4 w-4 text-primary-foreground" />
+        </div>
+        <h1 className="text-base font-bold text-foreground">Card Scanner</h1>
       </div>
       
-      <div className="flex items-center gap-1 sm:gap-2">
+      {/* Desktop spacer */}
+      <div className="hidden lg:block" />
+      
+      <div className="flex items-center gap-2">
         <Button 
           variant="ghost" 
-          size="icon" 
-          className="h-9 w-9 sm:h-10 sm:w-10 text-muted-foreground hover:text-foreground transition-fast active:scale-95"
+          size="icon-sm" 
+          className="text-muted-foreground hover:text-foreground transition-all relative"
           aria-label="View notifications"
         >
-          <Bell className="h-4 w-4 sm:h-5 sm:w-5" aria-hidden="true" />
+          <Bell className="h-[18px] w-[18px]" aria-hidden="true" />
+          {/* Notification dot */}
+          <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-primary animate-pulse" />
         </Button>
         
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button 
               variant="ghost" 
-              size="icon" 
-              className="h-9 w-9 sm:h-10 sm:w-10 text-muted-foreground hover:text-foreground transition-fast active:scale-95"
+              size="icon-sm" 
+              className="text-muted-foreground hover:text-foreground transition-all"
               aria-label="Open user menu"
             >
-              <User className="h-4 w-4 sm:h-5 sm:w-5" aria-hidden="true" />
+              <div className="h-8 w-8 rounded-full bg-secondary border border-border flex items-center justify-center">
+                <User className="h-4 w-4" aria-hidden="true" />
+              </div>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48 z-50 bg-popover">
-            <DropdownMenuLabel>My Account</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => navigate("/settings")} className="cursor-pointer">
+          <DropdownMenuContent align="end" className="w-52 z-50 bg-popover border-border shadow-lg rounded-xl p-1">
+            <DropdownMenuLabel className="text-muted-foreground font-normal px-3 py-2">
+              <p className="text-sm font-medium text-foreground">My Account</p>
+              <p className="text-xs text-muted-foreground">Manage your profile</p>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator className="bg-border/60" />
+            <DropdownMenuItem 
+              onClick={() => navigate("/settings")} 
+              className="cursor-pointer rounded-lg mx-1 px-3 py-2.5 focus:bg-secondary"
+            >
+              <Settings className="mr-2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
               Settings
             </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleSignOut} className="text-destructive cursor-pointer">
+            <DropdownMenuSeparator className="bg-border/60" />
+            <DropdownMenuItem 
+              onClick={handleSignOut} 
+              className="text-destructive cursor-pointer rounded-lg mx-1 px-3 py-2.5 focus:bg-destructive/10"
+            >
               <LogOut className="mr-2 h-4 w-4" aria-hidden="true" />
               Sign Out
             </DropdownMenuItem>
