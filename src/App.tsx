@@ -114,15 +114,15 @@ function AppRoutes() {
       />
       <Route
         path="/price-hub"
-        element={session ? <CardPriceHubPage /> : <Navigate to="/auth" />}
+        element={session ? <AppLayout><CardPriceHubPage /></AppLayout> : <Navigate to="/auth" />}
       />
       <Route
         path="/image-backfill"
-        element={session ? <ImageBackfillPage /> : <Navigate to="/auth" />}
+        element={session ? <AppLayout><ImageBackfillPage /></AppLayout> : <Navigate to="/auth" />}
       />
       <Route
         path="/import-cleaner"
-        element={session ? <ImportCleanerPage /> : <Navigate to="/auth" />}
+        element={session ? <AppLayout><ImportCleanerPage /></AppLayout> : <Navigate to="/auth" />}
       />
       <Route path="*" element={<NotFound />} />
     </Routes>

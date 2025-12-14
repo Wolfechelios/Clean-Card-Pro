@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
-import AppLayout from "@/components/layout/AppLayout";
+
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -147,8 +147,7 @@ export default function CardPriceHubPage() {
   };
 
   return (
-    <AppLayout>
-      <div className="container max-w-6xl mx-auto py-6 px-4 space-y-6">
+    <div className="container max-w-6xl mx-auto py-6 px-4 space-y-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-foreground flex items-center gap-2">
@@ -443,6 +442,5 @@ export default function CardPriceHubPage() {
           </TabsContent>
         </Tabs>
       </div>
-    </AppLayout>
   );
 }

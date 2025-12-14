@@ -93,7 +93,7 @@ export default function Collections() {
     if (rarityParam) {
       setActiveFilters(prev => ({ ...prev, rarity: [rarityParam] }));
     }
-  }, []);
+  }, [searchParams]);
 
   // Clear rarity filter from URL when filters change
   const clearRarityFilter = () => {
@@ -141,6 +141,7 @@ export default function Collections() {
 
   useEffect(() => {
     applyFilters();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery, cards, activeFilters]);
 
   const applyFilters = () => {
@@ -226,15 +227,33 @@ export default function Collections() {
     if (!userId) return;
     
     try {
-      const { data, error } = await supabase
-        .from("cards")
-        .select("*")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false });
+      // Fetch all cards using pagination to handle 1000+ card collections
+      const allCards: CardItem[] = [];
+      const pageSize = 1000;
+      let page = 0;
+      let hasMore = true;
 
-      if (error) throw error;
-      setCards(data || []);
-      setFilteredCards(data || []);
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from("cards")
+          .select("*")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false })
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          allCards.push(...data);
+          page++;
+          hasMore = data.length === pageSize;
+        } else {
+          hasMore = false;
+        }
+      }
+
+      setCards(allCards);
+      setFilteredCards(allCards);
     } catch (error) {
       console.error("Error fetching cards:", error);
     } finally {

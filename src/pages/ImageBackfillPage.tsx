@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import AppLayout from "@/components/layout/AppLayout";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -83,6 +83,7 @@ export default function ImageBackfillPage() {
     if (user) {
       loadStats();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const loadStats = async () => {
@@ -213,18 +214,15 @@ export default function ImageBackfillPage() {
 
   if (authLoading) {
     return (
-      <AppLayout>
-        <div className="p-6 space-y-6">
-          <Skeleton className="h-8 w-64" />
-          <Skeleton className="h-48 w-full" />
-        </div>
-      </AppLayout>
+      <div className="p-6 space-y-6">
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-48 w-full" />
+      </div>
     );
   }
 
   return (
-    <AppLayout>
-      <div className="p-4 md:p-6 space-y-6 max-w-6xl mx-auto">
+    <div className="p-4 md:p-6 space-y-6 max-w-6xl mx-auto">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">Image Backfill</h1>
@@ -528,6 +526,5 @@ export default function ImageBackfillPage() {
           </DialogContent>
         </Dialog>
       </div>
-    </AppLayout>
   );
 }
