@@ -47,6 +47,82 @@ async function searchPokemonTCG(cardName: string, cardSet?: string): Promise<str
   return null;
 }
 
+async function searchSportsCardWithAI(cardName: string, cardSet: string | null, gameType: string | null): Promise<string | null> {
+  const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+  if (!LOVABLE_API_KEY) return null;
+
+  try {
+    // Build a detailed search query for sports cards
+    const searchTerms = [cardName];
+    if (cardSet) searchTerms.push(cardSet);
+    if (gameType) searchTerms.push(gameType);
+    searchTerms.push('trading card');
+    
+    const searchQuery = searchTerms.join(' ');
+    
+    const prompt = `You are helping find a real image URL for a sports trading card.
+
+Card details:
+- Name: ${cardName}
+- Set/Year: ${cardSet || 'Unknown'}
+- Type: ${gameType || 'Sports card'}
+
+Search for this exact card image using Google Image Search. Look for images from these trusted sources:
+1. eBay listings (i.ebayimg.com)
+2. COMC (comc.com)
+3. Beckett (beckett.com)
+4. PSA (psacard.com)
+5. Sports card databases
+
+Return ONLY a direct image URL (must start with https:// and end with .jpg, .jpeg, .png, or .webp).
+The URL must be a direct link to the image file, not a webpage.
+
+If you cannot find a valid direct image URL, respond with exactly: NONE
+
+Important: Only return URLs from legitimate card selling/grading sites. Do not make up URLs.`;
+
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: [
+          { 
+            role: "system", 
+            content: "You are a sports card image finder. You search Google Images and return direct image URLs from legitimate card selling sites. Only return real, working image URLs. Never fabricate URLs."
+          },
+          { role: "user", content: prompt }
+        ],
+        temperature: 0.1,
+        max_tokens: 300,
+      }),
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content?.trim();
+      
+      console.log('AI sports card search response:', content);
+      
+      if (content && content !== "NONE" && content.startsWith('https://')) {
+        // Extract URL if embedded in text
+        const urlMatch = content.match(/https:\/\/[^\s"'<>]+\.(jpg|jpeg|png|webp)/i);
+        if (urlMatch) {
+          const imageUrl = urlMatch[0];
+          console.log('Found sports card image URL:', imageUrl);
+          return imageUrl;
+        }
+      }
+    }
+  } catch (error) {
+    console.log('AI sports card search failed:', error);
+  }
+  return null;
+}
+
 async function searchWithAI(cardName: string, cardSet: string | null, gameType: string | null): Promise<string | null> {
   const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
   if (!LOVABLE_API_KEY) return null;
@@ -79,10 +155,8 @@ Return ONLY a valid https:// image URL ending in .jpg, .png, or .webp. If not fo
       const content = data.choices?.[0]?.message?.content?.trim();
       
       if (content && content !== "NONE" && content.startsWith('https://')) {
-        // Validate URL format
         try {
           new URL(content);
-          // Check if it looks like an image URL
           if (/\.(jpg|jpeg|png|webp|gif)/i.test(content)) {
             return content;
           }
@@ -116,6 +190,18 @@ serve(async (req) => {
 
     let imageUrl: string | null = null;
     const gameTypeLower = (gameType || '').toLowerCase();
+    const isSportsCard = gameTypeLower.includes('sports') || 
+                         gameTypeLower.includes('football') || 
+                         gameTypeLower.includes('baseball') || 
+                         gameTypeLower.includes('basketball') || 
+                         gameTypeLower.includes('hockey') ||
+                         gameTypeLower.includes('soccer') ||
+                         !gameTypeLower.includes('pokemon') && 
+                         !gameTypeLower.includes('pokémon') && 
+                         !gameTypeLower.includes('magic') && 
+                         !gameTypeLower.includes('mtg') &&
+                         !gameTypeLower.includes('yugioh') &&
+                         !gameTypeLower.includes('yu-gi-oh');
 
     // Try game-specific APIs first
     if (gameTypeLower.includes('pokemon') || gameTypeLower.includes('pokémon')) {
@@ -128,22 +214,29 @@ serve(async (req) => {
       console.log('Scryfall result:', imageUrl ? 'found' : 'not found');
     }
 
+    // For sports cards, try AI-powered Google Image search first
+    if (!imageUrl && isSportsCard) {
+      console.log('Detected sports card, using AI Google Image search...');
+      imageUrl = await searchSportsCardWithAI(cardName, cardSet, gameType);
+      console.log('AI sports card search result:', imageUrl ? 'found' : 'not found');
+    }
+
     // Try Scryfall for any card if not found yet (works for many TCGs)
-    if (!imageUrl) {
+    if (!imageUrl && !isSportsCard) {
       imageUrl = await searchScryfall(cardName, cardSet);
       console.log('Scryfall fallback result:', imageUrl ? 'found' : 'not found');
     }
 
-    // Try Pokemon TCG as fallback
-    if (!imageUrl) {
+    // Try Pokemon TCG as fallback for non-sports cards
+    if (!imageUrl && !isSportsCard) {
       imageUrl = await searchPokemonTCG(cardName, cardSet);
       console.log('Pokemon TCG fallback result:', imageUrl ? 'found' : 'not found');
     }
 
-    // Try AI as last resort
+    // Try general AI as last resort
     if (!imageUrl) {
       imageUrl = await searchWithAI(cardName, cardSet, gameType);
-      console.log('AI search result:', imageUrl ? 'found' : 'not found');
+      console.log('AI general search result:', imageUrl ? 'found' : 'not found');
     }
 
     if (imageUrl) {
