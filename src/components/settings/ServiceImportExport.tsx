@@ -1,7 +1,7 @@
 import React, { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Download, Upload, FileSpreadsheet, AlertCircle, ExternalLink, ImageIcon, Loader2, Check, X, Edit2 } from "lucide-react";
+import { Download, Upload, FileSpreadsheet, AlertCircle, ExternalLink, ImageIcon, Loader2, Check, X, Edit2, Search, Eye } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -42,7 +42,23 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
   const [imageLookupProgress, setImageLookupProgress] = useState<{ current: number; total: number } | null>(null);
   const [cardsToVerify, setCardsToVerify] = useState<CardToVerify[]>([]);
   const [activeSection, setActiveSection] = useState<"import" | "verify">("import");
+  const [scanningLowConfidence, setScanningLowConfidence] = useState(false);
+  const [lowConfidenceCount, setLowConfidenceCount] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Fetch count of low confidence cards on mount
+  React.useEffect(() => {
+    const fetchLowConfidenceCount = async () => {
+      if (!userId) return;
+      const { count } = await supabase
+        .from("cards")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .or("ocr_confidence.is.null,ocr_confidence.lt.80");
+      setLowConfidenceCount(count || 0);
+    };
+    fetchLowConfidenceCount();
+  }, [userId, cardsToVerify.length]);
 
   // Helper to fetch all cards with pagination (Supabase limits to 1000 per request)
   const fetchAllCards = async () => {
@@ -357,6 +373,110 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
         .update({ ocr_confidence: 100 })
         .eq("id", card.id)
     );
+    
+    await Promise.all(updates);
+    setCardsToVerify([]);
+    setActiveSection("import");
+    toast.success("All cards verified");
+  };
+
+  // Scan existing low-confidence cards for text-to-image verification
+  const handleScanLowConfidenceCards = async () => {
+    if (!userId) return;
+
+    try {
+      setScanningLowConfidence(true);
+      
+      // Fetch cards with null or low OCR confidence (< 80%)
+      const { data: lowConfCards, error } = await supabase
+        .from("cards")
+        .select("id, card_name, card_set, image_url, ocr_confidence, game_type, sport_type")
+        .eq("user_id", userId)
+        .or("ocr_confidence.is.null,ocr_confidence.lt.80")
+        .limit(50); // Process in batches of 50
+
+      if (error) throw error;
+
+      if (!lowConfCards || lowConfCards.length === 0) {
+        toast.info("No cards with low confidence found");
+        setScanningLowConfidence(false);
+        return;
+      }
+
+      setImageLookupProgress({ current: 0, total: lowConfCards.length });
+      const verificationQueue: CardToVerify[] = [];
+
+      // Process cards - lookup reference images and compare
+      for (let i = 0; i < lowConfCards.length; i++) {
+        const card = lowConfCards[i];
+        
+        try {
+          // Get reference image from card database based on text
+          const { data: refData } = await supabase.functions.invoke("generate-card-image-url", {
+            body: {
+              cardName: card.card_name,
+              cardSet: card.card_set,
+              gameType: card.game_type || card.sport_type,
+            },
+          });
+
+          const referenceImageUrl = refData?.imageUrl;
+
+          // Run OCR on reference image to get suggested name
+          let suggestedName = card.card_name;
+          let suggestedSet = card.card_set;
+          let confidence = card.ocr_confidence || 0;
+
+          if (referenceImageUrl && !referenceImageUrl.includes("placehold.co")) {
+            try {
+              const { data: identifyData } = await supabase.functions.invoke("enhanced-card-identify", {
+                body: { imageUrl: card.image_url }
+              });
+              
+              if (identifyData?.cardData) {
+                suggestedName = identifyData.cardData.primary?.card_name || identifyData.cardData.card_name || card.card_name;
+                suggestedSet = identifyData.cardData.primary?.card_set || identifyData.cardData.card_set || card.card_set;
+                confidence = (identifyData.cardData.primary?.confidence || identifyData.cardData.confidence || 0) * 100;
+              }
+            } catch (err) {
+              console.error("OCR error:", err);
+            }
+          }
+
+          // Add to verification queue with both images
+          verificationQueue.push({
+            id: card.id,
+            card_name: card.card_name,
+            card_set: card.card_set,
+            image_url: card.image_url,
+            confidence: confidence,
+            suggested_name: suggestedName !== card.card_name ? suggestedName : undefined,
+            suggested_set: suggestedSet !== card.card_set ? suggestedSet : undefined,
+          });
+        } catch (err) {
+          console.error("Error processing card:", err);
+        }
+
+        setImageLookupProgress({ current: i + 1, total: lowConfCards.length });
+      }
+
+      setImageLookupProgress(null);
+      setScanningLowConfidence(false);
+
+      if (verificationQueue.length > 0) {
+        setCardsToVerify(verificationQueue);
+        setActiveSection("verify");
+        toast.info(`${verificationQueue.length} cards ready for verification`);
+      } else {
+        toast.success("All cards verified successfully");
+      }
+    } catch (error) {
+      console.error("Error scanning low confidence cards:", error);
+      toast.error("Failed to scan cards");
+      setScanningLowConfidence(false);
+      setImageLookupProgress(null);
+    }
+  };
     
     await Promise.all(updates);
     setCardsToVerify([]);
@@ -802,6 +922,48 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
               >
                 <Upload className="h-4 w-4 mr-2" />
                 Import {importFormat === "generic" ? "CSV/Excel" : importFormat === "collx" ? "Collx" : importFormat === "sportscardpro" ? "SportsCardPro" : "PriceCharting"} File
+              </Button>
+            </div>
+
+            <Separator />
+
+            {/* Verify Existing Cards Section */}
+            <div className="space-y-4">
+              <h3 className="font-semibold text-sm flex items-center gap-2">
+                <Eye className="h-4 w-4" />
+                Verify Existing Cards
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Scan cards with low OCR confidence (&lt;80%) to verify identification using text-to-image lookup.
+                This compares your scanned images against reference images from card databases.
+              </p>
+              
+              {lowConfidenceCount > 0 && (
+                <Alert>
+                  <Search className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    <strong>{lowConfidenceCount}</strong> cards have low or missing OCR confidence and may need verification.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              <Button
+                variant="outline"
+                onClick={handleScanLowConfidenceCards}
+                disabled={scanningLowConfidence || !!imageLookupProgress || !userId || lowConfidenceCount === 0}
+                className="w-full"
+              >
+                {scanningLowConfidence ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Scanning Cards...
+                  </>
+                ) : (
+                  <>
+                    <Search className="h-4 w-4 mr-2" />
+                    Verify Low Confidence Cards ({lowConfidenceCount})
+                  </>
+                )}
               </Button>
             </div>
           </>
