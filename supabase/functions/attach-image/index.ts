@@ -168,11 +168,12 @@ serve(async (req) => {
     } catch (error: any) {
       console.error(`Failed to download/upload image for card ${cardId}:`, error);
       
-      // If download fails (DNS, network, etc.), store the external URL directly
+      // If download fails (DNS, network, HTTP errors, etc.), store the external URL directly
       // The browser can try to load it - some sources work via direct browser access
       const isDnsOrNetworkError = error.message?.includes('dns error') || 
                                    error.message?.includes('Connect') ||
-                                   error.message?.includes('failed to fetch');
+                                   error.message?.includes('failed to fetch') ||
+                                   error.message?.includes('Failed to download');
       
       if (isDnsOrNetworkError) {
         console.log(`Falling back to storing external URL directly for card ${cardId}`);
