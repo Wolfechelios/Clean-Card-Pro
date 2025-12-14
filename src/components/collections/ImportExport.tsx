@@ -13,9 +13,30 @@ interface ImportExportProps {
   onImportComplete: () => void;
 }
 
+// Helper to lookup image for a card
+async function lookupCardImage(cardName: string, cardSet: string | null, gameType: string | null): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.functions.invoke('generate-card-image-url', {
+      body: { cardName, cardSet, gameType }
+    });
+    
+    if (error || !data?.imageUrl) return null;
+    
+    // Don't return placeholder URLs
+    if (data.imageUrl.includes('placehold.co') || data.imageUrl.includes('placeholder')) {
+      return null;
+    }
+    
+    return data.imageUrl;
+  } catch {
+    return null;
+  }
+}
+
 export default function ImportExport({ cards, onImportComplete }: ImportExportProps) {
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
+  const [progressMessage, setProgressMessage] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const exportToExcel = () => {
@@ -82,6 +103,7 @@ export default function ImportExport({ cards, onImportComplete }: ImportExportPr
 
     setImporting(true);
     setImportProgress(0);
+    setProgressMessage("Reading file...");
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -109,21 +131,48 @@ export default function ImportExport({ cards, onImportComplete }: ImportExportPr
           const batchSize = 10;
           let imported = 0;
           let errors = 0;
+          let imagesFound = 0;
 
           for (let i = 0; i < jsonData.length; i += batchSize) {
             const batch = jsonData.slice(i, i + batchSize);
-            const cardsToInsert = batch.map((row: any) => ({
-              user_id: session.user.id,
-              card_name: row["Card Name"] || row["card_name"] || "Unknown Card",
-              card_set: row["Set"] || row["card_set"] || null,
-              card_number: row["Card Number"] || row["card_number"] || null,
-              rarity: row["Rarity"] || row["rarity"] || null,
-              condition: row["Condition"] || row["condition"] || "ungraded",
-              current_price_raw: parseFloat(row["Price (Raw)"] || row["Price"] || row["current_price_raw"] || 0),
-              current_price_psa9: parseFloat(row["Price (PSA 9)"] || row["current_price_psa9"] || 0),
-              current_price_psa10: parseFloat(row["Price (PSA 10)"] || row["current_price_psa10"] || 0),
-              collection_name: row["Collection"] || row["collection_name"] || null,
-              image_url: row["Image URL"] || row["image_url"] || "https://placehold.co/300x400?text=No+Image",
+            
+            // Prepare cards with image lookup for those without images
+            setProgressMessage(`Processing batch ${Math.floor(i / batchSize) + 1}...`);
+            
+            const cardsToInsert = await Promise.all(batch.map(async (row: any) => {
+              const existingImageUrl = row["Image URL"] || row["image_url"];
+              const cardName = row["Card Name"] || row["card_name"] || "Unknown Card";
+              const cardSet = row["Set"] || row["card_set"] || null;
+              const gameType = row["Game Type"] || row["game_type"] || null;
+              
+              let finalImageUrl = existingImageUrl;
+              
+              // If no image URL or it's a placeholder, try to look one up
+              if (!existingImageUrl || existingImageUrl.includes('placehold') || existingImageUrl.includes('placeholder')) {
+                const lookedUpImage = await lookupCardImage(cardName, cardSet, gameType);
+                if (lookedUpImage) {
+                  finalImageUrl = lookedUpImage;
+                  imagesFound++;
+                } else {
+                  // Use a minimal placeholder that we can identify later
+                  finalImageUrl = `https://placehold.co/300x400/1a1a2e/eee?text=${encodeURIComponent(cardName.substring(0, 15))}`;
+                }
+              }
+              
+              return {
+                user_id: session.user.id,
+                card_name: cardName,
+                card_set: cardSet,
+                card_number: row["Card Number"] || row["card_number"] || null,
+                rarity: row["Rarity"] || row["rarity"] || null,
+                condition: row["Condition"] || row["condition"] || "ungraded",
+                current_price_raw: parseFloat(row["Price (Raw)"] || row["Price"] || row["current_price_raw"] || 0),
+                current_price_psa9: parseFloat(row["Price (PSA 9)"] || row["current_price_psa9"] || 0),
+                current_price_psa10: parseFloat(row["Price (PSA 10)"] || row["current_price_psa10"] || 0),
+                collection_name: row["Collection"] || row["collection_name"] || null,
+                game_type: gameType,
+                image_url: finalImageUrl,
+              };
             }));
 
             const { error } = await supabase
@@ -141,7 +190,8 @@ export default function ImportExport({ cards, onImportComplete }: ImportExportPr
           }
 
           if (imported > 0) {
-            toast.success(`Successfully imported ${imported} cards${errors > 0 ? `, ${errors} failed` : ""}`);
+            const imageMsg = imagesFound > 0 ? `, found ${imagesFound} images` : "";
+            toast.success(`Imported ${imported} cards${imageMsg}${errors > 0 ? `, ${errors} failed` : ""}`);
             onImportComplete();
           } else {
             toast.error("Failed to import cards");
@@ -152,6 +202,7 @@ export default function ImportExport({ cards, onImportComplete }: ImportExportPr
         } finally {
           setImporting(false);
           setImportProgress(0);
+          setProgressMessage("");
           if (fileInputRef.current) {
             fileInputRef.current.value = "";
           }
@@ -183,7 +234,7 @@ export default function ImportExport({ cards, onImportComplete }: ImportExportPr
         {importing && (
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
-              <span>Importing cards...</span>
+              <span>{progressMessage || "Importing cards..."}</span>
               <span>{importProgress}%</span>
             </div>
             <Progress value={importProgress} />
