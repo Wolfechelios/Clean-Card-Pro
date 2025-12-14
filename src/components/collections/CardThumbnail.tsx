@@ -67,12 +67,15 @@ export function CardThumbnail({
           .from("cards")
           .update({ 
             image_url: data.imageUrl,
+            image_status: 'ok',
             updated_at: new Date().toISOString() 
           })
           .eq("id", id);
 
         if (updateError) throw updateError;
         
+        // Reset error state so the new image can load
+        setImageError(false);
         toast.success("Image found and updated");
         onImageUpdated?.();
       } else {
