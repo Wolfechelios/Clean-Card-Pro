@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
-import { Search, Trash2, RefreshCw, Edit3, ImageOff, X, Download } from "lucide-react";
+import { Search, Trash2, RefreshCw, Edit3, ImageOff, X, Download, ImagePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -34,6 +34,7 @@ import AdvancedFilters, { FilterConfig } from "@/components/collections/Advanced
 import { CardThumbnail } from "@/components/collections/CardThumbnail";
 import { VirtualizedCardGrid } from "@/components/collections/VirtualizedCardGrid";
 import { CardDetailModal, CardData } from "@/components/cards/CardDetailModal";
+import { BulkImageSearch } from "@/components/collections/BulkImageSearch";
 
 interface CardItem {
   id: string;
@@ -71,6 +72,7 @@ export default function Collections() {
   const [isLookingUpImages, setIsLookingUpImages] = useState(false);
   const [imageLookupProgress, setImageLookupProgress] = useState({ processed: 0, total: 0, found: 0 });
   const [showBulkEdit, setShowBulkEdit] = useState(false);
+  const [showBulkImageSearch, setShowBulkImageSearch] = useState(false);
   const [cardDetail, setCardDetail] = useState<CardData | null>(null);
   const [showCardDetail, setShowCardDetail] = useState(false);
   const [bulkEditData, setBulkEditData] = useState({
@@ -699,6 +701,15 @@ export default function Collections() {
               Find Images ({placeholderCount})
             </Button>
           )}
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowBulkImageSearch(true)}
+          >
+            <ImagePlus className="h-4 w-4 mr-2" />
+            Find Missing Images
+          </Button>
           
           <Button
             variant="outline"
@@ -968,6 +979,24 @@ export default function Collections() {
           setFilteredCards(filteredCards.filter(c => c.id !== cardId));
         }}
       />
+
+      {/* Bulk Image Search Dialog */}
+      <Dialog open={showBulkImageSearch} onOpenChange={setShowBulkImageSearch}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Find Missing Images</DialogTitle>
+            <DialogDescription>
+              Search for card images from Scryfall, Pokemon TCG, YGOPRODeck, and eBay
+            </DialogDescription>
+          </DialogHeader>
+          <BulkImageSearch
+            onComplete={() => {
+              fetchCards();
+              checkPlaceholderCards();
+            }}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
