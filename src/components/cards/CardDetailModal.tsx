@@ -288,14 +288,19 @@ export function CardDetailModal({
                 </p>
               </div>
             ) : (
-              /* 3D Viewer - only show if valid image */
+              /* Card Image Display */
               <div className="flex justify-center">
                 {card.image_url && !card.image_url.includes('placehold.co') ? (
-                  <Card3DViewer
-                    frontImageUrl={card.image_url}
-                    width={400}
-                    height={300}
-                  />
+                  <div className="relative w-full max-w-[300px] aspect-[3/4] bg-secondary/30 rounded-xl overflow-hidden border border-border">
+                    <img
+                      src={card.image_url}
+                      alt={card.card_name}
+                      className="w-full h-full object-contain"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  </div>
                 ) : null}
               </div>
             )}
