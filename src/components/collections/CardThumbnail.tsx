@@ -52,7 +52,8 @@ export function CardThumbnail({
     setIsLookingUp(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke("generate-card-image-url", {
+      // Step 1: Find the image URL
+      const { data: lookupData, error: lookupError } = await supabase.functions.invoke("generate-card-image-url", {
         body: {
           cardName,
           cardSet,
@@ -60,27 +61,31 @@ export function CardThumbnail({
         },
       });
 
-      if (error) throw error;
+      if (lookupError) throw lookupError;
 
-      if (data?.found && data?.imageUrl && !data.imageUrl.includes("placehold")) {
-        const { error: updateError } = await supabase
-          .from("cards")
-          .update({ 
-            image_url: data.imageUrl,
-            image_status: 'ok',
-            updated_at: new Date().toISOString() 
-          })
-          .eq("id", id);
+      if (!lookupData?.found || !lookupData?.imageUrl || lookupData.imageUrl.includes("placehold")) {
+        toast.info("No image found for this card");
+        return;
+      }
 
-        if (updateError) throw updateError;
-        
+      // Step 2: Download and store the image in Supabase storage
+      const { data: attachData, error: attachError } = await supabase.functions.invoke("attach-image", {
+        body: {
+          cardId: id,
+          remoteImageUrl: lookupData.imageUrl,
+        },
+      });
+
+      if (attachError) throw attachError;
+
+      if (attachData?.success && attachData?.imageUrl) {
         // Update local state immediately so image shows
-        setCurrentImageUrl(data.imageUrl);
+        setCurrentImageUrl(attachData.imageUrl);
         setImageError(false);
-        toast.success("Image found and updated");
+        toast.success("Image found and saved");
         onImageUpdated?.();
       } else {
-        toast.info("No image found for this card");
+        throw new Error(attachData?.error || "Failed to save image");
       }
     } catch (error: any) {
       console.error("Image lookup error:", error);
