@@ -287,11 +287,21 @@ export function CardDetailModal({
                   <div className="space-y-2">
                     <Label className="text-xs text-muted-foreground">Your Scanned Image</Label>
                     <div className="relative aspect-[3/4] bg-secondary/50 rounded-lg overflow-hidden border border-border">
-                      <img
-                        src={card.image_url}
-                        alt="Scanned card"
-                        className="w-full h-full object-contain"
-                      />
+                      {card.image_url && !card.image_url.includes('placehold.co') && !card.image_url.includes('placeholder') ? (
+                        <img
+                          src={card.image_url}
+                          alt="Scanned card"
+                          className="w-full h-full object-contain"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <div className="text-center text-muted-foreground">
+                            <ImageIcon className="h-8 w-8 mx-auto mb-2" />
+                            <p className="text-xs">No scanned image</p>
+                            <p className="text-xs mt-1 font-medium">{card.card_name}</p>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                   {/* Reference Image */}
