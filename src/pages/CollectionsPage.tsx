@@ -760,6 +760,10 @@ export default function Collections() {
             setCardDetail(card);
             setShowCardDetail(true);
           }}
+          onRefresh={() => {
+            fetchCards();
+            checkPlaceholderCards();
+          }}
         />
       )}
 
