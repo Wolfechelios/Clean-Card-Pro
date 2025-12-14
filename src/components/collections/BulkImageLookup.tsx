@@ -97,7 +97,8 @@ export function BulkImageLookup({ onComplete }: BulkImageLookupProps) {
 
               if (error) throw error;
 
-              if (data?.imageUrl && !data.imageUrl.includes("placehold")) {
+              // Check if a real image was found (not placeholder, not null)
+              if (data?.found && data?.imageUrl && !data.imageUrl.includes("placehold")) {
                 // Update the card with the new image URL
                 const { error: updateError } = await supabase
                   .from("cards")
@@ -108,6 +109,7 @@ export function BulkImageLookup({ onComplete }: BulkImageLookupProps) {
                   .eq("id", card.id);
 
                 if (updateError) throw updateError;
+                console.log(`Updated image for: ${card.card_name}`);
                 return { success: true, updated: true };
               }
               
