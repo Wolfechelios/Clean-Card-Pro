@@ -15,6 +15,12 @@ import {
   Camera,
   Activity,
   Zap,
+  Sparkles,
+  Loader2,
+  ArrowUpRight,
+  ArrowDownRight,
+  Target,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
@@ -35,6 +41,9 @@ import { Progress } from "@/components/ui/progress";
 import { analyzeCardFull } from "@/lib/analyzeCardFull";
 import { DashboardSkeleton } from "@/components/ui/loading-skeletons";
 import { CardDetailModal, CardData } from "@/components/cards/CardDetailModal";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
 
 type CardType = Database["public"]["Tables"]["cards"]["Row"];
 
@@ -88,6 +97,9 @@ export default function NewDashboard() {
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [selectedCard, setSelectedCard] = useState<CardData | null>(null);
   const [showCardDetail, setShowCardDetail] = useState(false);
+  const [aiAdvice, setAiAdvice] = useState<string | null>(null);
+  const [aiAdviceLoading, setAiAdviceLoading] = useState(false);
+  const [allCards, setAllCards] = useState<CardType[]>([]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -195,10 +207,11 @@ export default function NewDashboard() {
         valueChange,
       });
 
-      setRecentCards(cards.slice(0, 5));
+      setAllCards(cards);
+      setRecentCards(cards.slice(0, 200));
 
       const sorted = [...cards].sort((a, b) => (b.current_price_raw || 0) - (a.current_price_raw || 0));
-      setTopCards(sorted.slice(0, 5));
+      setTopCards(sorted.slice(0, 100));
 
       const rarityChartData = Object.entries(rarityCounts).map(([name, count]) => ({
         name,
@@ -244,6 +257,58 @@ export default function NewDashboard() {
   };
 
   const COLORS = ["hsl(173, 80%, 50%)", "hsl(262, 83%, 58%)", "hsl(152, 76%, 43%)", "hsl(38, 92%, 50%)", "hsl(210, 80%, 55%)", "hsl(330, 80%, 55%)"];
+
+  const getAIAdvice = async () => {
+    if (allCards.length === 0) {
+      toast.error("No cards in collection to analyze");
+      return;
+    }
+
+    setAiAdviceLoading(true);
+    setAiAdvice(null);
+
+    try {
+      // Prepare collection summary for AI
+      const totalValue = allCards.reduce((sum, c) => sum + (c.current_price_raw || 0), 0);
+      const topValueCards = [...allCards].sort((a, b) => (b.current_price_raw || 0) - (a.current_price_raw || 0)).slice(0, 20);
+      const lowValueCards = [...allCards].sort((a, b) => (a.current_price_raw || 0) - (b.current_price_raw || 0)).slice(0, 20);
+      
+      const rarityCounts = allCards.reduce((acc, card) => {
+        const r = card.rarity || "Unknown";
+        acc[r] = (acc[r] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+      const setCounts = allCards.reduce((acc, card) => {
+        const s = card.card_set || "Unknown";
+        acc[s] = (acc[s] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+      const collectionSummary = {
+        totalCards: allCards.length,
+        totalValue: totalValue.toFixed(2),
+        avgCardValue: (totalValue / allCards.length).toFixed(2),
+        topCards: topValueCards.map(c => ({ name: c.card_name, set: c.card_set, value: c.current_price_raw, rarity: c.rarity })),
+        lowValueCards: lowValueCards.filter(c => (c.current_price_raw || 0) < 5).map(c => ({ name: c.card_name, set: c.card_set, value: c.current_price_raw })),
+        rarityDistribution: rarityCounts,
+        topSets: Object.entries(setCounts).sort((a, b) => b[1] - a[1]).slice(0, 10),
+      };
+
+      const { data, error } = await supabase.functions.invoke("collection-advisor", {
+        body: { collectionSummary }
+      });
+
+      if (error) throw error;
+      
+      setAiAdvice(data.advice);
+    } catch (err: any) {
+      console.error("AI Advice error:", err);
+      toast.error("Failed to get AI advice: " + (err.message || "Unknown error"));
+    } finally {
+      setAiAdviceLoading(false);
+    }
+  };
 
   const handleBinderFileChange: React.ChangeEventHandler<HTMLInputElement> = async (event) => {
     const file = event.target.files?.[0];
@@ -607,122 +672,182 @@ export default function NewDashboard() {
         </Card>
       </div>
 
-      {/* Bottom Row */}
+      {/* AI Collection Advisor */}
+      <Card className="hover-lift border-primary/20 bg-gradient-to-br from-primary/5 to-accent/5">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Sparkles className="h-4 w-4 text-primary" />
+              </div>
+              <span>AI Collection Advisor</span>
+            </div>
+            <Button 
+              size="sm" 
+              onClick={getAIAdvice} 
+              disabled={aiAdviceLoading || allCards.length === 0}
+              className="gap-2"
+            >
+              {aiAdviceLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Analyzing...
+                </>
+              ) : (
+                <>
+                  <Target className="h-4 w-4" />
+                  Get AI Insights
+                </>
+              )}
+            </Button>
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Get AI-powered recommendations to increase your collection's value
+          </p>
+        </CardHeader>
+        <CardContent>
+          {aiAdvice ? (
+            <div className="prose prose-sm dark:prose-invert max-w-none">
+              <div className="bg-secondary/50 rounded-lg p-4 space-y-3 text-sm whitespace-pre-wrap">
+                {aiAdvice}
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-6 text-muted-foreground">
+              <Sparkles className="h-10 w-10 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">Click "Get AI Insights" to receive personalized recommendations</p>
+              <p className="text-xs mt-1">Our AI will analyze your {stats.totalCards} cards and suggest moves to increase value</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Bottom Row - Top Cards and Recent Activity */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <Card className="hover-lift">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <DollarSign className="h-4 w-4 text-success" />
-              Top Valuable Cards
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <DollarSign className="h-4 w-4 text-success" />
+                Top Valuable Cards
+              </div>
+              <Badge variant="secondary" className="text-xs">{topCards.length} cards</Badge>
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {topCards.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Package className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">No cards yet. Start scanning!</p>
+          <CardContent className="p-0">
+            {topCards.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground px-6">
+                <Package className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                <p className="text-sm">No cards yet. Start scanning!</p>
+              </div>
+            ) : (
+              <ScrollArea className="h-[400px]">
+                <div className="space-y-1 px-6 pb-6">
+                  {topCards.map((card, idx) => (
+                    <button
+                      key={card.id}
+                      className="flex items-center gap-3 p-2.5 rounded-lg bg-secondary/40 hover:bg-secondary/70 w-full text-left transition-all group"
+                      onClick={() => {
+                        setSelectedCard({
+                          id: card.id,
+                          card_name: card.card_name,
+                          card_set: card.card_set,
+                          card_number: card.card_number,
+                          rarity: card.rarity,
+                          image_url: card.image_url,
+                          thumbnail_url: card.thumbnail_url,
+                          current_price_raw: card.current_price_raw,
+                          collection_name: card.collection_name,
+                          condition: card.condition,
+                          game_type: card.game_type,
+                          sport_type: card.sport_type,
+                        });
+                        setShowCardDetail(true);
+                      }}
+                    >
+                      <div className="relative flex-shrink-0">
+                        <img
+                          src={card.thumbnail_url || card.image_url}
+                          alt={card.card_name}
+                          className="w-10 h-10 object-cover rounded-md border border-border/50"
+                        />
+                        <span className="absolute -top-1 -left-1 h-4 w-4 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
+                          {idx + 1}
+                        </span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm truncate group-hover:text-primary transition-colors">{card.card_name}</p>
+                        <p className="text-xs text-muted-foreground truncate">{card.card_set}</p>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className="font-bold text-success text-sm">${(card.current_price_raw || 0).toFixed(2)}</p>
+                      </div>
+                    </button>
+                  ))}
                 </div>
-              ) : (
-                topCards.map((card, idx) => (
-                  <button
-                    key={card.id}
-                    className="flex items-center gap-3 p-3 rounded-lg bg-secondary/40 hover:bg-secondary/70 w-full text-left transition-all group"
-                    onClick={() => {
-                      setSelectedCard({
-                        id: card.id,
-                        card_name: card.card_name,
-                        card_set: card.card_set,
-                        card_number: card.card_number,
-                        rarity: card.rarity,
-                        image_url: card.image_url,
-                        thumbnail_url: card.thumbnail_url,
-                        current_price_raw: card.current_price_raw,
-                        collection_name: card.collection_name,
-                        condition: card.condition,
-                        game_type: card.game_type,
-                        sport_type: card.sport_type,
-                      });
-                      setShowCardDetail(true);
-                    }}
-                  >
-                    <div className="relative">
-                      <img
-                        src={card.thumbnail_url || card.image_url}
-                        alt={card.card_name}
-                        className="w-12 h-12 object-cover rounded-lg border border-border/50"
-                      />
-                      <span className="absolute -top-1 -left-1 h-5 w-5 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center">
-                        {idx + 1}
-                      </span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate group-hover:text-primary transition-colors">{card.card_name}</p>
-                      <p className="text-xs text-muted-foreground truncate">{card.card_set}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-bold text-success">${(card.current_price_raw || 0).toFixed(2)}</p>
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
+              </ScrollArea>
+            )}
           </CardContent>
         </Card>
 
         <Card className="hover-lift">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Activity className="h-4 w-4 text-primary" />
-              Recent Activity
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Activity className="h-4 w-4 text-primary" />
+                Recent Activity
+              </div>
+              <Badge variant="secondary" className="text-xs">{recentCards.length} cards</Badge>
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {recentCards.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Activity className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">No recent activity</p>
+          <CardContent className="p-0">
+            {recentCards.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground px-6">
+                <Activity className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                <p className="text-sm">No recent activity</p>
+              </div>
+            ) : (
+              <ScrollArea className="h-[400px]">
+                <div className="space-y-1 px-6 pb-6">
+                  {recentCards.map((card) => (
+                    <button
+                      key={card.id}
+                      className="flex items-center gap-3 p-2.5 rounded-lg bg-secondary/40 hover:bg-secondary/70 w-full text-left transition-all group"
+                      onClick={() => {
+                        setSelectedCard({
+                          id: card.id,
+                          card_name: card.card_name,
+                          card_set: card.card_set,
+                          card_number: card.card_number,
+                          rarity: card.rarity,
+                          image_url: card.image_url,
+                          thumbnail_url: card.thumbnail_url,
+                          current_price_raw: card.current_price_raw,
+                          collection_name: card.collection_name,
+                          condition: card.condition,
+                          game_type: card.game_type,
+                          sport_type: card.sport_type,
+                        });
+                        setShowCardDetail(true);
+                      }}
+                    >
+                      <img
+                        src={card.thumbnail_url || card.image_url}
+                        alt={card.card_name}
+                        className="w-10 h-10 object-cover rounded-md border border-border/50 flex-shrink-0"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm truncate group-hover:text-primary transition-colors">{card.card_name}</p>
+                        <p className="text-xs text-muted-foreground">{new Date(card.created_at).toLocaleDateString()}</p>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className="font-medium text-sm">${(card.current_price_raw || 0).toFixed(2)}</p>
+                      </div>
+                    </button>
+                  ))}
                 </div>
-              ) : (
-                recentCards.map((card) => (
-                  <button
-                    key={card.id}
-                    className="flex items-center gap-3 p-3 rounded-lg bg-secondary/40 hover:bg-secondary/70 w-full text-left transition-all group"
-                    onClick={() => {
-                      setSelectedCard({
-                        id: card.id,
-                        card_name: card.card_name,
-                        card_set: card.card_set,
-                        card_number: card.card_number,
-                        rarity: card.rarity,
-                        image_url: card.image_url,
-                        thumbnail_url: card.thumbnail_url,
-                        current_price_raw: card.current_price_raw,
-                        collection_name: card.collection_name,
-                        condition: card.condition,
-                        game_type: card.game_type,
-                        sport_type: card.sport_type,
-                      });
-                      setShowCardDetail(true);
-                    }}
-                  >
-                    <img
-                      src={card.thumbnail_url || card.image_url}
-                      alt={card.card_name}
-                      className="w-12 h-12 object-cover rounded-lg border border-border/50"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate group-hover:text-primary transition-colors">{card.card_name}</p>
-                      <p className="text-xs text-muted-foreground">{new Date(card.created_at).toLocaleDateString()}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-medium">${(card.current_price_raw || 0).toFixed(2)}</p>
-                    </div>
-                  </button>
-                ))
-              )}
-            </div>
+              </ScrollArea>
+            )}
           </CardContent>
         </Card>
       </div>

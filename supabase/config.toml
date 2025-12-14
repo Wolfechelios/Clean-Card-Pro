@@ -47,3 +47,6 @@ verify_jwt = true
 
 [functions.bulk-reanalyze-rarity]
 verify_jwt = true
+
+[functions.collection-advisor]
+verify_jwt = true
