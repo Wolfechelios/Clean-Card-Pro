@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Trash2, ImagePlus, Loader2 } from "lucide-react";
+import { Trash2, ImagePlus, Loader2, ImageOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -42,7 +42,10 @@ export function CardThumbnail({
   onImageUpdated,
 }: CardThumbnailProps) {
   const [isLookingUp, setIsLookingUp] = useState(false);
-  const hasPlaceholder = imageUrl?.includes("placehold");
+  const [imageError, setImageError] = useState(false);
+  const hasPlaceholder = imageUrl?.includes("placehold") || !imageUrl;
+  const displayUrl = thumbnailUrl || imageUrl;
+  const showImage = displayUrl && !hasPlaceholder && !imageError;
 
   const handleImageLookup = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -108,8 +111,8 @@ export function CardThumbnail({
 
       {/* Action buttons */}
       <div className="absolute top-1.5 right-1.5 z-10 flex gap-1">
-        {/* Find image button - show for placeholder images */}
-        {hasPlaceholder && (
+        {/* Find image button - show for placeholder or failed images */}
+        {(hasPlaceholder || imageError) && (
           <button
             className={cn(
               "p-1 rounded-full",
@@ -148,13 +151,21 @@ export function CardThumbnail({
       </div>
 
       {/* Square thumbnail */}
-      <div className="aspect-square w-full overflow-hidden bg-muted">
-        <img
-          src={thumbnailUrl || imageUrl}
-          alt={cardName}
-          loading="lazy"
-          className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
-        />
+      <div className="aspect-square w-full overflow-hidden bg-muted flex items-center justify-center">
+        {showImage ? (
+          <img
+            src={displayUrl}
+            alt={cardName}
+            loading="lazy"
+            onError={() => setImageError(true)}
+            className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+          />
+        ) : (
+          <div className="flex flex-col items-center justify-center text-muted-foreground/50 p-2">
+            <ImageOff className="h-8 w-8 mb-1" />
+            <span className="text-[9px] text-center line-clamp-2">{cardName}</span>
+          </div>
+        )}
       </div>
 
       {/* Compact label */}
