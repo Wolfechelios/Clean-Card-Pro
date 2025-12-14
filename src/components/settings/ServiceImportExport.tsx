@@ -477,12 +477,6 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
       setImageLookupProgress(null);
     }
   };
-    
-    await Promise.all(updates);
-    setCardsToVerify([]);
-    setActiveSection("import");
-    toast.success("All cards verified");
-  };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
