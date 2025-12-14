@@ -5,6 +5,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Search, Trash2, RefreshCw, Edit3, ImageOff, X, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -68,6 +69,7 @@ export default function Collections() {
   const [noImageCount, setNoImageCount] = useState(0);
   const [placeholderCount, setPlaceholderCount] = useState(0);
   const [isLookingUpImages, setIsLookingUpImages] = useState(false);
+  const [imageLookupProgress, setImageLookupProgress] = useState({ processed: 0, total: 0, found: 0 });
   const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [cardDetail, setCardDetail] = useState<CardData | null>(null);
   const [showCardDetail, setShowCardDetail] = useState(false);
@@ -405,7 +407,7 @@ export default function Collections() {
     }
 
     setIsLookingUpImages(true);
-    toast.loading("Looking up card images...", { id: "image-lookup" });
+    setImageLookupProgress({ processed: 0, total: 0, found: 0 });
 
     try {
       const { data: cards, error } = await supabase
@@ -416,13 +418,15 @@ export default function Collections() {
 
       if (error) throw error;
       if (!cards || cards.length === 0) {
-        toast.dismiss("image-lookup");
         toast.info("No cards with placeholder images found");
         setIsLookingUpImages(false);
         return;
       }
 
+      setImageLookupProgress({ processed: 0, total: cards.length, found: 0 });
+
       let updated = 0;
+      let processed = 0;
       const batchSize = 10;
 
       for (let i = 0; i < cards.length; i += batchSize) {
@@ -465,17 +469,20 @@ export default function Collections() {
           }
         });
 
+        processed += batch.length;
+        setImageLookupProgress({ processed, total: cards.length, found: updated });
+
         if (i + batchSize < cards.length) {
           await new Promise((resolve) => setTimeout(resolve, 1000));
         }
       }
 
-      toast.success(`Found images for ${updated} of ${cards.length} cards`, { id: "image-lookup" });
+      toast.success(`Found images for ${updated} of ${cards.length} cards`);
       fetchCards();
       checkPlaceholderCards();
     } catch (error: any) {
       console.error("Bulk image lookup error:", error);
-      toast.error(error.message || "Error during image lookup", { id: "image-lookup" });
+      toast.error(error.message || "Error during image lookup");
     } finally {
       setIsLookingUpImages(false);
     }
@@ -660,14 +667,14 @@ export default function Collections() {
             </Button>
           )}
 
-          {placeholderCount > 0 && (
+          {placeholderCount > 0 && !isLookingUpImages && (
             <Button
               variant="outline"
               size="sm"
               onClick={handleBulkImageLookup}
               disabled={isLookingUpImages}
             >
-              <Download className={`h-4 w-4 mr-2 ${isLookingUpImages ? 'animate-spin' : ''}`} />
+              <Download className="h-4 w-4 mr-2" />
               Find Images ({placeholderCount})
             </Button>
           )}
@@ -729,6 +736,29 @@ export default function Collections() {
         initialFilters={activeFilters}
       />
 
+      {/* Image Lookup Progress */}
+      {isLookingUpImages && imageLookupProgress.total > 0 && (
+        <Card className="bg-card border-primary/30">
+          <CardContent className="py-4">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-medium">Looking up card images...</span>
+                <span className="text-muted-foreground">
+                  {imageLookupProgress.processed} / {imageLookupProgress.total}
+                </span>
+              </div>
+              <Progress 
+                value={(imageLookupProgress.processed / imageLookupProgress.total) * 100} 
+                className="h-2"
+              />
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{Math.round((imageLookupProgress.processed / imageLookupProgress.total) * 100)}% complete</span>
+                <span className="text-success">{imageLookupProgress.found} images found</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
       {/* Results count */}
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>
