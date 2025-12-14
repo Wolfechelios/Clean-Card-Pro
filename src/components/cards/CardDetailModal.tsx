@@ -130,6 +130,47 @@ export function CardDetailModal({
     }
   };
 
+  // Confirm verification and use reference image if card has no valid image
+  const handleConfirmVerification = async () => {
+    if (!card || !referenceImageUrl) return;
+
+    const hasNoImage = !card.image_url || card.image_url.includes('placehold.co') || card.image_url.includes('placeholder');
+    
+    if (hasNoImage && referenceImageUrl && !referenceImageUrl.includes('placehold.co')) {
+      try {
+        setIsSaving(true);
+        
+        const { error } = await supabase
+          .from("cards")
+          .update({
+            image_url: referenceImageUrl,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", card.id);
+
+        if (error) throw error;
+
+        const updatedCard: CardData = {
+          ...card,
+          image_url: referenceImageUrl,
+        };
+
+        toast.success("Card image updated with reference image");
+        onUpdate?.(updatedCard);
+      } catch (error) {
+        console.error("Error updating card image:", error);
+        toast.error("Failed to update card image");
+      } finally {
+        setIsSaving(false);
+      }
+    } else {
+      toast.success("Card verified");
+    }
+    
+    setShowVerification(false);
+    setReferenceImageUrl(null);
+  };
+
   const handleSave = async () => {
     if (!card) return;
 
@@ -287,6 +328,33 @@ export function CardDetailModal({
                 <p className="text-xs text-muted-foreground text-center">
                   Compare your scanned image with the reference to verify card identification
                 </p>
+                
+                {/* Verification Actions */}
+                {referenceImageUrl && !isVerifying && (
+                  <div className="flex justify-center gap-3 pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setShowVerification(false);
+                        setReferenceImageUrl(null);
+                      }}
+                    >
+                      <XCircle className="h-4 w-4 mr-1" />
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={handleConfirmVerification}
+                      disabled={isSaving}
+                    >
+                      <CheckCircle2 className="h-4 w-4 mr-1" />
+                      {(!card.image_url || card.image_url.includes('placehold.co')) 
+                        ? "Use This Image" 
+                        : "Confirm Match"}
+                    </Button>
+                  </div>
+                )}
               </div>
             ) : (
               /* Card Image Display with 2D/3D Toggle */
