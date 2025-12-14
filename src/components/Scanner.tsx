@@ -20,6 +20,7 @@ import { RemoteScanDesktop } from "./scanner/RemoteScanDesktop";
 import { RemoteScanMobile } from "./scanner/RemoteScanMobile";
 import { RapidScanCamera } from "./scanner/RapidScanCamera";
 import { USBPhoneCameraScanner } from "./scanner/USBPhoneCameraScanner";
+import { DuplicateCardDialog } from "./scanner/DuplicateCardDialog";
 
 interface ScannerProps {
   userId: string;
@@ -36,6 +37,7 @@ const Scanner = ({ userId }: ScannerProps) => {
     scanProgress,
     ocrResult,
     pendingCard,
+    duplicateCard,
     fileInputRef,
     folderInputRef,
     setFileWithPreview,
@@ -44,6 +46,8 @@ const Scanner = ({ userId }: ScannerProps) => {
     handleConfirmCard,
     handleCancelCard,
     handleSelectAlternative,
+    handleConfirmDuplicate,
+    handleSkipDuplicate,
   } = useCardScanner({ userId });
 
   // Batch scanner hook
@@ -215,6 +219,22 @@ const Scanner = ({ userId }: ScannerProps) => {
         <BatchQueue
           jobs={batch.scanJobs}
           onProcess={batch.startBatchProcessing}
+        />
+      )}
+
+      {/* Duplicate Card Dialog */}
+      {duplicateCard && duplicateCard.existingCard && (
+        <DuplicateCardDialog
+          open={!!duplicateCard}
+          existingCard={duplicateCard.existingCard}
+          newCard={{
+            card_name: duplicateCard.identifiedCard.card_name,
+            card_set: duplicateCard.identifiedCard.card_set,
+            confidence: duplicateCard.identifiedCard.confidence,
+          }}
+          newImageUrl={duplicateCard.imageUrl}
+          onAddAnyway={handleConfirmDuplicate}
+          onSkip={handleSkipDuplicate}
         />
       )}
     </div>

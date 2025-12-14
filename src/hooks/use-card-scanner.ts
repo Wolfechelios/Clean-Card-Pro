@@ -37,22 +37,93 @@ export interface PendingCardData {
   alternatives: Alternative[];
   imageUrl: string;
   fallbackData?: any;
+  isDuplicate?: boolean;
+  existingCard?: {
+    id: string;
+    card_name: string;
+    card_set: string | null;
+    image_url: string;
+    current_price_raw: number | null;
+  };
 }
 
 interface UseCardScannerOptions {
   userId: string;
   onScanComplete?: () => void;
+  skipDuplicateCheck?: boolean;
 }
 
-export function useCardScanner({ userId, onScanComplete }: UseCardScannerOptions) {
+export function useCardScanner({ userId, onScanComplete, skipDuplicateCheck = false }: UseCardScannerOptions) {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
   const [ocrResult, setOcrResult] = useState<OCRResult | null>(null);
   const [pendingCard, setPendingCard] = useState<PendingCardData | null>(null);
+  const [duplicateCard, setDuplicateCard] = useState<PendingCardData | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+
+  // Check if card already exists in collection
+  const checkForDuplicate = async (cardName: string, cardSet: string | null): Promise<{
+    isDuplicate: boolean;
+    existingCard?: {
+      id: string;
+      card_name: string;
+      card_set: string | null;
+      image_url: string;
+      current_price_raw: number | null;
+    };
+  }> => {
+    if (skipDuplicateCheck || !userId) {
+      return { isDuplicate: false };
+    }
+
+    try {
+      // Normalize search - check for similar card names
+      const normalizedName = cardName.toLowerCase().trim();
+      
+      const { data: existingCards, error } = await supabase
+        .from("cards")
+        .select("id, card_name, card_set, image_url, current_price_raw")
+        .eq("user_id", userId)
+        .ilike("card_name", `%${normalizedName.split(' ').slice(0, 3).join('%')}%`)
+        .limit(5);
+
+      if (error || !existingCards || existingCards.length === 0) {
+        return { isDuplicate: false };
+      }
+
+      // Find exact or close match
+      const match = existingCards.find(card => {
+        const existingName = card.card_name.toLowerCase().trim();
+        const existingSet = (card.card_set || '').toLowerCase().trim();
+        const newSet = (cardSet || '').toLowerCase().trim();
+        
+        // Exact name match
+        if (existingName === normalizedName) {
+          // If sets match or one is empty, it's a duplicate
+          if (!newSet || !existingSet || existingSet === newSet || 
+              existingSet.includes(newSet) || newSet.includes(existingSet)) {
+            return true;
+          }
+        }
+        return false;
+      });
+
+      if (match) {
+        return {
+          isDuplicate: true,
+          existingCard: match,
+        };
+      }
+
+      return { isDuplicate: false };
+    } catch (err) {
+      console.error("Duplicate check error:", err);
+      return { isDuplicate: false };
+    }
+  };
 
   const performOCR = async (imageUrl: string): Promise<OCRResult> => {
     setScanProgress(10);
@@ -175,6 +246,23 @@ export function useCardScanner({ userId, onScanComplete }: UseCardScannerOptions
         description: pricingData?.notes || "",
       };
 
+      // Check for duplicates before saving
+      const duplicateResult = await checkForDuplicate(identifiedCard.card_name, identifiedCard.card_set);
+      
+      if (duplicateResult.isDuplicate && duplicateResult.existingCard) {
+        // Show duplicate confirmation dialog
+        setDuplicateCard({
+          identifiedCard,
+          alternatives,
+          imageUrl,
+          fallbackData: pricingData,
+          isDuplicate: true,
+          existingCard: duplicateResult.existingCard,
+        });
+        setScanProgress(100);
+        return;
+      }
+
       // Auto-confirm and save if enabled and confidence >= threshold
       const { autoConfirmEnabled, autoConfirmThreshold } = getScannerSettings();
       if (autoConfirmEnabled && identifiedCard.confidence >= autoConfirmThreshold) {
@@ -240,6 +328,7 @@ export function useCardScanner({ userId, onScanComplete }: UseCardScannerOptions
     setOcrResult(null);
     setScanProgress(0);
     setPendingCard(null);
+    setDuplicateCard(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (folderInputRef.current) folderInputRef.current.value = "";
   }, []);
@@ -283,8 +372,55 @@ export function useCardScanner({ userId, onScanComplete }: UseCardScannerOptions
 
   const handleCancelCard = useCallback(() => {
     setPendingCard(null);
+    setDuplicateCard(null);
     toast.info("Card identification cancelled");
   }, []);
+
+  // Handle confirming a duplicate card (add anyway)
+  const handleConfirmDuplicate = async () => {
+    if (!duplicateCard) return;
+
+    try {
+      const { error: dbError } = await supabase.from("cards").insert({
+        user_id: userId,
+        card_name: duplicateCard.identifiedCard.card_name,
+        card_set: duplicateCard.identifiedCard.card_set,
+        card_number: duplicateCard.identifiedCard.card_number,
+        rarity: duplicateCard.identifiedCard.rarity,
+        edition: duplicateCard.identifiedCard.edition,
+        condition: duplicateCard.fallbackData?.condition || "ungraded",
+        sport_type: duplicateCard.identifiedCard.sport_type,
+        game_type: duplicateCard.identifiedCard.game_type,
+        notes: duplicateCard.identifiedCard.description,
+        ocr_confidence: duplicateCard.identifiedCard.confidence,
+        ocr_raw_text: ocrResult?.rawText,
+        current_price_raw: duplicateCard.fallbackData?.currentPriceRaw,
+        current_price_psa9: duplicateCard.fallbackData?.currentPricePsa9,
+        current_price_psa10: duplicateCard.fallbackData?.currentPricePsa10,
+        suggested_price: duplicateCard.fallbackData?.suggestedPrice,
+        ebay_listing_url: duplicateCard.fallbackData?.ebayListingUrl,
+        image_url: duplicateCard.imageUrl,
+        thumbnail_url: duplicateCard.imageUrl,
+        last_price_update: new Date().toISOString(),
+      });
+
+      if (dbError) throw dbError;
+
+      toast.success("Duplicate card added to collection!");
+      clearSelection();
+      onScanComplete?.();
+    } catch (error: any) {
+      console.error("Save duplicate error:", error);
+      toast.error(error.message || "Error saving card");
+    }
+  };
+
+  // Handle skipping a duplicate card
+  const handleSkipDuplicate = useCallback(() => {
+    setDuplicateCard(null);
+    toast.info("Card skipped - already in collection");
+    clearSelection();
+  }, [clearSelection]);
 
   const handleSelectAlternative = useCallback((alternative: Alternative) => {
     if (!pendingCard) return;
@@ -316,6 +452,7 @@ export function useCardScanner({ userId, onScanComplete }: UseCardScannerOptions
     scanProgress,
     ocrResult,
     pendingCard,
+    duplicateCard,
     fileInputRef,
     folderInputRef,
     
@@ -328,5 +465,7 @@ export function useCardScanner({ userId, onScanComplete }: UseCardScannerOptions
     handleConfirmCard,
     handleCancelCard,
     handleSelectAlternative,
+    handleConfirmDuplicate,
+    handleSkipDuplicate,
   };
 }
