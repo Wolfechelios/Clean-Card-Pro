@@ -87,13 +87,15 @@ export default function Collections() {
   const availableSportTypes = Array.from(new Set(cards.map(c => c.sport_type).filter(Boolean))) as string[];
   const availableCollections = Array.from(new Set(cards.map(c => c.collection_name).filter(Boolean))) as string[];
 
-  // Read rarity filter from URL on mount
+  // Read rarity filter from URL on mount only
   useEffect(() => {
     const rarityParam = searchParams.get("rarity");
     if (rarityParam) {
       setActiveFilters(prev => ({ ...prev, rarity: [rarityParam] }));
     }
-  }, [searchParams]);
+    // Only run on initial mount, not on every searchParams change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Clear rarity filter from URL when filters change
   const clearRarityFilter = () => {
