@@ -166,8 +166,38 @@ serve(async (req) => {
       });
 
     } catch (error: any) {
-      console.error(`Failed to attach image to card ${cardId}:`, error);
+      console.error(`Failed to download/upload image for card ${cardId}:`, error);
       
+      // If download fails (DNS, network, etc.), store the external URL directly
+      // The browser can try to load it - some sources work via direct browser access
+      const isDnsOrNetworkError = error.message?.includes('dns error') || 
+                                   error.message?.includes('Connect') ||
+                                   error.message?.includes('failed to fetch');
+      
+      if (isDnsOrNetworkError) {
+        console.log(`Falling back to storing external URL directly for card ${cardId}`);
+        
+        await supabase
+          .from('cards')
+          .update({
+            image_url: remoteImageUrl,
+            thumbnail_url: remoteImageUrl,
+            image_status: 'external',
+            image_error: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', cardId);
+
+        return new Response(JSON.stringify({
+          success: true,
+          imageUrl: remoteImageUrl,
+          note: 'Stored external URL directly (download failed)',
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      // Other errors - mark as failed
       await supabase
         .from('cards')
         .update({
