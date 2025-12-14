@@ -26,7 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import Card3DViewer from "@/components/Card3DViewer";
 import { toast } from "sonner";
-import { Pencil, Trash2, X, Save, Search, ImageIcon, CheckCircle2, XCircle } from "lucide-react";
+import { Pencil, Trash2, X, Save, Search, ImageIcon, CheckCircle2, XCircle, Box, Image } from "lucide-react";
 
 export interface CardData {
   id: string;
@@ -65,6 +65,7 @@ export function CardDetailModal({
   const [isVerifying, setIsVerifying] = useState(false);
   const [referenceImageUrl, setReferenceImageUrl] = useState<string | null>(null);
   const [showVerification, setShowVerification] = useState(false);
+  const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
   const [editData, setEditData] = useState({
     card_name: "",
     card_set: "",
@@ -288,20 +289,50 @@ export function CardDetailModal({
                 </p>
               </div>
             ) : (
-              /* Card Image Display */
-              <div className="flex justify-center">
-                {card.image_url && !card.image_url.includes('placehold.co') ? (
-                  <div className="relative w-full max-w-[300px] aspect-[3/4] bg-secondary/30 rounded-xl overflow-hidden border border-border">
-                    <img
-                      src={card.image_url}
-                      alt={card.card_name}
-                      className="w-full h-full object-contain"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                      }}
-                    />
+              /* Card Image Display with 2D/3D Toggle */
+              <div className="space-y-3">
+                {card.image_url && !card.image_url.includes('placehold.co') && (
+                  <div className="flex justify-center gap-2">
+                    <Button
+                      variant={viewMode === '2d' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setViewMode('2d')}
+                    >
+                      <Image className="h-4 w-4 mr-1" />
+                      2D
+                    </Button>
+                    <Button
+                      variant={viewMode === '3d' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setViewMode('3d')}
+                    >
+                      <Box className="h-4 w-4 mr-1" />
+                      3D
+                    </Button>
                   </div>
-                ) : null}
+                )}
+                <div className="flex justify-center">
+                  {card.image_url && !card.image_url.includes('placehold.co') ? (
+                    viewMode === '3d' ? (
+                      <Card3DViewer
+                        frontImageUrl={card.image_url}
+                        width={400}
+                        height={300}
+                      />
+                    ) : (
+                      <div className="relative w-full max-w-[300px] aspect-[3/4] bg-secondary/30 rounded-xl overflow-hidden border border-border">
+                        <img
+                          src={card.image_url}
+                          alt={card.card_name}
+                          className="w-full h-full object-contain"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                          }}
+                        />
+                      </div>
+                    )
+                  ) : null}
+                </div>
               </div>
             )}
 
