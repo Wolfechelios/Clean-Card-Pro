@@ -288,13 +288,32 @@ export function CardDetailModal({
                 </p>
               </div>
             ) : (
-              /* 3D Viewer */
+              /* 3D Viewer or Placeholder Fallback */
               <div className="flex justify-center">
-                <Card3DViewer
-                  frontImageUrl={card.image_url}
-                  width={400}
-                  height={300}
-                />
+                {card.image_url?.includes('placehold.co') || !card.image_url ? (
+                  <div className="w-full max-w-[300px] aspect-[3/4] bg-secondary/50 rounded-xl border border-border flex flex-col items-center justify-center p-6 space-y-4">
+                    <ImageIcon className="h-16 w-16 text-muted-foreground/50" />
+                    <div className="text-center">
+                      <p className="font-medium text-foreground">{card.card_name}</p>
+                      <p className="text-sm text-muted-foreground">{card.card_set || 'Unknown Set'}</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleVerifyCard}
+                      disabled={isVerifying}
+                    >
+                      <Search className="h-4 w-4 mr-2" />
+                      {isVerifying ? 'Searching...' : 'Find Card Image'}
+                    </Button>
+                  </div>
+                ) : (
+                  <Card3DViewer
+                    frontImageUrl={card.image_url}
+                    width={400}
+                    height={300}
+                  />
+                )}
               </div>
             )}
 
