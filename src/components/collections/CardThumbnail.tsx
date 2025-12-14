@@ -1,6 +1,9 @@
+import { useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Trash2 } from "lucide-react";
+import { Trash2, ImagePlus, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface CardThumbnailProps {
   id: string;
@@ -11,9 +14,12 @@ interface CardThumbnailProps {
   thumbnailUrl: string | null;
   price: number | null;
   isSelected: boolean;
+  gameType?: string | null;
+  sportType?: string | null;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
   onClick: () => void;
+  onImageUpdated?: () => void;
 }
 
 export function CardThumbnail({
@@ -25,10 +31,55 @@ export function CardThumbnail({
   thumbnailUrl,
   price,
   isSelected,
+  gameType,
+  sportType,
   onSelect,
   onDelete,
   onClick,
+  onImageUpdated,
 }: CardThumbnailProps) {
+  const [isLookingUp, setIsLookingUp] = useState(false);
+  const hasPlaceholder = imageUrl?.includes("placehold");
+
+  const handleImageLookup = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsLookingUp(true);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-card-image-url", {
+        body: {
+          cardName,
+          cardSet,
+          gameType: gameType || sportType,
+        },
+      });
+
+      if (error) throw error;
+
+      if (data?.found && data?.imageUrl && !data.imageUrl.includes("placehold")) {
+        const { error: updateError } = await supabase
+          .from("cards")
+          .update({ 
+            image_url: data.imageUrl,
+            updated_at: new Date().toISOString() 
+          })
+          .eq("id", id);
+
+        if (updateError) throw updateError;
+        
+        toast.success("Image found and updated");
+        onImageUpdated?.();
+      } else {
+        toast.info("No image found for this card");
+      }
+    } catch (error: any) {
+      console.error("Image lookup error:", error);
+      toast.error("Failed to look up image");
+    } finally {
+      setIsLookingUp(false);
+    }
+  };
+
   return (
     <div
       className={cn(
@@ -52,21 +103,46 @@ export function CardThumbnail({
         />
       </div>
 
-      {/* Delete button */}
-      <button
-        className={cn(
-          "absolute top-1.5 right-1.5 z-10 p-1 rounded-full",
-          "bg-destructive/90 text-destructive-foreground",
-          "opacity-0 group-hover:opacity-100 transition-opacity duration-150",
-          "hover:bg-destructive active:scale-90"
+      {/* Action buttons */}
+      <div className="absolute top-1.5 right-1.5 z-10 flex gap-1">
+        {/* Find image button - show for placeholder images */}
+        {hasPlaceholder && (
+          <button
+            className={cn(
+              "p-1 rounded-full",
+              "bg-primary/90 text-primary-foreground",
+              "opacity-0 group-hover:opacity-100 transition-opacity duration-150",
+              "hover:bg-primary active:scale-90",
+              isLookingUp && "opacity-100"
+            )}
+            onClick={handleImageLookup}
+            disabled={isLookingUp}
+            title="Find card image"
+          >
+            {isLookingUp ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <ImagePlus className="h-3 w-3" />
+            )}
+          </button>
         )}
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete(id);
-        }}
-      >
-        <Trash2 className="h-3 w-3" />
-      </button>
+
+        {/* Delete button */}
+        <button
+          className={cn(
+            "p-1 rounded-full",
+            "bg-destructive/90 text-destructive-foreground",
+            "opacity-0 group-hover:opacity-100 transition-opacity duration-150",
+            "hover:bg-destructive active:scale-90"
+          )}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(id);
+          }}
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      </div>
 
       {/* Square thumbnail */}
       <div className="aspect-square w-full overflow-hidden bg-muted">

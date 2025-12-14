@@ -24,6 +24,7 @@ interface VirtualizedCardGridProps {
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
   onCardClick: (card: CardItem) => void;
+  onRefresh?: () => void;
 }
 
 const ITEM_MIN_WIDTH = 140;
@@ -36,6 +37,7 @@ export function VirtualizedCardGrid({
   onSelect,
   onDelete,
   onCardClick,
+  onRefresh,
 }: VirtualizedCardGridProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -116,9 +118,12 @@ export function VirtualizedCardGrid({
                     thumbnailUrl={card.thumbnail_url}
                     price={card.current_price_raw}
                     isSelected={selectedCards.has(card.id)}
+                    gameType={card.game_type}
+                    sportType={card.sport_type}
                     onSelect={onSelect}
                     onDelete={onDelete}
                     onClick={() => onCardClick(card)}
+                    onImageUpdated={onRefresh}
                   />
                 </div>
               ))}
