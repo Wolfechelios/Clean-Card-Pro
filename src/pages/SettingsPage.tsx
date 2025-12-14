@@ -18,7 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { LogOut, Trash2, User, Lock, ImageOff, Clock, RefreshCw, Database, ScanLine, ImageIcon } from "lucide-react";
+import { LogOut, Trash2, User, Lock, ImageOff, Clock, RefreshCw, Database, ScanLine, ImageIcon, Wand2 } from "lucide-react";
 import N8nIntegrations from "@/components/settings/N8nIntegrations";
 import ServiceImportExport from "@/components/settings/ServiceImportExport";
 import DeviceStorageSettings from "@/components/settings/DeviceStorageSettings";
@@ -466,6 +466,21 @@ export default function Settings() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4">
+            <div>
+              <p className="text-sm text-muted-foreground mb-2">
+                Clean and normalize imported card data for better matching
+              </p>
+              <Button 
+                variant="outline" 
+                onClick={() => navigate('/import-cleaner')}
+              >
+                <Wand2 className="h-4 w-4 mr-2" />
+                Import Cleaner
+              </Button>
+            </div>
+
+            <Separator />
+
             <div>
               <p className="text-sm text-muted-foreground mb-2">
                 Find and download missing card images from official databases

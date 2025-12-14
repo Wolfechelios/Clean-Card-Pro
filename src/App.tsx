@@ -25,6 +25,7 @@ import VisualSearchPage from "./pages/VisualSearchPage";
 import AdvancedAnalyticsPage from "./pages/AdvancedAnalyticsPage";
 import CardPriceHubPage from "./pages/CardPriceHubPage";
 import ImageBackfillPage from "./pages/ImageBackfillPage";
+import ImportCleanerPage from "./pages/ImportCleanerPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -118,6 +119,10 @@ function AppRoutes() {
       <Route
         path="/image-backfill"
         element={session ? <ImageBackfillPage /> : <Navigate to="/auth" />}
+      />
+      <Route
+        path="/import-cleaner"
+        element={session ? <ImportCleanerPage /> : <Navigate to="/auth" />}
       />
       <Route path="*" element={<NotFound />} />
     </Routes>

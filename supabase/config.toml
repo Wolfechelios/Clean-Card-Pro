@@ -56,3 +56,6 @@ verify_jwt = true
 
 [functions.attach-image]
 verify_jwt = true
+
+[functions.normalize-cards]
+verify_jwt = true
