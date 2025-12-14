@@ -17,6 +17,21 @@ serve(async (req) => {
       throw new Error('imageUrl is required');
     }
 
+    // Reject placeholder URLs - they can't be analyzed
+    if (imageUrl.includes('placehold.co') || imageUrl.includes('placeholder')) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Cannot analyze placeholder images. Please provide a real card image.',
+          noCardDetected: true
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) {
       throw new Error('LOVABLE_API_KEY is not configured');
