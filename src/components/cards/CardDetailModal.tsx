@@ -23,9 +23,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import Card3DViewer from "@/components/Card3DViewer";
 import { toast } from "sonner";
-import { Pencil, Trash2, X, Save } from "lucide-react";
+import { Pencil, Trash2, X, Save, Search, ImageIcon, CheckCircle2, XCircle } from "lucide-react";
 
 export interface CardData {
   id: string;
@@ -61,6 +62,9 @@ export function CardDetailModal({
   const [isEditing, setIsEditing] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [referenceImageUrl, setReferenceImageUrl] = useState<string | null>(null);
+  const [showVerification, setShowVerification] = useState(false);
   const [editData, setEditData] = useState({
     card_name: "",
     card_set: "",
@@ -88,8 +92,42 @@ export function CardDetailModal({
     }
     if (!open) {
       setIsEditing(false);
+      setShowVerification(false);
+      setReferenceImageUrl(null);
     }
   }, [card, open]);
+
+  // Look up reference image from card databases
+  const handleVerifyCard = async () => {
+    if (!card) return;
+
+    try {
+      setIsVerifying(true);
+      setShowVerification(true);
+      setReferenceImageUrl(null);
+
+      const { data, error } = await supabase.functions.invoke("generate-card-image-url", {
+        body: {
+          cardName: card.card_name,
+          cardSet: card.card_set,
+          gameType: card.game_type || card.sport_type,
+        },
+      });
+
+      if (error) throw error;
+
+      if (data?.imageUrl) {
+        setReferenceImageUrl(data.imageUrl);
+      } else {
+        toast.error("Could not find reference image");
+      }
+    } catch (error) {
+      console.error("Error verifying card:", error);
+      toast.error("Failed to look up card image");
+    } finally {
+      setIsVerifying(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!card) return;
@@ -183,14 +221,82 @@ export function CardDetailModal({
           </DialogHeader>
 
           <div className="space-y-6 py-4">
-            {/* 3D Viewer */}
-            <div className="flex justify-center">
-              <Card3DViewer
-                frontImageUrl={card.image_url}
-                width={400}
-                height={300}
-              />
-            </div>
+            {/* Image Verification Section */}
+            {showVerification ? (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-medium text-sm flex items-center gap-2">
+                    <Search className="h-4 w-4 text-primary" />
+                    Image Verification
+                  </h4>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setShowVerification(false);
+                      setReferenceImageUrl(null);
+                    }}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Your Scanned Image */}
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Your Scanned Image</Label>
+                    <div className="relative aspect-[3/4] bg-secondary/50 rounded-lg overflow-hidden border border-border">
+                      <img
+                        src={card.image_url}
+                        alt="Scanned card"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                  </div>
+                  {/* Reference Image */}
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Reference Image (from Database)</Label>
+                    <div className="relative aspect-[3/4] bg-secondary/50 rounded-lg overflow-hidden border border-border">
+                      {isVerifying ? (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <div className="text-center space-y-2">
+                            <Skeleton className="w-16 h-16 mx-auto rounded" />
+                            <p className="text-xs text-muted-foreground">Looking up...</p>
+                          </div>
+                        </div>
+                      ) : referenceImageUrl ? (
+                        <img
+                          src={referenceImageUrl}
+                          alt="Reference card"
+                          className="w-full h-full object-contain"
+                          onError={() => {
+                            setReferenceImageUrl(`https://placehold.co/300x400/1a1a2e/eee?text=${encodeURIComponent(card.card_name.substring(0, 20))}`);
+                          }}
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <div className="text-center text-muted-foreground">
+                            <ImageIcon className="h-8 w-8 mx-auto mb-2" />
+                            <p className="text-xs">No image found</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground text-center">
+                  Compare your scanned image with the reference to verify card identification
+                </p>
+              </div>
+            ) : (
+              /* 3D Viewer */
+              <div className="flex justify-center">
+                <Card3DViewer
+                  frontImageUrl={card.image_url}
+                  width={400}
+                  height={300}
+                />
+              </div>
+            )}
 
             {isEditing ? (
               /* Edit Form */
@@ -370,6 +476,14 @@ export function CardDetailModal({
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
                   Delete
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleVerifyCard}
+                  disabled={isVerifying}
+                >
+                  <Search className="h-4 w-4 mr-2" />
+                  {isVerifying ? "Verifying..." : "Verify"}
                 </Button>
                 <Button variant="outline" onClick={() => setIsEditing(true)}>
                   <Pencil className="h-4 w-4 mr-2" />
