@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
-import { Search, Trash2, RefreshCw, Edit3, ImageOff, X } from "lucide-react";
+import { Search, Trash2, RefreshCw, Edit3, ImageOff, X, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -66,6 +66,8 @@ export default function Collections() {
   const [recentImportCount, setRecentImportCount] = useState(0);
   const [showDeleteNoImage, setShowDeleteNoImage] = useState(false);
   const [noImageCount, setNoImageCount] = useState(0);
+  const [placeholderCount, setPlaceholderCount] = useState(0);
+  const [isLookingUpImages, setIsLookingUpImages] = useState(false);
   const [showBulkEdit, setShowBulkEdit] = useState(false);
   const [cardDetail, setCardDetail] = useState<CardData | null>(null);
   const [showCardDetail, setShowCardDetail] = useState(false);
@@ -107,6 +109,7 @@ export default function Collections() {
     fetchCards();
     checkRecentImports();
     checkNoImageCards();
+    checkPlaceholderCards();
 
     // Set up real-time subscription for card changes
     const channel = supabase
@@ -377,6 +380,107 @@ export default function Collections() {
     }
   };
 
+  const checkPlaceholderCards = async () => {
+    if (!userId) return;
+    
+    try {
+      const { count, error } = await supabase
+        .from("cards")
+        .select("*", { count: 'exact', head: true })
+        .eq("user_id", userId)
+        .like("image_url", "%placehold%");
+
+      if (!error && count !== null) {
+        setPlaceholderCount(count);
+      }
+    } catch (error) {
+      console.error("Error checking placeholder cards:", error);
+    }
+  };
+
+  const handleBulkImageLookup = async () => {
+    if (!userId || placeholderCount === 0) {
+      toast.info("No cards with placeholder images to process");
+      return;
+    }
+
+    setIsLookingUpImages(true);
+    toast.loading("Looking up card images...", { id: "image-lookup" });
+
+    try {
+      const { data: cards, error } = await supabase
+        .from("cards")
+        .select("id, card_name, card_set, game_type, sport_type")
+        .eq("user_id", userId)
+        .like("image_url", "%placehold%");
+
+      if (error) throw error;
+      if (!cards || cards.length === 0) {
+        toast.dismiss("image-lookup");
+        toast.info("No cards with placeholder images found");
+        setIsLookingUpImages(false);
+        return;
+      }
+
+      let updated = 0;
+      const batchSize = 10;
+
+      for (let i = 0; i < cards.length; i += batchSize) {
+        const batch = cards.slice(i, i + batchSize);
+        
+        const results = await Promise.allSettled(
+          batch.map(async (card) => {
+            try {
+              const { data, error } = await supabase.functions.invoke("generate-card-image-url", {
+                body: {
+                  cardName: card.card_name,
+                  cardSet: card.card_set,
+                  gameType: card.game_type || card.sport_type,
+                },
+              });
+
+              if (error) throw error;
+
+              if (data?.found && data?.imageUrl && !data.imageUrl.includes("placehold")) {
+                const { error: updateError } = await supabase
+                  .from("cards")
+                  .update({ 
+                    image_url: data.imageUrl,
+                    updated_at: new Date().toISOString() 
+                  })
+                  .eq("id", card.id);
+
+                if (!updateError) return true;
+              }
+              return false;
+            } catch {
+              return false;
+            }
+          })
+        );
+
+        results.forEach((result) => {
+          if (result.status === "fulfilled" && result.value) {
+            updated++;
+          }
+        });
+
+        if (i + batchSize < cards.length) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }
+      }
+
+      toast.success(`Found images for ${updated} of ${cards.length} cards`, { id: "image-lookup" });
+      fetchCards();
+      checkPlaceholderCards();
+    } catch (error: any) {
+      console.error("Bulk image lookup error:", error);
+      toast.error(error.message || "Error during image lookup", { id: "image-lookup" });
+    } finally {
+      setIsLookingUpImages(false);
+    }
+  };
+
   const handleDeleteNoImage = async () => {
     if (!userId) return;
     
@@ -553,6 +657,18 @@ export default function Collections() {
             >
               <ImageOff className="h-4 w-4 mr-2" />
               Delete No-Image ({noImageCount})
+            </Button>
+          )}
+
+          {placeholderCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleBulkImageLookup}
+              disabled={isLookingUpImages}
+            >
+              <Download className={`h-4 w-4 mr-2 ${isLookingUpImages ? 'animate-spin' : ''}`} />
+              Find Images ({placeholderCount})
             </Button>
           )}
           
