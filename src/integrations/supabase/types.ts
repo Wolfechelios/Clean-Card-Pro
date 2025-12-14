@@ -28,8 +28,13 @@ export type Database = {
           ebay_listing_id: string | null
           ebay_listing_url: string | null
           edition: string | null
+          external_id: string | null
+          external_source: string | null
           game_type: string | null
           id: string
+          image_error: string | null
+          image_last_attempt_at: string | null
+          image_status: string | null
           image_url: string
           last_price_update: string | null
           notes: string | null
@@ -56,8 +61,13 @@ export type Database = {
           ebay_listing_id?: string | null
           ebay_listing_url?: string | null
           edition?: string | null
+          external_id?: string | null
+          external_source?: string | null
           game_type?: string | null
           id?: string
+          image_error?: string | null
+          image_last_attempt_at?: string | null
+          image_status?: string | null
           image_url: string
           last_price_update?: string | null
           notes?: string | null
@@ -84,8 +94,13 @@ export type Database = {
           ebay_listing_id?: string | null
           ebay_listing_url?: string | null
           edition?: string | null
+          external_id?: string | null
+          external_source?: string | null
           game_type?: string | null
           id?: string
+          image_error?: string | null
+          image_last_attempt_at?: string | null
+          image_status?: string | null
           image_url?: string
           last_price_update?: string | null
           notes?: string | null

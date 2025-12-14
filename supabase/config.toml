@@ -50,3 +50,9 @@ verify_jwt = true
 
 [functions.collection-advisor]
 verify_jwt = true
+
+[functions.backfill-images]
+verify_jwt = true
+
+[functions.attach-image]
+verify_jwt = true
