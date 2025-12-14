@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Trash2, ImagePlus, Loader2, ImageOff } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -44,8 +44,22 @@ export function CardThumbnail({
   const [isLookingUp, setIsLookingUp] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [currentImageUrl, setCurrentImageUrl] = useState(thumbnailUrl || imageUrl);
-  const hasPlaceholder = currentImageUrl?.includes("placehold") || !currentImageUrl;
-  const showImage = currentImageUrl && !hasPlaceholder && !imageError;
+  
+  // Sync state when props change (e.g., after parent refetch)
+  useEffect(() => {
+    const newUrl = thumbnailUrl || imageUrl;
+    if (newUrl !== currentImageUrl) {
+      setCurrentImageUrl(newUrl);
+      setImageError(false); // Reset error when URL changes
+    }
+  }, [thumbnailUrl, imageUrl]);
+  
+  // Only show placeholder UI if URL is actually a placeholder or completely missing
+  const isPlaceholderUrl = !currentImageUrl || currentImageUrl.includes("placehold.co");
+  // Show image if we have a real URL (even if it might fail to load)
+  const showImage = currentImageUrl && !isPlaceholderUrl;
+  // Show find image button if placeholder or image failed to load
+  const showFindImageButton = isPlaceholderUrl || imageError;
 
   const handleImageLookup = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -121,7 +135,7 @@ export function CardThumbnail({
       {/* Action buttons */}
       <div className="absolute top-1.5 right-1.5 z-10 flex gap-1">
         {/* Find image button - show for placeholder or failed images */}
-        {(hasPlaceholder || imageError) && (
+        {showFindImageButton && (
           <button
             className={cn(
               "p-1 rounded-full",
@@ -161,7 +175,7 @@ export function CardThumbnail({
 
       {/* Square thumbnail */}
       <div className="aspect-square w-full overflow-hidden bg-muted flex items-center justify-center">
-        {showImage ? (
+        {showImage && !imageError ? (
           <img
             src={currentImageUrl}
             alt={cardName}
@@ -169,7 +183,14 @@ export function CardThumbnail({
             onError={() => setImageError(true)}
             className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
           />
+        ) : imageError && currentImageUrl ? (
+          // Image failed to load - show broken state with retry option
+          <div className="flex flex-col items-center justify-center text-muted-foreground/50 p-2">
+            <ImageOff className="h-6 w-6 mb-1" />
+            <span className="text-[8px] text-center">Image unavailable</span>
+          </div>
         ) : (
+          // No image URL or placeholder
           <div className="flex flex-col items-center justify-center text-muted-foreground/50 p-2">
             <ImageOff className="h-8 w-8 mb-1" />
             <span className="text-[9px] text-center line-clamp-2">{cardName}</span>
