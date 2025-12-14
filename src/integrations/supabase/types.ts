@@ -37,16 +37,31 @@ export type Database = {
           image_status: string | null
           image_url: string
           last_price_update: string | null
+          manufacturer: string | null
+          normalization_confidence: number | null
+          normalization_notes: Json | null
+          normalized_at: string | null
           notes: string | null
           ocr_confidence: number | null
           ocr_raw_text: string | null
+          player_name: string | null
           rarity: string | null
+          raw_manufacturer: string | null
+          raw_name: string | null
+          raw_number: string | null
+          raw_set: string | null
+          raw_year: string | null
+          set_name: string | null
+          sport: string | null
           sport_type: string | null
           suggested_price: number | null
           tags: string[] | null
+          team: string | null
           thumbnail_url: string | null
           updated_at: string
           user_id: string
+          variant: string | null
+          year: number | null
         }
         Insert: {
           card_name: string
@@ -70,16 +85,31 @@ export type Database = {
           image_status?: string | null
           image_url: string
           last_price_update?: string | null
+          manufacturer?: string | null
+          normalization_confidence?: number | null
+          normalization_notes?: Json | null
+          normalized_at?: string | null
           notes?: string | null
           ocr_confidence?: number | null
           ocr_raw_text?: string | null
+          player_name?: string | null
           rarity?: string | null
+          raw_manufacturer?: string | null
+          raw_name?: string | null
+          raw_number?: string | null
+          raw_set?: string | null
+          raw_year?: string | null
+          set_name?: string | null
+          sport?: string | null
           sport_type?: string | null
           suggested_price?: number | null
           tags?: string[] | null
+          team?: string | null
           thumbnail_url?: string | null
           updated_at?: string
           user_id: string
+          variant?: string | null
+          year?: number | null
         }
         Update: {
           card_name?: string
@@ -103,16 +133,31 @@ export type Database = {
           image_status?: string | null
           image_url?: string
           last_price_update?: string | null
+          manufacturer?: string | null
+          normalization_confidence?: number | null
+          normalization_notes?: Json | null
+          normalized_at?: string | null
           notes?: string | null
           ocr_confidence?: number | null
           ocr_raw_text?: string | null
+          player_name?: string | null
           rarity?: string | null
+          raw_manufacturer?: string | null
+          raw_name?: string | null
+          raw_number?: string | null
+          raw_set?: string | null
+          raw_year?: string | null
+          set_name?: string | null
+          sport?: string | null
           sport_type?: string | null
           suggested_price?: number | null
           tags?: string[] | null
+          team?: string | null
           thumbnail_url?: string | null
           updated_at?: string
           user_id?: string
+          variant?: string | null
+          year?: number | null
         }
         Relationships: []
       }
