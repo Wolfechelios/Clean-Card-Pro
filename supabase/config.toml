@@ -59,3 +59,9 @@ verify_jwt = true
 
 [functions.normalize-cards]
 verify_jwt = true
+
+[functions.get-psa10-price]
+verify_jwt = true
+
+[functions.run-psa10-job]
+verify_jwt = true

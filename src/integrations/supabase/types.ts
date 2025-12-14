@@ -45,6 +45,13 @@ export type Database = {
           ocr_confidence: number | null
           ocr_raw_text: string | null
           player_name: string | null
+          psa10_currency: string | null
+          psa10_locked: boolean | null
+          psa10_match_confidence: number | null
+          psa10_price: number | null
+          psa10_source: string | null
+          psa10_source_ref: string | null
+          psa10_updated_at: string | null
           rarity: string | null
           raw_manufacturer: string | null
           raw_name: string | null
@@ -93,6 +100,13 @@ export type Database = {
           ocr_confidence?: number | null
           ocr_raw_text?: string | null
           player_name?: string | null
+          psa10_currency?: string | null
+          psa10_locked?: boolean | null
+          psa10_match_confidence?: number | null
+          psa10_price?: number | null
+          psa10_source?: string | null
+          psa10_source_ref?: string | null
+          psa10_updated_at?: string | null
           rarity?: string | null
           raw_manufacturer?: string | null
           raw_name?: string | null
@@ -141,6 +155,13 @@ export type Database = {
           ocr_confidence?: number | null
           ocr_raw_text?: string | null
           player_name?: string | null
+          psa10_currency?: string | null
+          psa10_locked?: boolean | null
+          psa10_match_confidence?: number | null
+          psa10_price?: number | null
+          psa10_source?: string | null
+          psa10_source_ref?: string | null
+          psa10_updated_at?: string | null
           rarity?: string | null
           raw_manufacturer?: string | null
           raw_name?: string | null
@@ -342,6 +363,42 @@ export type Database = {
           },
         ]
       }
+      price_cache: {
+        Row: {
+          confidence: number | null
+          currency: string | null
+          id: string
+          identity_hash: string
+          price: number | null
+          raw: Json | null
+          source: string
+          source_ref: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          confidence?: number | null
+          currency?: string | null
+          id?: string
+          identity_hash: string
+          price?: number | null
+          raw?: Json | null
+          source: string
+          source_ref?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          confidence?: number | null
+          currency?: string | null
+          id?: string
+          identity_hash?: string
+          price?: number | null
+          raw?: Json | null
+          source?: string
+          source_ref?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       price_history: {
         Row: {
           card_id: string
@@ -379,6 +436,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      price_jobs: {
+        Row: {
+          created_at: string | null
+          error: string | null
+          id: string
+          processed_count: number | null
+          requested_count: number | null
+          status: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          error?: string | null
+          id?: string
+          processed_count?: number | null
+          requested_count?: number | null
+          status?: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          error?: string | null
+          id?: string
+          processed_count?: number | null
+          requested_count?: number | null
+          status?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
       }
       profiles: {
         Row: {

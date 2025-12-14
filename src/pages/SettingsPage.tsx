@@ -24,6 +24,7 @@ import ServiceImportExport from "@/components/settings/ServiceImportExport";
 import DeviceStorageSettings from "@/components/settings/DeviceStorageSettings";
 import { BulkRarityReanalyze } from "@/components/collections/BulkRarityReanalyze";
 import { BulkImageLookup } from "@/components/collections/BulkImageLookup";
+import { BulkPSA10Update } from "@/components/pricing/BulkPSA10Update";
 import { SettingsSkeleton } from "@/components/ui/loading-skeletons";
 import { useScannerSettings } from "@/hooks/use-scanner-settings";
 import { Slider } from "@/components/ui/slider";
@@ -511,7 +512,11 @@ export default function Settings() {
             </div>
 
             <Separator />
-            
+
+            {/* Bulk PSA 10 Price Update */}
+            <BulkPSA10Update />
+
+            <Separator />
             <div>
               <p className="text-sm text-muted-foreground mb-2">
                 {noImageCount > 0 

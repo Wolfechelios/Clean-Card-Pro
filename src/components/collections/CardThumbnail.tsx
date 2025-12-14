@@ -4,6 +4,7 @@ import { Trash2, ImagePlus, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { PSA10PriceChip } from "@/components/pricing/PSA10PriceChip";
 
 interface CardThumbnailProps {
   id: string;
@@ -13,6 +14,7 @@ interface CardThumbnailProps {
   imageUrl: string;
   thumbnailUrl: string | null;
   price: number | null;
+  psa10Price?: number | null;
   isSelected: boolean;
   gameType?: string | null;
   sportType?: string | null;
@@ -30,6 +32,7 @@ export function CardThumbnail({
   imageUrl,
   thumbnailUrl,
   price,
+  psa10Price,
   isSelected,
   gameType,
   sportType,
@@ -166,6 +169,9 @@ export function CardThumbnail({
           <p className="text-[10px] font-semibold text-primary mt-0.5">
             ${price.toFixed(2)}
           </p>
+        )}
+        {psa10Price !== null && psa10Price !== undefined && psa10Price > 0 && (
+          <PSA10PriceChip price={psa10Price} className="mt-0.5 text-[9px]" />
         )}
       </div>
     </div>
