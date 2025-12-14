@@ -43,9 +43,9 @@ export function CardThumbnail({
 }: CardThumbnailProps) {
   const [isLookingUp, setIsLookingUp] = useState(false);
   const [imageError, setImageError] = useState(false);
-  const hasPlaceholder = imageUrl?.includes("placehold") || !imageUrl;
-  const displayUrl = thumbnailUrl || imageUrl;
-  const showImage = displayUrl && !hasPlaceholder && !imageError;
+  const [currentImageUrl, setCurrentImageUrl] = useState(thumbnailUrl || imageUrl);
+  const hasPlaceholder = currentImageUrl?.includes("placehold") || !currentImageUrl;
+  const showImage = currentImageUrl && !hasPlaceholder && !imageError;
 
   const handleImageLookup = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -74,7 +74,8 @@ export function CardThumbnail({
 
         if (updateError) throw updateError;
         
-        // Reset error state so the new image can load
+        // Update local state immediately so image shows
+        setCurrentImageUrl(data.imageUrl);
         setImageError(false);
         toast.success("Image found and updated");
         onImageUpdated?.();
@@ -157,7 +158,7 @@ export function CardThumbnail({
       <div className="aspect-square w-full overflow-hidden bg-muted flex items-center justify-center">
         {showImage ? (
           <img
-            src={displayUrl}
+            src={currentImageUrl}
             alt={cardName}
             loading="lazy"
             onError={() => setImageError(true)}
