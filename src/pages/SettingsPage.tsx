@@ -18,7 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { LogOut, Trash2, User, Lock, ImageOff, Clock, RefreshCw, Database, ScanLine } from "lucide-react";
+import { LogOut, Trash2, User, Lock, ImageOff, Clock, RefreshCw, Database, ScanLine, ImageIcon } from "lucide-react";
 import N8nIntegrations from "@/components/settings/N8nIntegrations";
 import ServiceImportExport from "@/components/settings/ServiceImportExport";
 import DeviceStorageSettings from "@/components/settings/DeviceStorageSettings";
@@ -466,6 +466,21 @@ export default function Settings() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4">
+            <div>
+              <p className="text-sm text-muted-foreground mb-2">
+                Find and download missing card images from official databases
+              </p>
+              <Button 
+                variant="outline" 
+                onClick={() => navigate('/image-backfill')}
+              >
+                <ImageIcon className="h-4 w-4 mr-2" />
+                Image Backfill Tool
+              </Button>
+            </div>
+
+            <Separator />
+
             <div>
               <p className="text-sm text-muted-foreground mb-2">
                 Update all card prices from market data

@@ -24,6 +24,7 @@ import GradedScanPage from "./pages/GradedScanPage";
 import VisualSearchPage from "./pages/VisualSearchPage";
 import AdvancedAnalyticsPage from "./pages/AdvancedAnalyticsPage";
 import CardPriceHubPage from "./pages/CardPriceHubPage";
+import ImageBackfillPage from "./pages/ImageBackfillPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -113,6 +114,10 @@ function AppRoutes() {
       <Route
         path="/price-hub"
         element={session ? <CardPriceHubPage /> : <Navigate to="/auth" />}
+      />
+      <Route
+        path="/image-backfill"
+        element={session ? <ImageBackfillPage /> : <Navigate to="/auth" />}
       />
       <Route path="*" element={<NotFound />} />
     </Routes>
