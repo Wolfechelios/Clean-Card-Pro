@@ -137,11 +137,19 @@ async function downloadAndUploadImage(
     }
 
     const arrayBuffer = await response.arrayBuffer();
-    const size = arrayBuffer.byteLength;
+    const uint8Array = new Uint8Array(arrayBuffer);
+    const size = uint8Array.byteLength;
+    
+    console.log(`Downloaded image: ${size} bytes, content-type: ${contentType}`);
     
     // Max 10MB
     if (size > 10 * 1024 * 1024) {
       throw new Error(`Image too large: ${size} bytes`);
+    }
+    
+    // Ensure we actually got data
+    if (size === 0) {
+      throw new Error('Downloaded empty image file');
     }
 
     // Determine extension
@@ -152,11 +160,11 @@ async function downloadAndUploadImage(
     const gameFolder = (gameType || 'unknown').toLowerCase().replace(/[^a-z0-9]/g, '_');
     const filePath = `cards/${gameFolder}/${cardId}.${ext}`;
 
-    console.log(`Uploading to: ${filePath}`);
+    console.log(`Uploading to: ${filePath} (${size} bytes)`);
 
     const { error: uploadError } = await supabase.storage
       .from('card-images')
-      .upload(filePath, arrayBuffer, {
+      .upload(filePath, uint8Array, {
         contentType,
         upsert: true,
       });
