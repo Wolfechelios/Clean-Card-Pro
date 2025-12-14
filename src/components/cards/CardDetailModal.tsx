@@ -25,6 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import Card3DViewer from "@/components/Card3DViewer";
+import { PSA10PriceSection } from "@/components/pricing/PSA10PriceSection";
 import { toast } from "sonner";
 import { Pencil, Trash2, X, Save, Search, ImageIcon, CheckCircle2, XCircle, Box, Image } from "lucide-react";
 
@@ -42,6 +43,13 @@ export interface CardData {
   created_at?: string;
   game_type: string | null;
   sport_type: string | null;
+  psa10_price?: number | null;
+  psa10_currency?: string | null;
+  psa10_source?: string | null;
+  psa10_updated_at?: string | null;
+  psa10_match_confidence?: number | null;
+  psa10_source_ref?: string | null;
+  psa10_locked?: boolean;
 }
 
 interface CardDetailModalProps {
@@ -66,6 +74,14 @@ export function CardDetailModal({
   const [referenceImageUrl, setReferenceImageUrl] = useState<string | null>(null);
   const [showVerification, setShowVerification] = useState(false);
   const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
+  const [cardState, setCardState] = useState<CardData | null>(null);
+  
+  // Keep local card state for PSA10 updates
+  useEffect(() => {
+    if (card) {
+      setCardState(card);
+    }
+  }, [card]);
   const [editData, setEditData] = useState({
     card_name: "",
     card_set: "",
@@ -564,6 +580,29 @@ export function CardDetailModal({
                   {card.condition && <Badge variant="outline">{card.condition}</Badge>}
                   {card.game_type && <Badge>{card.game_type}</Badge>}
                 </div>
+
+                {/* PSA 10 Price Section */}
+                <PSA10PriceSection
+                  cardId={card.id}
+                  price={cardState?.psa10_price}
+                  currency={cardState?.psa10_currency || "USD"}
+                  source={cardState?.psa10_source}
+                  updatedAt={cardState?.psa10_updated_at}
+                  confidence={cardState?.psa10_match_confidence}
+                  sourceRef={cardState?.psa10_source_ref}
+                  locked={cardState?.psa10_locked}
+                  onUpdate={async () => {
+                    // Refetch card data to get updated PSA10 info
+                    const { data } = await supabase
+                      .from("cards")
+                      .select("psa10_price, psa10_currency, psa10_source, psa10_updated_at, psa10_match_confidence, psa10_source_ref, psa10_locked")
+                      .eq("id", card.id)
+                      .single();
+                    if (data && cardState) {
+                      setCardState({ ...cardState, ...data });
+                    }
+                  }}
+                />
               </>
             )}
           </div>
