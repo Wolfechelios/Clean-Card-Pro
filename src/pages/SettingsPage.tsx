@@ -23,6 +23,7 @@ import N8nIntegrations from "@/components/settings/N8nIntegrations";
 import ServiceImportExport from "@/components/settings/ServiceImportExport";
 import DeviceStorageSettings from "@/components/settings/DeviceStorageSettings";
 import { BulkRarityReanalyze } from "@/components/collections/BulkRarityReanalyze";
+import { BulkImageLookup } from "@/components/collections/BulkImageLookup";
 import { SettingsSkeleton } from "@/components/ui/loading-skeletons";
 import { useScannerSettings } from "@/hooks/use-scanner-settings";
 import { Slider } from "@/components/ui/slider";
@@ -558,6 +559,11 @@ export default function Settings() {
               nullRarityCount={nullRarityCount} 
               onComplete={loadCollectionStats} 
             />
+
+            <Separator />
+
+            {/* Bulk Image Lookup */}
+            <BulkImageLookup onComplete={loadCollectionStats} />
           </div>
         </CardContent>
       </Card>
