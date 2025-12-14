@@ -65,3 +65,9 @@ verify_jwt = true
 
 [functions.run-psa10-job]
 verify_jwt = true
+
+[functions.resolve-card-image]
+verify_jwt = true
+
+[functions.resolve-missing-images]
+verify_jwt = true

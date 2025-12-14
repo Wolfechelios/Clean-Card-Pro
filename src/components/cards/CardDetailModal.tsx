@@ -26,6 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import Card3DViewer from "@/components/Card3DViewer";
 import { PSA10PriceSection } from "@/components/pricing/PSA10PriceSection";
+import { CardImageActions } from "@/components/collections/CardImageActions";
 import { toast } from "sonner";
 import { Pencil, Trash2, X, Save, Search, ImageIcon, CheckCircle2, XCircle, Box, Image } from "lucide-react";
 
@@ -50,6 +51,8 @@ export interface CardData {
   psa10_match_confidence?: number | null;
   psa10_source_ref?: string | null;
   psa10_locked?: boolean;
+  image_locked?: boolean;
+  image_source?: string | null;
 }
 
 interface CardDetailModalProps {
@@ -579,6 +582,28 @@ export function CardDetailModal({
                   {card.rarity && <Badge variant="secondary">{card.rarity}</Badge>}
                   {card.condition && <Badge variant="outline">{card.condition}</Badge>}
                   {card.game_type && <Badge>{card.game_type}</Badge>}
+                </div>
+
+                {/* Image Actions */}
+                <div className="border-t pt-4">
+                  <h4 className="text-sm font-medium mb-3">Image Settings</h4>
+                  <CardImageActions
+                    cardId={card.id}
+                    imageUrl={card.image_url}
+                    imageLocked={card.image_locked || false}
+                    imageSource={card.image_source || null}
+                    onImageUpdated={async () => {
+                      const { data } = await supabase
+                        .from("cards")
+                        .select("image_url, thumbnail_url, image_locked, image_source")
+                        .eq("id", card.id)
+                        .single();
+                      if (data && cardState) {
+                        setCardState({ ...cardState, ...data });
+                        onUpdate?.({ ...card, ...data });
+                      }
+                    }}
+                  />
                 </div>
 
                 {/* PSA 10 Price Section */}

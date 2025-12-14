@@ -34,7 +34,12 @@ export type Database = {
           id: string
           image_error: string | null
           image_last_attempt_at: string | null
+          image_locked: boolean | null
+          image_search_status: string | null
+          image_source: string | null
           image_status: string | null
+          image_storage_path: string | null
+          image_updated_at: string | null
           image_url: string
           last_price_update: string | null
           manufacturer: string | null
@@ -58,6 +63,7 @@ export type Database = {
           raw_number: string | null
           raw_set: string | null
           raw_year: string | null
+          set_code: string | null
           set_name: string | null
           sport: string | null
           sport_type: string | null
@@ -89,7 +95,12 @@ export type Database = {
           id?: string
           image_error?: string | null
           image_last_attempt_at?: string | null
+          image_locked?: boolean | null
+          image_search_status?: string | null
+          image_source?: string | null
           image_status?: string | null
+          image_storage_path?: string | null
+          image_updated_at?: string | null
           image_url: string
           last_price_update?: string | null
           manufacturer?: string | null
@@ -113,6 +124,7 @@ export type Database = {
           raw_number?: string | null
           raw_set?: string | null
           raw_year?: string | null
+          set_code?: string | null
           set_name?: string | null
           sport?: string | null
           sport_type?: string | null
@@ -144,7 +156,12 @@ export type Database = {
           id?: string
           image_error?: string | null
           image_last_attempt_at?: string | null
+          image_locked?: boolean | null
+          image_search_status?: string | null
+          image_source?: string | null
           image_status?: string | null
+          image_storage_path?: string | null
+          image_updated_at?: string | null
           image_url?: string
           last_price_update?: string | null
           manufacturer?: string | null
@@ -168,6 +185,7 @@ export type Database = {
           raw_number?: string | null
           raw_set?: string | null
           raw_year?: string | null
+          set_code?: string | null
           set_name?: string | null
           sport?: string | null
           sport_type?: string | null
