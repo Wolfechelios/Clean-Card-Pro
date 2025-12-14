@@ -186,27 +186,20 @@ export function useCardScanner({ userId, onScanComplete, skipDuplicateCheck = fa
       let alternatives: Alternative[] = [];
       
       try {
-        const enhancedRes = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/enhanced-card-identify`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageUrl, ocrText: ocr.rawText }),
-          }
+        const { data: enhancedResult, error: enhancedError } = await supabase.functions.invoke(
+          "enhanced-card-identify",
+          { body: { imageUrl, ocrText: ocr.rawText } }
         );
         
-        if (enhancedRes.ok) {
-          const enhancedResult = await enhancedRes.json();
-          if (enhancedResult.success) {
-            const cardData = enhancedResult.cardData;
-            if (cardData.primary) {
-              enhancedData = cardData.primary;
-              alternatives = cardData.alternatives || [];
-            } else {
-              enhancedData = cardData;
-            }
-            toast.success(`Card identified: ${enhancedData.card_name}`);
+        if (!enhancedError && enhancedResult?.success) {
+          const cardData = enhancedResult.cardData;
+          if (cardData.primary) {
+            enhancedData = cardData.primary;
+            alternatives = cardData.alternatives || [];
+          } else {
+            enhancedData = cardData;
           }
+          toast.success(`Card identified: ${enhancedData.card_name}`);
         }
       } catch (error) {
         console.error("Enhanced identification error:", error);
