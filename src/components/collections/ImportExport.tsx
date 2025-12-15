@@ -1,12 +1,14 @@
 import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Download, Upload, FileSpreadsheet, AlertCircle } from "lucide-react";
+import { Download, Upload, FileSpreadsheet, AlertCircle, Cloud } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 
 interface ImportExportProps {
   cards: any[];
@@ -33,10 +35,23 @@ async function lookupCardImage(cardName: string, cardSet: string | null, gameTyp
   }
 }
 
+// Helper to store image to cloud storage
+async function storeImageToCloud(cardId: string, imageUrl: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.functions.invoke('attach-image', {
+      body: { cardId, remoteImageUrl: imageUrl }
+    });
+    return !error && data?.success;
+  } catch {
+    return false;
+  }
+}
+
 export default function ImportExport({ cards, onImportComplete }: ImportExportProps) {
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState("");
+  const [autoStoreImages, setAutoStoreImages] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const exportToExcel = () => {
@@ -132,6 +147,8 @@ export default function ImportExport({ cards, onImportComplete }: ImportExportPr
           let imported = 0;
           let errors = 0;
           let imagesFound = 0;
+          let imagesStored = 0;
+          const cardsToStore: { id: string; imageUrl: string }[] = [];
 
           for (let i = 0; i < jsonData.length; i += batchSize) {
             const batch = jsonData.slice(i, i + batchSize);
@@ -146,6 +163,7 @@ export default function ImportExport({ cards, onImportComplete }: ImportExportPr
               const gameType = row["Game Type"] || row["game_type"] || null;
               
               let finalImageUrl = existingImageUrl;
+              let isExternalUrl = false;
               
               // If no image URL or it's a placeholder, try to look one up
               if (!existingImageUrl || existingImageUrl.includes('placehold') || existingImageUrl.includes('placeholder')) {
@@ -153,10 +171,14 @@ export default function ImportExport({ cards, onImportComplete }: ImportExportPr
                 if (lookedUpImage) {
                   finalImageUrl = lookedUpImage;
                   imagesFound++;
+                  isExternalUrl = true;
                 } else {
                   // Use a minimal placeholder that we can identify later
                   finalImageUrl = `https://placehold.co/300x400/1a1a2e/eee?text=${encodeURIComponent(cardName.substring(0, 15))}`;
                 }
+              } else if (existingImageUrl && !existingImageUrl.includes('supabase')) {
+                // Existing external URL
+                isExternalUrl = true;
               }
               
               return {
@@ -172,26 +194,57 @@ export default function ImportExport({ cards, onImportComplete }: ImportExportPr
                 collection_name: row["Collection"] || row["collection_name"] || null,
                 game_type: gameType,
                 image_url: finalImageUrl,
+                _isExternalUrl: isExternalUrl, // Temporary flag for storage
               };
             }));
 
-            const { error } = await supabase
+            // Remove temporary flag before insert
+            const cleanCards = cardsToInsert.map(({ _isExternalUrl, ...card }) => card);
+
+            const { data: insertedCards, error } = await supabase
               .from("cards")
-              .insert(cardsToInsert);
+              .insert(cleanCards)
+              .select("id, image_url");
 
             if (error) {
               console.error("Batch import error:", error);
               errors += batch.length;
             } else {
               imported += batch.length;
+              
+              // Track cards that need cloud storage
+              if (autoStoreImages && insertedCards) {
+                insertedCards.forEach((card, idx) => {
+                  const originalCard = cardsToInsert[idx];
+                  if (originalCard._isExternalUrl && card.image_url && !card.image_url.includes('placehold')) {
+                    cardsToStore.push({ id: card.id, imageUrl: card.image_url });
+                  }
+                });
+              }
             }
 
             setImportProgress(Math.round(((i + batch.length) / jsonData.length) * 100));
           }
 
+          // Store external images to cloud if enabled
+          if (autoStoreImages && cardsToStore.length > 0) {
+            setProgressMessage(`Storing ${cardsToStore.length} images to cloud...`);
+            setImportProgress(0);
+            
+            for (let i = 0; i < cardsToStore.length; i++) {
+              const { id, imageUrl } = cardsToStore[i];
+              const success = await storeImageToCloud(id, imageUrl);
+              if (success) imagesStored++;
+              setImportProgress(Math.round(((i + 1) / cardsToStore.length) * 100));
+            }
+          }
+
           if (imported > 0) {
-            const imageMsg = imagesFound > 0 ? `, found ${imagesFound} images` : "";
-            toast.success(`Imported ${imported} cards${imageMsg}${errors > 0 ? `, ${errors} failed` : ""}`);
+            let msg = `Imported ${imported} cards`;
+            if (imagesFound > 0) msg += `, found ${imagesFound} images`;
+            if (imagesStored > 0) msg += `, stored ${imagesStored} to cloud`;
+            if (errors > 0) msg += `, ${errors} failed`;
+            toast.success(msg);
             onImportComplete();
           } else {
             toast.error("Failed to import cards");
@@ -256,8 +309,22 @@ export default function ImportExport({ cards, onImportComplete }: ImportExportPr
             </div>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-3">
             <h4 className="font-semibold">Import</h4>
+            
+            {/* Auto-store toggle */}
+            <div className="flex items-center gap-2 p-2 rounded-md bg-muted/50">
+              <Switch
+                id="auto-store"
+                checked={autoStoreImages}
+                onCheckedChange={setAutoStoreImages}
+              />
+              <Label htmlFor="auto-store" className="text-sm flex items-center gap-1.5 cursor-pointer">
+                <Cloud className="h-4 w-4" />
+                Store images to cloud
+              </Label>
+            </div>
+            
             <input
               ref={fileInputRef}
               type="file"
