@@ -45,13 +45,13 @@ serve(async (req) => {
 
     console.log(`Resolving missing images for user ${user.id}, limit: ${processLimit}`);
 
-    // Find cards with missing images
+    // Find cards with missing images (only placeholder or null URLs)
     const { data: cards, error: cardsError } = await supabase
       .from('cards')
       .select('id, card_name, card_set, set_code, card_number, year, variant, game_type, sport_type, player_name, image_locked, image_url')
       .eq('user_id', user.id)
       .eq('image_locked', false)
-      .or('image_search_status.eq.missing,image_search_status.is.null,image_url.is.null,image_url.ilike.%placehold%')
+      .or('image_url.is.null,image_url.ilike.%placehold%')
       .limit(processLimit);
 
     if (cardsError) {
