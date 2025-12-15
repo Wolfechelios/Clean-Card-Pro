@@ -1,48 +1,50 @@
 project_id = "cyyaapagcftbhafhlofb"
 
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+api_url = "http://127.0.0.1"
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+additional_redirect_urls = ["https://127.0.0.1:3000"]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+enable_signup = true
+enable_anonymous_sign_ins = false
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = false
+
+[functions.advanced-analytics]
+verify_jwt = true
+
 [functions.analyze-card-full]
-verify_jwt = true
-
-[functions.enhanced-card-identify]
-verify_jwt = true
-
-[functions.rapid-card-identify]
-verify_jwt = true
-
-[functions.collection-insights]
-verify_jwt = true
-
-[functions.update-prices]
-verify_jwt = true
-
-[functions.fetch-card-prices]
-verify_jwt = true
-
-[functions.trigger-n8n]
-verify_jwt = true
-
-[functions.predict-card-value]
-verify_jwt = true
-
-[functions.generate-card-image-url]
 verify_jwt = true
 
 [functions.analyze-graded-card]
 verify_jwt = true
 
-[functions.verify-graded-card]
+[functions.attach-image]
 verify_jwt = true
 
-[functions.visual-similarity]
-verify_jwt = true
-
-[functions.advanced-analytics]
-verify_jwt = true
-
-[functions.graded-card-pricing]
-verify_jwt = true
-
-[functions.grade-equivalents]
+[functions.backfill-images]
 verify_jwt = true
 
 [functions.bulk-reanalyze-rarity]
@@ -51,23 +53,59 @@ verify_jwt = true
 [functions.collection-advisor]
 verify_jwt = true
 
-[functions.backfill-images]
+[functions.collection-insights]
 verify_jwt = true
 
-[functions.attach-image]
+[functions.enhanced-card-identify]
 verify_jwt = true
 
-[functions.normalize-cards]
+[functions.fetch-card-prices]
+verify_jwt = true
+
+[functions.generate-card-image-url]
 verify_jwt = true
 
 [functions.get-psa10-price]
 verify_jwt = true
 
-[functions.run-psa10-job]
+[functions.grade-equivalents]
+verify_jwt = true
+
+[functions.graded-card-pricing]
+verify_jwt = true
+
+[functions.identify-card]
+verify_jwt = true
+
+[functions.normalize-cards]
+verify_jwt = true
+
+[functions.predict-card-value]
+verify_jwt = true
+
+[functions.rapid-card-identify]
+verify_jwt = true
+
+[functions.refresh-external-images]
 verify_jwt = true
 
 [functions.resolve-card-image]
 verify_jwt = true
 
 [functions.resolve-missing-images]
+verify_jwt = true
+
+[functions.run-psa10-job]
+verify_jwt = true
+
+[functions.trigger-n8n]
+verify_jwt = true
+
+[functions.update-prices]
+verify_jwt = true
+
+[functions.verify-graded-card]
+verify_jwt = true
+
+[functions.visual-similarity]
 verify_jwt = true
