@@ -32,12 +32,13 @@ export function BulkImageSearch({ onComplete }: BulkImageSearchProps) {
   const loadMissingCount = async () => {
     setIsLoading(true);
     try {
+      // Count cards that truly need images (placeholders or null)
       const { count, error } = await supabase
         .from("cards")
         .select("*", { count: "exact", head: true })
         .eq("user_id", userId)
         .eq("image_locked", false)
-        .or("image_search_status.eq.missing,image_search_status.is.null,image_url.is.null,image_url.ilike.%placehold%");
+        .or("image_url.is.null,image_url.ilike.%placehold%");
 
       if (error) throw error;
       setMissingCount(count || 0);
