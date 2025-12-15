@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
-import { Search, Trash2, RefreshCw, Edit3, ImageOff, X, Download, ImagePlus } from "lucide-react";
+import { Search, Trash2, RefreshCw, Edit3, ImageOff, X, Download, ImagePlus, Cloud } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -69,6 +69,8 @@ export default function Collections() {
   const [showDeleteNoImage, setShowDeleteNoImage] = useState(false);
   const [noImageCount, setNoImageCount] = useState(0);
   const [placeholderCount, setPlaceholderCount] = useState(0);
+  const [externalImageCount, setExternalImageCount] = useState(0);
+  const [isStoringImages, setIsStoringImages] = useState(false);
   const [isLookingUpImages, setIsLookingUpImages] = useState(false);
   const [imageLookupProgress, setImageLookupProgress] = useState({ processed: 0, total: 0, found: 0 });
   const [showBulkEdit, setShowBulkEdit] = useState(false);
@@ -116,6 +118,7 @@ export default function Collections() {
     checkRecentImports();
     checkNoImageCards();
     checkPlaceholderCards();
+    checkExternalImages();
 
     // Set up real-time subscription for card changes
     const channel = supabase
@@ -423,6 +426,60 @@ export default function Collections() {
     }
   };
 
+  const checkExternalImages = async () => {
+    if (!userId) return;
+    
+    try {
+      // Get all cards with image URLs
+      const { data: allCards, error } = await supabase
+        .from("cards")
+        .select("image_url")
+        .eq("user_id", userId)
+        .eq("image_locked", false)
+        .not("image_url", "is", null)
+        .not("image_url", "ilike", "%placehold%");
+
+      if (error) throw error;
+
+      // Count external URLs (not from our Supabase storage)
+      const externalCards = (allCards || []).filter(card => {
+        const url = card.image_url || "";
+        return url && !url.includes("supabase") && !url.includes("cyyaapagcftbhafhlofb");
+      });
+      setExternalImageCount(externalCards.length);
+    } catch (error) {
+      console.error("Error checking external images:", error);
+    }
+  };
+
+  const handleStoreExternalImages = async () => {
+    if (!userId || externalImageCount === 0) return;
+
+    setIsStoringImages(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("refresh-external-images", {
+        body: { limit: 25 },
+      });
+
+      if (error) throw error;
+
+      if (data.success > 0) {
+        toast.success(`Stored ${data.success} images to cloud storage`);
+        fetchCards();
+        checkExternalImages();
+      } else if (data.processed === 0) {
+        toast.info("No external images to store");
+      } else {
+        toast.warning(`Failed to store ${data.failed} images`);
+      }
+    } catch (error: any) {
+      console.error("Store external images error:", error);
+      toast.error("Failed to store external images");
+    } finally {
+      setIsStoringImages(false);
+    }
+  };
+
   const handleBulkImageLookup = async () => {
     if (!userId || placeholderCount === 0) {
       toast.info("No cards with placeholder images to process");
@@ -710,6 +767,18 @@ export default function Collections() {
             <ImagePlus className="h-4 w-4 mr-2" />
             Find Missing Images
           </Button>
+
+          {externalImageCount > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleStoreExternalImages}
+              disabled={isStoringImages}
+            >
+              <Cloud className={`h-4 w-4 mr-2 ${isStoringImages ? 'animate-pulse' : ''}`} />
+              Store External ({externalImageCount})
+            </Button>
+          )}
           
           <Button
             variant="outline"
