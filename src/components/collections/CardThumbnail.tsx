@@ -180,8 +180,6 @@ export function CardThumbnail({
             src={currentImageUrl}
             alt={cardName}
             loading="lazy"
-            referrerPolicy="no-referrer"
-            crossOrigin="anonymous"
             onError={() => setImageError(true)}
             className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
           />
