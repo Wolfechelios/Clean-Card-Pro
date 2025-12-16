@@ -129,22 +129,37 @@ export default function GradedScanPage() {
     const previewUrl = URL.createObjectURL(file);
     setPreview(previewUrl);
 
-    const fileName = `graded/${userId}/${Date.now()}-${file.name}`;
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    const safeName = file.name.replace(/[^\w.\-]+/g, "_");
+    const fileName = `cards/graded/${userId}/${Date.now()}-${safeName}`;
+
+    const { error: uploadError } = await supabase.storage
       .from("card-images")
-      .upload(fileName, file);
+      .upload(fileName, file, {
+        contentType: file.type || "image/jpeg",
+        cacheControl: "3600",
+        upsert: false,
+      });
 
     if (uploadError) {
-      toast.error("Failed to upload image");
+      console.error("Graded scan upload error:", uploadError);
+      toast.error(uploadError.message || "Failed to upload image");
       return;
     }
 
-    const { data: urlData } = await supabase.storage
+    const { data: urlData, error: urlError } = await supabase.storage
       .from("card-images")
       .createSignedUrl(fileName, 3600);
 
+    if (urlError) {
+      console.error("Graded scan signed URL error:", urlError);
+      toast.error(urlError.message || "Failed to create image URL");
+      return;
+    }
+
     if (urlData?.signedUrl) {
       await processImage(urlData.signedUrl);
+    } else {
+      toast.error("Failed to create image URL");
     }
   };
 
@@ -226,22 +241,35 @@ export default function GradedScanPage() {
       setPreview(previewUrl);
       stopCamera();
 
-      const fileName = `graded/${userId}/${Date.now()}.jpg`;
+      const fileName = `cards/graded/${userId}/${Date.now()}.jpg`;
       const { error: uploadError } = await supabase.storage
         .from("card-images")
-        .upload(fileName, blob);
+        .upload(fileName, blob, {
+          contentType: "image/jpeg",
+          cacheControl: "3600",
+          upsert: false,
+        });
 
       if (uploadError) {
-        toast.error("Failed to upload image");
+        console.error("Graded scan upload error:", uploadError);
+        toast.error(uploadError.message || "Failed to upload image");
         return;
       }
 
-      const { data: urlData } = await supabase.storage
+      const { data: urlData, error: urlError } = await supabase.storage
         .from("card-images")
         .createSignedUrl(fileName, 3600);
 
+      if (urlError) {
+        console.error("Graded scan signed URL error:", urlError);
+        toast.error(urlError.message || "Failed to create image URL");
+        return;
+      }
+
       if (urlData?.signedUrl) {
         await processImage(urlData.signedUrl);
+      } else {
+        toast.error("Failed to create image URL");
       }
     } catch (err) {
       console.error("Capture error:", err);
