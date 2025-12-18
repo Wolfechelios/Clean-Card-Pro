@@ -19,6 +19,9 @@ export type Database = {
           card_name: string
           card_number: string | null
           card_set: string | null
+          cgc10_price: number | null
+          cgc10_source: string | null
+          cgc10_updated_at: string | null
           collection_name: string | null
           condition: string | null
           created_at: string
@@ -80,6 +83,9 @@ export type Database = {
           card_name: string
           card_number?: string | null
           card_set?: string | null
+          cgc10_price?: number | null
+          cgc10_source?: string | null
+          cgc10_updated_at?: string | null
           collection_name?: string | null
           condition?: string | null
           created_at?: string
@@ -141,6 +147,9 @@ export type Database = {
           card_name?: string
           card_number?: string | null
           card_set?: string | null
+          cgc10_price?: number | null
+          cgc10_source?: string | null
+          cgc10_updated_at?: string | null
           collection_name?: string | null
           condition?: string | null
           created_at?: string

@@ -50,6 +50,8 @@ interface CardItem {
   created_at: string;
   game_type: string | null;
   sport_type: string | null;
+  psa10_price?: number | null;
+  cgc10_price?: number | null;
 }
 
 export default function Collections() {

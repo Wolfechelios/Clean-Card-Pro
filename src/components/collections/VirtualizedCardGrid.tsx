@@ -17,6 +17,7 @@ interface CardItem {
   game_type: string | null;
   sport_type: string | null;
   psa10_price?: number | null;
+  cgc10_price?: number | null;
 }
 
 interface VirtualizedCardGridProps {
@@ -119,6 +120,7 @@ export function VirtualizedCardGrid({
                     thumbnailUrl={card.thumbnail_url}
                     price={card.current_price_raw}
                     psa10Price={card.psa10_price}
+                    cgc10Price={card.cgc10_price}
                     isSelected={selectedCards.has(card.id)}
                     gameType={card.game_type}
                     sportType={card.sport_type}
