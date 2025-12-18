@@ -26,6 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import Card3DViewer from "@/components/Card3DViewer";
 import { PSA10PriceSection } from "@/components/pricing/PSA10PriceSection";
+import { GradedPriceChip } from "@/components/pricing/GradedPriceChip";
 import { CardImageActions } from "@/components/collections/CardImageActions";
 import { toast } from "sonner";
 import { Pencil, Trash2, X, Save, Search, ImageIcon, CheckCircle2, XCircle, Box, Image } from "lucide-react";
@@ -51,6 +52,7 @@ export interface CardData {
   psa10_match_confidence?: number | null;
   psa10_source_ref?: string | null;
   psa10_locked?: boolean;
+  cgc10_price?: number | null;
   image_locked?: boolean;
   image_source?: string | null;
 }
@@ -575,6 +577,13 @@ export function CardDetailModal({
                         : "N/A"}
                     </p>
                   </div>
+                </div>
+
+                {/* Graded Prices Summary */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Label className="text-muted-foreground text-xs">Graded Prices:</Label>
+                  <GradedPriceChip grader="PSA" grade="10" price={cardState?.psa10_price} className="text-[10px]" />
+                  <GradedPriceChip grader="CGC" grade="10" price={cardState?.cgc10_price} className="text-[10px]" />
                 </div>
 
                 {/* Badges */}
