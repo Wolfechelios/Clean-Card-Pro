@@ -4,7 +4,7 @@ import { Trash2, ImagePlus, Loader2, ImageOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { PSA10PriceChip } from "@/components/pricing/PSA10PriceChip";
+import { GradedPriceChip } from "@/components/pricing/GradedPriceChip";
 
 interface CardThumbnailProps {
   id: string;
@@ -15,6 +15,7 @@ interface CardThumbnailProps {
   thumbnailUrl: string | null;
   price: number | null;
   psa10Price?: number | null;
+  cgc10Price?: number | null;
   isSelected: boolean;
   gameType?: string | null;
   sportType?: string | null;
@@ -33,6 +34,7 @@ export function CardThumbnail({
   thumbnailUrl,
   price,
   psa10Price,
+  cgc10Price,
   isSelected,
   gameType,
   sportType,
@@ -199,7 +201,7 @@ export function CardThumbnail({
       </div>
 
       {/* Compact label */}
-      <div className="p-1.5 flex flex-col items-center text-center min-h-[44px]">
+      <div className="p-1.5 flex flex-col items-center text-center min-h-[52px]">
         <p className="text-[11px] leading-tight font-medium text-foreground line-clamp-1 w-full">
           {cardSet || "Unknown Set"}
         </p>
@@ -211,9 +213,11 @@ export function CardThumbnail({
             ${price.toFixed(2)}
           </p>
         )}
-        {psa10Price !== null && psa10Price !== undefined && psa10Price > 0 && (
-          <PSA10PriceChip price={psa10Price} className="mt-0.5 text-[9px]" />
-        )}
+        {/* Graded Prices */}
+        <div className="flex flex-wrap gap-0.5 mt-0.5 justify-center">
+          <GradedPriceChip grader="PSA" grade="10" price={psa10Price} />
+          <GradedPriceChip grader="CGC" grade="10" price={cgc10Price} />
+        </div>
       </div>
     </div>
   );
