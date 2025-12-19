@@ -59,17 +59,24 @@ async function fetchFromSportsCardPro(card: any): Promise<{
   raw: any;
 }> {
   try {
-    const searchQuery = [
-      card.card_name || card.player_name,
-      card.card_set || card.set_name,
-      card.year,
-      card.card_number,
-      "PSA 10"
-    ].filter(Boolean).join(" ");
+    // Build search query - focus on player/card name and year for best results
+    const playerName = card.player_name || card.card_name;
+    const cardSet = card.card_set || card.set_name;
+    const year = card.year || card.raw_year;
+    const cardNumber = card.card_number || card.raw_number;
     
-    const url = `https://www.sportscardspro.com/console/search?q=${encodeURIComponent(searchQuery)}`;
-    const response = await fetch(url, {
-      headers: { "User-Agent": "CardScanner/1.0" }
+    // First search for the card
+    const searchQuery = [playerName, cardSet, year, cardNumber].filter(Boolean).join(" ");
+    const searchUrl = `https://www.sportscardspro.com/search?q=${encodeURIComponent(searchQuery)}`;
+    
+    console.log("SportsCardPro search URL:", searchUrl);
+    
+    const response = await fetch(searchUrl, {
+      headers: { 
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5"
+      }
     });
     
     if (!response.ok) {
@@ -79,18 +86,49 @@ async function fetchFromSportsCardPro(card: any): Promise<{
     
     const html = await response.text();
     
-    // Extract price from HTML (simplified parsing)
-    const priceMatch = html.match(/\$[\d,]+(?:\.\d{2})?/);
-    if (priceMatch) {
-      const price = parseFloat(priceMatch[0].replace(/[$,]/g, ""));
+    // Look for PSA 10 price patterns in the HTML
+    // SportsCardPro shows prices in format like "PSA 10: $XXX.XX" or in price tables
+    const psa10Patterns = [
+      /PSA\s*10[^$]*\$\s*([\d,]+(?:\.\d{2})?)/gi,
+      /grade[:\s]*10[^$]*\$\s*([\d,]+(?:\.\d{2})?)/gi,
+      /gem\s*mint[^$]*\$\s*([\d,]+(?:\.\d{2})?)/gi,
+      /<td[^>]*>PSA\s*10<\/td>\s*<td[^>]*>\$?([\d,]+(?:\.\d{2})?)/gi,
+      /data-grade="10"[^>]*>[^<]*\$\s*([\d,]+(?:\.\d{2})?)/gi
+    ];
+    
+    let bestPrice: number | null = null;
+    let priceText = "";
+    
+    for (const pattern of psa10Patterns) {
+      const matches = [...html.matchAll(pattern)];
+      for (const match of matches) {
+        const price = parseFloat(match[1].replace(/,/g, ""));
+        if (price > 0 && (!bestPrice || price > bestPrice)) {
+          bestPrice = price;
+          priceText = match[0];
+        }
+      }
+    }
+    
+    // If no PSA 10 specific price, look for any graded price
+    if (!bestPrice) {
+      const gradedMatch = html.match(/graded[^$]*\$\s*([\d,]+(?:\.\d{2})?)/i);
+      if (gradedMatch) {
+        bestPrice = parseFloat(gradedMatch[1].replace(/,/g, ""));
+        priceText = gradedMatch[0];
+      }
+    }
+    
+    if (bestPrice && bestPrice > 0) {
       return {
-        price,
-        confidence: 75,
-        source_ref: url,
-        raw: { query: searchQuery, priceText: priceMatch[0] }
+        price: bestPrice,
+        confidence: priceText.toLowerCase().includes("psa") && priceText.includes("10") ? 90 : 70,
+        source_ref: searchUrl,
+        raw: { query: searchQuery, priceText, url: searchUrl }
       };
     }
     
+    console.log("No PSA 10 price found on SportsCardPro for:", searchQuery);
     return { price: null, confidence: 0, source_ref: "", raw: null };
   } catch (error) {
     console.error("SportsCardPro error:", error);
