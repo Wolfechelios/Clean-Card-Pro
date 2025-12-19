@@ -30,7 +30,17 @@ export function GradedPriceChip({
   };
 
   if (!price || price <= 0) {
-    return null;
+    return (
+      <Badge 
+        variant="outline"
+        className={cn(
+          "text-[9px] font-medium px-1.5 py-0 text-muted-foreground border-muted-foreground/30",
+          className
+        )}
+      >
+        {grader} {grade}: —
+      </Badge>
+    );
   }
 
   return (
