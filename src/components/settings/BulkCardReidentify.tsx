@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/integrations/supabase/client";
@@ -6,6 +6,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 import { Search, Image, Loader2, CheckCircle2, XCircle, Play, Pause } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 
 interface BulkCardReidentifyProps {
   onComplete?: () => void;
@@ -20,7 +22,10 @@ interface CardToProcess {
   year: number | null;
   game_type: string | null;
   sport_type: string | null;
+  image_url: string;
 }
+
+type FilterMode = "all" | "missing-images" | "unknown-names" | "both";
 
 const BATCH_SIZE = 200;
 
@@ -35,15 +40,52 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
   const [currentBatch, setCurrentBatch] = useState(0);
   const [totalBatches, setTotalBatches] = useState(0);
   const [currentCard, setCurrentCard] = useState<string | null>(null);
+  const [filterMode, setFilterMode] = useState<FilterMode>("missing-images");
+  const [estimatedCount, setEstimatedCount] = useState<number | null>(null);
+
+  // Fetch estimated count when filter changes
+  useEffect(() => {
+    const fetchEstimate = async () => {
+      if (!userId) return;
+      
+      let query = supabase
+        .from("cards")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", userId);
+
+      if (filterMode === "missing-images") {
+        query = query.or("image_url.is.null,image_url.eq.,image_url.ilike.%placeholder%");
+      } else if (filterMode === "unknown-names") {
+        query = query.or("card_name.eq.Unknown Card,card_name.eq.unknown,card_name.eq.");
+      } else if (filterMode === "both") {
+        query = query.or("image_url.is.null,image_url.eq.,image_url.ilike.%placeholder%,card_name.eq.Unknown Card,card_name.eq.unknown,card_name.eq.");
+      }
+
+      const { count } = await query;
+      setEstimatedCount(count || 0);
+    };
+
+    fetchEstimate();
+  }, [userId, filterMode]);
 
   const fetchCardsToProcess = async (): Promise<CardToProcess[]> => {
     if (!userId) return [];
 
-    const { data, error } = await supabase
+    let query = supabase
       .from("cards")
-      .select("id, card_name, card_set, card_number, player_name, year, game_type, sport_type")
+      .select("id, card_name, card_set, card_number, player_name, year, game_type, sport_type, image_url")
       .eq("user_id", userId)
       .order("created_at", { ascending: true });
+
+    if (filterMode === "missing-images") {
+      query = query.or("image_url.is.null,image_url.eq.,image_url.ilike.%placeholder%");
+    } else if (filterMode === "unknown-names") {
+      query = query.or("card_name.eq.Unknown Card,card_name.eq.unknown,card_name.eq.");
+    } else if (filterMode === "both") {
+      query = query.or("image_url.is.null,image_url.eq.,image_url.ilike.%placeholder%,card_name.eq.Unknown Card,card_name.eq.unknown,card_name.eq.");
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       console.error("Error fetching cards:", error);
@@ -241,39 +283,65 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
   return (
     <div className="space-y-4">
       <div>
-        <p className="text-sm text-muted-foreground mb-2">
+        <p className="text-sm text-muted-foreground mb-3">
           Search and re-identify cards by their text information, then look up images. Processes in batches of {BATCH_SIZE} cards.
         </p>
-        
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={startProcessing}
-            disabled={isRunning}
-          >
-            {isRunning ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Search className="h-4 w-4 mr-2" />
-            )}
-            {isRunning ? "Processing..." : "Re-identify & Find Images"}
-          </Button>
 
-          {isRunning && (
-            <Button variant="outline" onClick={togglePause}>
-              {isPaused ? (
-                <>
-                  <Play className="h-4 w-4 mr-2" />
-                  Resume
-                </>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="filter-mode" className="text-sm">Filter cards to process</Label>
+            <Select 
+              value={filterMode} 
+              onValueChange={(v) => setFilterMode(v as FilterMode)}
+              disabled={isRunning}
+            >
+              <SelectTrigger id="filter-mode" className="w-full max-w-xs">
+                <SelectValue placeholder="Select filter" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="missing-images">Missing images only</SelectItem>
+                <SelectItem value="unknown-names">Unknown names only</SelectItem>
+                <SelectItem value="both">Missing images OR unknown names</SelectItem>
+                <SelectItem value="all">All cards</SelectItem>
+              </SelectContent>
+            </Select>
+            {estimatedCount !== null && (
+              <p className="text-xs text-muted-foreground">
+                {estimatedCount} card{estimatedCount !== 1 ? 's' : ''} match this filter
+              </p>
+            )}
+          </div>
+        
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={startProcessing}
+              disabled={isRunning || estimatedCount === 0}
+            >
+              {isRunning ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               ) : (
-                <>
-                  <Pause className="h-4 w-4 mr-2" />
-                  Pause
-                </>
+                <Search className="h-4 w-4 mr-2" />
               )}
+              {isRunning ? "Processing..." : "Re-identify & Find Images"}
             </Button>
-          )}
+
+            {isRunning && (
+              <Button variant="outline" onClick={togglePause}>
+                {isPaused ? (
+                  <>
+                    <Play className="h-4 w-4 mr-2" />
+                    Resume
+                  </>
+                ) : (
+                  <>
+                    <Pause className="h-4 w-4 mr-2" />
+                    Pause
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
