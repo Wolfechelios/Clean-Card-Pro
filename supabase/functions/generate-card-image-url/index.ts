@@ -52,34 +52,27 @@ async function searchSportsCardWithAI(cardName: string, cardSet: string | null, 
   if (!LOVABLE_API_KEY) return null;
 
   try {
-    // Build a detailed search query for sports cards
-    const searchTerms = [cardName];
-    if (cardSet) searchTerms.push(cardSet);
-    if (gameType) searchTerms.push(gameType);
-    searchTerms.push('trading card');
-    
-    const searchQuery = searchTerms.join(' ');
-    
-    const prompt = `You are helping find a real image URL for a sports trading card.
+    const prompt = `Find a direct image URL for this trading card:
 
 Card details:
 - Name: ${cardName}
 - Set/Year: ${cardSet || 'Unknown'}
-- Type: ${gameType || 'Sports card'}
+- Type: ${gameType || 'Trading card'}
 
-Search for this exact card image using Google Image Search. Look for images from these trusted sources:
-1. eBay listings (i.ebayimg.com)
-2. COMC (comc.com)
-3. Beckett (beckett.com)
-4. PSA (psacard.com)
-5. Sports card databases
+Search for this exact card image. Priority sources (in order):
+1. SportsCardPro (sportscardpro.com) - sports card database with card images
+2. TCGPlayer (tcgplayer.com) - for TCG cards
+3. CardMarket (cardmarket.com) - European card marketplace
+4. PriceCharting (pricecharting.com) - video game and card price database
+5. Official card game databases (pokemon.com, magic.wizards.com)
+6. Card image databases and wikis
 
 Return ONLY a direct image URL (must start with https:// and end with .jpg, .jpeg, .png, or .webp).
 The URL must be a direct link to the image file, not a webpage.
 
 If you cannot find a valid direct image URL, respond with exactly: NONE
 
-Important: Only return URLs from legitimate card selling/grading sites. Do not make up URLs.`;
+CRITICAL: Only return URLs you are confident exist. Do not fabricate or guess URLs.`;
 
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
@@ -92,7 +85,7 @@ Important: Only return URLs from legitimate card selling/grading sites. Do not m
         messages: [
           { 
             role: "system", 
-            content: "You are a sports card image finder. You search Google Images and return direct image URLs from legitimate card selling sites. Only return real, working image URLs. Never fabricate URLs."
+            content: "You are a trading card image finder. Search the web for real card images from legitimate databases like SportsCardPro, TCGPlayer, CardMarket, and official sources. Only return verified, working direct image URLs. Never fabricate URLs."
           },
           { role: "user", content: prompt }
         ],
@@ -145,13 +138,23 @@ async function searchWithAI(cardName: string, cardSet: string | null, gameType: 
   if (!LOVABLE_API_KEY) return null;
 
   try {
-    const prompt = `Find a direct image URL for this trading card from tcgplayer.com, cardmarket.com, or ebay.com:
+    const prompt = `Find a direct image URL for this trading card:
 
 Card: ${cardName}
 Set: ${cardSet || 'Unknown'}
-Game: ${gameType || 'Unknown'}
+Game/Type: ${gameType || 'Unknown'}
 
-Return ONLY a valid https:// image URL ending in .jpg, .png, or .webp. If not found, respond with "NONE".`;
+Search priority sources:
+1. SportsCardPro.com - for sports cards
+2. TCGPlayer.com - for TCG cards  
+3. Scryfall.com - for Magic cards
+4. PokemonTCG.io - for Pokemon cards
+5. CardMarket.com - for European cards
+6. PriceCharting.com - for collectibles
+
+Return ONLY a valid https:// image URL ending in .jpg, .jpeg, .png, or .webp. 
+Must be a direct image link, not a webpage.
+If not found, respond with "NONE".`;
 
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
@@ -160,8 +163,11 @@ Return ONLY a valid https:// image URL ending in .jpg, .png, or .webp. If not fo
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash-lite',
-        messages: [{ role: "user", content: prompt }],
+        model: 'google/gemini-2.5-flash',
+        messages: [
+          { role: "system", content: "You are a card image finder. Only return verified direct image URLs from legitimate card databases. Never fabricate URLs." },
+          { role: "user", content: prompt }
+        ],
         temperature: 0.1,
         max_tokens: 200,
       }),
