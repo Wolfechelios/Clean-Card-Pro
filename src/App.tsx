@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import AppLayout from "./components/layout/AppLayout";
 import Auth from "./pages/Auth";
 import NewDashboard from "./pages/NewDashboard";
@@ -90,10 +91,6 @@ function AppRoutes() {
         element={session ? <AppLayout><GradedScanPage /></AppLayout> : <Navigate to="/auth" />}
       />
       <Route
-        path="/graded-scan"
-        element={session ? <AppLayout><GradedScanPage /></AppLayout> : <Navigate to="/auth" />}
-      />
-      <Route
         path="/visual-search"
         element={session ? <AppLayout><VisualSearchPage /></AppLayout> : <Navigate to="/auth" />}
       />
@@ -123,11 +120,13 @@ const App = () => {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <AppRoutes />
-          </BrowserRouter>
+          <ErrorBoundary>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <AppRoutes />
+            </BrowserRouter>
+          </ErrorBoundary>
         </TooltipProvider>
       </AuthProvider>
     </QueryClientProvider>
