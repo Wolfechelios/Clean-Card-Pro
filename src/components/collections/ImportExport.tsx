@@ -173,8 +173,8 @@ export default function ImportExport({ cards, onImportComplete }: ImportExportPr
                   imagesFound++;
                   isExternalUrl = true;
                 } else {
-                  // Use a minimal placeholder that we can identify later
-                  finalImageUrl = `https://placehold.co/300x400/1a1a2e/eee?text=${encodeURIComponent(cardName.substring(0, 15))}`;
+                  // No image found - leave empty so UI shows "no image" state
+                  finalImageUrl = "";
                 }
               } else if (existingImageUrl && !existingImageUrl.includes('supabase')) {
                 // Existing external URL
@@ -216,7 +216,7 @@ export default function ImportExport({ cards, onImportComplete }: ImportExportPr
               if (autoStoreImages && insertedCards) {
                 insertedCards.forEach((card, idx) => {
                   const originalCard = cardsToInsert[idx];
-                  if (originalCard._isExternalUrl && card.image_url && !card.image_url.includes('placehold')) {
+                  if (originalCard._isExternalUrl && card.image_url && card.image_url.length > 0) {
                     cardsToStore.push({ id: card.id, imageUrl: card.image_url });
                   }
                 });
