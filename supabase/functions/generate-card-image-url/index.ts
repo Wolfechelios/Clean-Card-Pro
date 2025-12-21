@@ -113,7 +113,24 @@ Important: Only return URLs from legitimate card selling/grading sites. Do not m
         if (urlMatch) {
           const imageUrl = urlMatch[0];
           console.log('Found sports card image URL:', imageUrl);
-          return imageUrl;
+          
+          // Validate the URL actually returns a valid image
+          try {
+            const validateResp = await fetch(imageUrl, { method: 'HEAD' });
+            if (validateResp.ok) {
+              const contentType = validateResp.headers.get('content-type') || '';
+              const contentLength = validateResp.headers.get('content-length');
+              
+              // Check if it's an image and reasonably sized (> 5KB)
+              if (contentType.includes('image/') && (!contentLength || parseInt(contentLength) > 5000)) {
+                return imageUrl;
+              } else {
+                console.log('Sports card URL failed validation - not a valid image or too small');
+              }
+            }
+          } catch (validateError) {
+            console.log('Sports card URL validation failed:', validateError);
+          }
         }
       }
     }
@@ -158,7 +175,23 @@ Return ONLY a valid https:// image URL ending in .jpg, .png, or .webp. If not fo
         try {
           new URL(content);
           if (/\.(jpg|jpeg|png|webp|gif)/i.test(content)) {
-            return content;
+            // Validate the URL actually returns a valid image
+            try {
+              const validateResp = await fetch(content, { method: 'HEAD' });
+              if (validateResp.ok) {
+                const contentType = validateResp.headers.get('content-type') || '';
+                const contentLength = validateResp.headers.get('content-length');
+                
+                // Check if it's an image and reasonably sized (> 5KB)
+                if (contentType.includes('image/') && (!contentLength || parseInt(contentLength) > 5000)) {
+                  return content;
+                } else {
+                  console.log('AI URL failed validation - not a valid image or too small');
+                }
+              }
+            } catch (validateError) {
+              console.log('AI URL validation failed:', validateError);
+            }
           }
         } catch {
           // Invalid URL
