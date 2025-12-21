@@ -24,6 +24,7 @@ import ServiceImportExport from "@/components/settings/ServiceImportExport";
 import DeviceStorageSettings from "@/components/settings/DeviceStorageSettings";
 import { BulkRarityReanalyze } from "@/components/collections/BulkRarityReanalyze";
 import { BulkImageLookup } from "@/components/collections/BulkImageLookup";
+import { BulkCardReidentify } from "@/components/settings/BulkCardReidentify";
 import { BulkPSA10Update } from "@/components/pricing/BulkPSA10Update";
 import { SettingsSkeleton } from "@/components/ui/loading-skeletons";
 import { useScannerSettings } from "@/hooks/use-scanner-settings";
@@ -599,6 +600,11 @@ export default function Settings() {
 
             {/* Bulk Image Lookup */}
             <BulkImageLookup onComplete={loadCollectionStats} />
+
+            <Separator />
+
+            {/* Bulk Card Re-identify and Image Lookup */}
+            <BulkCardReidentify onComplete={loadCollectionStats} />
           </div>
         </CardContent>
       </Card>
