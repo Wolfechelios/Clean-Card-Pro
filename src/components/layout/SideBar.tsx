@@ -1,4 +1,4 @@
-import { LayoutDashboard, ScanLine, FolderOpen, BookOpen, Settings, Lightbulb, Menu, Activity, Brain, Award, Search, DollarSign, Sparkles } from "lucide-react";
+import { LayoutDashboard, ScanLine, FolderOpen, BookOpen, Settings, Lightbulb, Menu, Activity, Brain, Award, Search, DollarSign, Sparkles, HelpCircle } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useState, useCallback } from "react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -16,6 +16,7 @@ const menuItems = [
   { icon: Lightbulb, label: "AI Insights", path: "/insights" },
   { icon: Activity, label: "Performance", path: "/performance" },
   { icon: Settings, label: "Settings", path: "/settings" },
+  { icon: HelpCircle, label: "Help", path: "/help" },
 ];
 
 export function SideBar() {

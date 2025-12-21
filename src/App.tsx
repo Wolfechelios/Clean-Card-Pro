@@ -22,6 +22,7 @@ import VisualSearchPage from "./pages/VisualSearchPage";
 import CardPriceHubPage from "./pages/CardPriceHubPage";
 import ImageBackfillPage from "./pages/ImageBackfillPage";
 import ImportCleanerPage from "./pages/ImportCleanerPage";
+import HelpPage from "./pages/HelpPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -107,6 +108,10 @@ function AppRoutes() {
       <Route
         path="/import-cleaner"
         element={session ? <AppLayout><ImportCleanerPage /></AppLayout> : <Navigate to="/auth" />}
+      />
+      <Route
+        path="/help"
+        element={session ? <AppLayout><HelpPage /></AppLayout> : <Navigate to="/auth" />}
       />
       <Route path="*" element={<NotFound />} />
     </Routes>
