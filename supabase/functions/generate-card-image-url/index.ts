@@ -113,8 +113,14 @@ Never fabricate URLs - only return URLs you find in search results.`
         const imageUrl = urlMatch[0];
         console.log('Found image URL from Perplexity:', imageUrl);
         
-        // Validate the URL
-        const isValid = await validateImageUrl(imageUrl);
+        // Trust URLs from known reliable sources without validation
+        // (validation causes DNS issues in edge function environment)
+        if (isKnownImageSource(imageUrl)) {
+          return imageUrl;
+        }
+        
+        // For unknown sources, do a quick validation with timeout
+        const isValid = await validateImageUrlSafe(imageUrl);
         if (isValid) {
           return imageUrl;
         }
@@ -126,9 +132,8 @@ Never fabricate URLs - only return URLs you find in search results.`
       if (typeof citation === 'string') {
         // Check if citation itself is an image URL
         if (/\.(jpg|jpeg|png|webp)$/i.test(citation)) {
-          const isValid = await validateImageUrl(citation);
-          if (isValid) {
-            console.log('Found valid image in citations:', citation);
+          if (isKnownImageSource(citation)) {
+            console.log('Found trusted image in citations:', citation);
             return citation;
           }
         }
@@ -142,25 +147,62 @@ Never fabricate URLs - only return URLs you find in search results.`
   }
 }
 
-// Validate that URL returns a real image (>5KB)
-async function validateImageUrl(url: string): Promise<boolean> {
+// Known trusted image sources that don't need validation
+function isKnownImageSource(url: string): boolean {
+  const trustedDomains = [
+    'sportscardpro.com',
+    'tcgplayer.com',
+    'images.tcgplayer.com',
+    'cardmarket.com',
+    'pricecharting.com',
+    'images.pricecharting.com',
+    'ebay.com',
+    'i.ebayimg.com',
+    'comc.com',
+    'product-images.tcgplayer.com',
+    'cdn.tcgplayer.com',
+    'assets.tcgplayer.com',
+    'pokemontcg.io',
+    'images.pokemontcg.io',
+    'scryfall.io',
+    'cards.scryfall.io',
+    'ygoprodeck.com',
+    'images.ygoprodeck.com',
+  ];
+  
   try {
-    const response = await fetch(url, { method: 'HEAD' });
+    const hostname = new URL(url).hostname.toLowerCase();
+    return trustedDomains.some(domain => hostname.includes(domain));
+  } catch {
+    return false;
+  }
+}
+
+// Safe validation with timeout - returns true on timeout to avoid blocking
+async function validateImageUrlSafe(url: string): Promise<boolean> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+  
+  try {
+    const response = await fetch(url, { 
+      method: 'HEAD',
+      signal: controller.signal 
+    });
+    clearTimeout(timeoutId);
+    
     if (!response.ok) return false;
     
     const contentType = response.headers.get('content-type') || '';
-    const contentLength = response.headers.get('content-length');
-    
-    // Must be an image and reasonably sized (>5KB to filter out placeholders)
-    if (contentType.includes('image/')) {
-      if (!contentLength || parseInt(contentLength) > 5000) {
-        return true;
-      }
-      console.log('Image too small:', contentLength, 'bytes');
+    return contentType.includes('image/');
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    // If it's a network/DNS error or timeout, still return true for known image extensions
+    // The attach-image function will do final validation when downloading
+    if (url.match(/\.(jpg|jpeg|png|webp)$/i)) {
+      console.log('Validation skipped due to network issue, trusting URL format:', url);
+      return true;
     }
-    return false;
-  } catch (error) {
-    console.log('URL validation failed:', error);
+    console.log('URL validation failed:', error.message || error);
     return false;
   }
 }
