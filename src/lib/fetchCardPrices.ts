@@ -21,6 +21,13 @@ export interface CardPricing {
   ebayCgc9: number | null;
   ebayCgc10: number | null;
   ebayUrl: string | null;
+  // TCGPlayer values (for TCG cards)
+  tcgPlayerPrice: number | null;
+  tcgPlayerLow: number | null;
+  tcgPlayerMid: number | null;
+  tcgPlayerHigh: number | null;
+  tcgPlayerMarket: number | null;
+  tcgPlayerUrl: string | null;
   source: string;
 }
 
