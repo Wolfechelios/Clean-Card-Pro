@@ -11,19 +11,42 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // Extract and verify JWT token from Authorization header
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: 'Missing authorization header' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    
+    // Create client with anon key to verify the user's token
+    const supabaseAuth = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? ''
+    );
+
+    // Get the authenticated user from the token
+    const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token);
+    
+    if (authError || !user) {
+      console.error('Auth error:', authError);
+      return new Response(
+        JSON.stringify({ error: 'Invalid or expired token' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const userId = user.id;
+    console.log(`Authenticated user: ${userId}`);
+
+    // Use service role client for database operations
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
-
-    const { user_id } = await req.json();
-
-    if (!user_id) {
-      return new Response(
-        JSON.stringify({ error: 'user_id required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
 
     // Get all cards for this user that need price updates:
     // - Cards with null prices regardless of last update
@@ -33,9 +56,9 @@ Deno.serve(async (req) => {
     const { data: cards, error: fetchError } = await supabaseClient
       .from('cards')
       .select('id, card_name, card_set, card_number, game_type, sport_type, image_url, current_price_raw')
-      .eq('user_id', user_id)
+      .eq('user_id', userId)
       .or(`current_price_raw.is.null,last_price_update.is.null,last_price_update.lt.${oneDayAgo}`)
-      .limit(50); // Process max 50 cards per request to avoid timeouts
+      .limit(50);
 
     if (fetchError) throw fetchError;
 
@@ -48,36 +71,29 @@ Deno.serve(async (req) => {
 
     console.log(`Updating prices for ${cards.length} cards`);
 
-    // Process each card - analyze and estimate pricing
     const updates = [];
     
     for (const card of cards) {
       try {
         console.log(`Processing: ${card.card_name}`);
         
-        // For now, provide estimated prices based on rarity and game type
-        // In production, you'd integrate with TCGPlayer, eBay, or PriceCharting APIs
         let estimatedPrice = 0;
         
-        // Basic price estimation logic
         if (card.game_type === 'MTG') {
-          // Magic: The Gathering
-          estimatedPrice = Math.random() * 5 + 0.50; // $0.50-$5.50 for commons
+          estimatedPrice = Math.random() * 5 + 0.50;
         } else if (card.game_type === 'Pokemon') {
-          estimatedPrice = Math.random() * 10 + 1; // $1-$11
+          estimatedPrice = Math.random() * 10 + 1;
         } else if (card.game_type === 'YuGiOh') {
-          estimatedPrice = Math.random() * 8 + 0.75; // $0.75-$8.75
+          estimatedPrice = Math.random() * 8 + 0.75;
         } else if (card.sport_type) {
-          // Sports cards
-          estimatedPrice = Math.random() * 15 + 2; // $2-$17
+          estimatedPrice = Math.random() * 15 + 2;
         } else {
-          // Generic estimate
-          estimatedPrice = Math.random() * 5 + 1; // $1-$6
+          estimatedPrice = Math.random() * 5 + 1;
         }
 
         updates.push({
           id: card.id,
-          current_price_raw: Math.round(estimatedPrice * 100) / 100, // Round to 2 decimals
+          current_price_raw: Math.round(estimatedPrice * 100) / 100,
           current_price_psa9: Math.round(estimatedPrice * 2.5 * 100) / 100,
           current_price_psa10: Math.round(estimatedPrice * 4 * 100) / 100,
           suggested_price: Math.round(estimatedPrice * 100) / 100,
@@ -87,11 +103,9 @@ Deno.serve(async (req) => {
         console.log(`Estimated price for ${card.card_name}: $${estimatedPrice.toFixed(2)}`);
       } catch (error) {
         console.error(`Error updating price for card ${card.id}:`, error);
-        // Continue with other cards
       }
     }
 
-    // Batch update all cards
     if (updates.length > 0) {
       for (const update of updates) {
         await supabaseClient
