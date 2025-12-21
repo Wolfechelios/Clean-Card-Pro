@@ -4,7 +4,7 @@ import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
-import { Search, Image, Loader2, CheckCircle2, XCircle, Play, Pause } from "lucide-react";
+import { Search, Image, Loader2, CheckCircle2, XCircle, Play, Pause, StopCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
@@ -33,6 +33,7 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
   const { userId } = useAuth();
   const [isRunning, setIsRunning] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [isStopped, setIsStopped] = useState(false);
   const [totalCards, setTotalCards] = useState(0);
   const [processedCount, setProcessedCount] = useState(0);
   const [successCount, setSuccessCount] = useState(0);
@@ -183,21 +184,30 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
     }
   };
 
-  const processBatch = async (cards: CardToProcess[], batchIndex: number): Promise<{ success: number; failed: number }> => {
+  const processBatch = async (cards: CardToProcess[], batchIndex: number, stopRef: { current: boolean }): Promise<{ success: number; failed: number; stopped: boolean }> => {
     let success = 0;
     let failed = 0;
 
     for (const card of cards) {
+      // Check if stopped
+      if (stopRef.current) {
+        return { success, failed, stopped: true };
+      }
+
       if (isPaused) {
-        // Wait while paused
+        // Wait while paused, but also check for stop
         await new Promise<void>((resolve) => {
           const checkPaused = setInterval(() => {
-            if (!isPaused) {
+            if (stopRef.current || !isPaused) {
               clearInterval(checkPaused);
               resolve();
             }
           }, 500);
         });
+        
+        if (stopRef.current) {
+          return { success, failed, stopped: true };
+        }
       }
 
       setCurrentCard(card.card_name);
@@ -218,8 +228,10 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
 
-    return { success, failed };
+    return { success, failed, stopped: false };
   };
+
+  const stopRef = { current: false };
 
   const startProcessing = async () => {
     if (!userId) {
@@ -229,6 +241,8 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
 
     setIsRunning(true);
     setIsPaused(false);
+    setIsStopped(false);
+    stopRef.current = false;
     setProcessedCount(0);
     setSuccessCount(0);
     setFailedCount(0);
@@ -249,13 +263,28 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
 
       toast.info(`Starting re-identification of ${allCards.length} cards in ${batches} batches`);
 
+      let totalSuccess = 0;
+      let totalFailed = 0;
+
       for (let i = 0; i < batches; i++) {
+        if (stopRef.current) {
+          toast.info(`Stopped after processing ${processedCount} cards`);
+          break;
+        }
+
         setCurrentBatch(i + 1);
         const start = i * BATCH_SIZE;
         const end = Math.min(start + BATCH_SIZE, allCards.length);
         const batchCards = allCards.slice(start, end);
 
-        await processBatch(batchCards, i);
+        const result = await processBatch(batchCards, i, stopRef);
+        totalSuccess += result.success;
+        totalFailed += result.failed;
+
+        if (result.stopped) {
+          toast.info(`Stopped after processing ${processedCount} cards`);
+          break;
+        }
 
         // Brief pause between batches
         if (i < batches - 1) {
@@ -263,7 +292,9 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
         }
       }
 
-      toast.success(`Completed! ${successCount} cards updated, ${failedCount} failed`);
+      if (!stopRef.current) {
+        toast.success(`Completed! ${totalSuccess} cards updated, ${totalFailed} failed`);
+      }
       onComplete?.();
     } catch (err) {
       console.error("Bulk re-identify error:", err);
@@ -272,6 +303,12 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
       setIsRunning(false);
       setCurrentCard(null);
     }
+  };
+
+  const stopProcessing = () => {
+    stopRef.current = true;
+    setIsStopped(true);
+    setIsPaused(false);
   };
 
   const togglePause = () => {
@@ -327,19 +364,25 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
             </Button>
 
             {isRunning && (
-              <Button variant="outline" onClick={togglePause}>
-                {isPaused ? (
-                  <>
-                    <Play className="h-4 w-4 mr-2" />
-                    Resume
-                  </>
-                ) : (
-                  <>
-                    <Pause className="h-4 w-4 mr-2" />
-                    Pause
-                  </>
-                )}
-              </Button>
+              <>
+                <Button variant="outline" onClick={togglePause} disabled={isStopped}>
+                  {isPaused ? (
+                    <>
+                      <Play className="h-4 w-4 mr-2" />
+                      Resume
+                    </>
+                  ) : (
+                    <>
+                      <Pause className="h-4 w-4 mr-2" />
+                      Pause
+                    </>
+                  )}
+                </Button>
+                <Button variant="destructive" onClick={stopProcessing} disabled={isStopped}>
+                  <StopCircle className="h-4 w-4 mr-2" />
+                  Stop All
+                </Button>
+              </>
             )}
           </div>
         </div>
