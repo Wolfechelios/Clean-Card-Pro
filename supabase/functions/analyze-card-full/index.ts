@@ -170,18 +170,38 @@ Be thorough with OCR extraction. Analyze card condition carefully. Grade estimat
 
     console.log("Card analysis complete");
 
-    // Format response to match expected structure
+    // Format response to match expected FullCardAnalysis structure
     const response = {
       success: true,
       image_url,
+      card_id: null,
+      game: analysis.card_details?.game_type || null,
+      set_code: analysis.card_details?.card_number || null,
+      card_name: analysis.card_details?.card_name || null,
       vision: {
         ocr_text: analysis.ocr_text || "",
-        labels: analysis.labels || [],
-        dominant_colors: [],
-        crop_hints: []
+        ocr_locale: null,
+        crop_hint: null,
+        image_properties: null,
+        labels: (analysis.labels || []).map((label: string) => ({
+          description: label,
+          score: 1.0,
+          topicality: 1.0
+        })),
+        logos: [],
+        web_detection: {
+          entities: [],
+          similar_images: [],
+          matching_images: []
+        },
+        raw_vision_response: null
       },
       card_details: analysis.card_details || {},
-      condition: {
+      condition_estimate: {
+        card_id: null,
+        game: analysis.card_details?.game_type || null,
+        set_code: analysis.card_details?.card_number || null,
+        card_name: analysis.card_details?.card_name || null,
         raw_grade_estimate: analysis.condition?.grade_estimate || { min: 5, max: 8, confidence: 0.5 },
         condition_notes: analysis.condition?.condition_notes || [],
         defect_flags: analysis.condition?.defect_flags || {
@@ -191,7 +211,8 @@ Be thorough with OCR extraction. Analyze card condition carefully. Grade estimat
           surface: "none",
           structural_damage: "none"
         },
-        recommended_action: analysis.condition?.recommended_action || "Card appears to be in good condition"
+        recommended_action: analysis.condition?.recommended_action || "Card appears to be in good condition",
+        analyzed_at: new Date().toISOString()
       }
     };
 
