@@ -341,9 +341,7 @@ export function CardDetailModal({
                           src={referenceImageUrl}
                           alt="Reference card"
                           className="w-full h-full object-contain"
-                          onError={() => {
-                            setReferenceImageUrl(`https://placehold.co/300x400/1a1a2e/eee?text=${encodeURIComponent(card.card_name.substring(0, 20))}`);
-                          }}
+                          onError={() => setReferenceImageUrl("")}
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">

@@ -56,10 +56,10 @@ export function CardThumbnail({
     }
   }, [thumbnailUrl, imageUrl]);
   
-  // Only show placeholder UI if URL is actually a placeholder or completely missing
-  const isPlaceholderUrl = !currentImageUrl || currentImageUrl.includes("placehold");
+  // Only show placeholder UI if URL is empty, null, or a placeholder URL
+  const isPlaceholderUrl = !currentImageUrl || currentImageUrl.length === 0 || currentImageUrl.includes("placehold");
   // Show image if we have a real URL (even if it might fail to load)
-  const showImage = Boolean(currentImageUrl && !isPlaceholderUrl);
+  const showImage = Boolean(currentImageUrl && currentImageUrl.length > 0 && !isPlaceholderUrl);
   // Show find image button if placeholder or image failed to load
   const showFindImageButton = isPlaceholderUrl || imageError;
 

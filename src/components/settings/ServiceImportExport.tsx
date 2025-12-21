@@ -243,8 +243,8 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
       });
 
       if (error || !data?.imageUrl) {
-        // Fallback: construct a search-based placeholder that shows card info
-        return `https://placehold.co/300x400/1a1a2e/eee?text=${encodeURIComponent(cardName.substring(0, 20))}`;
+        // No image found - return empty string so UI shows "no image" state
+        return "";
       }
 
       return data.imageUrl;
@@ -574,7 +574,7 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
           condition: row["Grade"] ? `PSA ${row["Grade"]}` : "ungraded",
           sport_type: row["Sport"] || null,
           notes: row["Notes"] || null,
-          image_url: "https://placehold.co/300x400?text=Imported",
+          image_url: "",
         };
       
       case "pricecharting":
@@ -587,7 +587,7 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
           condition: mapConditionFromPriceCharting(row["condition"] || "Loose"),
           game_type: row["console-name"] || row["Console"] || null,
           notes: row["notes"] || row["Notes"] || null,
-          image_url: "https://placehold.co/300x400?text=Imported",
+          image_url: "",
         };
       
       case "collx":
@@ -645,7 +645,7 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
           current_price_raw: parseFloat(String(value).replace(/[$,]/g, "")) || null,
           collection_name: null,
           notes: notes,
-          image_url: imageUrl || "https://placehold.co/300x400?text=Collx+Import",
+          image_url: imageUrl || "",
         };
       
       default: // generic
@@ -664,7 +664,7 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
           current_price_psa10: parseFloat(row["Price (PSA 10)"] || row["current_price_psa10"] || 0) || null,
           collection_name: row["Collection"] || row["collection_name"] || null,
           notes: row["Notes"] || row["notes"] || null,
-          image_url: row["Image URL"] || row["image_url"] || "https://placehold.co/300x400?text=Imported",
+          image_url: row["Image URL"] || row["image_url"] || "",
         };
     }
   };
@@ -1001,9 +1001,6 @@ function VerificationCard({
           src={card.image_url} 
           alt={card.card_name}
           className="w-full h-full object-cover"
-          onError={(e) => {
-            (e.target as HTMLImageElement).src = "https://placehold.co/80x112?text=No+Image";
-          }}
         />
       </div>
       
