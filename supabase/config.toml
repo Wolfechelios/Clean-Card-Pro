@@ -32,9 +32,6 @@ enable_signup = true
 double_confirm_changes = true
 enable_confirmations = false
 
-[functions.advanced-analytics]
-verify_jwt = true
-
 [functions.analyze-card-full]
 verify_jwt = true
 

@@ -14,15 +14,11 @@ import BindersPage from "./pages/BindersPage";
 import SettingsPage from "./pages/SettingsPage";
 import InsightsPage from "./pages/InsightsPage";
 import PerformancePage from "./pages/PerformancePage";
-import ArchitecturePage from "./pages/ArchitecturePage";
-import RoadmapPage from "./pages/RoadmapPage";
-
 import MobileScanPage from "./pages/MobileScanPage";
 import MobileScanRedirect from "./pages/MobileScanRedirect";
 import PredictionsPage from "./pages/PredictionsPage";
 import GradedScanPage from "./pages/GradedScanPage";
 import VisualSearchPage from "./pages/VisualSearchPage";
-import AdvancedAnalyticsPage from "./pages/AdvancedAnalyticsPage";
 import CardPriceHubPage from "./pages/CardPriceHubPage";
 import ImageBackfillPage from "./pages/ImageBackfillPage";
 import ImportCleanerPage from "./pages/ImportCleanerPage";
@@ -77,14 +73,6 @@ function AppRoutes() {
         element={session ? <AppLayout><PerformancePage /></AppLayout> : <Navigate to="/auth" />}
       />
       <Route
-        path="/architecture"
-        element={session ? <AppLayout><ArchitecturePage /></AppLayout> : <Navigate to="/auth" />}
-      />
-      <Route
-        path="/roadmap"
-        element={session ? <AppLayout><RoadmapPage /></AppLayout> : <Navigate to="/auth" />}
-      />
-      <Route
         path="/mobile-scan"
         element={session ? <MobileScanPage /> : <Navigate to="/auth" />}
       />
@@ -107,10 +95,6 @@ function AppRoutes() {
       <Route
         path="/visual-search"
         element={session ? <AppLayout><VisualSearchPage /></AppLayout> : <Navigate to="/auth" />}
-      />
-      <Route
-        path="/analytics"
-        element={session ? <AppLayout><AdvancedAnalyticsPage /></AppLayout> : <Navigate to="/auth" />}
       />
       <Route
         path="/price-hub"
