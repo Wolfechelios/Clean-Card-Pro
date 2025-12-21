@@ -1,10 +1,12 @@
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 interface GradedPriceChipProps {
   grader: "PSA" | "CGC" | "BGS";
   grade: string;
   price: number | null | undefined;
+  medianPrice?: number | null;
   currency?: string;
   className?: string;
 }
@@ -13,6 +15,7 @@ export function GradedPriceChip({
   grader, 
   grade, 
   price, 
+  medianPrice,
   currency = "USD", 
   className 
 }: GradedPriceChipProps) {
@@ -43,7 +46,7 @@ export function GradedPriceChip({
     );
   }
 
-  return (
+  const chip = (
     <Badge 
       variant="outline"
       className={cn(
@@ -55,4 +58,31 @@ export function GradedPriceChip({
       {grader} {grade}: {formatter.format(price)}
     </Badge>
   );
+
+  // Show tooltip with median vs highest raw if median is available
+  if (medianPrice && medianPrice > 0) {
+    return (
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            {chip}
+          </TooltipTrigger>
+          <TooltipContent side="top" className="text-xs">
+            <div className="space-y-1">
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Median:</span>
+                <span>{formatter.format(medianPrice)}</span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground">Highest Raw:</span>
+                <span className="text-primary font-medium">{formatter.format(price)}</span>
+              </div>
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+
+  return chip;
 }

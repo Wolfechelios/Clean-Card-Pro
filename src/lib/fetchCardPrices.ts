@@ -1,12 +1,20 @@
 import { supabase } from "@/integrations/supabase/client";
 
 export interface CardPricing {
+  // Highest raw values (with 30% markup)
   raw: number | null;
   psa9: number | null;
   psa10: number | null;
   cgc9: number | null;
   cgc10: number | null;
   suggested: number | null;
+  // Original median values (before highest raw adjustment)
+  medianRaw: number | null;
+  medianPsa9: number | null;
+  medianPsa10: number | null;
+  medianCgc9: number | null;
+  medianCgc10: number | null;
+  // eBay reference values
   ebayRaw: number | null;
   ebayPsa9: number | null;
   ebayPsa10: number | null;

@@ -7,6 +7,13 @@ interface PricingResult {
   cgc9: number | null;
   cgc10: number | null;
   suggested: number | null;
+  // Original median values (before highest raw adjustment)
+  medianRaw: number | null;
+  medianPsa9: number | null;
+  medianPsa10: number | null;
+  medianCgc9: number | null;
+  medianCgc10: number | null;
+  // eBay reference values
   ebayRaw: number | null;
   ebayPsa9: number | null;
   ebayPsa10: number | null;
@@ -23,6 +30,12 @@ interface PriceData {
   cgc9: number | null;
   cgc10: number | null;
   suggested: number | null;
+  // Original median values
+  medianRaw: number | null;
+  medianPsa9: number | null;
+  medianPsa10: number | null;
+  medianCgc9: number | null;
+  medianCgc10: number | null;
   ebayUrl?: string | null;
 }
 
@@ -72,13 +85,19 @@ Deno.serve(async (req) => {
 
     // Use primary source for main prices, eBay as separate reference
     const result: PricingResult = {
-      // Primary prices from SportsCardPro or PriceCharting
+      // Highest raw values (with 30% markup) from SportsCardPro or PriceCharting
       raw: primaryPrices.raw,
       psa9: primaryPrices.psa9,
       psa10: primaryPrices.psa10,
       cgc9: primaryPrices.cgc9,
       cgc10: primaryPrices.cgc10,
       suggested: primaryPrices.suggested ?? primaryPrices.raw,
+      // Original median values (before highest raw adjustment)
+      medianRaw: primaryPrices.medianRaw,
+      medianPsa9: primaryPrices.medianPsa9,
+      medianPsa10: primaryPrices.medianPsa10,
+      medianCgc9: primaryPrices.medianCgc9,
+      medianCgc10: primaryPrices.medianCgc10,
       // eBay as separate reference
       ebayRaw: ebayPrices.raw,
       ebayPsa9: ebayPrices.psa9,
@@ -97,6 +116,11 @@ Deno.serve(async (req) => {
       result.cgc9 = ebayPrices.cgc9;
       result.cgc10 = ebayPrices.cgc10;
       result.suggested = ebayPrices.raw;
+      result.medianRaw = ebayPrices.medianRaw;
+      result.medianPsa9 = ebayPrices.medianPsa9;
+      result.medianPsa10 = ebayPrices.medianPsa10;
+      result.medianCgc9 = ebayPrices.medianCgc9;
+      result.medianCgc10 = ebayPrices.medianCgc10;
       result.source = "eBay (fallback)";
     }
 
@@ -133,7 +157,7 @@ async function fetchEbayPrices(searchQuery: string): Promise<PriceData> {
 
     if (!response.ok) {
       console.error("eBay fetch failed:", response.status);
-      return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null, ebayUrl };
+      return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null, medianRaw: null, medianPsa9: null, medianPsa10: null, medianCgc9: null, medianCgc10: null, ebayUrl };
     }
 
     const html = await response.text();
@@ -141,28 +165,40 @@ async function fetchEbayPrices(searchQuery: string): Promise<PriceData> {
     const gradedPrices = extractGradedPrices(html);
     
     if (prices.length === 0) {
-      return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null, ebayUrl };
+      return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null, medianRaw: null, medianPsa9: null, medianPsa10: null, medianCgc9: null, medianCgc10: null, ebayUrl };
     }
 
     const median = getMedian(prices) ?? 0;
     
-    // Apply 30% markup above median for all values
+    // Calculate original median values (before highest raw adjustment)
+    const medianPsa9 = gradedPrices.psa9 ?? parseFloat((median * 2.5).toFixed(2));
+    const medianPsa10 = gradedPrices.psa10 ?? parseFloat((median * 4).toFixed(2));
+    const medianCgc9 = gradedPrices.cgc9 ?? parseFloat((median * 2.2).toFixed(2));
+    const medianCgc10 = gradedPrices.cgc10 ?? parseFloat((median * 3.5).toFixed(2));
+    
+    // Apply 30% for highest raw values
     const markup = 1.30;
     const adjustedMedian = median * markup;
     
-    // Use extracted graded prices if available (with 30% markup), otherwise estimate from adjusted raw
+    // Use extracted graded prices if available (with highest raw adjustment), otherwise estimate from adjusted raw
     return {
       raw: parseFloat(adjustedMedian.toFixed(2)),
-      psa9: gradedPrices.psa9 ? parseFloat((gradedPrices.psa9 * markup).toFixed(2)) : parseFloat((adjustedMedian * 2.5).toFixed(2)),
-      psa10: gradedPrices.psa10 ? parseFloat((gradedPrices.psa10 * markup).toFixed(2)) : parseFloat((adjustedMedian * 4).toFixed(2)),
-      cgc9: gradedPrices.cgc9 ? parseFloat((gradedPrices.cgc9 * markup).toFixed(2)) : parseFloat((adjustedMedian * 2.2).toFixed(2)),
-      cgc10: gradedPrices.cgc10 ? parseFloat((gradedPrices.cgc10 * markup).toFixed(2)) : parseFloat((adjustedMedian * 3.5).toFixed(2)),
+      psa9: parseFloat((medianPsa9 * markup).toFixed(2)),
+      psa10: parseFloat((medianPsa10 * markup).toFixed(2)),
+      cgc9: parseFloat((medianCgc9 * markup).toFixed(2)),
+      cgc10: parseFloat((medianCgc10 * markup).toFixed(2)),
       suggested: parseFloat(adjustedMedian.toFixed(2)),
+      // Original median values
+      medianRaw: parseFloat(median.toFixed(2)),
+      medianPsa9: parseFloat(medianPsa9.toFixed(2)),
+      medianPsa10: parseFloat(medianPsa10.toFixed(2)),
+      medianCgc9: parseFloat(medianCgc9.toFixed(2)),
+      medianCgc10: parseFloat(medianCgc10.toFixed(2)),
       ebayUrl,
     };
   } catch (error) {
     console.error("Error fetching eBay prices:", error);
-    return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null, ebayUrl: null };
+    return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null, medianRaw: null, medianPsa9: null, medianPsa10: null, medianCgc9: null, medianCgc10: null, ebayUrl: null };
   }
 }
 
@@ -182,7 +218,7 @@ async function fetchSportsCardProPrices(searchQuery: string): Promise<PriceData>
 
     if (!response.ok) {
       console.error("SportsCardPro fetch failed:", response.status);
-      return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null };
+      return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null, medianRaw: null, medianPsa9: null, medianPsa10: null, medianCgc9: null, medianCgc10: null };
     }
 
     const html = await response.text();
@@ -190,26 +226,33 @@ async function fetchSportsCardProPrices(searchQuery: string): Promise<PriceData>
     const gradedPrices = extractGradedPrices(html);
     
     if (prices.length === 0 && !gradedPrices.ungraded) {
-      return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null };
+      return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null, medianRaw: null, medianPsa9: null, medianPsa10: null, medianCgc9: null, medianCgc10: null };
     }
 
     const median = getMedian(prices);
+    const baseRaw = gradedPrices.ungraded ?? median;
     
-    // Apply 30% markup above median for all values
+    // Apply 30% for highest raw values
     const markup = 1.30;
     const applyMarkup = (val: number | null) => val ? parseFloat((val * markup).toFixed(2)) : null;
     
     return {
-      raw: applyMarkup(gradedPrices.ungraded ?? median),
+      raw: applyMarkup(baseRaw),
       psa9: applyMarkup(gradedPrices.psa9),
       psa10: applyMarkup(gradedPrices.psa10),
       cgc9: applyMarkup(gradedPrices.cgc9),
       cgc10: applyMarkup(gradedPrices.cgc10),
-      suggested: applyMarkup(gradedPrices.ungraded ?? median),
+      suggested: applyMarkup(baseRaw),
+      // Original median values
+      medianRaw: baseRaw ? parseFloat(baseRaw.toFixed(2)) : null,
+      medianPsa9: gradedPrices.psa9 ? parseFloat(gradedPrices.psa9.toFixed(2)) : null,
+      medianPsa10: gradedPrices.psa10 ? parseFloat(gradedPrices.psa10.toFixed(2)) : null,
+      medianCgc9: gradedPrices.cgc9 ? parseFloat(gradedPrices.cgc9.toFixed(2)) : null,
+      medianCgc10: gradedPrices.cgc10 ? parseFloat(gradedPrices.cgc10.toFixed(2)) : null,
     };
   } catch (error) {
     console.error("Error fetching SportsCardPro prices:", error);
-    return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null };
+    return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null, medianRaw: null, medianPsa9: null, medianPsa10: null, medianCgc9: null, medianCgc10: null };
   }
 }
 
@@ -237,29 +280,36 @@ async function fetchPriceChartingPrices(cardName: string, cardSet: string | null
 
     if (!response.ok) {
       console.error("PriceCharting fetch failed:", response.status);
-      return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null };
+      return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null, medianRaw: null, medianPsa9: null, medianPsa10: null, medianCgc9: null, medianCgc10: null };
     }
 
     const html = await response.text();
     const gradedPrices = extractGradedPrices(html);
     const prices = extractPricesFromHtml(html);
     const median = getMedian(prices);
+    const baseRaw = gradedPrices.ungraded ?? median;
     
-    // Apply 30% markup above median for all values
+    // Apply 30% for highest raw values
     const markup = 1.30;
     const applyMarkup = (val: number | null) => val ? parseFloat((val * markup).toFixed(2)) : null;
     
     return {
-      raw: applyMarkup(gradedPrices.ungraded ?? median),
+      raw: applyMarkup(baseRaw),
       psa9: applyMarkup(gradedPrices.psa9),
       psa10: applyMarkup(gradedPrices.psa10),
       cgc9: applyMarkup(gradedPrices.cgc9),
       cgc10: applyMarkup(gradedPrices.cgc10),
-      suggested: applyMarkup(gradedPrices.ungraded ?? median),
+      suggested: applyMarkup(baseRaw),
+      // Original median values
+      medianRaw: baseRaw ? parseFloat(baseRaw.toFixed(2)) : null,
+      medianPsa9: gradedPrices.psa9 ? parseFloat(gradedPrices.psa9.toFixed(2)) : null,
+      medianPsa10: gradedPrices.psa10 ? parseFloat(gradedPrices.psa10.toFixed(2)) : null,
+      medianCgc9: gradedPrices.cgc9 ? parseFloat(gradedPrices.cgc9.toFixed(2)) : null,
+      medianCgc10: gradedPrices.cgc10 ? parseFloat(gradedPrices.cgc10.toFixed(2)) : null,
     };
   } catch (error) {
     console.error("Error fetching PriceCharting prices:", error);
-    return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null };
+    return { raw: null, psa9: null, psa10: null, cgc9: null, cgc10: null, suggested: null, medianRaw: null, medianPsa9: null, medianPsa10: null, medianCgc9: null, medianCgc10: null };
   }
 }
 
