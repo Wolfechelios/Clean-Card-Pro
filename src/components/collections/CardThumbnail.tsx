@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Trash2, ImagePlus, Loader2, ImageOff } from "lucide-react";
+import { Trash2, ImagePlus, Loader2, ImageOff, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -177,7 +177,7 @@ export function CardThumbnail({
       </div>
 
       {/* Square thumbnail */}
-      <div className="aspect-square w-full overflow-hidden bg-muted flex items-center justify-center">
+      <div className="aspect-square w-full overflow-hidden bg-muted flex items-center justify-center relative">
         {showImage && !imageError ? (
           <img
             src={currentImageUrl}
@@ -197,6 +197,13 @@ export function CardThumbnail({
           <div className="flex flex-col items-center justify-center text-muted-foreground/50 p-2">
             <ImageOff className="h-8 w-8 mb-1" />
             <span className="text-[9px] text-center line-clamp-2">{cardName}</span>
+          </div>
+        )}
+        
+        {/* Exclamation indicator for missing/broken images */}
+        {(isPlaceholderUrl || imageError) && (
+          <div className="absolute bottom-1.5 right-1.5 bg-warning text-warning-foreground rounded-full p-0.5 shadow-md">
+            <AlertCircle className="h-4 w-4" />
           </div>
         )}
       </div>
