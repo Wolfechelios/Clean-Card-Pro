@@ -8,8 +8,21 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Camera, Upload, Shield, CheckCircle2, XCircle, ExternalLink, RefreshCw, Award, Focus } from "lucide-react";
+import { Loader2, Camera, Upload, Shield, CheckCircle2, XCircle, ExternalLink, RefreshCw, Award, Focus, Package } from "lucide-react";
 import { getMaxQualityStream, captureMaxQualityPhoto, triggerFastFocus } from "@/lib/camera-optimizations";
+import { ScrollArea } from "@/components/ui/scroll-area";
+
+interface GradedCard {
+  id: string;
+  card_name: string;
+  card_set: string | null;
+  card_number: string | null;
+  condition: string | null;
+  image_url: string;
+  current_price_raw: number | null;
+  notes: string | null;
+  created_at: string;
+}
 
 interface GradedCardData {
   gradingCompany: "PSA" | "CGC" | "Beckett" | null;
@@ -41,6 +54,33 @@ export default function GradedScanPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [cameraActive, setCameraActive] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
+  const [gradedCards, setGradedCards] = useState<GradedCard[]>([]);
+  const [loadingCards, setLoadingCards] = useState(true);
+
+  // Fetch graded cards from collection
+  const fetchGradedCards = useCallback(async () => {
+    if (!userId) return;
+    setLoadingCards(true);
+    try {
+      const { data, error } = await supabase
+        .from("cards")
+        .select("id, card_name, card_set, card_number, condition, image_url, current_price_raw, notes, created_at")
+        .eq("user_id", userId)
+        .or("condition.ilike.%PSA%,condition.ilike.%CGC%,condition.ilike.%Beckett%,condition.ilike.%BGS%")
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      setGradedCards(data || []);
+    } catch (err) {
+      console.error("Error fetching graded cards:", err);
+    } finally {
+      setLoadingCards(false);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    fetchGradedCards();
+  }, [fetchGradedCards]);
 
   const processImage = useCallback(async (imageUrl: string) => {
     setScanning(true);
@@ -297,6 +337,7 @@ export default function GradedScanPage() {
       toast.success("Card saved to collection!");
       setCardData(null);
       setPreview(null);
+      fetchGradedCards(); // Refresh the graded cards list
     } catch (err) {
       toast.error("Failed to save card");
     }
@@ -541,6 +582,82 @@ export default function GradedScanPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* My Graded Cards Section */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Package className="h-5 w-5 text-primary" />
+              <CardTitle>My Graded Cards</CardTitle>
+              <Badge variant="secondary">{gradedCards.length}</Badge>
+            </div>
+            <Button variant="ghost" size="sm" onClick={fetchGradedCards} disabled={loadingCards}>
+              <RefreshCw className={`h-4 w-4 ${loadingCards ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
+          <CardDescription>
+            Graded cards in your collection (PSA, CGC, Beckett)
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loadingCards ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : gradedCards.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Package className="h-12 w-12 mx-auto mb-2 opacity-50" />
+              <p>No graded cards in your collection yet</p>
+              <p className="text-sm">Scan a graded slab above to add your first one</p>
+            </div>
+          ) : (
+            <ScrollArea className="h-[400px]">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {gradedCards.map((card) => {
+                  const graderMatch = card.condition?.match(/(PSA|CGC|Beckett|BGS)/i);
+                  const grader = graderMatch?.[1]?.toUpperCase() || "GRADED";
+                  const graderColor = grader === "PSA" ? "bg-destructive" : grader === "CGC" ? "bg-primary" : "bg-warning";
+                  
+                  return (
+                    <div
+                      key={card.id}
+                      className="border rounded-lg overflow-hidden bg-card hover:border-primary/50 transition-colors"
+                    >
+                      <div className="aspect-[3/4] relative bg-muted">
+                        <img
+                          src={card.image_url}
+                          alt={card.card_name}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = "/placeholder.svg";
+                          }}
+                        />
+                        <Badge className={`absolute top-2 right-2 ${graderColor}`}>
+                          {card.condition}
+                        </Badge>
+                      </div>
+                      <div className="p-3 space-y-1">
+                        <p className="font-medium text-sm line-clamp-1">{card.card_name}</p>
+                        {card.card_set && (
+                          <p className="text-xs text-muted-foreground line-clamp-1">
+                            {card.card_set} {card.card_number && `#${card.card_number}`}
+                          </p>
+                        )}
+                        {card.current_price_raw && (
+                          <p className="text-sm font-semibold text-primary">
+                            ${card.current_price_raw.toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </ScrollArea>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
