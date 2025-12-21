@@ -19,7 +19,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { LogOut, Trash2, User, Lock, ImageOff, Clock, RefreshCw, Database, ScanLine, ImageIcon, Wand2 } from "lucide-react";
-import N8nIntegrations from "@/components/settings/N8nIntegrations";
+
 import ServiceImportExport from "@/components/settings/ServiceImportExport";
 import DeviceStorageSettings from "@/components/settings/DeviceStorageSettings";
 import { BulkRarityReanalyze } from "@/components/collections/BulkRarityReanalyze";
@@ -610,8 +610,6 @@ export default function Settings() {
         onComplete={loadCollectionStats} 
       />
 
-      {/* n8n Workflow Automations */}
-      <N8nIntegrations />
 
       {/* Device Storage (Android/iOS only) */}
       <DeviceStorageSettings />
