@@ -124,9 +124,9 @@ export function BulkPSA10Update() {
     <div className="space-y-4 p-4 rounded-lg bg-card border border-border">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-medium text-foreground">Bulk PSA 10 Price Update</h4>
+          <h4 className="text-sm font-medium text-foreground">PSA 10 Potential Value Lookup</h4>
           <p className="text-xs text-muted-foreground mt-1">
-            Update PSA 10 prices for all cards in your collection
+            See what your cards could be worth if graded PSA 10 (up to 50 cards per batch)
           </p>
         </div>
         <Button

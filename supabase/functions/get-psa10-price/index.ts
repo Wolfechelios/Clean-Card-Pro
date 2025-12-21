@@ -16,181 +16,111 @@ function normalizeText(text: string | null | undefined): string {
     .replace(/\s+/g, " ");
 }
 
-// Normalize card number
-function normalizeCardNumber(num: string | null | undefined): string {
-  if (!num) return "";
-  // Remove leading zeros, slashes, hashes
-  return num
-    .replace(/^[#0]+/, "")
-    .replace(/\/.*$/, "")
-    .trim();
-}
-
-// Normalize set name
-function normalizeSetName(set: string | null | undefined): string {
-  if (!set) return "";
-  return set
-    .toLowerCase()
-    .replace(/[^\w\s]/g, "")
-    .replace(/\s+/g, " ")
-    .replace(/\b(series|set|edition|collection)\b/g, "")
-    .trim();
-}
-
 // Generate identity hash for card
 function generateIdentityHash(card: any): string {
   const game = normalizeText(card.game_type || card.sport_type || "unknown");
   const name = normalizeText(card.card_name || card.player_name);
-  const set = normalizeSetName(card.card_set || card.set_name);
+  const set = normalizeText(card.card_set || card.set_name);
   const year = card.year?.toString() || "";
-  const number = normalizeCardNumber(card.card_number);
-  const manufacturer = normalizeText(card.manufacturer);
-  const variant = normalizeText(card.variant || card.edition);
+  const number = card.card_number?.replace(/^[#0]+/, "").trim() || "";
   
-  const identity = `${game}|${name}|${set}|${year}|${number}|${manufacturer}|${variant}`;
+  const identity = `${game}|${name}|${set}|${year}|${number}`;
   return btoa(identity).replace(/[=+/]/g, "");
 }
 
-// Fetch PSA10 price from SportsCardPro
-async function fetchFromSportsCardPro(card: any): Promise<{
+// Use Perplexity to search for PSA 10 price
+async function fetchPSA10WithPerplexity(card: any): Promise<{
   price: number | null;
   confidence: number;
   source_ref: string;
   raw: any;
 }> {
+  const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY');
+  if (!PERPLEXITY_API_KEY) {
+    console.log('PERPLEXITY_API_KEY not configured');
+    return { price: null, confidence: 0, source_ref: "", raw: null };
+  }
+
   try {
-    // Build search query - focus on player/card name and year for best results
     const playerName = card.player_name || card.card_name;
     const cardSet = card.card_set || card.set_name;
     const year = card.year || card.raw_year;
-    const cardNumber = card.card_number || card.raw_number;
-    
-    // First search for the card
-    const searchQuery = [playerName, cardSet, year, cardNumber].filter(Boolean).join(" ");
-    const searchUrl = `https://www.sportscardspro.com/search?q=${encodeURIComponent(searchQuery)}`;
-    
-    console.log("SportsCardPro search URL:", searchUrl);
-    
-    const response = await fetch(searchUrl, {
-      headers: { 
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5"
-      }
+    const cardNumber = card.card_number;
+
+    const searchQuery = [playerName, cardSet, year, cardNumber, "PSA 10 price"].filter(Boolean).join(" ");
+    console.log("Perplexity PSA 10 search:", searchQuery);
+
+    const response = await fetch('https://api.perplexity.ai/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${PERPLEXITY_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'sonar',
+        messages: [
+          { 
+            role: 'system', 
+            content: `You are a trading card price finder. Find the PSA 10 graded price for cards.
+Return ONLY a number representing the USD price (no $ symbol, no text).
+If you find a price range, return the average.
+If you cannot find a reliable PSA 10 price, respond with: 0` 
+          },
+          { 
+            role: 'user', 
+            content: `What is the current PSA 10 price for: ${playerName}${cardSet ? ` from ${cardSet}` : ''}${year ? ` (${year})` : ''}${cardNumber ? ` #${cardNumber}` : ''}?`
+          }
+        ],
+        search_domain_filter: [
+          'sportscardpro.com',
+          'pricecharting.com',
+          'psacard.com',
+          '130point.com',
+          'ebay.com'
+        ],
+      }),
     });
-    
+
     if (!response.ok) {
-      console.error("SportsCardPro fetch failed:", response.status);
+      console.error('Perplexity API error:', response.status);
       return { price: null, confidence: 0, source_ref: "", raw: null };
     }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content?.trim();
+    const citations = data.citations || [];
     
-    const html = await response.text();
-    
-    // Look for PSA 10 price patterns in the HTML
-    // SportsCardPro shows prices in format like "PSA 10: $XXX.XX" or in price tables
-    const psa10Patterns = [
-      /PSA\s*10[^$]*\$\s*([\d,]+(?:\.\d{2})?)/gi,
-      /grade[:\s]*10[^$]*\$\s*([\d,]+(?:\.\d{2})?)/gi,
-      /gem\s*mint[^$]*\$\s*([\d,]+(?:\.\d{2})?)/gi,
-      /<td[^>]*>PSA\s*10<\/td>\s*<td[^>]*>\$?([\d,]+(?:\.\d{2})?)/gi,
-      /data-grade="10"[^>]*>[^<]*\$\s*([\d,]+(?:\.\d{2})?)/gi
-    ];
-    
-    let bestPrice: number | null = null;
-    let priceText = "";
-    
-    for (const pattern of psa10Patterns) {
-      const matches = [...html.matchAll(pattern)];
-      for (const match of matches) {
-        const price = parseFloat(match[1].replace(/,/g, ""));
-        if (price > 0 && (!bestPrice || price > bestPrice)) {
-          bestPrice = price;
-          priceText = match[0];
-        }
+    console.log('Perplexity PSA 10 response:', content);
+
+    // Extract price from response
+    if (content) {
+      // Remove any non-numeric characters except decimal point
+      const priceStr = content.replace(/[^0-9.]/g, '');
+      const price = parseFloat(priceStr);
+      
+      if (price && price > 0 && price < 1000000) { // Sanity check
+        return {
+          price,
+          confidence: citations.length > 0 ? 85 : 70,
+          source_ref: citations[0] || 'perplexity',
+          raw: { query: searchQuery, response: content, citations }
+        };
       }
     }
-    
-    // If no PSA 10 specific price, look for any graded price
-    if (!bestPrice) {
-      const gradedMatch = html.match(/graded[^$]*\$\s*([\d,]+(?:\.\d{2})?)/i);
-      if (gradedMatch) {
-        bestPrice = parseFloat(gradedMatch[1].replace(/,/g, ""));
-        priceText = gradedMatch[0];
-      }
-    }
-    
-    if (bestPrice && bestPrice > 0) {
-      return {
-        price: bestPrice,
-        confidence: priceText.toLowerCase().includes("psa") && priceText.includes("10") ? 90 : 70,
-        source_ref: searchUrl,
-        raw: { query: searchQuery, priceText, url: searchUrl }
-      };
-    }
-    
-    console.log("No PSA 10 price found on SportsCardPro for:", searchQuery);
+
     return { price: null, confidence: 0, source_ref: "", raw: null };
   } catch (error) {
-    console.error("SportsCardPro error:", error);
+    console.error('Perplexity PSA 10 error:', error);
     return { price: null, confidence: 0, source_ref: "", raw: null };
   }
 }
 
-// Fetch PSA10 price from PriceCharting
-async function fetchFromPriceCharting(card: any): Promise<{
-  price: number | null;
-  confidence: number;
-  source_ref: string;
-  raw: any;
-}> {
-  try {
-    const gameType = card.game_type?.toLowerCase() || "";
-    let pcCategory = "trading-cards";
-    if (gameType.includes("pokemon")) pcCategory = "pokemon";
-    else if (gameType.includes("yugioh") || gameType.includes("yu-gi-oh")) pcCategory = "yugioh";
-    else if (gameType.includes("magic") || gameType.includes("mtg")) pcCategory = "magic-the-gathering";
-    
-    const searchQuery = [
-      card.card_name,
-      card.card_set,
-      card.card_number
-    ].filter(Boolean).join(" ");
-    
-    const url = `https://www.pricecharting.com/search-products?q=${encodeURIComponent(searchQuery)}&type=prices&console=${pcCategory}`;
-    const response = await fetch(url, {
-      headers: { "User-Agent": "CardScanner/1.0" }
-    });
-    
-    if (!response.ok) {
-      console.error("PriceCharting fetch failed:", response.status);
-      return { price: null, confidence: 0, source_ref: "", raw: null };
-    }
-    
-    const html = await response.text();
-    
-    // Look for graded/PSA 10 prices
-    const gradedMatch = html.match(/graded[^$]*\$[\d,]+(?:\.\d{2})?/i);
-    const psa10Match = html.match(/psa\s*10[^$]*\$[\d,]+(?:\.\d{2})?/i);
-    
-    const matchText = psa10Match?.[0] || gradedMatch?.[0];
-    if (matchText) {
-      const priceMatch = matchText.match(/\$[\d,]+(?:\.\d{2})?/);
-      if (priceMatch) {
-        const price = parseFloat(priceMatch[0].replace(/[$,]/g, ""));
-        return {
-          price,
-          confidence: psa10Match ? 85 : 70,
-          source_ref: url,
-          raw: { query: searchQuery, priceText: matchText }
-        };
-      }
-    }
-    
-    return { price: null, confidence: 0, source_ref: "", raw: null };
-  } catch (error) {
-    console.error("PriceCharting error:", error);
-    return { price: null, confidence: 0, source_ref: "", raw: null };
-  }
+// Estimate PSA 10 price based on raw price (fallback)
+function estimatePSA10FromRaw(rawPrice: number | null): number | null {
+  if (!rawPrice || rawPrice <= 0) return null;
+  // PSA 10 typically 2-4x raw price for modern cards
+  // Use 2.5x as a conservative estimate
+  return Math.round(rawPrice * 2.5 * 100) / 100;
 }
 
 serve(async (req) => {
@@ -227,31 +157,22 @@ serve(async (req) => {
     }
 
     // Check if locked and recently updated
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
-    if (card.psa10_locked && card.psa10_price && card.psa10_updated_at) {
-      const lastUpdate = new Date(card.psa10_updated_at);
-      if (lastUpdate > thirtyDaysAgo) {
-        return new Response(
-          JSON.stringify({
-            psa10_price: card.psa10_price,
-            psa10_currency: card.psa10_currency || "USD",
-            psa10_source: card.psa10_source,
-            psa10_updated_at: card.psa10_updated_at,
-            confidence: card.psa10_match_confidence,
-            source_ref: card.psa10_source_ref,
-            cached: true
-          }),
-          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
+    if (card.psa10_locked && card.psa10_price) {
+      return new Response(
+        JSON.stringify({
+          psa10_price: card.psa10_price,
+          psa10_currency: card.psa10_currency || "USD",
+          psa10_source: card.psa10_source,
+          psa10_updated_at: card.psa10_updated_at,
+          confidence: card.psa10_match_confidence,
+          cached: true
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    // Generate identity hash
+    // Generate identity hash and check cache
     const identityHash = generateIdentityHash(card);
-    
-    // Check cache
     const twentyFourHoursAgo = new Date();
     twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
     
@@ -281,47 +202,30 @@ serve(async (req) => {
           psa10_price: cached.price,
           psa10_currency: cached.currency || "USD",
           psa10_source: cached.source,
-          psa10_updated_at: new Date().toISOString(),
           confidence: cached.confidence,
-          source_ref: cached.source_ref,
           cached: true
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Determine which provider to use based on card type
-    const isSportsCard = card.sport_type || card.sport;
-    let result: { price: number | null; confidence: number; source_ref: string; raw: any };
-    let source: string;
+    // Try Perplexity web search
+    let result = await fetchPSA10WithPerplexity(card);
+    let source = "perplexity";
 
-    if (isSportsCard) {
-      result = await fetchFromSportsCardPro(card);
-      source = "sportscardspro";
-      
-      // Fallback to PriceCharting if no result
-      if (!result.price) {
-        result = await fetchFromPriceCharting(card);
-        source = "pricecharting";
-      }
-    } else {
-      result = await fetchFromPriceCharting(card);
-      source = "pricecharting";
-      
-      // Fallback to SportsCardPro if no result
-      if (!result.price) {
-        result = await fetchFromSportsCardPro(card);
-        source = "sportscardspro";
+    // Fallback: estimate from raw price if available
+    if (!result.price && card.current_price_raw) {
+      const estimatedPrice = estimatePSA10FromRaw(card.current_price_raw);
+      if (estimatedPrice) {
+        result = {
+          price: estimatedPrice,
+          confidence: 50,
+          source_ref: "estimated",
+          raw: { method: "2.5x raw price multiplier", raw_price: card.current_price_raw }
+        };
+        source = "estimated";
       }
     }
-
-    // Check confidence threshold before overwriting
-    const shouldUpdate = result.price && (
-      !card.psa10_price || 
-      result.confidence >= 85 ||
-      card.psa10_match_confidence === null ||
-      card.psa10_match_confidence < result.confidence
-    );
 
     if (result.price) {
       // Upsert to cache
@@ -337,9 +241,7 @@ serve(async (req) => {
           raw: result.raw,
           updated_at: new Date().toISOString()
         }, { onConflict: "identity_hash" });
-    }
 
-    if (shouldUpdate) {
       // Update card
       await supabase
         .from("cards")
@@ -359,9 +261,7 @@ serve(async (req) => {
         psa10_price: result.price,
         psa10_currency: "USD",
         psa10_source: source,
-        psa10_updated_at: new Date().toISOString(),
         confidence: result.confidence,
-        source_ref: result.source_ref,
         cached: false
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
