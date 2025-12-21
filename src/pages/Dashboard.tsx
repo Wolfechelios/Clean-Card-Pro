@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DollarSign, CreditCard, TrendingUp, Activity } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StopAllProcessesButton } from "@/components/dashboard/StopAllProcessesButton";
 
 interface DashboardStats {
   totalCards: number;
@@ -92,9 +93,12 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
-        <p className="text-muted-foreground">Overview of your card collection</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
+          <p className="text-muted-foreground">Overview of your card collection</p>
+        </div>
+        <StopAllProcessesButton />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

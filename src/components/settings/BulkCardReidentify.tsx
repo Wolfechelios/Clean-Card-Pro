@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/integrations/supabase/client";
@@ -8,6 +8,7 @@ import { Search, Image, Loader2, CheckCircle2, XCircle, Play, Pause, StopCircle 
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 
 interface BulkCardReidentifyProps {
   onComplete?: () => void;
@@ -31,6 +32,8 @@ const BATCH_SIZE = 200;
 
 export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
   const { userId } = useAuth();
+  const { registerProcess, unregisterProcess, shouldStop } = useGlobalProcessControl();
+  const processStartTimeRef = useRef<number>(0);
   const [isRunning, setIsRunning] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [isStopped, setIsStopped] = useState(false);
@@ -43,6 +46,7 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
   const [currentCard, setCurrentCard] = useState<string | null>(null);
   const [filterMode, setFilterMode] = useState<FilterMode>("missing-images");
   const [estimatedCount, setEstimatedCount] = useState<number | null>(null);
+  const stopRef = useRef(false);
 
   // Fetch estimated count when filter changes
   useEffect(() => {
@@ -184,13 +188,13 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
     }
   };
 
-  const processBatch = async (cards: CardToProcess[], batchIndex: number, stopRef: { current: boolean }): Promise<{ success: number; failed: number; stopped: boolean }> => {
+  const processBatch = async (cards: CardToProcess[], batchIndex: number): Promise<{ success: number; failed: number; stopped: boolean }> => {
     let success = 0;
     let failed = 0;
 
     for (const card of cards) {
-      // Check if stopped
-      if (stopRef.current) {
+      // Check if stopped locally or globally
+      if (stopRef.current || shouldStop(processStartTimeRef.current)) {
         return { success, failed, stopped: true };
       }
 
@@ -198,14 +202,14 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
         // Wait while paused, but also check for stop
         await new Promise<void>((resolve) => {
           const checkPaused = setInterval(() => {
-            if (stopRef.current || !isPaused) {
+            if (stopRef.current || shouldStop(processStartTimeRef.current) || !isPaused) {
               clearInterval(checkPaused);
               resolve();
             }
           }, 500);
         });
         
-        if (stopRef.current) {
+        if (stopRef.current || shouldStop(processStartTimeRef.current)) {
           return { success, failed, stopped: true };
         }
       }
@@ -231,8 +235,6 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
     return { success, failed, stopped: false };
   };
 
-  const stopRef = { current: false };
-
   const startProcessing = async () => {
     if (!userId) {
       toast.error("You must be logged in");
@@ -243,6 +245,8 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
     setIsPaused(false);
     setIsStopped(false);
     stopRef.current = false;
+    processStartTimeRef.current = Date.now();
+    registerProcess("bulk-reidentify", "Bulk Card Re-identification");
     setProcessedCount(0);
     setSuccessCount(0);
     setFailedCount(0);
@@ -267,7 +271,7 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
       let totalFailed = 0;
 
       for (let i = 0; i < batches; i++) {
-        if (stopRef.current) {
+        if (stopRef.current || shouldStop(processStartTimeRef.current)) {
           toast.info(`Stopped after processing ${processedCount} cards`);
           break;
         }
@@ -277,7 +281,7 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
         const end = Math.min(start + BATCH_SIZE, allCards.length);
         const batchCards = allCards.slice(start, end);
 
-        const result = await processBatch(batchCards, i, stopRef);
+        const result = await processBatch(batchCards, i);
         totalSuccess += result.success;
         totalFailed += result.failed;
 
@@ -292,7 +296,7 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
         }
       }
 
-      if (!stopRef.current) {
+      if (!stopRef.current && !shouldStop(processStartTimeRef.current)) {
         toast.success(`Completed! ${totalSuccess} cards updated, ${totalFailed} failed`);
       }
       onComplete?.();
@@ -300,6 +304,7 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
       console.error("Bulk re-identify error:", err);
       toast.error("An error occurred during processing");
     } finally {
+      unregisterProcess("bulk-reidentify");
       setIsRunning(false);
       setCurrentCard(null);
     }
