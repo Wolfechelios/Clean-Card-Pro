@@ -18,8 +18,10 @@ import {
   ArrowRight,
   Pencil,
   Trash2,
+  Wallet,
 } from "lucide-react";
 import { ValuePrediction } from "@/components/cards/ValuePrediction";
+import { CollectionValuePrediction } from "@/components/cards/CollectionValuePrediction";
 import Card3DViewer from "@/components/Card3DViewer";
 import { toast } from "sonner";
 import { CardDetailModal, CardData } from "@/components/cards/CardDetailModal";
@@ -350,18 +352,10 @@ export default function PredictionsPage() {
                 <ValuePrediction card={selectedCard} priceHistory={priceHistory} />
               </div>
             ) : (
-              <Card className="h-full min-h-[600px] flex items-center justify-center bg-gradient-to-br from-purple-900/10 to-blue-900/10 border-dashed border-2 border-purple-500/30">
-                <CardContent className="text-center">
-                  <div className="p-4 rounded-full bg-purple-500/20 w-fit mx-auto mb-4">
-                    <Brain className="h-12 w-12 text-purple-400" />
-                  </div>
-                  <h3 className="text-xl font-semibold mb-2">Select a Card to Analyze</h3>
-                  <p className="text-muted-foreground max-w-md">
-                    Choose a card from your collection to get AI-powered value predictions,
-                    market analysis, and investment recommendations.
-                  </p>
-                </CardContent>
-              </Card>
+              <CollectionValuePrediction 
+                cards={cards} 
+                totalValue={cards.reduce((sum, c) => sum + (c.suggested_price || 0), 0)} 
+              />
             )}
           </div>
         </div>
