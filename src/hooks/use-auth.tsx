@@ -12,14 +12,15 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Module-scope flag to prevent duplicate price updates across remounts
+let priceUpdateTriggered = false;
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let priceUpdateTriggered = false;
-
     const triggerPriceUpdate = (userId: string) => {
       if (priceUpdateTriggered) return;
       priceUpdateTriggered = true;
@@ -34,12 +35,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+      (event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
         setLoading(false);
         
-        if (session?.user?.id) {
+        // Reset flag on sign out so next sign in can trigger update
+        if (event === 'SIGNED_OUT') {
+          priceUpdateTriggered = false;
+        } else if (session?.user?.id) {
           triggerPriceUpdate(session.user.id);
         }
       }
