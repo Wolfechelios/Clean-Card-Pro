@@ -27,6 +27,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import Card3DViewer from "@/components/Card3DViewer";
 import { PSA10PriceSection } from "@/components/pricing/PSA10PriceSection";
 import { GradedPriceChip } from "@/components/pricing/GradedPriceChip";
+import { TCGPlayerPriceChip } from "@/components/pricing/TCGPlayerPriceChip";
 import { CardImageActions } from "@/components/collections/CardImageActions";
 import { toast } from "sonner";
 import { Pencil, Trash2, X, Save, Search, ImageIcon, CheckCircle2, XCircle, Box, Image } from "lucide-react";
@@ -583,6 +584,21 @@ export function CardDetailModal({
                   <GradedPriceChip grader="PSA" grade="10" price={cardState?.psa10_price} className="text-[10px]" />
                   <GradedPriceChip grader="CGC" grade="10" price={cardState?.cgc10_price} className="text-[10px]" />
                 </div>
+
+                {/* TCGPlayer Price for TCG cards */}
+                {(card.game_type?.toLowerCase().includes("pokemon") || 
+                  card.game_type?.toLowerCase().includes("yugioh") ||
+                  card.game_type?.toLowerCase().includes("yu-gi-oh") ||
+                  card.game_type?.toLowerCase().includes("mtg") ||
+                  card.game_type?.toLowerCase().includes("magic")) && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Label className="text-muted-foreground text-xs">TCGPlayer:</Label>
+                    <TCGPlayerPriceChip 
+                      price={cardState?.current_price_raw} 
+                      className="text-[10px]" 
+                    />
+                  </div>
+                )}
 
                 {/* Badges */}
                 <div className="flex items-center gap-2 flex-wrap">

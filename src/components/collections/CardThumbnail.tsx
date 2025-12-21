@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { GradedPriceChip } from "@/components/pricing/GradedPriceChip";
+import { TCGPlayerPriceChip } from "@/components/pricing/TCGPlayerPriceChip";
 
 interface CardThumbnailProps {
   id: string;
@@ -217,6 +218,14 @@ export function CardThumbnail({
         <div className="flex flex-wrap gap-0.5 mt-0.5 justify-center">
           <GradedPriceChip grader="PSA" grade="10" price={psa10Price} />
           <GradedPriceChip grader="CGC" grade="10" price={cgc10Price} />
+          {/* TCGPlayer for TCG cards */}
+          {(gameType?.toLowerCase().includes("pokemon") || 
+            gameType?.toLowerCase().includes("yugioh") ||
+            gameType?.toLowerCase().includes("yu-gi-oh") ||
+            gameType?.toLowerCase().includes("mtg") ||
+            gameType?.toLowerCase().includes("magic")) && (
+            <TCGPlayerPriceChip price={price} />
+          )}
         </div>
       </div>
     </div>
