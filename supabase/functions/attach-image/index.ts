@@ -39,6 +39,12 @@ async function downloadAndUploadImage(
   if (size === 0) {
     throw new Error('Downloaded empty image file');
   }
+  
+  // Minimum size check - real card images are typically >5KB
+  // Small images (< 5KB) are usually error placeholders or broken images
+  if (size < 5000) {
+    throw new Error(`Image too small (${size} bytes) - likely a placeholder or error image`);
+  }
 
   // Determine extension
   let ext = 'jpg';
