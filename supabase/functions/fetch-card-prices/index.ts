@@ -146,14 +146,18 @@ async function fetchEbayPrices(searchQuery: string): Promise<PriceData> {
 
     const median = getMedian(prices) ?? 0;
     
-    // Use extracted graded prices if available, otherwise estimate from raw
+    // Apply 30% markup above median for all values
+    const markup = 1.30;
+    const adjustedMedian = median * markup;
+    
+    // Use extracted graded prices if available (with 30% markup), otherwise estimate from adjusted raw
     return {
-      raw: parseFloat(median.toFixed(2)),
-      psa9: gradedPrices.psa9 ?? parseFloat((median * 2.5).toFixed(2)),
-      psa10: gradedPrices.psa10 ?? parseFloat((median * 4).toFixed(2)),
-      cgc9: gradedPrices.cgc9 ?? parseFloat((median * 2.2).toFixed(2)),
-      cgc10: gradedPrices.cgc10 ?? parseFloat((median * 3.5).toFixed(2)),
-      suggested: parseFloat(median.toFixed(2)),
+      raw: parseFloat(adjustedMedian.toFixed(2)),
+      psa9: gradedPrices.psa9 ? parseFloat((gradedPrices.psa9 * markup).toFixed(2)) : parseFloat((adjustedMedian * 2.5).toFixed(2)),
+      psa10: gradedPrices.psa10 ? parseFloat((gradedPrices.psa10 * markup).toFixed(2)) : parseFloat((adjustedMedian * 4).toFixed(2)),
+      cgc9: gradedPrices.cgc9 ? parseFloat((gradedPrices.cgc9 * markup).toFixed(2)) : parseFloat((adjustedMedian * 2.2).toFixed(2)),
+      cgc10: gradedPrices.cgc10 ? parseFloat((gradedPrices.cgc10 * markup).toFixed(2)) : parseFloat((adjustedMedian * 3.5).toFixed(2)),
+      suggested: parseFloat(adjustedMedian.toFixed(2)),
       ebayUrl,
     };
   } catch (error) {
@@ -191,13 +195,17 @@ async function fetchSportsCardProPrices(searchQuery: string): Promise<PriceData>
 
     const median = getMedian(prices);
     
+    // Apply 30% markup above median for all values
+    const markup = 1.30;
+    const applyMarkup = (val: number | null) => val ? parseFloat((val * markup).toFixed(2)) : null;
+    
     return {
-      raw: gradedPrices.ungraded ?? median,
-      psa9: gradedPrices.psa9,
-      psa10: gradedPrices.psa10,
-      cgc9: gradedPrices.cgc9,
-      cgc10: gradedPrices.cgc10,
-      suggested: gradedPrices.ungraded ?? median,
+      raw: applyMarkup(gradedPrices.ungraded ?? median),
+      psa9: applyMarkup(gradedPrices.psa9),
+      psa10: applyMarkup(gradedPrices.psa10),
+      cgc9: applyMarkup(gradedPrices.cgc9),
+      cgc10: applyMarkup(gradedPrices.cgc10),
+      suggested: applyMarkup(gradedPrices.ungraded ?? median),
     };
   } catch (error) {
     console.error("Error fetching SportsCardPro prices:", error);
@@ -237,13 +245,17 @@ async function fetchPriceChartingPrices(cardName: string, cardSet: string | null
     const prices = extractPricesFromHtml(html);
     const median = getMedian(prices);
     
+    // Apply 30% markup above median for all values
+    const markup = 1.30;
+    const applyMarkup = (val: number | null) => val ? parseFloat((val * markup).toFixed(2)) : null;
+    
     return {
-      raw: gradedPrices.ungraded ?? median,
-      psa9: gradedPrices.psa9,
-      psa10: gradedPrices.psa10,
-      cgc9: gradedPrices.cgc9,
-      cgc10: gradedPrices.cgc10,
-      suggested: gradedPrices.ungraded ?? median,
+      raw: applyMarkup(gradedPrices.ungraded ?? median),
+      psa9: applyMarkup(gradedPrices.psa9),
+      psa10: applyMarkup(gradedPrices.psa10),
+      cgc9: applyMarkup(gradedPrices.cgc9),
+      cgc10: applyMarkup(gradedPrices.cgc10),
+      suggested: applyMarkup(gradedPrices.ungraded ?? median),
     };
   } catch (error) {
     console.error("Error fetching PriceCharting prices:", error);
