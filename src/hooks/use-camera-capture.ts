@@ -2,7 +2,6 @@ import { useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
 import { useCameraZoom } from "./use-camera-zoom";
 import { 
-  getMaxQualityStream, 
   captureMaxQualityPhoto, 
   applyFastAutofocus,
   triggerFastFocus 
@@ -29,13 +28,72 @@ export function useCameraCapture({ onCapture }: UseCameraCaptureOptions) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
 
-      // Use maximum quality stream with fast autofocus
-      const stream = await getMaxQualityStream(facingMode);
+      // Use progressive fallback constraints like RapidScanCamera
+      const constraintOptions = [
+        // Try 1: 4K
+        {
+          video: {
+            facingMode: { ideal: facingMode },
+            width: { ideal: 3840, min: 1280 },
+            height: { ideal: 2160, min: 720 },
+            frameRate: { ideal: 30 },
+          },
+          audio: false as const,
+        },
+        // Try 2: Full HD
+        {
+          video: {
+            facingMode: { ideal: facingMode },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
+          audio: false as const,
+        },
+        // Try 3: HD
+        {
+          video: {
+            facingMode: { ideal: facingMode },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false as const,
+        },
+        // Fallback: Any camera with facing mode
+        {
+          video: { facingMode },
+          audio: false as const,
+        },
+        // Last resort: Any camera at all
+        {
+          video: true,
+          audio: false as const,
+        },
+      ];
+
+      let stream: MediaStream | null = null;
+      let lastError: Error | null = null;
+
+      for (const constraints of constraintOptions) {
+        try {
+          console.log('Trying camera constraints:', constraints);
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          console.log('Camera started successfully');
+          break;
+        } catch (err: any) {
+          lastError = err;
+          console.warn('Camera constraint failed, trying fallback:', err.name, err.message);
+        }
+      }
+
+      if (!stream) {
+        throw lastError || new Error('Failed to access camera');
+      }
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.setAttribute('playsinline', 'true');
         videoRef.current.setAttribute('webkit-playsinline', 'true');
+        streamRef.current = stream;
         
         // Wait for video to be ready to play
         await new Promise<void>((resolve, reject) => {
@@ -46,61 +104,67 @@ export function useCameraCapture({ onCapture }: UseCameraCaptureOptions) {
           
           const video = videoRef.current;
           
-          const onCanPlay = () => {
-            video.removeEventListener('canplay', onCanPlay);
+          const onLoadedMetadata = () => {
+            video.removeEventListener('loadedmetadata', onLoadedMetadata);
             video.removeEventListener('error', onError);
             clearTimeout(timeout);
-            resolve();
+            
+            video.play()
+              .then(() => resolve())
+              .catch(() => resolve()); // Continue anyway
           };
           
-          const onError = (e: Event) => {
-            video.removeEventListener('canplay', onCanPlay);
+          const onError = () => {
+            video.removeEventListener('loadedmetadata', onLoadedMetadata);
             video.removeEventListener('error', onError);
             clearTimeout(timeout);
             reject(new Error('Video failed to load'));
           };
           
           // Check if already ready
-          if (video.readyState >= 3) {
-            resolve();
+          if (video.readyState >= 2) {
+            video.play().then(() => resolve()).catch(() => resolve());
             return;
           }
           
-          video.addEventListener('canplay', onCanPlay);
+          video.addEventListener('loadedmetadata', onLoadedMetadata);
           video.addEventListener('error', onError);
           
           const timeout = setTimeout(() => {
-            video.removeEventListener('canplay', onCanPlay);
+            video.removeEventListener('loadedmetadata', onLoadedMetadata);
             video.removeEventListener('error', onError);
-            // Resolve anyway after timeout - video might still work
-            resolve();
+            // Try to play anyway after timeout
+            video.play().then(() => resolve()).catch(() => resolve());
           }, 5000);
         });
         
-        try {
-          await videoRef.current.play();
-        } catch {
-          // Continue - some browsers need user interaction
-        }
-        
-        streamRef.current = stream;
         setIsCameraActive(true);
         setCameraFacingMode(facingMode);
+        
+        // Apply fast autofocus
+        try {
+          await applyFastAutofocus(stream);
+        } catch (e) {
+          console.log('Autofocus not available');
+        }
+        
         detectZoomCapabilities();
         
         // Log actual resolution
         const settings = stream.getVideoTracks()[0]?.getSettings?.();
         console.log(`Camera ready: ${settings?.width}x${settings?.height}`);
-        toast.success(`Camera ready (${settings?.width}x${settings?.height})`);
+        toast.success(`Camera ready`);
       }
     } catch (error: any) {
       console.error('Camera error:', error);
       
       const messages: Record<string, string> = {
-        NotAllowedError: 'Camera permission denied. Please allow camera access.',
+        NotAllowedError: 'Camera permission denied. Please allow camera access in your browser settings.',
         NotFoundError: 'No camera found on this device.',
         NotReadableError: 'Camera is in use by another application.',
         OverconstrainedError: 'Camera settings not supported.',
+        AbortError: 'Camera access was aborted.',
+        SecurityError: 'Camera access blocked due to security settings.',
       };
       
       toast.error(messages[error.name] || `Camera error: ${error.message}`);
