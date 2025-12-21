@@ -22,7 +22,6 @@ import {
 } from "lucide-react";
 import { ValuePrediction } from "@/components/cards/ValuePrediction";
 import { CollectionValuePrediction } from "@/components/cards/CollectionValuePrediction";
-import Card3DViewer from "@/components/Card3DViewer";
 import { toast } from "sonner";
 import { CardDetailModal, CardData } from "@/components/cards/CardDetailModal";
 
@@ -333,16 +332,6 @@ export default function PredictionsPage() {
                             </div>
                           </div>
                         </div>
-                      </div>
-                      
-                      {/* 3D View */}
-                      <div className="flex-shrink-0">
-                        <p className="text-sm font-medium text-muted-foreground mb-2">3D View</p>
-                        <Card3DViewer
-                          frontImageUrl={selectedCard.image_url}
-                          width={320}
-                          height={240}
-                        />
                       </div>
                     </div>
                   </CardContent>
