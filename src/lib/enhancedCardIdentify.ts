@@ -1,18 +1,12 @@
 import { supabase } from "@/integrations/supabase/client";
+import { 
+  EnhancedCardIdentifyResponseSchema, 
+  type EnhancedCardData 
+} from "./schemas/api-schemas";
+import { handleApiError, safeValidate, AppError } from "./errors";
 
-export type EnhancedCardData = {
-  card_name: string;
-  card_set: string | null;
-  card_number: string | null;
-  rarity: string | null;
-  edition: string | null;
-  game_type: string | null;
-  sport_type: string | null;
-  year: string | null;
-  manufacturer: string | null;
-  confidence: number;
-  description: string;
-};
+// Re-export the type for backwards compatibility
+export type { EnhancedCardData } from "./schemas/api-schemas";
 
 export async function enhancedCardIdentify(
   imageUrl: string,
@@ -26,12 +20,36 @@ export async function enhancedCardIdentify(
   });
 
   if (error) {
-    throw new Error(`enhanced-card-identify failed: ${error.message}`);
+    throw handleApiError(error);
   }
 
-  if (!data.success) {
-    throw new Error(data.error || "Failed to identify card");
+  // Validate response structure
+  const validation = safeValidate(EnhancedCardIdentifyResponseSchema, data);
+  
+  if (validation.success === false) {
+    console.warn("Response validation failed, attempting fallback parse:", data);
+    // Fallback for legacy responses - extract primary if available
+    if (data?.cardData?.primary) {
+      return data.cardData.primary as EnhancedCardData;
+    }
+    if (data?.cardData) {
+      return data.cardData as EnhancedCardData;
+    }
+    throw validation.error;
   }
 
-  return data.cardData as EnhancedCardData;
+  const response = validation.data;
+  
+  if (!response.success) {
+    throw new AppError(
+      response.error || "Failed to identify card",
+      response.noCardDetected ? "NOT_FOUND" : "API_ERROR"
+    );
+  }
+
+  if (!response.cardData?.primary) {
+    throw new AppError("No card data in response", "API_ERROR");
+  }
+
+  return response.cardData.primary;
 }
