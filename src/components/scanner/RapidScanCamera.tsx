@@ -51,6 +51,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   const [captures, setCaptures] = useState<CapturedCard[]>([]);
   const [processing, setProcessing] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const isPausedRef = useRef(false);
   const [flashEnabled, setFlashEnabled] = useState(false);
   const [flashSupported, setFlashSupported] = useState(false);
   const [isRefreshingPrices, setIsRefreshingPrices] = useState(false);
@@ -394,16 +395,16 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   };
 
   const togglePause = () => {
-    setIsPaused(prev => {
-      const newPaused = !prev;
-      if (!newPaused && processingQueueRef.current.length > 0) {
-        toast.info('Processing resumed');
-        setTimeout(() => processQueue(), 100);
-      } else if (newPaused) {
-        toast.info('Processing paused');
-      }
-      return newPaused;
-    });
+    const newPaused = !isPausedRef.current;
+    isPausedRef.current = newPaused;
+    setIsPaused(newPaused);
+    
+    if (!newPaused && processingQueueRef.current.length > 0) {
+      toast.info('Processing resumed');
+      setTimeout(() => processQueue(), 100);
+    } else if (newPaused) {
+      toast.info('Processing paused');
+    }
   };
 
   const CONCURRENT_LIMIT = 10; // Process 10 cards at a time for speed
@@ -457,7 +458,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
 
   const processQueue = async () => {
     if (isProcessingRef.current) return;
-    if (isPaused) {
+    if (isPausedRef.current) {
       setProcessing(false);
       return;
     }
@@ -470,7 +471,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     isProcessingRef.current = true;
     setProcessing(true);
 
-    while (processingQueueRef.current.length > 0 && !isPaused) {
+    while (processingQueueRef.current.length > 0 && !isPausedRef.current) {
       // Get next batch of cards to process concurrently
       const batchIds = processingQueueRef.current.slice(0, CONCURRENT_LIMIT);
       
@@ -495,7 +496,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     isProcessingRef.current = false;
     setProcessing(false);
     
-    if (!isPaused) {
+    if (!isPausedRef.current) {
       const completed = capturesRef.current.filter(c => c.status === 'completed').length;
       const errors = capturesRef.current.filter(c => c.status === 'error').length;
       
