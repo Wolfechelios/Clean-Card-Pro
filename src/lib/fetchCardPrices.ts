@@ -1,35 +1,9 @@
 import { supabase } from "@/integrations/supabase/client";
+import { CardPricingSchema, type CardPricing } from "./schemas/api-schemas";
+import { handleApiError, validateOrThrow } from "./errors";
 
-export interface CardPricing {
-  // Highest raw values (with 30% markup)
-  raw: number | null;
-  psa9: number | null;
-  psa10: number | null;
-  cgc9: number | null;
-  cgc10: number | null;
-  suggested: number | null;
-  // Original median values (before highest raw adjustment)
-  medianRaw: number | null;
-  medianPsa9: number | null;
-  medianPsa10: number | null;
-  medianCgc9: number | null;
-  medianCgc10: number | null;
-  // eBay reference values
-  ebayRaw: number | null;
-  ebayPsa9: number | null;
-  ebayPsa10: number | null;
-  ebayCgc9: number | null;
-  ebayCgc10: number | null;
-  ebayUrl: string | null;
-  // TCGPlayer values (for TCG cards)
-  tcgPlayerPrice: number | null;
-  tcgPlayerLow: number | null;
-  tcgPlayerMid: number | null;
-  tcgPlayerHigh: number | null;
-  tcgPlayerMarket: number | null;
-  tcgPlayerUrl: string | null;
-  source: string;
-}
+// Re-export the type for backwards compatibility
+export type { CardPricing } from "./schemas/api-schemas";
 
 export async function fetchCardPrices(
   cardName: string,
@@ -49,9 +23,8 @@ export async function fetchCardPrices(
   });
 
   if (error) {
-    console.error("Error fetching card prices:", error);
-    throw new Error(error.message || "Failed to fetch card prices");
+    throw handleApiError(error);
   }
 
-  return data as CardPricing;
+  return validateOrThrow(CardPricingSchema, data);
 }
