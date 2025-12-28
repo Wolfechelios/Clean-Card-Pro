@@ -88,7 +88,7 @@ export const applyFastAutofocus = async (stream: MediaStream): Promise<void> => 
         advanced: [
           { focusMode: 'continuous' } as any,
           // Try to set focus distance to close range for cards
-          ...(capabilities.focusDistance ? [{ focusDistance: capabilities.focusDistance.min + 0.1 } as any] : []),
+          ...(capabilities.focusDistance ? [{ focusDistance: capabilities.focusDistance.min } as any] : []),
         ]
       });
       console.log('Fast continuous autofocus enabled');
