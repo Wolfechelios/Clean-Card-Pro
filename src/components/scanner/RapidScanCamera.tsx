@@ -52,6 +52,21 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   const [processing, setProcessing] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const isPausedRef = useRef(false);
+  // Auto-capture (Android Chrome friendly): one-shot per card, re-arms on movement/change
+  const [autoCaptureEnabled, setAutoCaptureEnabled] = useState(true);
+  const autoCaptureEnabledRef = useRef(true);
+  const [autoHint, setAutoHint] = useState<string>("Hold steady");
+  const autoHintRef = useRef<string>("Hold steady");
+  const autoStateRef = useRef<"ARMED" | "LOCKED">("ARMED");
+  const stableMsRef = useRef(0);
+  const lastShotAtRef = useRef(0);
+  const lastSampleAtRef = useRef(0);
+  const prevGrayRef = useRef<Uint8Array | null>(null);
+  const prevHashRef = useRef<bigint | null>(null);
+  const isCapturingRef = useRef(false);
+  const sampleCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const sampleCtxRef = useRef<CanvasRenderingContext2D | null>(null);
+  const capturePhotoRef = useRef<(() => Promise<void>) | null>(null);
   const [flashEnabled, setFlashEnabled] = useState(false);
   const [flashSupported, setFlashSupported] = useState(false);
   const [isRefreshingPrices, setIsRefreshingPrices] = useState(false);
@@ -74,6 +89,10 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
       errorSoundRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    autoCaptureEnabledRef.current = autoCaptureEnabled;
+  }, [autoCaptureEnabled]);
 
   const { devices, selectedDeviceId, setSelectedDeviceId, isLoading: devicesLoading, refreshDevices } = useCameraDevices();
   
@@ -102,6 +121,24 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     if (focusHideTimerRef.current) window.clearTimeout(focusHideTimerRef.current);
     focusHideTimerRef.current = window.setTimeout(() => setFocusRing(null), 650);
   };
+
+
+const setAutoHintSafe = (hint: string) => {
+  if (autoHintRef.current !== hint) {
+    autoHintRef.current = hint;
+    setAutoHint(hint);
+  }
+};
+
+const hammingDistance64 = (a: bigint, b: bigint) => {
+  let x = a ^ b;
+  let c = 0;
+  while (x) {
+    c++;
+    x &= (x - 1n);
+  }
+  return c;
+};
 
   const handlePointerDown = async (e: React.PointerEvent<HTMLDivElement>) => {
     if (!isActive) return;
@@ -353,6 +390,16 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   };
 
   const capturePhoto = async () => {
+    if (isCapturingRef.current) return;
+    isCapturingRef.current = true;
+    // If auto is on, lock immediately so we don’t spam the same card while it sits there
+    if (autoCaptureEnabledRef.current) {
+      autoStateRef.current = "LOCKED";
+      stableMsRef.current = 0;
+      lastShotAtRef.current = performance.now ? performance.now() : Date.now();
+      setAutoHintSafe("Capturing…");
+    }
+    try {
     if (!videoRef.current || captures.length >= MAX_CAPTURES) {
       if (captures.length >= MAX_CAPTURES) {
         toast.warning(`Maximum ${MAX_CAPTURES} cards reached`);
@@ -477,7 +524,223 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
         }
       }, 'image/jpeg', 0.95); // High quality for better card recognition
     }
+    } finally {
+      isCapturingRef.current = false;
+    }
   };
+
+  // Keep latest capture function in a ref for auto-loop
+  useEffect(() => {
+    capturePhotoRef.current = capturePhoto;
+  }, [capturePhoto]);
+
+
+// Auto-shutter loop: capture once when stable + sharp, then require movement/change to re-arm
+useEffect(() => {
+  if (!isActive || !autoCaptureEnabled) {
+    autoStateRef.current = "ARMED";
+    stableMsRef.current = 0;
+    prevHashRef.current = null;
+    prevGrayRef.current = null;
+    setAutoHintSafe(autoCaptureEnabled ? "Hold steady" : "Manual");
+    return;
+  }
+
+  // Lazy init sample canvas/context
+  if (!sampleCanvasRef.current) {
+    const c = document.createElement('canvas');
+    c.width = 96;
+    c.height = 96;
+    sampleCanvasRef.current = c;
+    sampleCtxRef.current = c.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D | null;
+  }
+
+  const SIZE = 96;
+  const SAMPLE_EVERY_MS = 60; // ~16fps sampling, light on CPU
+  const STABLE_REQUIRED_MS = 450;
+  const COOLDOWN_MS = 1800;
+  const STABLE_DIFF = 7; // lower = stricter stability
+  const RESET_DIFF = 18; // movement threshold to re-arm
+  const HASH_RESET_HAMMING = 12; // fingerprint change threshold to re-arm
+  const MIN_SHARPNESS = 0.18; // normalized 0-1-ish
+
+  let raf = 0;
+  let stopped = false;
+
+  const computeMetrics = () => {
+    const video = videoRef.current;
+    const ctx = sampleCtxRef.current;
+    const canvas = sampleCanvasRef.current;
+    if (!video || !ctx || !canvas) return null;
+    if (video.videoWidth === 0 || video.videoHeight === 0 || video.readyState < 2) return null;
+
+    // Sample a centered ROI (matches the corner guides vibe without needing DOM math)
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    const sw = Math.max(1, Math.floor(vw * 0.6));
+    const sh = Math.max(1, Math.floor(vh * 0.6));
+    const sx = Math.floor((vw - sw) / 2);
+    const sy = Math.floor((vh - sh) / 2);
+
+    try {
+      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, SIZE, SIZE);
+    } catch {
+      return null;
+    }
+
+    let img: ImageData;
+    try {
+      img = ctx.getImageData(0, 0, SIZE, SIZE);
+    } catch {
+      return null;
+    }
+
+    const data = img.data;
+    const n = SIZE * SIZE;
+
+    let gray = prevGrayRef.current;
+    if (!gray || gray.length !== n) {
+      gray = new Uint8Array(n);
+      prevGrayRef.current = gray;
+      // Initialize with current frame to avoid instant triggers
+      for (let i = 0, p = 0; i < n; i++, p += 4) {
+        const r = data[p], g = data[p + 1], b = data[p + 2];
+        gray[i] = (r * 38 + g * 75 + b * 15) >> 7;
+      }
+      return { diff: 999, hash: 0n, sharp: 0 };
+    }
+
+    // Build current grayscale and compute diff + sharpness in one pass
+    let diffSum = 0;
+    let gradSum = 0;
+
+    // Precompute mean for hash
+    let meanSum = 0;
+    const cur = new Uint8Array(n);
+
+    for (let i = 0, p = 0; i < n; i++, p += 4) {
+      const r = data[p], g = data[p + 1], b = data[p + 2];
+      const v = (r * 38 + g * 75 + b * 15) >> 7;
+      cur[i] = v;
+      meanSum += v;
+      diffSum += Math.abs(v - gray[i]);
+    }
+
+    // Sharpness: average gradient magnitude (cheap edge contrast)
+    for (let y = 0; y < SIZE - 1; y++) {
+      const row = y * SIZE;
+      for (let x = 0; x < SIZE - 1; x++) {
+        const i = row + x;
+        const v = cur[i];
+        gradSum += Math.abs(v - cur[i + 1]) + Math.abs(v - cur[i + SIZE]);
+      }
+    }
+
+    // Swap prev
+    gray.set(cur);
+
+    const diff = diffSum / n;
+
+    const gradCount = (SIZE - 1) * (SIZE - 1);
+    const sharp = (gradSum / (gradCount * 255 * 2));
+
+    const mean = meanSum / n;
+
+    // 64-bit average hash from an 8x8 sampling grid
+    const step = Math.floor(SIZE / 8);
+    const half = Math.floor(step / 2);
+    let hash = 0n;
+    let bit = 63n;
+
+    for (let gy = 0; gy < 8; gy++) {
+      const y = Math.min(SIZE - 1, gy * step + half);
+      for (let gx = 0; gx < 8; gx++) {
+        const x = Math.min(SIZE - 1, gx * step + half);
+        const v = cur[y * SIZE + x];
+        if (v > mean) {
+          hash |= (1n << bit);
+        }
+        bit--;
+      }
+    }
+
+    return { diff, hash, sharp };
+  };
+
+  const loop = (now: number) => {
+    if (stopped) return;
+    raf = requestAnimationFrame(loop);
+
+    if (!autoCaptureEnabledRef.current) return;
+    if (!isActive) return;
+    if (isPausedRef.current) return;
+    if (isCapturingRef.current) return;
+    if (capturesRef.current.length >= MAX_CAPTURES) return;
+
+    if (now - lastSampleAtRef.current < SAMPLE_EVERY_MS) return;
+    lastSampleAtRef.current = now;
+
+    const m = computeMetrics();
+    if (!m) return;
+
+    const { diff, hash, sharp } = m;
+
+    // Locked: wait for movement or a sufficiently different fingerprint
+    if (autoStateRef.current === "LOCKED") {
+      const prev = prevHashRef.current;
+      const changed = prev !== null && hammingDistance64(hash, prev) >= HASH_RESET_HAMMING;
+      const moved = diff > RESET_DIFF;
+
+      if (moved || changed) {
+        autoStateRef.current = "ARMED";
+        stableMsRef.current = 0;
+        setAutoHintSafe("Hold steady");
+      } else {
+        setAutoHintSafe("Move card to scan next");
+      }
+
+      prevHashRef.current = hash;
+      return;
+    }
+
+    // Armed: look for stable + sharp
+    const inCooldown = now - lastShotAtRef.current < COOLDOWN_MS;
+    if (inCooldown) {
+      stableMsRef.current = 0;
+      setAutoHintSafe("Hold steady");
+      prevHashRef.current = hash;
+      return;
+    }
+
+    const stable = diff < STABLE_DIFF;
+    const sharpEnough = sharp >= MIN_SHARPNESS;
+
+    if (stable && sharpEnough) {
+      stableMsRef.current += SAMPLE_EVERY_MS;
+      const pct = Math.min(100, Math.round((stableMsRef.current / STABLE_REQUIRED_MS) * 100));
+      setAutoHintSafe(pct >= 100 ? "Capturing…" : `Hold steady ${pct}%`);
+
+      if (stableMsRef.current >= STABLE_REQUIRED_MS) {
+        autoStateRef.current = "LOCKED";
+        stableMsRef.current = 0;
+        lastShotAtRef.current = now;
+        setAutoHintSafe("Capturing…");
+        capturePhotoRef.current?.();
+      }
+    } else {
+      stableMsRef.current = 0;
+      setAutoHintSafe(sharpEnough ? "Hold steady" : "Adjust distance / focus");
+    }
+
+    prevHashRef.current = hash;
+  };
+
+  raf = requestAnimationFrame(loop);
+  return () => {
+    stopped = true;
+    cancelAnimationFrame(raf);
+  };
+}, [isActive, autoCaptureEnabled]);
 
   const togglePause = () => {
     const newPaused = !isPausedRef.current;
@@ -910,9 +1173,22 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
               {/* Mobile-Optimized Controls - Bottom bar */}
               <div className="absolute bottom-0 left-0 right-0 pb-safe">
                 <div className="bg-gradient-to-t from-black/90 via-black/60 to-transparent pt-12 pb-4 px-4">
+                  {autoCaptureEnabled && (
+                    <div className="text-center text-white/85 text-xs mb-2 select-none">
+                      {autoHint}
+                    </div>
+                  )}
                   <div className="flex items-center justify-between max-w-md mx-auto">
                     {/* Left controls - smaller */}
                     <div className="flex items-center gap-1">
+                      <Button
+                        variant={autoCaptureEnabled ? "secondary" : "ghost"}
+                        size="icon"
+                        onClick={() => setAutoCaptureEnabled(v => !v)}
+                        className="text-white bg-black/40 hover:bg-black/55 border-0 h-10 w-10"
+                      >
+                        <span className="text-[10px] font-bold tracking-wide">{autoCaptureEnabled ? "AUTO" : "MAN"}</span>
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon"
