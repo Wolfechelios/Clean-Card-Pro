@@ -78,10 +78,83 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   const { devices, selectedDeviceId, setSelectedDeviceId, isLoading: devicesLoading, refreshDevices } = useCameraDevices();
   
   // Zoom controls
-  const { zoomLevel, zoomCapabilities, detectZoomCapabilities, setZoom, zoomIn, zoomOut, resetZoom } = useCameraZoom({
+  const { zoomLevel, zoomCapabilities, usingDigitalZoom, detectZoomCapabilities, setZoom, zoomIn, zoomOut, resetZoom } = useCameraZoom({
     streamRef,
   });
   
+  // Pinch-to-zoom + tap-to-focus helpers (works even when hardware zoom/focus constraints are limited)
+  const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchStartRef = useRef<{ dist: number; zoom: number } | null>(null);
+  const focusHideTimerRef = useRef<number | null>(null);
+  const [focusRing, setFocusRing] = useState<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (focusHideTimerRef.current) {
+        window.clearTimeout(focusHideTimerRef.current);
+        focusHideTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const showFocusRing = (x: number, y: number) => {
+    setFocusRing({ x, y });
+    if (focusHideTimerRef.current) window.clearTimeout(focusHideTimerRef.current);
+    focusHideTimerRef.current = window.setTimeout(() => setFocusRing(null), 650);
+  };
+
+  const handlePointerDown = async (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isActive) return;
+
+    const el = e.currentTarget;
+    try {
+      el.setPointerCapture(e.pointerId);
+    } catch {
+      // Some browsers may throw; ignore
+    }
+
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    // If we now have 2 pointers: begin pinch
+    if (pointersRef.current.size === 2) {
+      const pts = Array.from(pointersRef.current.values());
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      pinchStartRef.current = { dist, zoom: zoomLevel };
+      return;
+    }
+
+    // Single pointer: treat as tap-to-focus
+    const rect = el.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    showFocusRing(x, y);
+
+    if (streamRef.current) {
+      await triggerFastFocus(streamRef.current);
+    }
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isActive) return;
+    if (!pointersRef.current.has(e.pointerId)) return;
+
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (pointersRef.current.size === 2 && pinchStartRef.current) {
+      const pts = Array.from(pointersRef.current.values());
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      const scale = dist / Math.max(1, pinchStartRef.current.dist);
+      const target = pinchStartRef.current.zoom * scale;
+      // Fire-and-forget; hook clamps
+      void setZoom(target);
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    pointersRef.current.delete(e.pointerId);
+    if (pointersRef.current.size < 2) pinchStartRef.current = null;
+  };
+
   // Filter USB vs regular devices
   const usbDevices = devices.filter(d => d.isUSB);
   const regularDevices = devices.filter(d => !d.isUSB);
@@ -340,6 +413,18 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
         offsetY = (video.videoHeight - drawHeight) / 2;
       }
       
+
+      // If hardware zoom isn't available, we mimic zoom by cropping a smaller center region
+      const effectiveZoom = usingDigitalZoom ? zoomLevel : 1;
+      if (effectiveZoom > 1) {
+        const zw = drawWidth / effectiveZoom;
+        const zh = drawHeight / effectiveZoom;
+        offsetX += (drawWidth - zw) / 2;
+        offsetY += (drawHeight - zh) / 2;
+        drawWidth = zw;
+        drawHeight = zh;
+      }
+
       // Fill background
       ctx.fillStyle = '#000000';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -750,13 +835,25 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
           
           <div className="relative bg-black">
             {/* Video container - Fullscreen feel on mobile */}
-            <div className="relative mx-auto md:max-w-md w-full" style={{ aspectRatio: '5/7' }}>
+            <div
+                className="relative mx-auto md:max-w-md w-full overflow-hidden touch-none"
+                style={{ aspectRatio: '5/7' }}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+              >
               <video
                 ref={videoRef}
                 autoPlay
                 playsInline
                 muted
                 className="w-full h-full object-cover"
+                style={
+                  usingDigitalZoom && zoomLevel !== 1
+                    ? { transform: `scale(${zoomLevel})`, transformOrigin: 'center center' }
+                    : undefined
+                }
               />
               
               {/* Minimal Corner Guides Only */}
@@ -772,6 +869,21 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
                   <path d="M 92 132 L 92 122 M 92 132 L 82 132" stroke="white" strokeWidth="0.6" fill="none" opacity="0.7"/>
                 </svg>
               </div>
+
+
+              {/* Tap-to-focus ring */}
+              {focusRing && (
+                <div
+                  className="absolute pointer-events-none border-2 border-white/80 rounded-full"
+                  style={{
+                    width: 56,
+                    height: 56,
+                    left: Math.max(0, focusRing.x - 28),
+                    top: Math.max(0, focusRing.y - 28),
+                    boxShadow: '0 0 0 2px rgba(0,0,0,0.35)',
+                  }}
+                />
+              )}
 
               {/* Mobile: Floating count badge - top right */}
               <div className="md:hidden absolute top-3 right-3">
