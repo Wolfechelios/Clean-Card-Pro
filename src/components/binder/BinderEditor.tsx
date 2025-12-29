@@ -1,184 +1,107 @@
-import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { SlotGrid } from "./SlotGrid";
-import { Edit, Save, Plus } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
+/* src/components/binder/BinderEditor.tsx */
+import React, { useMemo, useState } from 'react'
+import type { CardRecord } from '../../types/cards'
+import { Button } from '../ui/Button'
+import { Input } from '../ui/Input'
+import { useAppStore } from '../../store/useAppStore'
+import { toast } from '../../utils/toast'
 
-interface Card {
-  id: string;
-  card_name: string;
-  image_url: string;
-  thumbnail_url?: string;
-  current_price_raw?: number;
-  collection_name: string | null;
+type Props = {
+  binderName: string
+  cards: CardRecord[]
+  onClose: () => void
 }
 
-interface BinderEditorProps {
-  binderName: string;
-  cards: Card[];
-  onUpdate: () => void;
-}
+/**
+ * RULE: Set and Collection must always be the same value.
+ * For binders, both should match binderName (collection name).
+ */
+export function BinderEditor({ binderName, cards, onClose }: Props) {
+  const { updateCardLocal, bulkUpdateCardsLocal } = useAppStore()
+  const [search, setSearch] = useState('')
 
-export function BinderEditor({ binderName, cards, onUpdate }: BinderEditorProps) {
-  const [layout, setLayout] = useState<"3x3" | "3x4" | "4x3">("3x3");
-  const [slots, setSlots] = useState<(Card | null)[]>([]);
-  const [isEditing, setIsEditing] = useState(false);
-  const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
-  const [availableCards, setAvailableCards] = useState<Card[]>([]);
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return cards
+    return cards.filter((c) => {
+      const hay = `${c.card_name || ''} ${c.card_number || ''} ${c.card_set || ''} ${c.collection_name || ''}`.toLowerCase()
+      return hay.includes(q)
+    })
+  }, [cards, search])
 
-  const getLayoutDimensions = (layout: string) => {
-    const [cols, rows] = layout.split("x").map(Number);
-    return { columns: cols, rows, total: cols * rows };
-  };
-
-  useEffect(() => {
-    const { total } = getLayoutDimensions(layout);
-    const newSlots = Array(total).fill(null);
-    
-    // Fill slots with cards from binder
-    cards.forEach((card, index) => {
-      if (index < total) {
-        newSlots[index] = card;
-      }
-    });
-
-    setSlots(newSlots);
-  }, [layout, cards]);
-
-  useEffect(() => {
-    if (isEditing) {
-      fetchAvailableCards();
+  const enforceBinderSetCollection = async () => {
+    try {
+      const updates = cards.map((c) => ({
+        ...c,
+        card_set: binderName,
+        collection_name: binderName,
+      }))
+      bulkUpdateCardsLocal(updates)
+      toast.success('Binder cards synced: Set = Collection')
+    } catch (e: any) {
+      console.error(e)
+      toast.error(e?.message || 'Failed to sync binder cards')
     }
-  }, [isEditing]);
+  }
 
-  const fetchAvailableCards = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
-
-    const { data } = await supabase
-      .from("cards")
-      .select("id, card_name, image_url, thumbnail_url, current_price_raw, collection_name")
-      .eq("user_id", session.user.id)
-      .or(`collection_name.is.null,collection_name.neq.${binderName}`);
-
-    setAvailableCards(data || []);
-  };
-
-  const handleSlotClick = (index: number) => {
-    if (isEditing) {
-      setSelectedSlot(index);
+  const updateOne = (card: CardRecord) => {
+    const updated: CardRecord = {
+      ...card,
+      card_set: binderName,
+      collection_name: binderName,
     }
-  };
-
-  const handleCardSelect = async (card: Card) => {
-    if (selectedSlot === null) return;
-
-    const newSlots = [...slots];
-    newSlots[selectedSlot] = card;
-    setSlots(newSlots);
-
-    // Update card's collection in database
-    await supabase
-      .from("cards")
-      .update({ collection_name: binderName })
-      .eq("id", card.id);
-
-    setSelectedSlot(null);
-    onUpdate();
-  };
-
-  const handleCardRemove = async (cardId: string, index: number) => {
-    const newSlots = [...slots];
-    newSlots[index] = null;
-    setSlots(newSlots);
-
-    // Remove from binder (set collection to null)
-    await supabase
-      .from("cards")
-      .update({ collection_name: null })
-      .eq("id", cardId);
-
-    toast.success("Card removed from binder");
-    onUpdate();
-  };
-
-  const handleSave = () => {
-    setIsEditing(false);
-    toast.success("Binder layout saved");
-  };
+    updateCardLocal(updated)
+    toast.success('Updated')
+  }
 
   return (
-    <Card className="bg-card border-border">
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Edit className="h-5 w-5" />
-            {binderName}
-          </CardTitle>
-          <div className="flex gap-2">
-            <Select value={layout} onValueChange={(v) => setLayout(v as any)}>
-              <SelectTrigger className="w-32 bg-secondary border-border">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="3x3">3x3</SelectItem>
-                <SelectItem value="3x4">3x4</SelectItem>
-                <SelectItem value="4x3">4x3</SelectItem>
-              </SelectContent>
-            </Select>
-            {isEditing ? (
-              <Button onClick={handleSave} size="sm">
-                <Save className="mr-2 h-4 w-4" />
-                Save
-              </Button>
-            ) : (
-              <Button onClick={() => setIsEditing(true)} size="sm">
-                <Edit className="mr-2 h-4 w-4" />
-                Edit
-              </Button>
-            )}
-          </div>
+    <div className="space-y-4">
+      <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+        <div className="max-w-md">
+          <Input
+            label="Search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Find a card..."
+          />
         </div>
-      </CardHeader>
-      <CardContent>
-        <SlotGrid
-          cards={slots}
-          columns={getLayoutDimensions(layout).columns}
-          onSlotClick={handleSlotClick}
-          onCardRemove={isEditing ? handleCardRemove : undefined}
-        />
 
-        <Dialog open={selectedSlot !== null} onOpenChange={() => setSelectedSlot(null)}>
-          <DialogContent className="bg-card border-border max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Select Card for Slot {(selectedSlot || 0) + 1}</DialogTitle>
-            </DialogHeader>
-            <div className="max-h-96 overflow-y-auto">
-              <div className="grid grid-cols-3 gap-3">
-                {availableCards.map((card) => (
-                  <div
-                    key={card.id}
-                    className="cursor-pointer hover:scale-105 transition-transform"
-                    onClick={() => handleCardSelect(card)}
-                  >
-                    <img
-                      src={card.thumbnail_url || card.image_url}
-                      alt={card.card_name}
-                      className="w-full aspect-[3/4] object-cover rounded"
-                    />
-                    <p className="text-xs font-medium mt-1 truncate">{card.card_name}</p>
-                  </div>
-                ))}
+        <div className="flex gap-2">
+          <Button onClick={enforceBinderSetCollection}>Sync Set = Collection</Button>
+          <Button variant="ghost" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-white/10 overflow-hidden">
+        <div className="grid grid-cols-12 gap-2 px-3 py-2 text-xs opacity-70 bg-white/5">
+          <div className="col-span-6">Card</div>
+          <div className="col-span-2">#</div>
+          <div className="col-span-2">Qty</div>
+          <div className="col-span-2 text-right">Actions</div>
+        </div>
+
+        {filtered.map((c) => (
+          <div key={c.id} className="grid grid-cols-12 gap-2 px-3 py-2 border-t border-white/10 items-center">
+            <div className="col-span-6">
+              <div className="font-medium">{c.card_name || 'Unknown'}</div>
+              <div className="text-xs opacity-60">
+                Set/Collection: <span className="opacity-90">{binderName}</span>
               </div>
             </div>
-          </DialogContent>
-        </Dialog>
-      </CardContent>
-    </Card>
-  );
+            <div className="col-span-2 text-sm opacity-80">{c.card_number || '-'}</div>
+            <div className="col-span-2 text-sm opacity-80">{c.quantity ?? 1}</div>
+            <div className="col-span-2 flex justify-end">
+              <Button size="sm" onClick={() => updateOne(c)}>
+                Force Sync
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
+
+export default BinderEditor
