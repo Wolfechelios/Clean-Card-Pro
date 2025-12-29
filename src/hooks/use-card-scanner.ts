@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { insertCardDual } from "@/lib/localCards";
 import { toast } from "sonner";
 import { analyzeCardFull } from "@/lib/analyzeCardFull";
 import { getScannerSettings } from "./use-scanner-settings";
@@ -260,7 +261,7 @@ export function useCardScanner({ userId, onScanComplete, skipDuplicateCheck = fa
       const { autoConfirmEnabled, autoConfirmThreshold } = getScannerSettings();
       if (autoConfirmEnabled && identifiedCard.confidence >= autoConfirmThreshold) {
         try {
-          const { error: dbError } = await supabase.from("cards").insert({
+          await insertCardDual({
             user_id: userId,
             card_name: identifiedCard.card_name,
             card_set: identifiedCard.card_set,
@@ -282,8 +283,6 @@ export function useCardScanner({ userId, onScanComplete, skipDuplicateCheck = fa
             thumbnail_url: imageUrl,
             last_price_update: new Date().toISOString(),
           });
-
-          if (dbError) throw dbError;
 
           toast.success(`Card auto-saved: ${identifiedCard.card_name} (${identifiedCard.confidence}% confidence)`);
           clearSelection();
@@ -330,7 +329,7 @@ export function useCardScanner({ userId, onScanComplete, skipDuplicateCheck = fa
     if (!pendingCard) return;
 
     try {
-      const { error: dbError } = await supabase.from("cards").insert({
+      await insertCardDual({
         user_id: userId,
         card_name: editedCard.card_name,
         card_set: editedCard.card_set,
@@ -352,8 +351,6 @@ export function useCardScanner({ userId, onScanComplete, skipDuplicateCheck = fa
         thumbnail_url: pendingCard.imageUrl,
         last_price_update: new Date().toISOString(),
       });
-
-      if (dbError) throw dbError;
 
       toast.success("Card saved successfully!");
       clearSelection();

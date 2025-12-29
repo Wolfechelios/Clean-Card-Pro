@@ -8,6 +8,7 @@ import { SlotProgress } from "./SlotProgress";
 import { detectCardRegions, extractCardImage } from "@/lib/binder/preprocess";
 import { fetchCardPrices } from "@/lib/fetchCardPrices";
 import { supabase } from "@/integrations/supabase/client";
+import { insertCardDual } from "@/lib/localCards";
 import { toast } from "sonner";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
 import { ZoomControls } from "@/components/scanner/ZoomControls";
@@ -248,39 +249,35 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
           updateProcessingCard(i, { status: 'saving' });
 
           // Insert into database
-          const { data: insertedCard, error: insertError } = await supabase
-            .from("cards")
-            .insert({
-              user_id: session.user.id,
-              card_name: cardData.card_name,
-              card_set: binderName,  // RULE: Set = Collection
-              card_number: cardData.card_number,
-              rarity: cardData.rarity,
-              edition: cardData.edition,
-              game_type: cardData.game_type,
-              sport_type: cardData.sport_type,
-              image_url: publicUrl,
-              thumbnail_url: publicUrl,
-              collection_name: binderName,
-              current_price_raw: pricingData.raw,
-              current_price_psa9: pricingData.psa9,
-              current_price_psa10: pricingData.psa10,
-              suggested_price: pricingData.suggested,
-              ebay_listing_url: pricingData.ebayUrl,
-              ocr_confidence: cardData.confidence,
-            })
-            .select()
-            .single();
+          const insertedCard = await insertCardDual({
+            user_id: session.user.id,
+            card_name: cardData.card_name,
+            card_set: binderName,  // RULE: Set = Collection
+            card_number: cardData.card_number,
+            rarity: cardData.rarity,
+            edition: cardData.edition,
+            game_type: cardData.game_type,
+            sport_type: cardData.sport_type,
+            image_url: publicUrl,
+            thumbnail_url: publicUrl,
+            collection_name: binderName,
+            current_price_raw: pricingData.raw,
+            current_price_psa9: pricingData.psa9,
+            current_price_psa10: pricingData.psa10,
+            suggested_price: pricingData.suggested,
+            ebay_listing_url: pricingData.ebayUrl,
+            ocr_confidence: cardData.confidence,
+          });
 
-          if (insertError) {
-            console.error("Insert error:", insertError);
+          if (!insertedCard) {
+            console.error("Insert returned no data");
             updateProcessingCard(i, { status: 'error' });
             results.push({
               id: `failed-${i}`,
               card_name: cardData.card_name || "Insert Failed",
               image_url: publicUrl,
               success: false,
-              error: insertError.message
+              error: "No data returned from insert"
             });
             continue;
           }
