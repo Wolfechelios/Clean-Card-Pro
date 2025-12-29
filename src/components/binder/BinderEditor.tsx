@@ -1,23 +1,24 @@
 /* src/components/binder/BinderEditor.tsx */
 import React, { useMemo, useState } from 'react'
-import type { CardRecord } from '../../types/cards'
-import { Button } from '../ui/Button'
-import { Input } from '../ui/Input'
-import { useAppStore } from '../../store/useAppStore'
-import { toast } from '../../utils/toast'
+import type { Tables } from '@/integrations/supabase/types'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { toast } from 'sonner'
 
+type CardRecord = Tables<'cards'> & { quantity?: number }
 type Props = {
   binderName: string
   cards: CardRecord[]
   onClose: () => void
+  onUpdateCard?: (card: CardRecord) => void
+  onBulkUpdateCards?: (cards: CardRecord[]) => void
 }
 
 /**
  * RULE: Set and Collection must always be the same value.
  * For binders, both should match binderName (collection name).
  */
-export function BinderEditor({ binderName, cards, onClose }: Props) {
-  const { updateCardLocal, bulkUpdateCardsLocal } = useAppStore()
+export function BinderEditor({ binderName, cards, onClose, onUpdateCard, onBulkUpdateCards }: Props) {
   const [search, setSearch] = useState('')
 
   const filtered = useMemo(() => {
@@ -36,7 +37,7 @@ export function BinderEditor({ binderName, cards, onClose }: Props) {
         card_set: binderName,
         collection_name: binderName,
       }))
-      bulkUpdateCardsLocal(updates)
+      onBulkUpdateCards?.(updates)
       toast.success('Binder cards synced: Set = Collection')
     } catch (e: any) {
       console.error(e)
@@ -50,7 +51,7 @@ export function BinderEditor({ binderName, cards, onClose }: Props) {
       card_set: binderName,
       collection_name: binderName,
     }
-    updateCardLocal(updated)
+    onUpdateCard?.(updated)
     toast.success('Updated')
   }
 
@@ -59,7 +60,6 @@ export function BinderEditor({ binderName, cards, onClose }: Props) {
       <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
         <div className="max-w-md">
           <Input
-            label="Search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Find a card..."
