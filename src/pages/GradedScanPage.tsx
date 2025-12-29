@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/integrations/supabase/client";
+import { insertCardDual } from "@/lib/localCards";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -321,7 +322,7 @@ export default function GradedScanPage() {
     if (!cardData || !userId) return;
 
     try {
-      const { error } = await supabase.from("cards").insert({
+      await insertCardDual({
         user_id: userId,
         card_name: cardData.cardName,
         card_set: cardData.cardSet,
@@ -331,8 +332,6 @@ export default function GradedScanPage() {
         notes: `Cert #: ${cardData.certNumber} | Verified: ${cardData.verified ? "Yes" : "No"}`,
         tags: [cardData.gradingCompany || "Graded", cardData.grade],
       });
-
-      if (error) throw error;
 
       toast.success("Card saved to collection!");
       setCardData(null);

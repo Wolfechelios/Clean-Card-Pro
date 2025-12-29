@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { insertCardDual } from "@/lib/localCards";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Camera, SwitchCamera, X, CheckCircle, Loader2, Pause, Play, Zap, Usb, Smartphone, RefreshCw, DollarSign, ImagePlus } from "lucide-react";
@@ -969,7 +970,7 @@ useEffect(() => {
 
       const cardData = identifyResult.data?.cardData;
 
-      const { data: insertedCard, error: insertError } = await supabase.from('cards').insert({
+      const insertedCard = await insertCardDual({
         user_id: userId,
         card_name: cardData?.card_name || 'Unknown Card',
         card_set: cardData?.card_set,
@@ -980,10 +981,7 @@ useEffect(() => {
         image_url: imageUrl,
         thumbnail_url: imageUrl,
         ocr_confidence: cardData?.confidence || 0,
-        // Pricing will be fetched later in batch
-      }).select('id').single();
-
-      if (insertError) throw insertError;
+      });
 
       // Fetch pricing in background (don't block completion)
       fetchPricingForCard(insertedCard.id, cardData).catch(console.error);
