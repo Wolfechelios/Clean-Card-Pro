@@ -390,141 +390,148 @@ const hammingDistance64 = (a: bigint, b: bigint) => {
     }
   };
 
+  // Reusable canvas for faster captures
+  const captureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const captureCtxRef = useRef<CanvasRenderingContext2D | null>(null);
+
   const capturePhoto = async () => {
     if (isCapturingRef.current) return;
     isCapturingRef.current = true;
-    // If auto is on, lock immediately so we don’t spam the same card while it sits there
+    
+    // If auto is on, lock immediately so we don't spam the same card while it sits there
     if (autoCaptureEnabledRef.current) {
       autoStateRef.current = "LOCKED";
       stableMsRef.current = 0;
       lastShotAtRef.current = performance.now ? performance.now() : Date.now();
       setAutoHintSafe("Capturing…");
     }
+    
     try {
-    if (!videoRef.current || captures.length >= MAX_CAPTURES) {
-      if (captures.length >= MAX_CAPTURES) {
-        toast.warning(`Maximum ${MAX_CAPTURES} cards reached`);
-      }
-      return;
-    }
-
-    const video = videoRef.current;
-    
-    // Validate video is actually streaming
-    if (video.videoWidth === 0 || video.videoHeight === 0 || video.readyState < 2) {
-      toast.error('Camera not ready. Please wait for video to load.');
-      return;
-    }
-
-    // Trigger fast focus before capture
-    if (streamRef.current) {
-      await triggerFastFocus(streamRef.current);
-      // Brief delay for focus to settle
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-
-    const canvas = document.createElement('canvas');
-    
-    // Use maximum resolution for capture - 8K target
-    const captureWidth = Math.max(video.videoWidth, 3840);
-    const captureHeight = Math.round(captureWidth * (7 / 5)); // 5:7 card ratio
-    
-    canvas.width = captureWidth;
-    canvas.height = captureHeight;
-    
-    const ctx = canvas.getContext('2d', {
-      alpha: false,
-      desynchronized: true,
-      willReadFrequently: true // Need this for anti-glare
-    });
-    
-    if (ctx) {
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-      
-      // Calculate scaling to maintain aspect ratio
-      const videoRatio = video.videoWidth / video.videoHeight;
-      const targetRatio = 5 / 7;
-      
-      let drawWidth = video.videoWidth;
-      let drawHeight = video.videoHeight;
-      let offsetX = 0;
-      let offsetY = 0;
-      
-      if (videoRatio > targetRatio) {
-        // Video is wider, crop sides
-        drawWidth = video.videoHeight * targetRatio;
-        offsetX = (video.videoWidth - drawWidth) / 2;
-      } else {
-        // Video is taller, crop top/bottom
-        drawHeight = video.videoWidth / targetRatio;
-        offsetY = (video.videoHeight - drawHeight) / 2;
-      }
-      
-
-      // If hardware zoom isn't available, we mimic zoom by cropping a smaller center region
-      const effectiveZoom = usingDigitalZoom ? zoomLevel : 1;
-      if (effectiveZoom > 1) {
-        const zw = drawWidth / effectiveZoom;
-        const zh = drawHeight / effectiveZoom;
-        offsetX += (drawWidth - zw) / 2;
-        offsetY += (drawHeight - zh) / 2;
-        drawWidth = zw;
-        drawHeight = zh;
-      }
-
-      // Fill background
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
-      // Draw cropped and scaled video
-      ctx.drawImage(
-        video,
-        offsetX, offsetY, drawWidth, drawHeight,
-        0, 0, canvas.width, canvas.height
-      );
-      
-      // Apply anti-glare processing only (OCR enhancement disabled to avoid color issues)
-      applyAntiGlare(ctx, canvas, 0.25);
-      
-      canvas.toBlob((blob) => {
-        if (blob) {
-          const id = `capture-${Date.now()}-${Math.random()}`;
-          const preview = URL.createObjectURL(blob);
-          
-          const newCapture: CapturedCard = {
-            id,
-            blob,
-            preview,
-            status: 'queued',
-          };
-          
-          setCaptures(prev => {
-            const updated = [...prev, newCapture];
-            capturesRef.current = updated;
-            return updated;
-          });
-          processingQueueRef.current.push(id);
-          
-          // Start background processing if not already running
-          if (!isProcessingRef.current) {
-            processQueue();
-          }
-          
-          // Play shutter sound - this is the only feedback needed
-          if (shutterSoundRef.current) {
-            shutterSoundRef.current.currentTime = 0;
-            shutterSoundRef.current.play().catch(() => {});
-          }
-
-          // Haptic feedback on mobile
-          if ('vibrate' in navigator) {
-            navigator.vibrate(50);
-          }
-          // No toast notification - audio + haptic feedback is enough
+      if (!videoRef.current || captures.length >= MAX_CAPTURES) {
+        if (captures.length >= MAX_CAPTURES) {
+          toast.warning(`Maximum ${MAX_CAPTURES} cards reached`);
         }
-      }, 'image/jpeg', 0.95); // High quality for better card recognition
-    }
+        return;
+      }
+
+      const video = videoRef.current;
+      
+      // Validate video is actually streaming
+      if (video.videoWidth === 0 || video.videoHeight === 0 || video.readyState < 2) {
+        toast.error('Camera not ready. Please wait for video to load.');
+        return;
+      }
+
+      // FAST PATH: Fire-and-forget focus - don't wait for it
+      // Continuous autofocus handles most cases; this just nudges if needed
+      if (streamRef.current) {
+        triggerFastFocus(streamRef.current).catch(() => {});
+      }
+
+      // Reuse canvas for faster captures (avoid GC overhead)
+      if (!captureCanvasRef.current) {
+        captureCanvasRef.current = document.createElement('canvas');
+      }
+      const canvas = captureCanvasRef.current;
+      
+      // Use video's native resolution (no upscaling = faster)
+      const captureWidth = video.videoWidth;
+      const captureHeight = Math.round(captureWidth * (7 / 5)); // 5:7 card ratio
+      
+      // Only resize canvas if dimensions changed
+      if (canvas.width !== captureWidth || canvas.height !== captureHeight) {
+        canvas.width = captureWidth;
+        canvas.height = captureHeight;
+        captureCtxRef.current = null; // Force context refresh
+      }
+      
+      if (!captureCtxRef.current) {
+        captureCtxRef.current = canvas.getContext('2d', {
+          alpha: false,
+          desynchronized: true,
+          willReadFrequently: false // Faster when not reading back pixels
+        });
+      }
+      const ctx = captureCtxRef.current;
+      
+      if (ctx) {
+        ctx.imageSmoothingEnabled = false; // Faster rendering
+        
+        // Calculate scaling to maintain aspect ratio
+        const videoRatio = video.videoWidth / video.videoHeight;
+        const targetRatio = 5 / 7;
+        
+        let drawWidth = video.videoWidth;
+        let drawHeight = video.videoHeight;
+        let offsetX = 0;
+        let offsetY = 0;
+        
+        if (videoRatio > targetRatio) {
+          drawWidth = video.videoHeight * targetRatio;
+          offsetX = (video.videoWidth - drawWidth) / 2;
+        } else {
+          drawHeight = video.videoWidth / targetRatio;
+          offsetY = (video.videoHeight - drawHeight) / 2;
+        }
+        
+        // Digital zoom cropping if hardware zoom unavailable
+        const effectiveZoom = usingDigitalZoom ? zoomLevel : 1;
+        if (effectiveZoom > 1) {
+          const zw = drawWidth / effectiveZoom;
+          const zh = drawHeight / effectiveZoom;
+          offsetX += (drawWidth - zw) / 2;
+          offsetY += (drawHeight - zh) / 2;
+          drawWidth = zw;
+          drawHeight = zh;
+        }
+
+        // Draw directly (skip background fill - card fills canvas)
+        ctx.drawImage(
+          video,
+          offsetX, offsetY, drawWidth, drawHeight,
+          0, 0, canvas.width, canvas.height
+        );
+        
+        // Skip anti-glare for speed - continuous autofocus handles lighting
+        
+        // Play shutter sound immediately for responsive feel
+        if (shutterSoundRef.current) {
+          shutterSoundRef.current.currentTime = 0;
+          shutterSoundRef.current.play().catch(() => {});
+        }
+
+        // Haptic feedback immediately
+        if ('vibrate' in navigator) {
+          navigator.vibrate(30);
+        }
+        
+        // Convert to blob (still async but no blocking delays before it)
+        canvas.toBlob((blob) => {
+          if (blob) {
+            const id = `capture-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            const preview = URL.createObjectURL(blob);
+            
+            const newCapture: CapturedCard = {
+              id,
+              blob,
+              preview,
+              status: 'queued',
+            };
+            
+            setCaptures(prev => {
+              const updated = [...prev, newCapture];
+              capturesRef.current = updated;
+              return updated;
+            });
+            processingQueueRef.current.push(id);
+            
+            // Start background processing if not already running
+            if (!isProcessingRef.current) {
+              processQueue();
+            }
+          }
+        }, 'image/jpeg', 0.90); // Slightly lower quality for faster encoding
+      }
     } finally {
       isCapturingRef.current = false;
     }
