@@ -54,7 +54,7 @@ export function BulkPSA10Update() {
     return () => clearInterval(interval);
   }, [currentJob]);
 
-  // Check for existing running job on mount
+  // Check for existing running job on mount, auto-expire stale jobs
   useEffect(() => {
     if (!userId) return;
 
@@ -69,6 +69,19 @@ export function BulkPSA10Update() {
         .single();
 
       if (data) {
+        // Auto-expire jobs older than 10 minutes
+        const jobAge = Date.now() - new Date(data.created_at).getTime();
+        const TEN_MINUTES = 10 * 60 * 1000;
+        
+        if (jobAge > TEN_MINUTES) {
+          // Mark stale job as failed
+          await supabase
+            .from("price_jobs")
+            .update({ status: "failed", error: "Job timed out" })
+            .eq("id", data.id);
+          return;
+        }
+        
         setCurrentJob(data as PriceJob);
       }
     };
