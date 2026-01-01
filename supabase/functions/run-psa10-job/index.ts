@@ -6,9 +6,10 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const BATCH_SIZE = 5; // Smaller batches for faster progress updates
-const DELAY_BETWEEN_BATCHES = 1000; // 1 second between batches
-const MAX_CARDS_PER_JOB = 50; // Limit cards per job for faster completion
+const BATCH_SIZE = 10; // Process 10 cards in parallel
+const DELAY_BETWEEN_BATCHES = 500; // 500ms between batches
+const MAX_CARDS_PER_JOB = 100; // Process more cards per job
+const SINGLE_CARD_TIMEOUT = 10000; // 10 second timeout per card
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -16,7 +17,7 @@ serve(async (req) => {
   }
 
   try {
-    const { job_id, limit } = await req.json();
+    const { job_id, limit, use_estimation } = await req.json();
     
     if (!job_id) {
       return new Response(
@@ -26,6 +27,8 @@ serve(async (req) => {
     }
 
     const cardLimit = Math.min(limit || MAX_CARDS_PER_JOB, MAX_CARDS_PER_JOB);
+    // If use_estimation is true, skip API calls and just estimate prices
+    const skipApi = use_estimation === true;
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -103,36 +106,62 @@ serve(async (req) => {
       );
     }
 
+    console.log(`Processing ${totalCards} cards for job ${job_id}, skipApi=${skipApi}`);
+
     // Process cards in batches
     let processed = 0;
     let errors = 0;
 
     for (let i = 0; i < cards.length; i += BATCH_SIZE) {
       const batch = cards.slice(i, i + BATCH_SIZE);
+      const startTime = Date.now();
       
-      await Promise.all(batch.map(async (card) => {
+      const results = await Promise.allSettled(batch.map(async (card) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), SINGLE_CARD_TIMEOUT);
+        
         try {
-          // Call get-psa10-price for each card
           const response = await fetch(`${supabaseUrl}/functions/v1/get-psa10-price`, {
             method: "POST",
             headers: {
               "Authorization": `Bearer ${supabaseServiceKey}`,
               "Content-Type": "application/json"
             },
-            body: JSON.stringify({ card_id: card.id })
+            body: JSON.stringify({ card_id: card.id, skip_api: skipApi }),
+            signal: controller.signal
           });
           
+          clearTimeout(timeoutId);
+          
           if (response.ok) {
-            processed++;
+            return { success: true, cardId: card.id };
           } else {
-            errors++;
-            console.error(`Failed to update card ${card.id}:`, await response.text());
+            const error = await response.text();
+            console.error(`Failed to update card ${card.id}:`, error);
+            return { success: false, cardId: card.id, error };
           }
         } catch (error) {
-          errors++;
-          console.error(`Error processing card ${card.id}:`, error);
+          clearTimeout(timeoutId);
+          if (error instanceof Error && error.name === 'AbortError') {
+            console.log(`Card ${card.id} timed out, skipping`);
+          } else {
+            console.error(`Error processing card ${card.id}:`, error);
+          }
+          return { success: false, cardId: card.id, error: 'timeout' };
         }
       }));
+
+      // Count successes and failures
+      for (const result of results) {
+        if (result.status === 'fulfilled' && result.value.success) {
+          processed++;
+        } else {
+          errors++;
+        }
+      }
+
+      const batchTime = Date.now() - startTime;
+      console.log(`Batch ${Math.floor(i / BATCH_SIZE) + 1}: ${batch.length} cards in ${batchTime}ms`);
 
       // Update progress
       await supabase
@@ -143,7 +172,7 @@ serve(async (req) => {
         })
         .eq("id", job_id);
 
-      // Delay between batches to avoid rate limiting
+      // Delay between batches
       if (i + BATCH_SIZE < cards.length) {
         await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES));
       }
@@ -159,6 +188,8 @@ serve(async (req) => {
         updated_at: new Date().toISOString()
       })
       .eq("id", job_id);
+
+    console.log(`Job ${job_id} completed: ${processed}/${totalCards} cards, ${errors} errors`);
 
     return new Response(
       JSON.stringify({ 

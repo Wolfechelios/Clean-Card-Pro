@@ -6,6 +6,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const REQUEST_TIMEOUT_MS = 8000; // 8 second timeout for API calls
+
 // Normalize text for identity hash
 function normalizeText(text: string | null | undefined): string {
   if (!text) return "";
@@ -28,6 +30,24 @@ function generateIdentityHash(card: any): string {
   return btoa(identity).replace(/[=+/]/g, "");
 }
 
+// Fetch with timeout
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    throw error;
+  }
+}
+
 // Use Perplexity to search for PSA 10 price
 async function fetchPSA10WithPerplexity(card: any): Promise<{
   price: number | null;
@@ -37,7 +57,7 @@ async function fetchPSA10WithPerplexity(card: any): Promise<{
 }> {
   const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY');
   if (!PERPLEXITY_API_KEY) {
-    console.log('PERPLEXITY_API_KEY not configured');
+    console.log('PERPLEXITY_API_KEY not configured, using estimation');
     return { price: null, confidence: 0, source_ref: "", raw: null };
   }
 
@@ -50,7 +70,7 @@ async function fetchPSA10WithPerplexity(card: any): Promise<{
     const searchQuery = [playerName, cardSet, year, cardNumber, "PSA 10 price"].filter(Boolean).join(" ");
     console.log("Perplexity PSA 10 search:", searchQuery);
 
-    const response = await fetch('https://api.perplexity.ai/chat/completions', {
+    const response = await fetchWithTimeout('https://api.perplexity.ai/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${PERPLEXITY_API_KEY}`,
@@ -79,7 +99,7 @@ If you cannot find a reliable PSA 10 price, respond with: 0`
           'ebay.com'
         ],
       }),
-    });
+    }, REQUEST_TIMEOUT_MS);
 
     if (!response.ok) {
       console.error('Perplexity API error:', response.status);
@@ -110,17 +130,33 @@ If you cannot find a reliable PSA 10 price, respond with: 0`
 
     return { price: null, confidence: 0, source_ref: "", raw: null };
   } catch (error) {
-    console.error('Perplexity PSA 10 error:', error);
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.log('Perplexity request timed out, using estimation');
+    } else {
+      console.error('Perplexity PSA 10 error:', error);
+    }
     return { price: null, confidence: 0, source_ref: "", raw: null };
   }
 }
 
 // Estimate PSA 10 price based on raw price (fallback)
-function estimatePSA10FromRaw(rawPrice: number | null): number | null {
+function estimatePSA10FromRaw(rawPrice: number | null, rarity?: string): number | null {
   if (!rawPrice || rawPrice <= 0) return null;
-  // PSA 10 typically 2-4x raw price for modern cards
-  // Use 2.5x as a conservative estimate
-  return Math.round(rawPrice * 2.5 * 100) / 100;
+  
+  // Multiplier varies by rarity
+  let multiplier = 2.5;
+  if (rarity) {
+    const r = rarity.toLowerCase();
+    if (r.includes('ultra') || r.includes('secret') || r.includes('starlight')) {
+      multiplier = 3.0;
+    } else if (r.includes('super') || r.includes('holo')) {
+      multiplier = 2.8;
+    } else if (r.includes('common')) {
+      multiplier = 2.0;
+    }
+  }
+  
+  return Math.round(rawPrice * multiplier * 100) / 100;
 }
 
 serve(async (req) => {
@@ -129,7 +165,7 @@ serve(async (req) => {
   }
 
   try {
-    const { card_id } = await req.json();
+    const { card_id, skip_api } = await req.json();
     
     if (!card_id) {
       return new Response(
@@ -209,22 +245,40 @@ serve(async (req) => {
       );
     }
 
-    // Try Perplexity web search
-    let result = await fetchPSA10WithPerplexity(card);
-    let source = "perplexity";
+    let result = { price: null as number | null, confidence: 0, source_ref: "", raw: null as any };
+    let source = "estimated";
+
+    // Only call API if not skipping (for bulk operations we might skip)
+    if (!skip_api) {
+      result = await fetchPSA10WithPerplexity(card);
+      if (result.price) {
+        source = "perplexity";
+      }
+    }
 
     // Fallback: estimate from raw price if available
     if (!result.price && card.current_price_raw) {
-      const estimatedPrice = estimatePSA10FromRaw(card.current_price_raw);
+      const estimatedPrice = estimatePSA10FromRaw(card.current_price_raw, card.rarity);
       if (estimatedPrice) {
         result = {
           price: estimatedPrice,
           confidence: 50,
           source_ref: "estimated",
-          raw: { method: "2.5x raw price multiplier", raw_price: card.current_price_raw }
+          raw: { method: "multiplier from raw price", raw_price: card.current_price_raw, rarity: card.rarity }
         };
         source = "estimated";
       }
+    }
+
+    // Fallback: use current_price_psa10 if available from import
+    if (!result.price && card.current_price_psa10) {
+      result = {
+        price: card.current_price_psa10,
+        confidence: 60,
+        source_ref: "imported",
+        raw: { method: "existing psa10 price" }
+      };
+      source = "imported";
     }
 
     if (result.price) {
