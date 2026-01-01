@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { RefreshCw, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { RefreshCw, CheckCircle, XCircle, Loader2, Zap } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
@@ -19,6 +21,7 @@ export function BulkPSA10Update() {
   const [isStarting, setIsStarting] = useState(false);
   const [currentJob, setCurrentJob] = useState<PriceJob | null>(null);
   const [polling, setPolling] = useState(false);
+  const [fastMode, setFastMode] = useState(true); // Default to fast estimation
 
   // Poll for job updates
   useEffect(() => {
@@ -46,7 +49,7 @@ export function BulkPSA10Update() {
           }
         }
       }
-    }, 2000);
+    }, 1500); // Poll slightly faster
 
     return () => clearInterval(interval);
   }, [currentJob]);
@@ -97,14 +100,17 @@ export function BulkPSA10Update() {
 
       // Start the job
       const { error: invokeError } = await supabase.functions.invoke("run-psa10-job", {
-        body: { job_id: job.id }
+        body: { 
+          job_id: job.id,
+          use_estimation: fastMode // Skip API calls if fast mode
+        }
       });
 
       if (invokeError) {
         console.error("Failed to start job:", invokeError);
         toast.error("Failed to start price update job");
       } else {
-        toast.success("Price update started");
+        toast.success(fastMode ? "Fast price estimation started" : "Price lookup started");
       }
     } catch (error) {
       console.error("Failed to create job:", error);
@@ -124,9 +130,9 @@ export function BulkPSA10Update() {
     <div className="space-y-4 p-4 rounded-lg bg-card border border-border">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-medium text-foreground">PSA 10 Potential Value Lookup</h4>
+          <h4 className="text-sm font-medium text-foreground">PSA 10 Potential Value</h4>
           <p className="text-xs text-muted-foreground mt-1">
-            See what your cards could be worth if graded PSA 10 (up to 50 cards per batch)
+            Estimate what your cards could be worth graded PSA 10
           </p>
         </div>
         <Button
@@ -138,11 +144,31 @@ export function BulkPSA10Update() {
             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
           ) : isRunning ? (
             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          ) : fastMode ? (
+            <Zap className="h-4 w-4 mr-2" />
           ) : (
             <RefreshCw className="h-4 w-4 mr-2" />
           )}
-          {isRunning ? "Updating..." : "Update PSA 10 Prices"}
+          {isRunning ? "Running..." : fastMode ? "Fast Estimate" : "Web Lookup"}
         </Button>
+      </div>
+
+      <div className="flex items-center gap-3 pt-2 border-t border-border">
+        <Switch
+          id="fast-mode"
+          checked={fastMode}
+          onCheckedChange={setFastMode}
+          disabled={isRunning}
+        />
+        <Label htmlFor="fast-mode" className="text-sm cursor-pointer">
+          <span className="flex items-center gap-1">
+            <Zap className="h-3 w-3" />
+            Fast mode
+          </span>
+          <span className="text-xs text-muted-foreground block">
+            {fastMode ? "Uses multiplier estimation (instant)" : "Searches web for prices (slower but more accurate)"}
+          </span>
+        </Label>
       </div>
 
       {currentJob && (
