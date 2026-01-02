@@ -15,12 +15,10 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
 import { ZoomControls } from "./ZoomControls";
 import { isNativePlatform } from "@/lib/platform";
-import { 
-  getMaxCameraConstraints, 
-  applyFastAutofocus, 
+import {
+  getMaxCameraConstraints,
+  applyFastAutofocus,
   triggerFastFocus,
-  captureMaxQualityPhoto,
-  applyAntiGlare
 } from "@/lib/camera-optimizations";
 
 interface RapidScanCameraProps {
@@ -61,6 +59,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   const autoStateRef = useRef<"ARMED" | "LOCKED">("ARMED");
   const stableMsRef = useRef(0);
   const lastShotAtRef = useRef(0);
+  const lockedSinceRef = useRef(0);
   const lastSampleAtRef = useRef(0);
   const prevGrayRef = useRef<Uint8Array | null>(null);
   const prevHashRef = useRef<bigint | null>(null);
@@ -397,15 +396,16 @@ const hammingDistance64 = (a: bigint, b: bigint) => {
   const capturePhoto = async () => {
     if (isCapturingRef.current) return;
     isCapturingRef.current = true;
-    
+
     // If auto is on, lock immediately so we don't spam the same card while it sits there
     if (autoCaptureEnabledRef.current) {
       autoStateRef.current = "LOCKED";
       stableMsRef.current = 0;
       lastShotAtRef.current = performance.now ? performance.now() : Date.now();
+      lockedSinceRef.current = lastShotAtRef.current;
       setAutoHintSafe("Capturing…");
     }
-    
+
     try {
       if (!videoRef.current || captures.length >= MAX_CAPTURES) {
         if (captures.length >= MAX_CAPTURES) {
@@ -415,123 +415,130 @@ const hammingDistance64 = (a: bigint, b: bigint) => {
       }
 
       const video = videoRef.current;
-      
+
       // Validate video is actually streaming
       if (video.videoWidth === 0 || video.videoHeight === 0 || video.readyState < 2) {
-        toast.error('Camera not ready. Please wait for video to load.');
+        toast.error("Camera not ready. Please wait for video to load.");
         return;
       }
 
       // FAST PATH: Fire-and-forget focus - don't wait for it
-      // Continuous autofocus handles most cases; this just nudges if needed
       if (streamRef.current) {
         triggerFastFocus(streamRef.current).catch(() => {});
       }
 
       // Reuse canvas for faster captures (avoid GC overhead)
       if (!captureCanvasRef.current) {
-        captureCanvasRef.current = document.createElement('canvas');
+        captureCanvasRef.current = document.createElement("canvas");
       }
       const canvas = captureCanvasRef.current;
-      
-      // Use video's native resolution (no upscaling = faster)
-      const captureWidth = video.videoWidth;
-      const captureHeight = Math.round(captureWidth * (7 / 5)); // 5:7 card ratio
-      
+
+      // Crop to card aspect ratio (5:7) WITHOUT upscaling (the previous math could create huge canvases)
+      const TARGET_RATIO = 5 / 7;
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      const videoRatio = vw / vh;
+
+      let cropW = vw;
+      let cropH = vh;
+      let cropX = 0;
+      let cropY = 0;
+
+      if (videoRatio > TARGET_RATIO) {
+        cropH = vh;
+        cropW = Math.round(vh * TARGET_RATIO);
+        cropX = Math.round((vw - cropW) / 2);
+      } else {
+        cropW = vw;
+        cropH = Math.round(vw / TARGET_RATIO);
+        cropY = Math.round((vh - cropH) / 2);
+      }
+
+      // Digital zoom cropping if hardware zoom unavailable
+      const effectiveZoom = usingDigitalZoom ? zoomLevel : 1;
+      if (effectiveZoom > 1) {
+        const zw = cropW / effectiveZoom;
+        const zh = cropH / effectiveZoom;
+        cropX += (cropW - zw) / 2;
+        cropY += (cropH - zh) / 2;
+        cropW = zw;
+        cropH = zh;
+      }
+
+      // Downscale output for rapid scanning speed (huge impact on shutter latency)
+      const MAX_OUT_W = 1600;
+      const MAX_OUT_H = 2240;
+      const scale = Math.min(1, MAX_OUT_W / cropW, MAX_OUT_H / cropH);
+      const outW = Math.max(1, Math.round(cropW * scale));
+      const outH = Math.max(1, Math.round(cropH * scale));
+
       // Only resize canvas if dimensions changed
-      if (canvas.width !== captureWidth || canvas.height !== captureHeight) {
-        canvas.width = captureWidth;
-        canvas.height = captureHeight;
+      if (canvas.width !== outW || canvas.height !== outH) {
+        canvas.width = outW;
+        canvas.height = outH;
         captureCtxRef.current = null; // Force context refresh
       }
-      
+
       if (!captureCtxRef.current) {
-        captureCtxRef.current = canvas.getContext('2d', {
+        captureCtxRef.current = canvas.getContext("2d", {
           alpha: false,
           desynchronized: true,
-          willReadFrequently: false // Faster when not reading back pixels
+          willReadFrequently: false,
         });
       }
       const ctx = captureCtxRef.current;
-      
-      if (ctx) {
-        ctx.imageSmoothingEnabled = false; // Faster rendering
-        
-        // Calculate scaling to maintain aspect ratio
-        const videoRatio = video.videoWidth / video.videoHeight;
-        const targetRatio = 5 / 7;
-        
-        let drawWidth = video.videoWidth;
-        let drawHeight = video.videoHeight;
-        let offsetX = 0;
-        let offsetY = 0;
-        
-        if (videoRatio > targetRatio) {
-          drawWidth = video.videoHeight * targetRatio;
-          offsetX = (video.videoWidth - drawWidth) / 2;
-        } else {
-          drawHeight = video.videoWidth / targetRatio;
-          offsetY = (video.videoHeight - drawHeight) / 2;
-        }
-        
-        // Digital zoom cropping if hardware zoom unavailable
-        const effectiveZoom = usingDigitalZoom ? zoomLevel : 1;
-        if (effectiveZoom > 1) {
-          const zw = drawWidth / effectiveZoom;
-          const zh = drawHeight / effectiveZoom;
-          offsetX += (drawWidth - zw) / 2;
-          offsetY += (drawHeight - zh) / 2;
-          drawWidth = zw;
-          drawHeight = zh;
-        }
+      if (!ctx) throw new Error("Failed to create canvas context");
 
-        // Draw directly (skip background fill - card fills canvas)
-        ctx.drawImage(
-          video,
-          offsetX, offsetY, drawWidth, drawHeight,
-          0, 0, canvas.width, canvas.height
-        );
-        
-        // Skip anti-glare for speed - continuous autofocus handles lighting
-        
-        // Play shutter sound immediately for responsive feel
-        if (shutterSoundRef.current) {
-          shutterSoundRef.current.currentTime = 0;
-          shutterSoundRef.current.play().catch(() => {});
-        }
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "low";
 
-        // Haptic feedback immediately
-        if ('vibrate' in navigator) {
-          navigator.vibrate(30);
-        }
-        
-        // Convert to blob (still async but no blocking delays before it)
-        canvas.toBlob((blob) => {
-          if (blob) {
-            const id = `capture-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-            const preview = URL.createObjectURL(blob);
-            
-            const newCapture: CapturedCard = {
-              id,
-              blob,
-              preview,
-              status: 'queued',
-            };
-            
-            setCaptures(prev => {
-              const updated = [...prev, newCapture];
-              capturesRef.current = updated;
-              return updated;
-            });
-            processingQueueRef.current.push(id);
-            
-            // Start background processing if not already running
-            if (!isProcessingRef.current) {
-              processQueue();
-            }
-          }
-        }, 'image/jpeg', 0.90); // Slightly lower quality for faster encoding
+      // Draw cropped + downscaled frame
+      ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, outW, outH);
+
+      // Play shutter sound immediately for responsive feel
+      if (shutterSoundRef.current) {
+        shutterSoundRef.current.currentTime = 0;
+        shutterSoundRef.current.play().catch(() => {});
       }
+
+      // Haptic feedback immediately
+      if ("vibrate" in navigator) {
+        navigator.vibrate(30);
+      }
+
+      // Encode JPEG (await so we don't overlap encodes and tank performance)
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error("Failed to encode image"))),
+          "image/jpeg",
+          0.88
+        );
+      });
+
+      const id = `capture-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const preview = URL.createObjectURL(blob);
+
+      const newCapture: CapturedCard = {
+        id,
+        blob,
+        preview,
+        status: "queued",
+      };
+
+      setCaptures((prev) => {
+        const updated = [...prev, newCapture];
+        capturesRef.current = updated;
+        return updated;
+      });
+      processingQueueRef.current.push(id);
+
+      // Start background processing if not already running
+      if (!isProcessingRef.current) {
+        processQueue();
+      }
+    } catch (e: any) {
+      console.error("Rapid capture error:", e);
+      toast.error(e?.message || "Failed to capture photo");
     } finally {
       isCapturingRef.current = false;
     }
@@ -543,212 +550,234 @@ const hammingDistance64 = (a: bigint, b: bigint) => {
   }, [capturePhoto]);
 
 
-// Auto-shutter loop: capture once when stable + sharp, then require movement/change to re-arm
-useEffect(() => {
-  if (!isActive || !autoCaptureEnabled) {
-    autoStateRef.current = "ARMED";
-    stableMsRef.current = 0;
-    prevHashRef.current = null;
-    prevGrayRef.current = null;
-    setAutoHintSafe(autoCaptureEnabled ? "Hold steady" : "Manual");
-    return;
-  }
-
-  // Lazy init sample canvas/context
-  if (!sampleCanvasRef.current) {
-    const c = document.createElement('canvas');
-    c.width = 96;
-    c.height = 96;
-    sampleCanvasRef.current = c;
-    sampleCtxRef.current = c.getContext('2d', { willReadFrequently: true }) as CanvasRenderingContext2D | null;
-  }
-
-  const SIZE = 96;
-  const SAMPLE_EVERY_MS = 60; // ~16fps sampling, light on CPU
-  const STABLE_REQUIRED_MS = 450;
-  const COOLDOWN_MS = 1800;
-  const STABLE_DIFF = 7; // lower = stricter stability
-  const RESET_DIFF = 18; // movement threshold to re-arm
-  const HASH_RESET_HAMMING = 12; // fingerprint change threshold to re-arm
-  const MIN_SHARPNESS = 0.18; // normalized 0-1-ish
-
-  let raf = 0;
-  let stopped = false;
-
-  const computeMetrics = () => {
-    const video = videoRef.current;
-    const ctx = sampleCtxRef.current;
-    const canvas = sampleCanvasRef.current;
-    if (!video || !ctx || !canvas) return null;
-    if (video.videoWidth === 0 || video.videoHeight === 0 || video.readyState < 2) return null;
-
-    // Sample a centered ROI (matches the corner guides vibe without needing DOM math)
-    const vw = video.videoWidth;
-    const vh = video.videoHeight;
-    const sw = Math.max(1, Math.floor(vw * 0.6));
-    const sh = Math.max(1, Math.floor(vh * 0.6));
-    const sx = Math.floor((vw - sw) / 2);
-    const sy = Math.floor((vh - sh) / 2);
-
-    try {
-      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, SIZE, SIZE);
-    } catch {
-      return null;
+  // Auto-shutter loop: capture once when stable + sharp, then require movement/change to re-arm
+  useEffect(() => {
+    if (!isActive || !autoCaptureEnabled) {
+      autoStateRef.current = "ARMED";
+      stableMsRef.current = 0;
+      lastSampleAtRef.current = 0;
+      lockedSinceRef.current = 0;
+      prevHashRef.current = null;
+      prevGrayRef.current = null;
+      setAutoHintSafe(autoCaptureEnabled ? "Hold steady" : "Manual");
+      return;
     }
 
-    let img: ImageData;
-    try {
-      img = ctx.getImageData(0, 0, SIZE, SIZE);
-    } catch {
-      return null;
+    // Lazy init sample canvas/context
+    if (!sampleCanvasRef.current) {
+      const c = document.createElement("canvas");
+      c.width = 96;
+      c.height = 96;
+      sampleCanvasRef.current = c;
+      sampleCtxRef.current = c.getContext("2d", {
+        willReadFrequently: true,
+      }) as CanvasRenderingContext2D | null;
     }
 
-    const data = img.data;
-    const n = SIZE * SIZE;
+    const SIZE = 96;
+    const SAMPLE_EVERY_MS = 70; // ~14fps sampling, light on CPU
+    const STABLE_REQUIRED_MS = 320;
+    const COOLDOWN_MS = 1200;
 
-    let gray = prevGrayRef.current;
-    if (!gray || gray.length !== n) {
-      gray = new Uint8Array(n);
-      prevGrayRef.current = gray;
-      // Initialize with current frame to avoid instant triggers
-      for (let i = 0, p = 0; i < n; i++, p += 4) {
-        const r = data[p], g = data[p + 1], b = data[p + 2];
-        gray[i] = (r * 38 + g * 75 + b * 15) >> 7;
+    // Tuned looser for real-world handheld scanning (prevents "never triggers")
+    const STABLE_DIFF = 10;
+    const RESET_DIFF = 12;
+    const HASH_RESET_HAMMING = 10;
+    const MIN_SHARPNESS = 0.12;
+    const LOCK_TIMEOUT_MS = 6000;
+
+    let raf = 0;
+    let stopped = false;
+
+    const computeMetrics = () => {
+      const video = videoRef.current;
+      const ctx = sampleCtxRef.current;
+      const canvas = sampleCanvasRef.current;
+      if (!video || !ctx || !canvas) return null;
+      if (video.videoWidth === 0 || video.videoHeight === 0 || video.readyState < 2) return null;
+
+      // Sample a centered ROI
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      const sw = Math.max(1, Math.floor(vw * 0.6));
+      const sh = Math.max(1, Math.floor(vh * 0.6));
+      const sx = Math.floor((vw - sw) / 2);
+      const sy = Math.floor((vh - sh) / 2);
+
+      try {
+        ctx.drawImage(video, sx, sy, sw, sh, 0, 0, SIZE, SIZE);
+      } catch {
+        return null;
       }
-      return { diff: 999, hash: 0n, sharp: 0 };
-    }
 
-    // Build current grayscale and compute diff + sharpness in one pass
-    let diffSum = 0;
-    let gradSum = 0;
-
-    // Precompute mean for hash
-    let meanSum = 0;
-    const cur = new Uint8Array(n);
-
-    for (let i = 0, p = 0; i < n; i++, p += 4) {
-      const r = data[p], g = data[p + 1], b = data[p + 2];
-      const v = (r * 38 + g * 75 + b * 15) >> 7;
-      cur[i] = v;
-      meanSum += v;
-      diffSum += Math.abs(v - gray[i]);
-    }
-
-    // Sharpness: average gradient magnitude (cheap edge contrast)
-    for (let y = 0; y < SIZE - 1; y++) {
-      const row = y * SIZE;
-      for (let x = 0; x < SIZE - 1; x++) {
-        const i = row + x;
-        const v = cur[i];
-        gradSum += Math.abs(v - cur[i + 1]) + Math.abs(v - cur[i + SIZE]);
+      let img: ImageData;
+      try {
+        img = ctx.getImageData(0, 0, SIZE, SIZE);
+      } catch {
+        return null;
       }
-    }
 
-    // Swap prev
-    gray.set(cur);
+      const data = img.data;
+      const n = SIZE * SIZE;
 
-    const diff = diffSum / n;
-
-    const gradCount = (SIZE - 1) * (SIZE - 1);
-    const sharp = (gradSum / (gradCount * 255 * 2));
-
-    const mean = meanSum / n;
-
-    // 64-bit average hash from an 8x8 sampling grid
-    const step = Math.floor(SIZE / 8);
-    const half = Math.floor(step / 2);
-    let hash = 0n;
-    let bit = 63n;
-
-    for (let gy = 0; gy < 8; gy++) {
-      const y = Math.min(SIZE - 1, gy * step + half);
-      for (let gx = 0; gx < 8; gx++) {
-        const x = Math.min(SIZE - 1, gx * step + half);
-        const v = cur[y * SIZE + x];
-        if (v > mean) {
-          hash |= (1n << bit);
+      let gray = prevGrayRef.current;
+      if (!gray || gray.length !== n) {
+        gray = new Uint8Array(n);
+        prevGrayRef.current = gray;
+        // Initialize with current frame to avoid instant triggers
+        for (let i = 0, p = 0; i < n; i++, p += 4) {
+          const r = data[p],
+            g = data[p + 1],
+            b = data[p + 2];
+          gray[i] = (r * 38 + g * 75 + b * 15) >> 7;
         }
-        bit--;
+        return { diff: 999, hash: 0n, sharp: 0 };
       }
-    }
 
-    return { diff, hash, sharp };
-  };
+      // Build current grayscale and compute diff + sharpness in one pass
+      let diffSum = 0;
+      let gradSum = 0;
 
-  const loop = (now: number) => {
-    if (stopped) return;
-    raf = requestAnimationFrame(loop);
+      // Precompute mean for hash
+      let meanSum = 0;
+      const cur = new Uint8Array(n);
 
-    if (!autoCaptureEnabledRef.current) return;
-    if (!isActive) return;
-    if (isPausedRef.current) return;
-    if (isCapturingRef.current) return;
-    if (capturesRef.current.length >= MAX_CAPTURES) return;
+      for (let i = 0, p = 0; i < n; i++, p += 4) {
+        const r = data[p],
+          g = data[p + 1],
+          b = data[p + 2];
+        const v = (r * 38 + g * 75 + b * 15) >> 7;
+        cur[i] = v;
+        meanSum += v;
+        diffSum += Math.abs(v - gray[i]);
+      }
 
-    if (now - lastSampleAtRef.current < SAMPLE_EVERY_MS) return;
-    lastSampleAtRef.current = now;
+      // Sharpness: average gradient magnitude
+      for (let y = 0; y < SIZE - 1; y++) {
+        const row = y * SIZE;
+        for (let x = 0; x < SIZE - 1; x++) {
+          const i = row + x;
+          const v = cur[i];
+          gradSum += Math.abs(v - cur[i + 1]) + Math.abs(v - cur[i + SIZE]);
+        }
+      }
 
-    const m = computeMetrics();
-    if (!m) return;
+      // Swap prev
+      gray.set(cur);
 
-    const { diff, hash, sharp } = m;
+      const diff = diffSum / n;
 
-    // Locked: wait for movement or a sufficiently different fingerprint
-    if (autoStateRef.current === "LOCKED") {
-      const prev = prevHashRef.current;
-      const changed = prev !== null && hammingDistance64(hash, prev) >= HASH_RESET_HAMMING;
-      const moved = diff > RESET_DIFF;
+      const gradCount = (SIZE - 1) * (SIZE - 1);
+      const sharp = gradSum / (gradCount * 255 * 2);
 
-      if (moved || changed) {
-        autoStateRef.current = "ARMED";
+      const mean = meanSum / n;
+
+      // 64-bit average hash from an 8x8 sampling grid
+      const step = Math.floor(SIZE / 8);
+      const half = Math.floor(step / 2);
+      let hash = 0n;
+      let bit = 63n;
+
+      for (let gy = 0; gy < 8; gy++) {
+        const y = Math.min(SIZE - 1, gy * step + half);
+        for (let gx = 0; gx < 8; gx++) {
+          const x = Math.min(SIZE - 1, gx * step + half);
+          const v = cur[y * SIZE + x];
+          if (v > mean) {
+            hash |= 1n << bit;
+          }
+          bit--;
+        }
+      }
+
+      return { diff, hash, sharp };
+    };
+
+    const loop = (now: number) => {
+      if (stopped) return;
+      raf = requestAnimationFrame(loop);
+
+      if (!autoCaptureEnabledRef.current) return;
+      if (!isActive) return;
+      if (isPausedRef.current) return;
+      if (isCapturingRef.current) return;
+      if (capturesRef.current.length >= MAX_CAPTURES) return;
+
+      if (now - lastSampleAtRef.current < SAMPLE_EVERY_MS) return;
+      lastSampleAtRef.current = now;
+
+      const m = computeMetrics();
+      if (!m) return;
+
+      const { diff, hash, sharp } = m;
+
+      // Locked: wait for movement, fingerprint change, or timeout
+      if (autoStateRef.current === "LOCKED") {
+        if (lockedSinceRef.current && now - lockedSinceRef.current > LOCK_TIMEOUT_MS) {
+          autoStateRef.current = "ARMED";
+          stableMsRef.current = 0;
+          lockedSinceRef.current = 0;
+          setAutoHintSafe("Hold steady");
+          prevHashRef.current = hash;
+          return;
+        }
+
+        const prev = prevHashRef.current;
+        const changed = prev !== null && hammingDistance64(hash, prev) >= HASH_RESET_HAMMING;
+        const moved = diff > RESET_DIFF;
+
+        if (moved || changed) {
+          autoStateRef.current = "ARMED";
+          stableMsRef.current = 0;
+          lockedSinceRef.current = 0;
+          setAutoHintSafe("Hold steady");
+        } else {
+          setAutoHintSafe("Move card to scan next");
+        }
+
+        prevHashRef.current = hash;
+        return;
+      }
+
+      // Armed: look for stable + sharp
+      const inCooldown = now - lastShotAtRef.current < COOLDOWN_MS;
+      if (inCooldown) {
         stableMsRef.current = 0;
         setAutoHintSafe("Hold steady");
+        prevHashRef.current = hash;
+        return;
+      }
+
+      const stable = diff < STABLE_DIFF;
+      const sharpEnough = sharp >= MIN_SHARPNESS;
+
+      if (stable && sharpEnough) {
+        stableMsRef.current += SAMPLE_EVERY_MS;
+        const pct = Math.min(100, Math.round((stableMsRef.current / STABLE_REQUIRED_MS) * 100));
+        setAutoHintSafe(pct >= 100 ? "Capturing…" : `Hold steady ${pct}%`);
+
+        if (stableMsRef.current >= STABLE_REQUIRED_MS) {
+          autoStateRef.current = "LOCKED";
+          stableMsRef.current = 0;
+          lastShotAtRef.current = now;
+          lockedSinceRef.current = now;
+          setAutoHintSafe("Capturing…");
+          capturePhotoRef.current?.();
+        }
       } else {
-        setAutoHintSafe("Move card to scan next");
-      }
-
-      prevHashRef.current = hash;
-      return;
-    }
-
-    // Armed: look for stable + sharp
-    const inCooldown = now - lastShotAtRef.current < COOLDOWN_MS;
-    if (inCooldown) {
-      stableMsRef.current = 0;
-      setAutoHintSafe("Hold steady");
-      prevHashRef.current = hash;
-      return;
-    }
-
-    const stable = diff < STABLE_DIFF;
-    const sharpEnough = sharp >= MIN_SHARPNESS;
-
-    if (stable && sharpEnough) {
-      stableMsRef.current += SAMPLE_EVERY_MS;
-      const pct = Math.min(100, Math.round((stableMsRef.current / STABLE_REQUIRED_MS) * 100));
-      setAutoHintSafe(pct >= 100 ? "Capturing…" : `Hold steady ${pct}%`);
-
-      if (stableMsRef.current >= STABLE_REQUIRED_MS) {
-        autoStateRef.current = "LOCKED";
         stableMsRef.current = 0;
-        lastShotAtRef.current = now;
-        setAutoHintSafe("Capturing…");
-        capturePhotoRef.current?.();
+        setAutoHintSafe(sharpEnough ? "Hold steady" : "Adjust distance / focus");
       }
-    } else {
-      stableMsRef.current = 0;
-      setAutoHintSafe(sharpEnough ? "Hold steady" : "Adjust distance / focus");
-    }
 
-    prevHashRef.current = hash;
-  };
+      prevHashRef.current = hash;
+    };
 
-  raf = requestAnimationFrame(loop);
-  return () => {
-    stopped = true;
-    cancelAnimationFrame(raf);
-  };
-}, [isActive, autoCaptureEnabled]);
+    raf = requestAnimationFrame(loop);
+    return () => {
+      stopped = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [isActive, autoCaptureEnabled]);
 
   const togglePause = () => {
     const newPaused = !isPausedRef.current;
