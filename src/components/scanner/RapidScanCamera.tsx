@@ -70,6 +70,7 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   const [flashEnabled, setFlashEnabled] = useState(false);
   const [flashSupported, setFlashSupported] = useState(false);
   const [isRefreshingPrices, setIsRefreshingPrices] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const processingQueueRef = useRef<string[]>([]);
@@ -953,6 +954,39 @@ const hammingDistance64 = (a: bigint, b: bigint) => {
     }
   };
 
+  // Retry all failed cards
+  const retryFailedCards = async () => {
+    const failedCards = captures.filter(c => c.status === 'error');
+    if (failedCards.length === 0) {
+      toast.info('No failed cards to retry');
+      return;
+    }
+
+    setIsRetrying(true);
+    toast.info(`Retrying ${failedCards.length} failed cards...`);
+
+    // Reset status to queued and add to processing queue
+    setCaptures(prev => {
+      const updated = prev.map(c => 
+        c.status === 'error' ? { ...c, status: 'queued' as const, error: undefined } : c
+      );
+      capturesRef.current = updated;
+      return updated;
+    });
+
+    // Add failed card IDs back to queue
+    for (const card of failedCards) {
+      processingQueueRef.current.push(card.id);
+    }
+
+    setIsRetrying(false);
+
+    // Start processing if not already
+    if (!isProcessingRef.current) {
+      processQueue();
+    }
+  };
+
   // Batch refresh all prices for completed cards
   const refreshAllPrices = async () => {
     const completedCards = captures.filter(c => c.status === 'completed' && c.dbId);
@@ -1319,10 +1353,20 @@ const hammingDistance64 = (a: bigint, b: bigint) => {
                   </span>
                 )}
                 {errorCount > 0 && (
-                  <span className="text-destructive flex items-center gap-1">
-                    <X className="h-3 w-3 md:h-4 md:w-4" />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={retryFailedCards}
+                    disabled={isRetrying}
+                    className="text-destructive hover:text-destructive gap-1 h-auto p-0"
+                  >
+                    {isRetrying ? (
+                      <Loader2 className="h-3 w-3 md:h-4 md:w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3 w-3 md:h-4 md:w-4" />
+                    )}
                     {errorCount}
-                  </span>
+                  </Button>
                 )}
               </div>
               <div className="flex items-center gap-2">
