@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { insertCardDual } from "@/lib/localCards";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Camera, SwitchCamera, X, CheckCircle, Loader2, Pause, Play, Zap, Usb, Smartphone, RefreshCw, DollarSign, ImagePlus, Eye, Library } from "lucide-react";
+import { Camera, SwitchCamera, X, CheckCircle, Loader2, Pause, Play, Zap, Usb, Smartphone, RefreshCw, DollarSign, ImagePlus, Eye, Library, Plus } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
@@ -1280,6 +1280,89 @@ const hammingDistance64 = (a: bigint, b: bigint) => {
     }
   }, [userId]);
 
+  // State for bulk add operation
+  const [isAddingAll, setIsAddingAll] = useState(false);
+
+  // Batch add all new (unowned) cards to library
+  const handleAddAllNewCards = useCallback(async () => {
+    const newCards = capturesRef.current.filter(c => 
+      c.status === 'completed' && !c.isInLibrary && !c.dbId && c.imageUrl
+    );
+    
+    if (newCards.length === 0) {
+      toast.info('No new cards to add');
+      return;
+    }
+
+    setIsAddingAll(true);
+    toast.info(`Adding ${newCards.length} cards to library...`);
+
+    // Mark all as loading
+    setCaptures(prev => {
+      const newCardIds = new Set(newCards.map(c => c.id));
+      const updated = prev.map(c => newCardIds.has(c.id) ? { ...c, priceFetching: true } : c);
+      capturesRef.current = updated;
+      return updated;
+    });
+
+    let successCount = 0;
+    let errorCount = 0;
+
+    // Process in batches of 3 to avoid overwhelming the API
+    const batchSize = 3;
+    for (let i = 0; i < newCards.length; i += batchSize) {
+      const batch = newCards.slice(i, i + batchSize);
+      
+      await Promise.allSettled(batch.map(async (capture) => {
+        try {
+          const insertedCard = await insertCardDual({
+            user_id: userId,
+            card_name: capture.cardName || 'Unknown Card',
+            card_set: capture.cardSet,
+            card_number: capture.cardNumber,
+            rarity: capture.rarity,
+            game_type: capture.gameType,
+            sport_type: capture.sportType,
+            image_url: capture.imageUrl!,
+            thumbnail_url: capture.imageUrl!,
+            ocr_confidence: capture.confidence || 0,
+            suggested_price: capture.value,
+          });
+
+          // Update the card to show it's now in library
+          setCaptures(prev => {
+            const updated = prev.map(c => c.id === capture.id ? { 
+              ...c, 
+              dbId: insertedCard.id,
+              isInLibrary: true,
+              libraryQuantity: (c.libraryQuantity || 0) + 1,
+              priceFetching: false,
+            } : c);
+            capturesRef.current = updated;
+            return updated;
+          });
+          successCount++;
+        } catch (error: any) {
+          console.error('Failed to add card to library:', error);
+          setCaptures(prev => {
+            const updated = prev.map(c => c.id === capture.id ? { ...c, priceFetching: false } : c);
+            capturesRef.current = updated;
+            return updated;
+          });
+          errorCount++;
+        }
+      }));
+    }
+
+    setIsAddingAll(false);
+    
+    if (errorCount > 0) {
+      toast.warning(`Added ${successCount} cards, ${errorCount} failed`);
+    } else {
+      toast.success(`Added ${successCount} cards to library!`);
+    }
+  }, [userId]);
+
   const completedCount = captures.filter(c => c.status === 'completed').length;
   const errorCount = captures.filter(c => c.status === 'error').length;
   const processingCount = captures.filter(c => c.status === 'processing').length;
@@ -1612,28 +1695,49 @@ const hammingDistance64 = (a: bigint, b: bigint) => {
               const newValue = newCards.reduce((sum, c) => sum + (c.value || 0), 0);
               
               return (
-                <div className="grid grid-cols-3 gap-2 md:gap-4 text-center">
-                  <div className="space-y-1">
-                    <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-wide">Total Scanned</p>
-                    <p className="text-lg md:text-2xl font-bold text-foreground tabular-nums">
-                      ${totalScannedValue.toFixed(2)}
-                    </p>
-                    <p className="text-[10px] md:text-xs text-muted-foreground">{completedCards.length} cards</p>
+                <div className="space-y-3">
+                  <div className="grid grid-cols-3 gap-2 md:gap-4 text-center">
+                    <div className="space-y-1">
+                      <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-wide">Total Scanned</p>
+                      <p className="text-lg md:text-2xl font-bold text-foreground tabular-nums">
+                        ${totalScannedValue.toFixed(2)}
+                      </p>
+                      <p className="text-[10px] md:text-xs text-muted-foreground">{completedCards.length} cards</p>
+                    </div>
+                    <div className="space-y-1 border-x border-border px-2">
+                      <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-wide">Already Owned</p>
+                      <p className="text-lg md:text-2xl font-bold text-blue-600 tabular-nums">
+                        ${ownedValue.toFixed(2)}
+                      </p>
+                      <p className="text-[10px] md:text-xs text-muted-foreground">{ownedCards.length} cards</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-wide">New Cards</p>
+                      <p className="text-lg md:text-2xl font-bold text-amber-600 tabular-nums">
+                        ${newValue.toFixed(2)}
+                      </p>
+                      <p className="text-[10px] md:text-xs text-muted-foreground">{newCards.length} cards</p>
+                    </div>
                   </div>
-                  <div className="space-y-1 border-x border-border px-2">
-                    <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-wide">Already Owned</p>
-                    <p className="text-lg md:text-2xl font-bold text-blue-600 tabular-nums">
-                      ${ownedValue.toFixed(2)}
-                    </p>
-                    <p className="text-[10px] md:text-xs text-muted-foreground">{ownedCards.length} cards</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-wide">New Cards</p>
-                    <p className="text-lg md:text-2xl font-bold text-amber-600 tabular-nums">
-                      ${newValue.toFixed(2)}
-                    </p>
-                    <p className="text-[10px] md:text-xs text-muted-foreground">{newCards.length} cards</p>
-                  </div>
+                  
+                  {/* Add All New Cards Button - only show when there are new cards in scan mode */}
+                  {scanMode && newCards.length > 0 && (
+                    <div className="flex justify-center pt-2 border-t border-border">
+                      <Button
+                        onClick={handleAddAllNewCards}
+                        disabled={isAddingAll}
+                        className="gap-2 bg-amber-600 hover:bg-amber-700 text-white"
+                        size="sm"
+                      >
+                        {isAddingAll ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Plus className="h-4 w-4" />
+                        )}
+                        {isAddingAll ? 'Adding...' : `Add All ${newCards.length} New Cards to Library`}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               );
             })()}
