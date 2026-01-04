@@ -17,6 +17,10 @@ interface CardThumbnailProps {
   price: number | null;
   psa10Price?: number | null;
   cgc10Price?: number | null;
+
+  // NEW
+  quantity?: number;
+
   isSelected: boolean;
   gameType?: string | null;
   sportType?: string | null;
@@ -36,6 +40,7 @@ export function CardThumbnail({
   price,
   psa10Price,
   cgc10Price,
+  quantity = 1,
   isSelected,
   gameType,
   sportType,
@@ -47,21 +52,17 @@ export function CardThumbnail({
   const [isLookingUp, setIsLookingUp] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [currentImageUrl, setCurrentImageUrl] = useState(thumbnailUrl || imageUrl);
-  
-  // Sync state when props change (e.g., after parent refetch)
+
   useEffect(() => {
     const newUrl = thumbnailUrl || imageUrl;
     if (newUrl !== currentImageUrl) {
       setCurrentImageUrl(newUrl);
-      setImageError(false); // Reset error when URL changes
+      setImageError(false);
     }
   }, [thumbnailUrl, imageUrl]);
-  
-  // Only show placeholder UI if URL is empty, null, or a placeholder URL
+
   const isPlaceholderUrl = !currentImageUrl || currentImageUrl.length === 0 || currentImageUrl.includes("placehold");
-  // Show image if we have a real URL (even if it might fail to load)
   const showImage = Boolean(currentImageUrl && currentImageUrl.length > 0 && !isPlaceholderUrl);
-  // Show find image button if placeholder or image failed to load
   const showFindImageButton = isPlaceholderUrl || imageError;
 
   const handleImageLookup = async (e: React.MouseEvent) => {
@@ -69,7 +70,6 @@ export function CardThumbnail({
     setIsLookingUp(true);
 
     try {
-      // Step 1: Find the image URL
       const { data: lookupData, error: lookupError } = await supabase.functions.invoke("generate-card-image-url", {
         body: {
           cardName,
@@ -85,7 +85,6 @@ export function CardThumbnail({
         return;
       }
 
-      // Step 2: Download and store the image in Supabase storage
       const { data: attachData, error: attachError } = await supabase.functions.invoke("attach-image", {
         body: {
           cardId: id,
@@ -96,7 +95,6 @@ export function CardThumbnail({
       if (attachError) throw attachError;
 
       if (attachData?.success && attachData?.imageUrl) {
-        // Update local state immediately so image shows
         setCurrentImageUrl(attachData.imageUrl);
         setImageError(false);
         toast.success("Image found and saved");
@@ -124,10 +122,7 @@ export function CardThumbnail({
       onClick={onClick}
     >
       {/* Selection checkbox */}
-      <div
-        className="absolute top-1.5 left-1.5 z-10"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="absolute top-1.5 left-1.5 z-10" onClick={(e) => e.stopPropagation()}>
         <Checkbox
           checked={isSelected}
           onCheckedChange={() => onSelect(id)}
@@ -135,9 +130,17 @@ export function CardThumbnail({
         />
       </div>
 
+      {/* Quantity badge */}
+      {quantity > 1 && (
+        <div className="absolute bottom-[62px] left-1.5 z-10">
+          <div className="rounded-full bg-black/80 text-white text-[11px] px-2 py-[1px] shadow">
+            ×{quantity}
+          </div>
+        </div>
+      )}
+
       {/* Action buttons */}
       <div className="absolute top-1.5 right-1.5 z-10 flex gap-1">
-        {/* Find image button - show for placeholder or failed images */}
         {showFindImageButton && (
           <button
             className={cn(
@@ -151,15 +154,10 @@ export function CardThumbnail({
             disabled={isLookingUp}
             title="Find card image"
           >
-            {isLookingUp ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <ImagePlus className="h-3 w-3" />
-            )}
+            {isLookingUp ? <Loader2 className="h-3 w-3 animate-spin" /> : <ImagePlus className="h-3 w-3" />}
           </button>
         )}
 
-        {/* Delete button */}
         <button
           className={cn(
             "p-1 rounded-full",
@@ -187,20 +185,17 @@ export function CardThumbnail({
             className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
           />
         ) : imageError && currentImageUrl ? (
-          // Image failed to load - show broken state with retry option
           <div className="flex flex-col items-center justify-center text-muted-foreground/50 p-2">
             <ImageOff className="h-6 w-6 mb-1" />
             <span className="text-[8px] text-center">Image unavailable</span>
           </div>
         ) : (
-          // No image URL or placeholder
           <div className="flex flex-col items-center justify-center text-muted-foreground/50 p-2">
             <ImageOff className="h-8 w-8 mb-1" />
             <span className="text-[9px] text-center line-clamp-2">{cardName}</span>
           </div>
         )}
-        
-        {/* Exclamation indicator for missing/broken images */}
+
         {(isPlaceholderUrl || imageError) && (
           <div className="absolute bottom-1.5 right-1.5 bg-warning text-warning-foreground rounded-full p-0.5 shadow-md">
             <AlertCircle className="h-4 w-4" />
@@ -221,12 +216,10 @@ export function CardThumbnail({
             ${price.toFixed(2)}
           </p>
         )}
-        {/* Graded Prices */}
         <div className="flex flex-wrap gap-0.5 mt-0.5 justify-center">
           <GradedPriceChip grader="PSA" grade="10" price={psa10Price} />
           <GradedPriceChip grader="CGC" grade="10" price={cgc10Price} />
-          {/* TCGPlayer for TCG cards */}
-          {(gameType?.toLowerCase().includes("pokemon") || 
+          {(gameType?.toLowerCase().includes("pokemon") ||
             gameType?.toLowerCase().includes("yugioh") ||
             gameType?.toLowerCase().includes("yu-gi-oh") ||
             gameType?.toLowerCase().includes("mtg") ||
