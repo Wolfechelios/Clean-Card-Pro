@@ -3,7 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { insertCardDual } from "@/lib/localCards";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Camera, SwitchCamera, X, CheckCircle, Loader2, Pause, Play, Zap, Usb, Smartphone, RefreshCw, DollarSign, ImagePlus } from "lucide-react";
+import { Camera, SwitchCamera, X, CheckCircle, Loader2, Pause, Play, Zap, Usb, Smartphone, RefreshCw, DollarSign, ImagePlus, Eye, Library } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -39,6 +40,13 @@ interface CapturedCard {
   error?: string;
   dbId?: string;
   priceFetching?: boolean;
+  // Scan mode fields
+  libraryQuantity?: number;
+  isInLibrary?: boolean;
+  imageUrl?: string;
+  gameType?: string;
+  sportType?: string;
+  confidence?: number;
 }
 
 const MAX_CAPTURES = 100;
@@ -71,6 +79,9 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   const [flashSupported, setFlashSupported] = useState(false);
   const [isRefreshingPrices, setIsRefreshingPrices] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
+  // Scan Mode: price check without adding to collection
+  const [scanMode, setScanMode] = useState(false);
+  const scanModeRef = useRef(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const processingQueueRef = useRef<string[]>([]);
@@ -94,6 +105,10 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   useEffect(() => {
     autoCaptureEnabledRef.current = autoCaptureEnabled;
   }, [autoCaptureEnabled]);
+
+  useEffect(() => {
+    scanModeRef.current = scanMode;
+  }, [scanMode]);
 
   const { devices, selectedDeviceId, setSelectedDeviceId, isLoading: devicesLoading, refreshDevices } = useCameraDevices();
   
@@ -1039,12 +1054,95 @@ const hammingDistance64 = (a: bigint, b: bigint) => {
       if (identifyResult.error) throw identifyResult.error;
 
       const cardData = identifyResult.data?.cardData;
+      const cardName = cardData?.card_name || 'Unknown Card';
+      const cardSet = cardData?.card_set;
+      const cardNumber = cardData?.card_number;
 
+      // Check for existing copies in library
+      let libraryQuantity = 0;
+      let isInLibrary = false;
+      
+      if (cardName && cardName !== 'Unknown Card') {
+        let query = supabase
+          .from('cards')
+          .select('id', { count: 'exact' })
+          .eq('user_id', userId)
+          .ilike('card_name', cardName);
+        
+        if (cardSet) {
+          query = query.ilike('card_set', cardSet);
+        }
+        if (cardNumber) {
+          query = query.eq('card_number', cardNumber);
+        }
+        
+        const { count } = await query;
+        libraryQuantity = count || 0;
+        isInLibrary = libraryQuantity > 0;
+      }
+
+      // In Scan Mode: don't insert to library, just show data
+      if (scanModeRef.current) {
+        // Fetch pricing immediately for scan mode
+        setCaptures(prev => {
+          const updated = prev.map(c => c.id === captureId ? { 
+            ...c, 
+            status: 'completed' as const, 
+            cardName: cardName,
+            cardSet: cardSet,
+            cardNumber: cardNumber,
+            rarity: cardData?.rarity,
+            gameType: cardData?.game_type,
+            sportType: cardData?.sport_type,
+            confidence: cardData?.confidence,
+            imageUrl: imageUrl,
+            value: null,
+            libraryQuantity,
+            isInLibrary,
+            priceFetching: true,
+          } : c);
+          capturesRef.current = updated;
+          return updated;
+        });
+
+        // Fetch pricing directly (no db update in scan mode)
+        try {
+          const { data: pricing } = await supabase.functions.invoke('fetch-card-prices', {
+            body: {
+              cardName,
+              cardSet,
+              cardNumber,
+              gameType: cardData?.game_type,
+              sportType: cardData?.sport_type,
+            }
+          });
+
+          setCaptures(prev => {
+            const updated = prev.map(c => c.id === captureId ? { 
+              ...c, 
+              value: pricing?.suggested || pricing?.raw || null,
+              priceFetching: false,
+            } : c);
+            capturesRef.current = updated;
+            return updated;
+          });
+        } catch (priceErr) {
+          console.error('Scan mode pricing error:', priceErr);
+          setCaptures(prev => {
+            const updated = prev.map(c => c.id === captureId ? { ...c, priceFetching: false } : c);
+            capturesRef.current = updated;
+            return updated;
+          });
+        }
+        return;
+      }
+
+      // Normal mode: insert to library
       const insertedCard = await insertCardDual({
         user_id: userId,
-        card_name: cardData?.card_name || 'Unknown Card',
-        card_set: cardData?.card_set,
-        card_number: cardData?.card_number,
+        card_name: cardName,
+        card_set: cardSet,
+        card_number: cardNumber,
         rarity: cardData?.rarity,
         game_type: cardData?.game_type,
         sport_type: cardData?.sport_type,
@@ -1060,12 +1158,14 @@ const hammingDistance64 = (a: bigint, b: bigint) => {
         const updated = prev.map(c => c.id === captureId ? { 
           ...c, 
           status: 'completed' as const, 
-          cardName: cardData?.card_name,
-          cardSet: cardData?.card_set,
-          cardNumber: cardData?.card_number,
+          cardName: cardName,
+          cardSet: cardSet,
+          cardNumber: cardNumber,
           rarity: cardData?.rarity,
           value: null, // Will update when pricing returns
-          dbId: insertedCard?.id
+          dbId: insertedCard?.id,
+          libraryQuantity: libraryQuantity + 1, // Just added one
+          isInLibrary: true,
         } : c);
         capturesRef.current = updated;
         return updated;
@@ -1110,6 +1210,61 @@ const hammingDistance64 = (a: bigint, b: bigint) => {
     processingQueueRef.current = processingQueueRef.current.filter(id => id !== captureId);
   }, []);
 
+  // Add a scan-mode card to the library
+  const handleAddToLibrary = useCallback(async (captureId: string) => {
+    const capture = capturesRef.current.find(c => c.id === captureId);
+    if (!capture || !capture.imageUrl) {
+      toast.error('Cannot add card - missing data');
+      return;
+    }
+
+    // Set loading state
+    setCaptures(prev => {
+      const updated = prev.map(c => c.id === captureId ? { ...c, priceFetching: true } : c);
+      capturesRef.current = updated;
+      return updated;
+    });
+
+    try {
+      const insertedCard = await insertCardDual({
+        user_id: userId,
+        card_name: capture.cardName || 'Unknown Card',
+        card_set: capture.cardSet,
+        card_number: capture.cardNumber,
+        rarity: capture.rarity,
+        game_type: capture.gameType,
+        sport_type: capture.sportType,
+        image_url: capture.imageUrl,
+        thumbnail_url: capture.imageUrl,
+        ocr_confidence: capture.confidence || 0,
+        suggested_price: capture.value,
+      });
+
+      // Update the card to show it's now in library
+      setCaptures(prev => {
+        const updated = prev.map(c => c.id === captureId ? { 
+          ...c, 
+          dbId: insertedCard.id,
+          isInLibrary: true,
+          libraryQuantity: (c.libraryQuantity || 0) + 1,
+          priceFetching: false,
+        } : c);
+        capturesRef.current = updated;
+        return updated;
+      });
+
+      toast.success('Card added to library!');
+    } catch (error: any) {
+      console.error('Failed to add card to library:', error);
+      toast.error('Failed to add card to library');
+      setCaptures(prev => {
+        const updated = prev.map(c => c.id === captureId ? { ...c, priceFetching: false } : c);
+        capturesRef.current = updated;
+        return updated;
+      });
+    }
+  }, [userId]);
+
   const completedCount = captures.filter(c => c.status === 'completed').length;
   const errorCount = captures.filter(c => c.status === 'error').length;
   const processingCount = captures.filter(c => c.status === 'processing').length;
@@ -1130,7 +1285,25 @@ const hammingDistance64 = (a: bigint, b: bigint) => {
                   {captures.length}/{MAX_CAPTURES}
                 </Badge>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
+                {/* Scan Mode Toggle */}
+                <div className="flex items-center gap-2">
+                  <div 
+                    className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium transition-colors ${
+                      scanMode 
+                        ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300' 
+                        : 'bg-muted text-muted-foreground'
+                    }`}
+                  >
+                    {scanMode ? <Eye className="h-3 w-3" /> : <Library className="h-3 w-3" />}
+                    <span className="hidden sm:inline">{scanMode ? 'Scan Mode' : 'Library Mode'}</span>
+                  </div>
+                  <Switch
+                    checked={scanMode}
+                    onCheckedChange={setScanMode}
+                    className="data-[state=checked]:bg-amber-500"
+                  />
+                </div>
                 {/* Camera Mode Toggle - Compact on mobile */}
                 <Tabs value={cameraMode} onValueChange={handleModeChange}>
                   <TabsList className="h-8">
@@ -1144,6 +1317,12 @@ const hammingDistance64 = (a: bigint, b: bigint) => {
                 </Tabs>
               </div>
             </div>
+            {scanMode && (
+              <div className="mt-2 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                <Eye className="h-3 w-3" />
+                <span>Scan Mode: Cards won't be added to library until you confirm</span>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -1435,9 +1614,22 @@ const hammingDistance64 = (a: bigint, b: bigint) => {
                         </div>
                       )}
                       {capture.status === 'completed' && (
-                        <div className="absolute top-2 right-2">
-                          <CheckCircle className="h-5 w-5 text-green-500 drop-shadow-lg" />
-                        </div>
+                        <>
+                          {/* Library quantity badge - top right */}
+                          {capture.libraryQuantity !== undefined && capture.libraryQuantity > 0 ? (
+                            <div className="absolute top-1.5 right-1.5 bg-blue-600 text-white text-[10px] font-bold rounded-full min-w-[20px] h-5 flex items-center justify-center px-1 shadow-lg">
+                              ×{capture.libraryQuantity}
+                            </div>
+                          ) : scanMode && !capture.dbId ? (
+                            <div className="absolute top-1.5 right-1.5 bg-amber-500 text-white text-[9px] font-bold rounded px-1.5 py-0.5 shadow-lg">
+                              NEW
+                            </div>
+                          ) : (
+                            <div className="absolute top-2 right-2">
+                              <CheckCircle className="h-5 w-5 text-green-500 drop-shadow-lg" />
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                     {capture.status === 'completed' && (
@@ -1474,6 +1666,23 @@ const hammingDistance64 = (a: bigint, b: bigint) => {
                             <span className="text-xs text-muted-foreground">No price</span>
                           )}
                         </div>
+                        {/* Add to Library button for scan mode cards not yet added */}
+                        {scanMode && !capture.dbId && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleAddToLibrary(capture.id)}
+                            disabled={capture.priceFetching}
+                            className="w-full h-7 text-xs mt-1 gap-1"
+                          >
+                            {capture.priceFetching ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Library className="h-3 w-3" />
+                            )}
+                            Add to Library
+                          </Button>
+                        )}
                       </div>
                     )}
                     {capture.status === 'error' && (
@@ -1492,7 +1701,13 @@ const hammingDistance64 = (a: bigint, b: bigint) => {
       )}
 
       {/* Detailed Editable Card List */}
-      <ScannedCardList cards={captures} onCardUpdate={handleCardUpdate} onCardDelete={handleCardDelete} />
+      <ScannedCardList 
+        cards={captures} 
+        onCardUpdate={handleCardUpdate} 
+        onCardDelete={handleCardDelete} 
+        scanMode={scanMode}
+        onAddToLibrary={handleAddToLibrary}
+      />
     </div>
   );
 };

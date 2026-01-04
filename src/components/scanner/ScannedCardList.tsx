@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Edit2, DollarSign, Hash, Layers, Sparkles, Trash2, Loader2 } from "lucide-react";
+import { Edit2, DollarSign, Hash, Layers, Sparkles, Trash2, Loader2, Library, Plus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -21,12 +21,19 @@ interface ScannedCard {
   value?: number | null;
   error?: string;
   dbId?: string;
+  priceFetching?: boolean;
+  // Scan mode fields
+  libraryQuantity?: number;
+  isInLibrary?: boolean;
+  imageUrl?: string;
 }
 
 interface ScannedCardListProps {
   cards: ScannedCard[];
   onCardUpdate: (id: string, updates: Partial<ScannedCard>) => void;
   onCardDelete?: (id: string) => void;
+  scanMode?: boolean;
+  onAddToLibrary?: (id: string) => void;
 }
 
 const RARITY_OPTIONS = [
@@ -45,7 +52,7 @@ const RARITY_OPTIONS = [
   "Reverse Holo",
 ];
 
-export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete }: ScannedCardListProps) => {
+export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete, scanMode, onAddToLibrary }: ScannedCardListProps) => {
   const [editingCard, setEditingCard] = useState<ScannedCard | null>(null);
   const [editForm, setEditForm] = useState({
     cardName: "",
@@ -56,9 +63,11 @@ export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete }: ScannedCa
   });
   const [isSaving, setIsSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [addingId, setAddingId] = useState<string | null>(null);
 
   const completedCards = cards.filter(c => c.status === 'completed');
   const totalValue = completedCards.reduce((sum, c) => sum + (c.value || 0), 0);
+  const newCardsCount = scanMode ? completedCards.filter(c => !c.dbId).length : 0;
 
   const openEditDialog = (card: ScannedCard) => {
     setEditingCard(card);
@@ -143,7 +152,14 @@ export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete }: ScannedCa
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-lg">Scanned Cards ({completedCards.length})</CardTitle>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-lg">Scanned Cards ({completedCards.length})</CardTitle>
+              {scanMode && newCardsCount > 0 && (
+                <Badge variant="outline" className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border-amber-300">
+                  {newCardsCount} New
+                </Badge>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               <DollarSign className="h-5 w-5 text-green-600" />
               <span className="text-xl font-bold text-green-600">
@@ -156,13 +172,30 @@ export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete }: ScannedCa
           {completedCards.map((card) => (
             <div
               key={card.id}
-              className="flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
+              className={`flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors ${
+                scanMode && !card.dbId ? 'border-amber-400 dark:border-amber-600' : ''
+              }`}
             >
-              <img
-                src={card.preview}
-                alt={card.cardName || "Scanned card"}
-                className="w-12 h-16 object-cover rounded"
-              />
+              {/* Card image with quantity badge */}
+              <div className="relative shrink-0">
+                <img
+                  src={card.preview}
+                  alt={card.cardName || "Scanned card"}
+                  className="w-12 h-16 object-cover rounded"
+                />
+                {/* Library quantity badge */}
+                {card.libraryQuantity !== undefined && card.libraryQuantity > 0 && (
+                  <div className="absolute -top-1 -right-1 bg-blue-600 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1">
+                    ×{card.libraryQuantity}
+                  </div>
+                )}
+                {/* New card indicator */}
+                {scanMode && !card.dbId && card.libraryQuantity === 0 && (
+                  <div className="absolute -top-1 -right-1 bg-amber-500 text-white text-[8px] font-bold rounded px-1">
+                    NEW
+                  </div>
+                )}
+              </div>
               <div className="flex-1 min-w-0 space-y-1">
                 <p className="font-medium text-sm truncate">
                   {card.cardName || "Unknown Card"}
@@ -189,13 +222,45 @@ export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete }: ScannedCa
                 )}
               </div>
               <div className="text-right">
-                {card.value != null && card.value > 0 ? (
+                {card.priceFetching ? (
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  </span>
+                ) : card.value != null && card.value > 0 ? (
                   <p className="font-bold text-green-600">${card.value.toFixed(2)}</p>
                 ) : (
                   <p className="text-xs text-muted-foreground">No price</p>
                 )}
               </div>
               <div className="flex items-center gap-1 shrink-0">
+                {/* Add to Library button for scan mode */}
+                {scanMode && !card.dbId && onAddToLibrary && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setAddingId(card.id);
+                      onAddToLibrary(card.id);
+                      setTimeout(() => setAddingId(null), 2000);
+                    }}
+                    disabled={addingId === card.id || card.priceFetching}
+                    className="text-xs h-7 px-2 gap-1 border-amber-400 text-amber-700 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-300"
+                  >
+                    {addingId === card.id ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Plus className="h-3 w-3" />
+                    )}
+                    Add
+                  </Button>
+                )}
+                {/* Already in library indicator */}
+                {scanMode && card.dbId && (
+                  <Badge variant="secondary" className="text-[10px] bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
+                    <Library className="h-2.5 w-2.5 mr-1" />
+                    Added
+                  </Badge>
+                )}
                 <Button
                   variant="ghost"
                   size="icon"
