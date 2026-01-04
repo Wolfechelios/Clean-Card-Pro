@@ -2,14 +2,18 @@ import { useState, useEffect, useCallback } from "react";
 
 const SCANNER_SETTINGS_KEY = "card-scanner-settings";
 
+export type ScanMode = "SAVE" | "SCAN_ONLY";
+
 export interface ScannerSettings {
   autoConfirmEnabled: boolean;
   autoConfirmThreshold: number; // 0-100, percentage
+  scanMode: ScanMode; // NEW
 }
 
 const DEFAULT_SETTINGS: ScannerSettings = {
   autoConfirmEnabled: true,
   autoConfirmThreshold: 75,
+  scanMode: "SAVE", // NEW default keeps old behavior
 };
 
 export function useScannerSettings() {
