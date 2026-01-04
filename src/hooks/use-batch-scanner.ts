@@ -70,6 +70,7 @@ export function useBatchScanner({ userId, onCardReady }: UseBatchScannerOptions)
   };
 
   const processNextCard = useCallback(async (queue: ScanJob[], index: number) => {
+    // End of queue check
     if (index >= queue.length) {
       toast.success('Batch processing complete!');
       setBatchQueue([]);
@@ -81,6 +82,7 @@ export function useBatchScanner({ userId, onCardReady }: UseBatchScannerOptions)
 
     const job = queue[index];
     
+    // Mark current job as processing
     setBatchCards(prev => prev.map(c => 
       c.id === job.id ? { ...c, status: "processing" as const } : c
     ));
@@ -88,6 +90,10 @@ export function useBatchScanner({ userId, onCardReady }: UseBatchScannerOptions)
     setScanJobs(prev => prev.map(j => 
       j.id === job.id ? { ...j, status: 'scanning' as const } : j
     ));
+
+    // Process this card in an isolated try-catch
+    let success = false;
+    let errorMessage = "";
 
     try {
       const fileExt = job.file.name.split(".").pop();
@@ -98,13 +104,13 @@ export function useBatchScanner({ userId, onCardReady }: UseBatchScannerOptions)
         .from("card-images")
         .upload(fileName, job.file);
 
-      if (uploadError) throw uploadError;
+      if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
 
       const { data: signedUrlData, error: urlError } = await supabase.storage
         .from("card-images")
         .createSignedUrl(fileName, 60 * 60 * 24 * 365);
 
-      if (urlError) throw urlError;
+      if (urlError) throw new Error(`URL creation failed: ${urlError.message}`);
       const imageUrl = signedUrlData.signedUrl;
 
       const ocr = await performOCR(imageUrl);
@@ -113,6 +119,7 @@ export function useBatchScanner({ userId, onCardReady }: UseBatchScannerOptions)
       let alternatives: Alternative[] = [];
       let fallbackData;
       
+      // Try enhanced identification (isolated)
       try {
         const enhancedRes = await fetch(
           `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/enhanced-card-identify`,
@@ -130,16 +137,21 @@ export function useBatchScanner({ userId, onCardReady }: UseBatchScannerOptions)
             alternatives = enhancedResult.cardData.alternatives || [];
           }
         }
-      } catch (error) {
-        console.error("Enhanced identification error:", error);
+      } catch (enhErr) {
+        console.warn("Enhanced identification failed, using fallback:", enhErr);
       }
 
+      // Fallback identification (isolated)
       if (!enhancedData) {
-        const { data, error: aiError } = await supabase.functions.invoke(
-          "identify-card",
-          { body: { imageUrl, ocrText: ocr.rawText } }
-        );
-        if (!aiError && data) fallbackData = data;
+        try {
+          const { data, error: aiError } = await supabase.functions.invoke(
+            "identify-card",
+            { body: { imageUrl, ocrText: ocr.rawText } }
+          );
+          if (!aiError && data) fallbackData = data;
+        } catch (fallbackErr) {
+          console.warn("Fallback identification failed:", fallbackErr);
+        }
       }
 
       const identifiedCard: IdentifiedCard = enhancedData || {
@@ -156,6 +168,7 @@ export function useBatchScanner({ userId, onCardReady }: UseBatchScannerOptions)
         description: fallbackData?.notes || "",
       };
 
+      // Notify callback
       onCardReady({
         identifiedCard,
         alternatives,
@@ -163,20 +176,49 @@ export function useBatchScanner({ userId, onCardReady }: UseBatchScannerOptions)
         fallbackData: { ...fallbackData, jobId: job.id, batchIndex: index },
       });
 
-    } catch (error: any) {
-      console.error('Batch scan error:', error);
-      
+      // Mark this card complete
       setBatchCards(prev => prev.map(c => 
-        c.id === job.id ? { ...c, status: "error" as const, error: error.message } : c
+        c.id === job.id ? { ...c, status: "completed" as const, cardName: identifiedCard.card_name } : c
+      ));
+      setScanJobs(prev => prev.map(j => 
+        j.id === job.id ? { ...j, status: 'complete' as const } : j
+      ));
+
+      success = true;
+
+    } catch (error: any) {
+      console.error('Batch scan error for card:', job.file.name, error);
+      errorMessage = error?.message || "Unknown error";
+      
+      // Mark this card as error
+      setBatchCards(prev => prev.map(c => 
+        c.id === job.id ? { ...c, status: "error" as const, error: errorMessage } : c
       ));
       
       setScanJobs(prev => prev.map(j => 
-        j.id === job.id ? { ...j, status: 'error' as const, error: error.message } : j
+        j.id === job.id ? { ...j, status: 'error' as const, error: errorMessage } : j
       ));
 
-      setCurrentBatchIndex(index + 1);
-      processNextCard(queue, index + 1);
+      toast.error(`Failed: ${job.file.name} - ${errorMessage}`);
     }
+
+    // ALWAYS advance to next card (whether success or failure)
+    // Use setTimeout to break the call stack and prevent cascading failures
+    const nextIndex = index + 1;
+    setCurrentBatchIndex(nextIndex);
+    
+    // Small delay between cards to prevent rate limiting and give state time to settle
+    setTimeout(() => {
+      if (isProcessingRef.current && nextIndex < queue.length) {
+        processNextCard(queue, nextIndex);
+      } else if (nextIndex >= queue.length) {
+        toast.success('Batch processing complete!');
+        setBatchQueue([]);
+        setCurrentBatchIndex(0);
+        isProcessingRef.current = false;
+        setIsProcessing(false);
+      }
+    }, 100);
   }, [onCardReady]);
 
   const startBatchProcessing = useCallback(() => {
