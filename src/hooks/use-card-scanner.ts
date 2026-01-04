@@ -3,7 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { insertCardDual } from "@/lib/localCards";
 import { toast } from "sonner";
 import { analyzeCardFull } from "@/lib/analyzeCardFull";
-import { getScannerSettings } from "./use-scanner-settings";
+import { getScannerSettings, type ScanMode } from "./use-scanner-settings";
+
 export interface OCRResult {
   cardName: string;
   cardSet: string;
@@ -38,7 +39,11 @@ export interface PendingCardData {
   alternatives: Alternative[];
   imageUrl: string;
   fallbackData?: any;
-  isDuplicate?: boolean;
+
+  // NEW: scan workspace metadata
+  scanMode?: ScanMode;
+  ownedCount?: number; // how many copies user has already
+  isInLibrary?: boolean;
   existingCard?: {
     id: string;
     card_name: string;
@@ -46,6 +51,9 @@ export interface PendingCardData {
     image_url: string;
     current_price_raw: number | null;
   };
+
+  // existing duplicate structure (kept)
+  isDuplicate?: boolean;
 }
 
 interface UseCardScannerOptions {
@@ -54,7 +62,11 @@ interface UseCardScannerOptions {
   skipDuplicateCheck?: boolean;
 }
 
-export function useCardScanner({ userId, onScanComplete, skipDuplicateCheck = false }: UseCardScannerOptions) {
+export function useCardScanner({
+  userId,
+  onScanComplete,
+  skipDuplicateCheck = false,
+}: UseCardScannerOptions) {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
@@ -65,9 +77,15 @@ export function useCardScanner({ userId, onScanComplete, skipDuplicateCheck = fa
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
 
+  const normalize = (s: string) => s.toLowerCase().trim();
+
   // Check if card already exists in collection
-  const checkForDuplicate = async (cardName: string, cardSet: string | null): Promise<{
+  const checkForDuplicate = async (
+    cardName: string,
+    cardSet: string | null
+  ): Promise<{
     isDuplicate: boolean;
+    ownedCount: number;
     existingCard?: {
       id: string;
       card_name: string;
@@ -77,52 +95,67 @@ export function useCardScanner({ userId, onScanComplete, skipDuplicateCheck = fa
     };
   }> => {
     if (skipDuplicateCheck || !userId) {
-      return { isDuplicate: false };
+      return { isDuplicate: false, ownedCount: 0 };
     }
 
     try {
-      // Normalize search - check for similar card names
-      const normalizedName = cardName.toLowerCase().trim();
-      
+      const normalizedName = normalize(cardName);
+      const normalizedSet = normalize(cardSet || "");
+
       const { data: existingCards, error } = await supabase
         .from("cards")
         .select("id, card_name, card_set, image_url, current_price_raw")
         .eq("user_id", userId)
-        .ilike("card_name", `%${normalizedName.split(' ').slice(0, 3).join('%')}%`)
-        .limit(5);
+        .ilike("card_name", `%${normalizedName.split(" ").slice(0, 3).join("%")}%`)
+        .limit(25);
 
       if (error || !existingCards || existingCards.length === 0) {
-        return { isDuplicate: false };
+        return { isDuplicate: false, ownedCount: 0 };
       }
 
-      // Find exact or close match
-      const match = existingCards.find(card => {
-        const existingName = card.card_name.toLowerCase().trim();
-        const existingSet = (card.card_set || '').toLowerCase().trim();
-        const newSet = (cardSet || '').toLowerCase().trim();
-        
-        // Exact name match
-        if (existingName === normalizedName) {
-          // If sets match or one is empty, it's a duplicate
-          if (!newSet || !existingSet || existingSet === newSet || 
-              existingSet.includes(newSet) || newSet.includes(existingSet)) {
-            return true;
-          }
-        }
+      // Find exact-ish match
+      const match = existingCards.find((card) => {
+        const existingName = normalize(card.card_name);
+        const existingSet = normalize(card.card_set || "");
+
+        if (existingName !== normalizedName) return false;
+
+        // If sets match or one is empty, count as same printing-ish
+        if (!normalizedSet || !existingSet) return true;
+        if (existingSet === normalizedSet) return true;
+        if (existingSet.includes(normalizedSet) || normalizedSet.includes(existingSet)) return true;
+
         return false;
       });
 
-      if (match) {
-        return {
-          isDuplicate: true,
-          existingCard: match,
-        };
+      // Owned count (best-effort, cheap count using exact-ish filters)
+      // NOTE: Supabase "count" requires select with head:true
+      let ownedCount = 0;
+      try {
+        let q = supabase
+          .from("cards")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", userId)
+          .ilike("card_name", normalizedName);
+
+        if (cardSet && cardSet.trim().length > 0) {
+          q = q.ilike("card_set", cardSet.trim());
+        }
+
+        const { count } = await q;
+        ownedCount = count || 0;
+      } catch {
+        ownedCount = match ? 1 : 0;
       }
 
-      return { isDuplicate: false };
+      if (match) {
+        return { isDuplicate: true, ownedCount: Math.max(ownedCount, 1), existingCard: match };
+      }
+
+      return { isDuplicate: false, ownedCount: 0 };
     } catch (err) {
       console.error("Duplicate check error:", err);
-      return { isDuplicate: false };
+      return { isDuplicate: false, ownedCount: 0 };
     }
   };
 
@@ -155,13 +188,15 @@ export function useCardScanner({ userId, onScanComplete, skipDuplicateCheck = fa
     setIsScanning(true);
     setScanProgress(0);
 
+    const { scanMode, autoConfirmEnabled, autoConfirmThreshold } = getScannerSettings();
+
     try {
       const fileExt = file.name.split(".").pop();
       const cardId = crypto.randomUUID();
       const fileName = `cards/${cardId}.${fileExt}`;
-      
+
       setScanProgress(20);
-      
+
       const { error: uploadError } = await supabase.storage
         .from("card-images")
         .upload(fileName, file);
@@ -182,16 +217,16 @@ export function useCardScanner({ userId, onScanComplete, skipDuplicateCheck = fa
       setScanProgress(60);
 
       toast.info("Identifying card with AI...");
-      
-      let enhancedData;
+
+      let enhancedData: any;
       let alternatives: Alternative[] = [];
-      
+
       try {
         const { data: enhancedResult, error: enhancedError } = await supabase.functions.invoke(
           "enhanced-card-identify",
           { body: { imageUrl, ocrText: ocr.rawText } }
         );
-        
+
         if (!enhancedError && enhancedResult?.success) {
           const cardData = enhancedResult.cardData;
           if (cardData.primary) {
@@ -209,7 +244,7 @@ export function useCardScanner({ userId, onScanComplete, skipDuplicateCheck = fa
 
       setScanProgress(70);
 
-      let pricingData;
+      let pricingData: any;
       try {
         const { data: cardIdentification, error: aiError } = await supabase.functions.invoke(
           "identify-card",
@@ -240,26 +275,31 @@ export function useCardScanner({ userId, onScanComplete, skipDuplicateCheck = fa
         description: pricingData?.notes || "",
       };
 
-      // Check for duplicates before saving
-      const duplicateResult = await checkForDuplicate(identifiedCard.card_name, identifiedCard.card_set);
-      
-      if (duplicateResult.isDuplicate && duplicateResult.existingCard) {
-        // Show duplicate confirmation dialog
+      const dup = await checkForDuplicate(identifiedCard.card_name, identifiedCard.card_set);
+
+      // SAVE MODE: keep existing duplicate dialog behavior
+      if (scanMode === "SAVE" && dup.isDuplicate && dup.existingCard) {
         setDuplicateCard({
           identifiedCard,
           alternatives,
           imageUrl,
           fallbackData: pricingData,
           isDuplicate: true,
-          existingCard: duplicateResult.existingCard,
+          existingCard: dup.existingCard,
+          scanMode,
+          ownedCount: dup.ownedCount,
+          isInLibrary: true,
         });
         setScanProgress(100);
         return;
       }
 
-      // Auto-confirm and save if enabled and confidence >= threshold
-      const { autoConfirmEnabled, autoConfirmThreshold } = getScannerSettings();
-      if (autoConfirmEnabled && identifiedCard.confidence >= autoConfirmThreshold) {
+      // SAVE MODE: keep existing auto-confirm behavior
+      if (
+        scanMode === "SAVE" &&
+        autoConfirmEnabled &&
+        identifiedCard.confidence >= autoConfirmThreshold
+      ) {
         try {
           await insertCardDual({
             user_id: userId,
@@ -284,7 +324,9 @@ export function useCardScanner({ userId, onScanComplete, skipDuplicateCheck = fa
             last_price_update: new Date().toISOString(),
           });
 
-          toast.success(`Card auto-saved: ${identifiedCard.card_name} (${identifiedCard.confidence}% confidence)`);
+          toast.success(
+            `Card auto-saved: ${identifiedCard.card_name} (${identifiedCard.confidence}% confidence)`
+          );
           clearSelection();
           setScanProgress(100);
           onScanComplete?.();
@@ -295,12 +337,16 @@ export function useCardScanner({ userId, onScanComplete, skipDuplicateCheck = fa
         }
       }
 
-      // Show confirmation editor for low confidence cards
+      // Show editor (both modes)
       setPendingCard({
         identifiedCard,
         alternatives,
         imageUrl,
         fallbackData: pricingData,
+        scanMode,
+        ownedCount: dup.ownedCount,
+        isInLibrary: dup.isDuplicate,
+        existingCard: dup.existingCard,
       });
 
       setScanProgress(100);
@@ -352,7 +398,13 @@ export function useCardScanner({ userId, onScanComplete, skipDuplicateCheck = fa
         last_price_update: new Date().toISOString(),
       });
 
-      toast.success("Card saved successfully!");
+      // Scan-only mode: "Add" is explicit user action, so we still save here—just don't auto-save.
+      toast.success(
+        pendingCard.scanMode === "SCAN_ONLY"
+          ? (pendingCard.isInLibrary ? "Added copy to library!" : "Added to library!")
+          : "Card saved successfully!"
+      );
+
       clearSelection();
     } catch (error: any) {
       console.error("Save error:", error);
@@ -363,10 +415,10 @@ export function useCardScanner({ userId, onScanComplete, skipDuplicateCheck = fa
   const handleCancelCard = useCallback(() => {
     setPendingCard(null);
     setDuplicateCard(null);
-    toast.info("Card identification cancelled");
+    toast.info("Dismissed");
   }, []);
 
-  // Handle confirming a duplicate card (add anyway)
+  // Handle confirming a duplicate card (add anyway) - KEEP existing
   const handleConfirmDuplicate = async () => {
     if (!duplicateCard) return;
 
@@ -405,26 +457,29 @@ export function useCardScanner({ userId, onScanComplete, skipDuplicateCheck = fa
     }
   };
 
-  // Handle skipping a duplicate card
+  // Handle skipping a duplicate card - KEEP existing
   const handleSkipDuplicate = useCallback(() => {
     setDuplicateCard(null);
     toast.info("Card skipped - already in collection");
     clearSelection();
   }, [clearSelection]);
 
-  const handleSelectAlternative = useCallback((alternative: Alternative) => {
-    if (!pendingCard) return;
-    
-    setPendingCard({
-      ...pendingCard,
-      identifiedCard: {
-        ...pendingCard.identifiedCard,
-        card_name: alternative.card_name,
-        card_set: alternative.card_set,
-        confidence: alternative.confidence,
-      },
-    });
-  }, [pendingCard]);
+  const handleSelectAlternative = useCallback(
+    (alternative: Alternative) => {
+      if (!pendingCard) return;
+
+      setPendingCard({
+        ...pendingCard,
+        identifiedCard: {
+          ...pendingCard.identifiedCard,
+          card_name: alternative.card_name,
+          card_set: alternative.card_set,
+          confidence: alternative.confidence,
+        },
+      });
+    },
+    [pendingCard]
+  );
 
   const setFileWithPreview = useCallback((newFile: File) => {
     setFile(newFile);
@@ -445,7 +500,7 @@ export function useCardScanner({ userId, onScanComplete, skipDuplicateCheck = fa
     duplicateCard,
     fileInputRef,
     folderInputRef,
-    
+
     // Actions
     setFile,
     setPreview,
