@@ -33,6 +33,7 @@ export type Database = {
           edition: string | null
           external_id: string | null
           external_source: string | null
+          finish: string | null
           game_type: string | null
           id: string
           image_error: string | null
@@ -44,6 +45,7 @@ export type Database = {
           image_storage_path: string | null
           image_updated_at: string | null
           image_url: string
+          language: string | null
           last_price_update: string | null
           manufacturer: string | null
           normalization_confidence: number | null
@@ -53,6 +55,7 @@ export type Database = {
           ocr_confidence: number | null
           ocr_raw_text: string | null
           player_name: string | null
+          printing_key: string | null
           psa10_currency: string | null
           psa10_locked: boolean | null
           psa10_match_confidence: number | null
@@ -60,6 +63,7 @@ export type Database = {
           psa10_source: string | null
           psa10_source_ref: string | null
           psa10_updated_at: string | null
+          quantity: number | null
           rarity: string | null
           raw_manufacturer: string | null
           raw_name: string | null
@@ -97,6 +101,7 @@ export type Database = {
           edition?: string | null
           external_id?: string | null
           external_source?: string | null
+          finish?: string | null
           game_type?: string | null
           id?: string
           image_error?: string | null
@@ -108,6 +113,7 @@ export type Database = {
           image_storage_path?: string | null
           image_updated_at?: string | null
           image_url: string
+          language?: string | null
           last_price_update?: string | null
           manufacturer?: string | null
           normalization_confidence?: number | null
@@ -117,6 +123,7 @@ export type Database = {
           ocr_confidence?: number | null
           ocr_raw_text?: string | null
           player_name?: string | null
+          printing_key?: string | null
           psa10_currency?: string | null
           psa10_locked?: boolean | null
           psa10_match_confidence?: number | null
@@ -124,6 +131,7 @@ export type Database = {
           psa10_source?: string | null
           psa10_source_ref?: string | null
           psa10_updated_at?: string | null
+          quantity?: number | null
           rarity?: string | null
           raw_manufacturer?: string | null
           raw_name?: string | null
@@ -161,6 +169,7 @@ export type Database = {
           edition?: string | null
           external_id?: string | null
           external_source?: string | null
+          finish?: string | null
           game_type?: string | null
           id?: string
           image_error?: string | null
@@ -172,6 +181,7 @@ export type Database = {
           image_storage_path?: string | null
           image_updated_at?: string | null
           image_url?: string
+          language?: string | null
           last_price_update?: string | null
           manufacturer?: string | null
           normalization_confidence?: number | null
@@ -181,6 +191,7 @@ export type Database = {
           ocr_confidence?: number | null
           ocr_raw_text?: string | null
           player_name?: string | null
+          printing_key?: string | null
           psa10_currency?: string | null
           psa10_locked?: boolean | null
           psa10_match_confidence?: number | null
@@ -188,6 +199,7 @@ export type Database = {
           psa10_source?: string | null
           psa10_source_ref?: string | null
           psa10_updated_at?: string | null
+          quantity?: number | null
           rarity?: string | null
           raw_manufacturer?: string | null
           raw_name?: string | null
@@ -616,7 +628,8 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
     }
     Enums: {
       [_ in never]: never
