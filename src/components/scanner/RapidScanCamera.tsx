@@ -21,6 +21,7 @@ import {
   applyFastAutofocus,
   triggerFastFocus,
 } from "@/lib/camera-optimizations";
+import { getScannerSettings } from "@/hooks/use-scanner-settings";
 
 interface RapidScanCameraProps {
   userId: string;
@@ -79,9 +80,12 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
   const [flashSupported, setFlashSupported] = useState(false);
   const [isRefreshingPrices, setIsRefreshingPrices] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
-  // Scan Mode: price check without adding to collection
-  const [scanMode, setScanMode] = useState(false);
-  const scanModeRef = useRef(false);
+  // Scan Mode: price check without adding to collection - synced with global settings
+  const [scanMode, setScanMode] = useState(() => {
+    const settings = getScannerSettings();
+    return settings.scanMode === "SCAN_ONLY";
+  });
+  const scanModeRef = useRef(getScannerSettings().scanMode === "SCAN_ONLY");
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const processingQueueRef = useRef<string[]>([]);
@@ -106,8 +110,18 @@ export const RapidScanCamera = ({ userId, onComplete }: RapidScanCameraProps) =>
     autoCaptureEnabledRef.current = autoCaptureEnabled;
   }, [autoCaptureEnabled]);
 
+  // Sync scanMode ref and persist to global settings
   useEffect(() => {
     scanModeRef.current = scanMode;
+    // Persist to global scanner settings
+    try {
+      const stored = localStorage.getItem("card-scanner-settings");
+      const settings = stored ? JSON.parse(stored) : {};
+      settings.scanMode = scanMode ? "SCAN_ONLY" : "SAVE";
+      localStorage.setItem("card-scanner-settings", JSON.stringify(settings));
+    } catch (e) {
+      console.error("Failed to persist scan mode:", e);
+    }
   }, [scanMode]);
 
   const { devices, selectedDeviceId, setSelectedDeviceId, isLoading: devicesLoading, refreshDevices } = useCameraDevices();
@@ -888,8 +902,9 @@ const hammingDistance64 = (a: bigint, b: bigint) => {
       // Remove batch from queue
       processingQueueRef.current = processingQueueRef.current.slice(batchIds.length);
 
-      // Process batch concurrently
-      await Promise.all(
+      // Process batch concurrently - use allSettled to ensure all cards are attempted
+      // even if some fail (prevents cascade failures)
+      await Promise.allSettled(
         batchItems.map(item => processSingleCard(item.id, item.blob))
       );
     }
