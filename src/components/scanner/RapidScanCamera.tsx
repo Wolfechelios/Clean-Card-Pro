@@ -1583,6 +1583,49 @@ const hammingDistance64 = (a: bigint, b: bigint) => {
         </Card>
       )}
 
+      {/* Value Summary */}
+      {captures.length > 0 && completedCount > 0 && (
+        <Card className="md:mx-0 -mx-4 rounded-none md:rounded-lg">
+          <CardContent className="py-3 md:py-4">
+            {(() => {
+              const completedCards = captures.filter(c => c.status === 'completed');
+              const ownedCards = completedCards.filter(c => c.isInLibrary || c.dbId);
+              const newCards = completedCards.filter(c => !c.isInLibrary && !c.dbId);
+              
+              const totalScannedValue = completedCards.reduce((sum, c) => sum + (c.value || 0), 0);
+              const ownedValue = ownedCards.reduce((sum, c) => sum + (c.value || 0), 0);
+              const newValue = newCards.reduce((sum, c) => sum + (c.value || 0), 0);
+              
+              return (
+                <div className="grid grid-cols-3 gap-2 md:gap-4 text-center">
+                  <div className="space-y-1">
+                    <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-wide">Total Scanned</p>
+                    <p className="text-lg md:text-2xl font-bold text-foreground tabular-nums">
+                      ${totalScannedValue.toFixed(2)}
+                    </p>
+                    <p className="text-[10px] md:text-xs text-muted-foreground">{completedCards.length} cards</p>
+                  </div>
+                  <div className="space-y-1 border-x border-border px-2">
+                    <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-wide">Already Owned</p>
+                    <p className="text-lg md:text-2xl font-bold text-blue-600 tabular-nums">
+                      ${ownedValue.toFixed(2)}
+                    </p>
+                    <p className="text-[10px] md:text-xs text-muted-foreground">{ownedCards.length} cards</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] md:text-xs text-muted-foreground uppercase tracking-wide">New Cards</p>
+                    <p className="text-lg md:text-2xl font-bold text-amber-600 tabular-nums">
+                      ${newValue.toFixed(2)}
+                    </p>
+                    <p className="text-[10px] md:text-xs text-muted-foreground">{newCards.length} cards</p>
+                  </div>
+                </div>
+              );
+            })()}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Capture Grid */}
       {captures.length > 0 && (
         <Card>
