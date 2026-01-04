@@ -30,8 +30,12 @@ interface VirtualizedCardGridProps {
 }
 
 const ITEM_MIN_WIDTH = 140;
-const ITEM_HEIGHT = 180; // thumbnail (140) + label area (~40)
+const ITEM_HEIGHT = 180;
 const GAP = 8;
+
+const norm = (s: string) => s.toLowerCase().trim();
+const keyFor = (c: CardItem) =>
+  `${norm(c.card_name)}|${norm(c.card_set || "")}|${norm(c.card_number || "")}`;
 
 export function VirtualizedCardGrid({
   cards,
@@ -44,7 +48,6 @@ export function VirtualizedCardGrid({
   const parentRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
 
-  // Track container width for responsive columns
   useEffect(() => {
     if (!parentRef.current) return;
 
@@ -57,19 +60,16 @@ export function VirtualizedCardGrid({
     return () => resizeObserver.disconnect();
   }, []);
 
-  // Calculate columns based on container width
   const columnCount = useMemo(() => {
     if (containerWidth === 0) return 1;
     return Math.max(1, Math.floor((containerWidth + GAP) / (ITEM_MIN_WIDTH + GAP)));
   }, [containerWidth]);
 
-  // Calculate actual item width
   const itemWidth = useMemo(() => {
     if (columnCount === 1) return containerWidth;
     return (containerWidth - GAP * (columnCount - 1)) / columnCount;
   }, [containerWidth, columnCount]);
 
-  // Calculate rows
   const rowCount = Math.ceil(cards.length / columnCount);
 
   const rowVirtualizer = useVirtualizer({
@@ -81,16 +81,23 @@ export function VirtualizedCardGrid({
 
   const virtualRows = rowVirtualizer.getVirtualItems();
 
+  // NEW: quantity map for badge
+  const qtyMap = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of cards) {
+      const k = keyFor(c);
+      m.set(k, (m.get(k) || 0) + 1);
+    }
+    return m;
+  }, [cards]);
+
   return (
     <div
       ref={parentRef}
       className="h-[calc(100vh-380px)] min-h-[400px] overflow-auto"
       style={{ contain: "strict" }}
     >
-      <div
-        className="relative w-full"
-        style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
-      >
+      <div className="relative w-full" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
         {virtualRows.map((virtualRow) => {
           const rowIndex = virtualRow.index;
           const startIndex = rowIndex * columnCount;
@@ -106,31 +113,33 @@ export function VirtualizedCardGrid({
                 gap: `${GAP}px`,
               }}
             >
-              {rowCards.map((card, colIndex) => (
-                <div
-                  key={card.id}
-                  style={{ width: `${itemWidth}px`, flexShrink: 0 }}
-                >
-                  <CardThumbnail
-                    id={card.id}
-                    cardName={card.card_name}
-                    cardSet={card.card_set}
-                    cardNumber={card.card_number}
-                    imageUrl={card.image_url}
-                    thumbnailUrl={card.thumbnail_url}
-                    price={card.current_price_raw}
-                    psa10Price={card.psa10_price}
-                    cgc10Price={card.cgc10_price}
-                    isSelected={selectedCards.has(card.id)}
-                    gameType={card.game_type}
-                    sportType={card.sport_type}
-                    onSelect={onSelect}
-                    onDelete={onDelete}
-                    onClick={() => onCardClick(card)}
-                    onImageUpdated={onRefresh}
-                  />
-                </div>
-              ))}
+              {rowCards.map((card) => {
+                const qty = qtyMap.get(keyFor(card)) || 1;
+
+                return (
+                  <div key={card.id} style={{ width: `${itemWidth}px`, flexShrink: 0 }}>
+                    <CardThumbnail
+                      id={card.id}
+                      cardName={card.card_name}
+                      cardSet={card.card_set}
+                      cardNumber={card.card_number}
+                      imageUrl={card.image_url}
+                      thumbnailUrl={card.thumbnail_url}
+                      price={card.current_price_raw}
+                      psa10Price={card.psa10_price}
+                      cgc10Price={card.cgc10_price}
+                      quantity={qty} // NEW
+                      isSelected={selectedCards.has(card.id)}
+                      gameType={card.game_type}
+                      sportType={card.sport_type}
+                      onSelect={onSelect}
+                      onDelete={onDelete}
+                      onClick={() => onCardClick(card)}
+                      onImageUpdated={onRefresh}
+                    />
+                  </div>
+                );
+              })}
             </div>
           );
         })}
