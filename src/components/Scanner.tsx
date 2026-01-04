@@ -2,15 +2,15 @@ import { useCallback } from "react";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Camera, Smartphone, Usb } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
-// Hooks
 import { useCardScanner } from "@/hooks/use-card-scanner";
 import { useCameraCapture } from "@/hooks/use-camera-capture";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import { useBatchScanner } from "@/hooks/use-batch-scanner";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useScannerSettings } from "@/hooks/use-scanner-settings";
 
-// Components
 import { UploadTab } from "./scanner/UploadTab";
 import { CameraTab } from "./scanner/CameraTab";
 import { BatchQueue } from "./scanner/BatchQueue";
@@ -28,8 +28,8 @@ interface ScannerProps {
 
 const Scanner = ({ userId }: ScannerProps) => {
   const isMobile = useIsMobile();
+  const { settings, updateSettings } = useScannerSettings();
 
-  // Card scanner hook for single card scanning
   const {
     file,
     preview,
@@ -50,42 +50,62 @@ const Scanner = ({ userId }: ScannerProps) => {
     handleSkipDuplicate,
   } = useCardScanner({ userId });
 
-  // Batch scanner hook
   const batch = useBatchScanner({
     userId,
-    onCardReady: (data) => {
-      // This integrates batch scanning with card scanner state
-      // For now, batch mode uses its own flow through RapidScanCamera
-    },
+    onCardReady: () => {},
   });
 
-  // Camera capture hook
   const camera = useCameraCapture({
     onCapture: (capturedFile) => {
       setFileWithPreview(capturedFile);
     },
   });
 
-  // File upload hook
   const { handleFileSelect, handleDrop, handleDragOver } = useFileUpload({
     onSingleFile: setFileWithPreview,
     onMultipleFiles: batch.addFilesToBatch,
   });
 
-  // Handle image from USB scanner
-  const handleUSBCapture = useCallback((imageFile: File) => {
-    setFileWithPreview(imageFile);
-    setTimeout(() => handleScan(), 100);
-  }, [setFileWithPreview, handleScan]);
+  const handleUSBCapture = useCallback(
+    (imageFile: File) => {
+      setFileWithPreview(imageFile);
+      setTimeout(() => handleScan(), 100);
+    },
+    [setFileWithPreview, handleScan]
+  );
 
-  // Handle image from remote scanner
-  const handleRemoteCapture = useCallback((imageFile: File) => {
-    setFileWithPreview(imageFile);
-    setTimeout(() => handleScan(), 100);
-  }, [setFileWithPreview, handleScan]);
+  const handleRemoteCapture = useCallback(
+    (imageFile: File) => {
+      setFileWithPreview(imageFile);
+      setTimeout(() => handleScan(), 100);
+    },
+    [setFileWithPreview, handleScan]
+  );
+
+  const modeLabel =
+    settings.scanMode === "SAVE" ? "Save Mode (current behavior)" : "Scan & Price (non-destructive)";
 
   return (
     <div className="space-y-6">
+      {/* Mode Toggle */}
+      <div className="flex items-center justify-between gap-3 p-3 rounded-lg border bg-card">
+        <div className="space-y-0.5">
+          <div className="text-sm font-semibold">Scan Mode</div>
+          <div className="text-xs text-muted-foreground">{modeLabel}</div>
+        </div>
+
+        <Button
+          variant={settings.scanMode === "SAVE" ? "default" : "secondary"}
+          onClick={() =>
+            updateSettings({
+              scanMode: settings.scanMode === "SAVE" ? "SCAN_ONLY" : "SAVE",
+            })
+          }
+        >
+          {settings.scanMode === "SAVE" ? "Switch to Scan & Price" : "Switch to Save Mode"}
+        </Button>
+      </div>
+
       <Tabs defaultValue="upload" className="w-full">
         <TabsList className="grid w-full grid-cols-5" role="tablist">
           <TabsTrigger value="upload">Upload</TabsTrigger>
@@ -103,13 +123,17 @@ const Scanner = ({ userId }: ScannerProps) => {
             <span className="hidden sm:inline">Remote</span>
           </TabsTrigger>
         </TabsList>
-        
+
         <TabsContent value="upload">
           {pendingCard ? (
             <CardIdentificationEditor
               primaryCard={pendingCard.identifiedCard}
               alternatives={pendingCard.alternatives}
               imageUrl={preview || undefined}
+              scanMode={pendingCard.scanMode}
+              ownedCount={pendingCard.ownedCount}
+              isInLibrary={pendingCard.isInLibrary}
+              currentPriceRaw={pendingCard.fallbackData?.currentPriceRaw ?? null}
               onConfirm={handleConfirmCard}
               onSelectAlternative={handleSelectAlternative}
               onCancel={handleCancelCard}
@@ -130,14 +154,13 @@ const Scanner = ({ userId }: ScannerProps) => {
               onClear={clearSelection}
             />
           )}
-          
-          {/* Batch Progress */}
+
           {batch.batchCards.length > 0 && (
             <div className="mt-6">
               <BatchProgress
                 cards={batch.batchCards}
                 total={batch.batchCards.length}
-                completed={batch.batchCards.filter(c => c.status === "completed").length}
+                completed={batch.batchCards.filter((c) => c.status === "completed").length}
               />
             </div>
           )}
@@ -149,6 +172,10 @@ const Scanner = ({ userId }: ScannerProps) => {
               primaryCard={pendingCard.identifiedCard}
               alternatives={pendingCard.alternatives}
               imageUrl={preview || undefined}
+              scanMode={pendingCard.scanMode}
+              ownedCount={pendingCard.ownedCount}
+              isInLibrary={pendingCard.isInLibrary}
+              currentPriceRaw={pendingCard.fallbackData?.currentPriceRaw ?? null}
               onConfirm={handleConfirmCard}
               onSelectAlternative={handleSelectAlternative}
               onCancel={handleCancelCard}
@@ -177,6 +204,10 @@ const Scanner = ({ userId }: ScannerProps) => {
               primaryCard={pendingCard.identifiedCard}
               alternatives={pendingCard.alternatives}
               imageUrl={preview || undefined}
+              scanMode={pendingCard.scanMode}
+              ownedCount={pendingCard.ownedCount}
+              isInLibrary={pendingCard.isInLibrary}
+              currentPriceRaw={pendingCard.fallbackData?.currentPriceRaw ?? null}
               onConfirm={handleConfirmCard}
               onSelectAlternative={handleSelectAlternative}
               onCancel={handleCancelCard}
@@ -187,10 +218,7 @@ const Scanner = ({ userId }: ScannerProps) => {
         </TabsContent>
 
         <TabsContent value="rapid">
-          <RapidScanCamera 
-            userId={userId}
-            onComplete={() => toast.success('Rapid scan session complete!')}
-          />
+          <RapidScanCamera userId={userId} onComplete={() => toast.success("Rapid scan session complete!")} />
         </TabsContent>
 
         <TabsContent value="remote">
@@ -199,6 +227,10 @@ const Scanner = ({ userId }: ScannerProps) => {
               primaryCard={pendingCard.identifiedCard}
               alternatives={pendingCard.alternatives}
               imageUrl={preview || undefined}
+              scanMode={pendingCard.scanMode}
+              ownedCount={pendingCard.ownedCount}
+              isInLibrary={pendingCard.isInLibrary}
+              currentPriceRaw={pendingCard.fallbackData?.currentPriceRaw ?? null}
               onConfirm={handleConfirmCard}
               onSelectAlternative={handleSelectAlternative}
               onCancel={handleCancelCard}
@@ -206,23 +238,14 @@ const Scanner = ({ userId }: ScannerProps) => {
           ) : isMobile ? (
             <RemoteScanMobile userId={userId} />
           ) : (
-            <RemoteScanDesktop 
-              userId={userId} 
-              onImageReceived={handleRemoteCapture}
-            />
+            <RemoteScanDesktop userId={userId} onImageReceived={handleRemoteCapture} />
           )}
         </TabsContent>
       </Tabs>
 
-      {/* Batch Queue - shown when files are queued */}
-      {batch.scanJobs.length > 0 && (
-        <BatchQueue
-          jobs={batch.scanJobs}
-          onProcess={batch.startBatchProcessing}
-        />
-      )}
+      {batch.scanJobs.length > 0 && <BatchQueue jobs={batch.scanJobs} onProcess={batch.startBatchProcessing} />}
 
-      {/* Duplicate Card Dialog */}
+      {/* Duplicate dialog remains ONLY for Save Mode behavior */}
       {duplicateCard && duplicateCard.existingCard && (
         <DuplicateCardDialog
           open={!!duplicateCard}
