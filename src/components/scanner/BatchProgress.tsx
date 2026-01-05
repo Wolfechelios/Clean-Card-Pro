@@ -2,16 +2,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CheckCircle2, Loader2, XCircle, Image } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
-interface BatchCard {
-  id: string;
-  fileName: string;
-  status: "pending" | "processing" | "completed" | "error";
-  error?: string;
-  cardName?: string;
-}
+import type { BatchJob } from "@/hooks/use-batch-scanner";
 
 interface BatchProgressProps {
-  cards: BatchCard[];
+  cards: BatchJob[];
   total: number;
   completed: number;
 }
@@ -53,7 +47,7 @@ export function BatchProgress({ cards, total, completed }: BatchProgressProps) {
               
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">
-                  {card.cardName || card.fileName}
+                  {card.fileName || card.file.name}
                 </p>
                 {card.error && (
                   <p className="text-xs text-destructive mt-1">{card.error}</p>

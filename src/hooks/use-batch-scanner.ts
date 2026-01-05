@@ -7,10 +7,12 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-type BatchJob = {
+export type BatchJob = {
   id: string
   file: File
-  status: "pending" | "processing" | "success" | "error"
+  fileName: string
+  preview?: string
+  status: "pending" | "processing" | "completed" | "error"
   error?: string
 }
 
@@ -18,11 +20,13 @@ export function useBatchScanner() {
   const [jobs, setJobs] = useState<BatchJob[]>([])
   const [running, setRunning] = useState(false)
 
-  function addFiles(files: FileList | null) {
-    if (!files) return
-    const newJobs: BatchJob[] = Array.from(files).map((f) => ({
+  function addFiles(files: File[]) {
+    if (!files || files.length === 0) return
+    const newJobs: BatchJob[] = files.map((f) => ({
       id: crypto.randomUUID(),
       file: f,
+      fileName: f.name,
+      preview: URL.createObjectURL(f),
       status: "pending",
     }))
     setJobs((prev) => [...prev, ...newJobs])
@@ -40,7 +44,7 @@ export function useBatchScanner() {
 
       try {
         await scanOne(job)
-        updateJob(job.id, { status: "success" })
+        updateJob(job.id, { status: "completed" })
         await sleep(700)
       } catch (err: any) {
         const msg = String(err?.message ?? err)

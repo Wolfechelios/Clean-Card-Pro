@@ -18,7 +18,7 @@ import { BatchProgress } from "./scanner/BatchProgress";
 import { CardIdentificationEditor } from "./scanner/CardIdentificationEditor";
 import { RemoteScanDesktop } from "./scanner/RemoteScanDesktop";
 import { RemoteScanMobile } from "./scanner/RemoteScanMobile";
-import { RapidScanCamera } from "./scanner/RapidScanCamera";
+import RapidScanCamera from "./scanner/RapidScanCamera";
 import { USBPhoneCameraScanner } from "./scanner/USBPhoneCameraScanner";
 import { DuplicateCardDialog } from "./scanner/DuplicateCardDialog";
 
@@ -50,10 +50,7 @@ const Scanner = ({ userId }: ScannerProps) => {
     handleSkipDuplicate,
   } = useCardScanner({ userId });
 
-  const batch = useBatchScanner({
-    userId,
-    onCardReady: () => {},
-  });
+  const batch = useBatchScanner();
 
   const camera = useCameraCapture({
     onCapture: (capturedFile) => {
@@ -63,7 +60,7 @@ const Scanner = ({ userId }: ScannerProps) => {
 
   const { handleFileSelect, handleDrop, handleDragOver } = useFileUpload({
     onSingleFile: setFileWithPreview,
-    onMultipleFiles: batch.addFilesToBatch,
+    onMultipleFiles: batch.addFiles,
   });
 
   const handleUSBCapture = useCallback(
@@ -155,12 +152,12 @@ const Scanner = ({ userId }: ScannerProps) => {
             />
           )}
 
-          {batch.batchCards.length > 0 && (
+          {batch.jobs.length > 0 && (
             <div className="mt-6">
               <BatchProgress
-                cards={batch.batchCards}
-                total={batch.batchCards.length}
-                completed={batch.batchCards.filter((c) => c.status === "completed").length}
+                cards={batch.jobs}
+                total={batch.jobs.length}
+                completed={batch.jobs.filter((c) => c.status === "completed").length}
               />
             </div>
           )}
@@ -218,7 +215,7 @@ const Scanner = ({ userId }: ScannerProps) => {
         </TabsContent>
 
         <TabsContent value="rapid">
-          <RapidScanCamera userId={userId} onComplete={() => toast.success("Rapid scan session complete!")} />
+          <RapidScanCamera />
         </TabsContent>
 
         <TabsContent value="remote">
@@ -243,7 +240,7 @@ const Scanner = ({ userId }: ScannerProps) => {
         </TabsContent>
       </Tabs>
 
-      {batch.scanJobs.length > 0 && <BatchQueue jobs={batch.scanJobs} onProcess={batch.startBatchProcessing} />}
+      {batch.jobs.length > 0 && <BatchQueue jobs={batch.jobs} onProcess={batch.start} />}
 
       {/* Duplicate dialog remains ONLY for Save Mode behavior */}
       {duplicateCard && duplicateCard.existingCard && (

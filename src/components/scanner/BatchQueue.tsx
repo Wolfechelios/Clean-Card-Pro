@@ -1,10 +1,10 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2, CheckCircle, FolderUp } from "lucide-react";
-import type { ScanJob } from "@/hooks/use-batch-scanner";
+import type { BatchJob } from "@/hooks/use-batch-scanner";
 
 interface BatchQueueProps {
-  jobs: ScanJob[];
+  jobs: BatchJob[];
   onProcess: () => void;
 }
 
@@ -43,15 +43,15 @@ export function BatchQueue({ jobs, onProcess }: BatchQueueProps) {
                 <p className="text-sm font-medium truncate">{job.file.name}</p>
                 <p className="text-xs text-muted-foreground">
                   {job.status === 'pending' && 'Waiting...'}
-                  {job.status === 'scanning' && 'Scanning...'}
-                  {job.status === 'complete' && '✓ Complete'}
+                  {job.status === 'processing' && 'Scanning...'}
+                  {job.status === 'completed' && '✓ Complete'}
                   {job.status === 'error' && `Error: ${job.error}`}
                 </p>
               </div>
-              {job.status === 'scanning' && (
+              {job.status === 'processing' && (
                 <Loader2 className="h-4 w-4 animate-spin" aria-label="Processing" />
               )}
-              {job.status === 'complete' && (
+              {job.status === 'completed' && (
                 <CheckCircle className="h-4 w-4 text-success" aria-label="Complete" />
               )}
             </div>
