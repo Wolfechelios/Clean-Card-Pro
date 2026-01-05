@@ -1,4 +1,3 @@
-// src/components/scanner/RapidScanCamera.tsx
 "use client"
 
 import React, { useEffect, useMemo, useRef, useState } from "react"
@@ -32,8 +31,8 @@ import {
   type CardRectResult,
 } from "@/lib/visionCardRect"
 
-import { useLocalStorageState } from "@/lib/useLocalStorageState"
 import { detectCardBox } from "@/lib/visionCardBox"
+import { useLocalStorageState } from "@/lib/useLocalStorageState"
 import {
   detectSupport,
   getVideoTrack,
@@ -58,8 +57,8 @@ const THUMB_MAX = 24
 type Roi = {
   cxPct: number // 0..1
   cyPct: number // 0..1
-  wPct: number  // 0..1
-  hPct: number  // 0..1
+  wPct: number // 0..1
+  hPct: number // 0..1
 }
 
 type UiPrefs = {
@@ -101,7 +100,6 @@ const DEFAULT_PREFS: UiPrefs = {
 }
 
 type Thumb = { id: string; url: string; createdAt: number }
-
 type DragMode = "move" | "nw" | "ne" | "sw" | "se" | null
 
 export default function RapidScanCamera() {
@@ -113,13 +111,15 @@ export default function RapidScanCamera() {
   const rafRef = useRef<number | null>(null)
 
   // persisted prefs
-  const prefsLS = useLocalStorageState<UiPrefs>("rapid_scan_prefs_finalboss_v1", DEFAULT_PREFS)
+  const prefsLS = useLocalStorageState<UiPrefs>("rapid_scan_prefs_finalboss_v3", DEFAULT_PREFS)
   const prefs = prefsLS.value
   const setPrefs = prefsLS.setValue
 
   // keep ROI in a ref for low-jitter updates
   const roiRef = useRef<Roi>(prefs.roi)
-  useEffect(() => { roiRef.current = prefs.roi }, [prefs.roi])
+  useEffect(() => {
+    roiRef.current = prefs.roi
+  }, [prefs.roi])
 
   // queue meta
   const [meta, setMeta] = useState<QueueItemMeta[]>([])
@@ -152,7 +152,9 @@ export default function RapidScanCamera() {
 
   // final boss flow state:
   // READY_FOR_ENTRY -> WAIT_STABLE -> CAPTURED_WAIT_EXIT -> READY_FOR_ENTRY
-  const flowStateRef = useRef<"READY_FOR_ENTRY" | "WAIT_STABLE" | "CAPTURED_WAIT_EXIT">("READY_FOR_ENTRY")
+  const flowStateRef = useRef<"READY_FOR_ENTRY" | "WAIT_STABLE" | "CAPTURED_WAIT_EXIT">(
+    "READY_FOR_ENTRY"
+  )
 
   // debug metrics
   const [lastDiff, setLastDiff] = useState(0)
@@ -195,6 +197,7 @@ export default function RapidScanCamera() {
 
     return () => {
       stopWorkers.current = true
+      stopAnalysisLoop()
       // cleanup thumbs
       setThumbs((t) => {
         t.forEach((x) => URL.revokeObjectURL(x.url))
@@ -250,8 +253,7 @@ export default function RapidScanCamera() {
         const msg = String(err?.message ?? err)
         await idbUpdateMeta(next.id, { status: "error", error: msg })
 
-        // “domino failure” killer:
-        // if rate-limited, pause briefly so everything doesn’t fail after first 429
+        // domino-failure killer: pause after rate limit so everything doesn't fail
         if (/429|rate limit|too many/i.test(msg)) {
           setPausedUntil(Date.now() + RATE_LIMIT_PAUSE_MS)
         }
@@ -308,7 +310,7 @@ export default function RapidScanCamera() {
       return
     }
 
-    const id = crypto.randomUUID()
+    const id = safeUUID()
     await idbAdd({
       id,
       createdAt: Date.now(),
@@ -519,7 +521,6 @@ export default function RapidScanCamera() {
       const cardPresent = prefs.rectGateOn ? rect.present : box.present
 
       // --- Final Boss Auto Snap ROI ---
-      // Smoothly follow the card center / size to keep it framed.
       if (prefs.autoSnapRoi && cardPresent && box.present && box.bbox) {
         const pad = 0.12
         const bx0 = box.bbox.x0 / c.width
@@ -586,7 +587,7 @@ export default function RapidScanCamera() {
       // Flow mode: must exit before next capture
       if (prefs.flowMode) {
         if (flowStateRef.current === "CAPTURED_WAIT_EXIT") {
-          setStatusLine(tooBacklogged ? "Captured — queue busy (keep slower)" : "Captured ✅ — remove card")
+          setStatusLine(tooBacklogged ? "Captured — queue busy (slow down)" : "Captured ✅ — remove card")
           rafRef.current = requestAnimationFrame(analysisTick)
           return
         }
@@ -600,37 +601,28 @@ export default function RapidScanCamera() {
 
       // Auto capture (motion/stability)
       if (autoAllowed && !tooBacklogged) {
-        const { state, shouldCapture } = nextAutoCaptureState(
-          autoStateRef.current,
-          diff,
-          Date.now(),
-          prefs.tuning
-        )
+        const { state, shouldCapture } = nextAutoCaptureState(autoStateRef.current, diff, Date.now(), prefs.tuning)
         autoStateRef.current = state
 
-        // status strings
         const phase = state.phase
         if (!prefs.flowMode) {
-          if (phase === "idle") setStatusLine(`Armed • card detected • diff ${diff.toFixed(1)}`)
+          if (phase === "idle") setStatusLine(`Armed • diff ${diff.toFixed(1)}`)
           if (phase === "seeing-motion") setStatusLine(`Card moving in… • diff ${diff.toFixed(1)}`)
-          if (phase === "waiting-stable") setStatusLine(`Hold… ${state.stableFrames}/${prefs.tuning.stableFramesRequired}`)
+          if (phase === "waiting-stable")
+            setStatusLine(`Hold… ${state.stableFrames}/${prefs.tuning.stableFramesRequired}`)
           if (phase === "captured") setStatusLine(`Captured ✅ • swap card`)
         } else {
-          // flow mode messaging
-          if (phase === "waiting-stable") setStatusLine(`Hold… ${state.stableFrames}/${prefs.tuning.stableFramesRequired}`)
+          if (phase === "waiting-stable")
+            setStatusLine(`Hold… ${state.stableFrames}/${prefs.tuning.stableFramesRequired}`)
           if (phase === "captured") setStatusLine(`Captured ✅ — remove card`)
         }
 
         if (shouldCapture) {
           await captureFrameToQueue()
-
-          // Flow mode: lock until exit
-          if (prefs.flowMode) {
-            flowStateRef.current = "CAPTURED_WAIT_EXIT"
-          }
+          if (prefs.flowMode) flowStateRef.current = "CAPTURED_WAIT_EXIT"
         }
       } else {
-        if (tooBacklogged) setStatusLine("Queue busy — keep feeding slower")
+        if (tooBacklogged) setStatusLine("Queue busy — let it catch up")
         else setStatusLine("Manual mode • card detected")
       }
     } catch {
@@ -645,9 +637,8 @@ export default function RapidScanCamera() {
     const cap = captureCanvasRef.current
     if (!v || !cap) return
 
-    // hard guard: if queue is absurd, skip auto capture
-    const qCount = counts.queued + counts.processing
-    if (prefs.autoOn && qCount >= QUEUE_MAX - 5) {
+    const current = await idbCount()
+    if (current >= QUEUE_MAX) {
       setStatusLine("Queue maxed — clear or wait")
       return
     }
@@ -676,14 +667,7 @@ export default function RapidScanCamera() {
   }
 
   async function manualCapture() {
-    // manual capture should always be allowed unless queue hard-full
-    const current = await idbCount()
-    if (current >= QUEUE_MAX) {
-      setStatusLine(`Queue full (${QUEUE_MAX}). Clear or wait.`)
-      return
-    }
     await captureFrameToQueue()
-    // if flow mode, go to wait-exit after manual capture too
     if (prefs.flowMode) flowStateRef.current = "CAPTURED_WAIT_EXIT"
   }
 
@@ -726,10 +710,30 @@ export default function RapidScanCamera() {
       let dcx = 0
       let dcy = 0
 
-      if (drag.mode === "nw") { dw = -dx; dh = -dy; dcx = dx / 2; dcy = dy / 2 }
-      if (drag.mode === "ne") { dw =  dx; dh = -dy; dcx = dx / 2; dcy = dy / 2 }
-      if (drag.mode === "sw") { dw = -dx; dh =  dy; dcx = dx / 2; dcy = dy / 2 }
-      if (drag.mode === "se") { dw =  dx; dh =  dy; dcx = dx / 2; dcy = dy / 2 }
+      if (drag.mode === "nw") {
+        dw = -dx
+        dh = -dy
+        dcx = dx / 2
+        dcy = dy / 2
+      }
+      if (drag.mode === "ne") {
+        dw = dx
+        dh = -dy
+        dcx = dx / 2
+        dcy = dy / 2
+      }
+      if (drag.mode === "sw") {
+        dw = -dx
+        dh = dy
+        dcx = dx / 2
+        dcy = dy / 2
+      }
+      if (drag.mode === "se") {
+        dw = dx
+        dh = dy
+        dcx = dx / 2
+        dcy = dy / 2
+      }
 
       next.wPct = clamp(r0.wPct + dw, minW, maxW)
       next.hPct = clamp(r0.hPct + dh, minH, maxH)
@@ -801,21 +805,28 @@ export default function RapidScanCamera() {
           Auto: {prefs.autoOn ? "ON" : "OFF"}
         </button>
 
-        <button
-          className="px-3 py-2 rounded bg-slate-700 text-white disabled:opacity-40"
-          onClick={manualCapture}
-          type="button"
-          disabled={!cameraOn}
-        >
+        <button className="px-3 py-2 rounded bg-slate-700 text-white disabled:opacity-40" onClick={manualCapture} type="button" disabled={!cameraOn}>
           Capture
         </button>
 
-        <button
-          className="px-3 py-2 rounded bg-slate-700 text-white"
-          onClick={() => setPrefs((p) => ({ ...p, rectGateOn: !p.rectGateOn }))}
-          type="button"
-        >
+        <button className="px-3 py-2 rounded bg-slate-700 text-white" onClick={() => setPrefs((p) => ({ ...p, rectGateOn: !p.rectGateOn }))} type="button">
           Rect Gate: {prefs.rectGateOn ? "ON" : "OFF"}
+        </button>
+
+        <button className="px-3 py-2 rounded bg-slate-700 text-white" onClick={() => setPrefs((p) => ({ ...p, flowMode: !p.flowMode }))} type="button">
+          Flow: {prefs.flowMode ? "ON" : "OFF"}
+        </button>
+
+        <button className="px-3 py-2 rounded bg-slate-700 text-white" onClick={() => setPrefs((p) => ({ ...p, autoSnapRoi: !p.autoSnapRoi }))} type="button">
+          Auto Snap: {prefs.autoSnapRoi ? "ON" : "OFF"}
+        </button>
+
+        <button className="px-3 py-2 rounded bg-slate-700 text-white" onClick={() => setPrefs((p) => ({ ...p, cropToRoi: !p.cropToRoi }))} type="button">
+          Crop: {prefs.cropToRoi ? "ROI" : "FULL"}
+        </button>
+
+        <button className="px-3 py-2 rounded bg-slate-700 text-white" onClick={() => setPrefs((p) => ({ ...p, showRoi: !p.showRoi }))} type="button">
+          ROI: {prefs.showRoi ? "ON" : "OFF"}
         </button>
 
         <button
@@ -837,6 +848,14 @@ export default function RapidScanCamera() {
         <button className="px-3 py-2 rounded bg-slate-950 text-white" onClick={clearAll} type="button">
           Clear All
         </button>
+
+        <button className="px-3 py-2 rounded bg-slate-800 text-white" onClick={() => setPrefs((p) => ({ ...p, advancedPanel: !p.advancedPanel }))} type="button">
+          {prefs.advancedPanel ? "Hide Advanced" : "Show Advanced"}
+        </button>
+
+        <button className="px-3 py-2 rounded bg-slate-800 text-white" onClick={handleTapFocus as any} type="button" style={{ display: "none" }}>
+          hidden
+        </button>
       </div>
 
       {/* Status box */}
@@ -848,9 +867,7 @@ export default function RapidScanCamera() {
               Queue {counts.total}/{QUEUE_MAX} • Queued {counts.queued} • Processing {counts.processing} • Errors {counts.error}
               {isPaused ? ` • Paused ${Math.ceil((pausedUntil - Date.now()) / 1000)}s` : ""}
             </div>
-            <div className="text-xs text-slate-500 mt-1">
-              Drag ROI. Tap preview to focus (if supported). Flow mode = one shot per card.
-            </div>
+            <div className="text-xs text-slate-500 mt-1">Drag ROI. Tap preview to focus (if supported). Flow = one shot per card.</div>
           </div>
 
           <div className="text-xs text-slate-300 flex gap-4">
@@ -864,65 +881,9 @@ export default function RapidScanCamera() {
             </div>
             <div>
               <div className="text-slate-500">Card</div>
-              <div className={`font-mono ${rectOk ? "text-emerald-400" : "text-red-400"}`}>
-                {rectOk ? "YES" : "NO"}
-              </div>
+              <div className={`font-mono ${rectOk ? "text-emerald-400" : "text-red-400"}`}>{rectOk ? "YES" : "NO"}</div>
             </div>
           </div>
-        </div>
-
-        {/* Final Boss toggles */}
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            className="px-3 py-2 rounded bg-slate-800 text-white"
-            onClick={() => setPrefs((p) => ({ ...p, autoSnapRoi: !p.autoSnapRoi }))}
-            type="button"
-          >
-            Auto ROI Snap: {prefs.autoSnapRoi ? "ON" : "OFF"}
-          </button>
-
-          <button
-            className="px-3 py-2 rounded bg-slate-800 text-white"
-            onClick={() => {
-              setPrefs((p) => ({ ...p, flowMode: !p.flowMode }))
-              flowStateRef.current = "READY_FOR_ENTRY"
-            }}
-            type="button"
-          >
-            Flow Mode: {prefs.flowMode ? "ON" : "OFF"}
-          </button>
-
-          <button
-            className="px-3 py-2 rounded bg-slate-800 text-white"
-            onClick={() => setPrefs((p) => ({ ...p, cropToRoi: !p.cropToRoi }))}
-            type="button"
-          >
-            Capture Crop: {prefs.cropToRoi ? "ROI" : "FULL"}
-          </button>
-
-          <button
-            className="px-3 py-2 rounded bg-slate-800 text-white"
-            onClick={() => setPrefs((p) => ({ ...p, showRoi: !p.showRoi }))}
-            type="button"
-          >
-            ROI Overlay: {prefs.showRoi ? "ON" : "OFF"}
-          </button>
-
-          <button
-            className="px-3 py-2 rounded bg-slate-800 text-white"
-            onClick={() => setPrefs((p) => ({ ...p, debugOverlay: !p.debugOverlay }))}
-            type="button"
-          >
-            Debug: {prefs.debugOverlay ? "ON" : "OFF"}
-          </button>
-
-          <button
-            className="px-3 py-2 rounded bg-slate-800 text-white"
-            onClick={() => setPrefs((p) => ({ ...p, advancedPanel: !p.advancedPanel }))}
-            type="button"
-          >
-            {prefs.advancedPanel ? "Hide Advanced" : "Show Advanced"}
-          </button>
         </div>
 
         {prefs.debugOverlay && rectDebug && (
@@ -1037,9 +998,7 @@ export default function RapidScanCamera() {
           <div className="text-slate-100 font-semibold">Tuning</div>
 
           {!prefs.advancedPanel ? (
-            <div className="text-xs text-slate-400">
-              Advanced hidden. Turn it on if you want to tweak thresholds.
-            </div>
+            <div className="text-xs text-slate-400">Advanced hidden. Turn it on if you want to tweak thresholds.</div>
           ) : (
             <>
               <div className="text-slate-200 font-semibold text-sm">Auto-capture</div>
@@ -1113,9 +1072,7 @@ export default function RapidScanCamera() {
                 />
               </label>
 
-              <div className="text-slate-200 font-semibold text-sm pt-2 border-t border-slate-800">
-                Rectangle gate
-              </div>
+              <div className="text-slate-200 font-semibold text-sm pt-2 border-t border-slate-800">Rectangle gate</div>
 
               <label className="block text-xs text-slate-300">
                 Edge threshold: {prefs.rectTuning.edgeThreshold}
@@ -1206,7 +1163,6 @@ export default function RapidScanCamera() {
   )
 }
 
-// --- UI handle component ---
 function Handle({
   pos,
   onPointerDown,
@@ -1233,7 +1189,6 @@ function Handle({
   return <div style={style} onPointerDown={onPointerDown} title="Resize ROI" />
 }
 
-// --- utils ---
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms))
 }
@@ -1245,4 +1200,13 @@ function clamp(n: number, a: number, b: number) {
 }
 function clampInt(n: number, a: number, b: number) {
   return Math.max(a, Math.min(b, n))
+}
+function safeUUID() {
+  const c: any = globalThis.crypto
+  if (c?.randomUUID) return c.randomUUID()
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (ch) => {
+    const r = (Math.random() * 16) | 0
+    const v = ch === "x" ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
 }
