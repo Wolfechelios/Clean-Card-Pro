@@ -1,17 +1,21 @@
+// src/components/scanner/RapidScanCamera.tsx
 "use client"
 
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { createClient } from "@supabase/supabase-js"
+
 import { withRetry } from "@/lib/retry"
 import {
   idbAdd,
   idbCount,
   idbDelete,
+  idbGet,
   idbGetNextQueued,
   idbListMeta,
   idbUpdateMeta,
   type QueueItemMeta,
 } from "@/lib/idbQueue"
+
 import {
   DEFAULT_TUNING,
   nextAutoCaptureState,
@@ -20,43 +24,65 @@ import {
   type AutoCaptureState,
   type AutoCaptureTuning,
 } from "@/lib/visionAutoCapture"
+
 import {
   detectCardRect,
   DEFAULT_CARD_RECT_TUNING,
   type CardRectTuning,
   type CardRectResult,
 } from "@/lib/visionCardRect"
+
 import { useLocalStorageState } from "@/lib/useLocalStorageState"
-import { detectSupport, getVideoTrack, setFocusPoint, setTorch, type MediaSupport } from "@/lib/mediaControls"
+import { detectCardBox } from "@/lib/visionCardBox"
+import {
+  detectSupport,
+  getVideoTrack,
+  setFocusPoint,
+  setTorch,
+  type MediaSupport,
+} from "@/lib/mediaControls"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-const CONCURRENT_WORKERS = 2
-const QUEUE_MAX = 180
+// --- performance / stability knobs ---
+const CONCURRENT_WORKERS = 3
+const QUEUE_MAX = 220
 const BASE_BETWEEN_JOBS_MS = 250
-const RATE_LIMIT_PAUSE_MS = 6000
+const RATE_LIMIT_PAUSE_MS = 6500
 
-// ROI is now draggable + resizable (not forced centered)
+// backpressure: stop auto-capture if backlog gets too high (still allow manual)
+const AUTO_BACKPRESSURE_STOP_AT = 140
+
+// thumbnails
+const THUMB_MAX = 24
+
+// ROI is draggable + resizable
 type Roi = {
-  cxPct: number // 0..1 center x
-  cyPct: number // 0..1 center y
-  wPct: number  // 0..1 width
-  hPct: number  // 0..1 height
+  cxPct: number // 0..1
+  cyPct: number // 0..1
+  wPct: number  // 0..1
+  hPct: number  // 0..1
 }
 
 type UiPrefs = {
   autoOn: boolean
   cropToRoi: boolean
   showRoi: boolean
+
+  // “Final Boss”
+  autoSnapRoi: boolean
+  flowMode: boolean
+
   rectGateOn: boolean
   roi: Roi
   tuning: AutoCaptureTuning
   rectTuning: CardRectTuning
   advancedPanel: boolean
   debugOverlay: boolean
+
   torchWanted: boolean
 }
 
@@ -64,46 +90,63 @@ const DEFAULT_PREFS: UiPrefs = {
   autoOn: true,
   cropToRoi: true,
   showRoi: true,
+
+  autoSnapRoi: true,
+  flowMode: true,
+
   rectGateOn: true,
   roi: { cxPct: 0.5, cyPct: 0.5, wPct: 0.72, hPct: 0.62 },
+
   tuning: DEFAULT_TUNING,
   rectTuning: DEFAULT_CARD_RECT_TUNING,
   advancedPanel: true,
   debugOverlay: true,
+
   torchWanted: false,
 }
 
 type Thumb = { id: string; url: string; createdAt: number }
 
+type DragMode = "move" | "nw" | "ne" | "sw" | "se" | null
+
 export default function RapidScanCamera() {
+  // video/preview
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const previewWrapRef = useRef<HTMLDivElement | null>(null)
   const analysisCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const captureCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const rafRef = useRef<number | null>(null)
 
-  const prefsLS = useLocalStorageState<UiPrefs>("rapid_scan_prefs_v2", DEFAULT_PREFS)
+  // persisted prefs
+  const prefsLS = useLocalStorageState<UiPrefs>("rapid_scan_prefs_finalboss_v1", DEFAULT_PREFS)
   const prefs = prefsLS.value
   const setPrefs = prefsLS.setValue
 
+  // keep ROI in a ref for low-jitter updates
+  const roiRef = useRef<Roi>(prefs.roi)
+  useEffect(() => { roiRef.current = prefs.roi }, [prefs.roi])
+
+  // queue meta
   const [meta, setMeta] = useState<QueueItemMeta[]>([])
   const [loadingQueue, setLoadingQueue] = useState(true)
 
+  // worker control
   const activeWorkers = useRef(0)
   const stopWorkers = useRef(false)
   const [pausedUntil, setPausedUntil] = useState<number>(0)
   const isPaused = pausedUntil > Date.now()
 
+  // camera
   const [cameraOn, setCameraOn] = useState(false)
   const [statusLine, setStatusLine] = useState("Idle")
 
-  // Track + device support (torch/focus)
+  // media controls
   const streamRef = useRef<MediaStream | null>(null)
   const trackRef = useRef<MediaStreamTrack | null>(null)
   const [support, setSupport] = useState<MediaSupport>({ torch: false, focus: false, zoom: false })
   const [torchOn, setTorchOn] = useState(false)
 
-  // Auto capture analysis state
+  // analysis state
   const prevGrayRef = useRef<Uint8Array | null>(null)
   const autoStateRef = useRef<AutoCaptureState>({
     phase: "idle",
@@ -112,24 +155,29 @@ export default function RapidScanCamera() {
     lastDiff: 0,
   })
 
-  // premium debug
+  // final boss flow state:
+  // READY_FOR_ENTRY -> WAIT_STABLE -> CAPTURED_WAIT_EXIT -> READY_FOR_ENTRY
+  const flowStateRef = useRef<"READY_FOR_ENTRY" | "WAIT_STABLE" | "CAPTURED_WAIT_EXIT">("READY_FOR_ENTRY")
+
+  // debug metrics
   const [lastDiff, setLastDiff] = useState(0)
   const [loopHz, setLoopHz] = useState(0)
   const lastTickRef = useRef<number>(0)
   const hzWindowRef = useRef<number[]>([])
   const [rectResult, setRectResult] = useState<CardRectResult | null>(null)
 
-  // thumbnails (local, instant feedback)
+  // thumbnails
   const [thumbs, setThumbs] = useState<Thumb[]>([])
 
   // ROI drag state
   const dragRef = useRef<{
-    mode: "move" | "nw" | "ne" | "sw" | "se" | null
+    mode: DragMode
     startX: number
     startY: number
     startRoi: Roi
   }>({ mode: null, startX: 0, startY: 0, startRoi: prefs.roi })
 
+  // derived counts
   const counts = useMemo(() => {
     const queued = meta.filter((m) => m.status === "queued").length
     const processing = meta.filter((m) => m.status === "processing").length
@@ -137,11 +185,12 @@ export default function RapidScanCamera() {
     return { total: meta.length, queued, processing, error }
   }, [meta])
 
-  // -------------------------
-  // Queue + workers
-  // -------------------------
+  // -------------------------------------------------------
+  // Queue lifecycle
+  // -------------------------------------------------------
   useEffect(() => {
     stopWorkers.current = false
+
     ;(async () => {
       setLoadingQueue(true)
       await refreshMeta()
@@ -151,7 +200,7 @@ export default function RapidScanCamera() {
 
     return () => {
       stopWorkers.current = true
-      // cleanup thumbnails
+      // cleanup thumbs
       setThumbs((t) => {
         t.forEach((x) => URL.revokeObjectURL(x.url))
         return []
@@ -166,13 +215,14 @@ export default function RapidScanCamera() {
   }, [meta, pausedUntil, loadingQueue])
 
   async function refreshMeta() {
-    const list = await idbListMeta(1000)
+    const list = await idbListMeta(1500)
     setMeta(list)
   }
 
   function ensureWorkersRunning() {
     if (stopWorkers.current) return
     if (isPaused) return
+
     while (activeWorkers.current < CONCURRENT_WORKERS) {
       activeWorkers.current++
       workerLoop().finally(() => {
@@ -185,13 +235,13 @@ export default function RapidScanCamera() {
     while (!stopWorkers.current) {
       const pauseMs = pausedUntil - Date.now()
       if (pauseMs > 0) {
-        await sleep(Math.min(pauseMs, 1000))
+        await sleep(Math.min(pauseMs, 900))
         continue
       }
 
       const next = await idbGetNextQueued()
       if (!next) {
-        await sleep(250)
+        await sleep(220)
         continue
       }
 
@@ -204,6 +254,9 @@ export default function RapidScanCamera() {
       } catch (err: any) {
         const msg = String(err?.message ?? err)
         await idbUpdateMeta(next.id, { status: "error", error: msg })
+
+        // “domino failure” killer:
+        // if rate-limited, pause briefly so everything doesn’t fail after first 429
         if (/429|rate limit|too many/i.test(msg)) {
           setPausedUntil(Date.now() + RATE_LIMIT_PAUSE_MS)
         }
@@ -215,18 +268,20 @@ export default function RapidScanCamera() {
   }
 
   async function processOne(id: string) {
-    const item = await importItem(id)
+    const item = await idbGet(id)
     if (!item) throw new Error("Queue item missing")
 
     const filePath = `cards/${item.id}.jpg`
     const file = new File([item.blob], item.filename, { type: item.mime })
 
+    // upload
     await withRetry(async () => {
       const res = await supabase.storage.from("card-images").upload(filePath, file, { upsert: false })
       if (res.error) throw new Error(res.error.message)
       return res.data
     })
 
+    // signed URL
     const imageUrl = await withRetry(async () => {
       const res = await supabase.storage.from("card-images").createSignedUrl(filePath, 60 * 60 * 24)
       if (res.error) throw new Error(res.error.message)
@@ -234,6 +289,7 @@ export default function RapidScanCamera() {
       return res.data.signedUrl
     })
 
+    // identify
     await withRetry(
       async () => {
         const res = await supabase.functions.invoke("rapid-card-identify", { body: { imageUrl } })
@@ -248,11 +304,6 @@ export default function RapidScanCamera() {
           /429|rate limit|too many|timeout|network|502|503|504/i.test(String(e?.message ?? e)),
       }
     )
-  }
-
-  async function importItem(id: string) {
-    const mod = await import("@/lib/idbQueue")
-    return mod.idbGet(id)
   }
 
   async function enqueueBlob(blob: Blob, filename = "card.jpg") {
@@ -272,12 +323,11 @@ export default function RapidScanCamera() {
       filename,
     })
 
-    // local thumbnail (instant feedback)
+    // local thumb
     const url = URL.createObjectURL(blob)
     setThumbs((prev) => {
       const next = [{ id, url, createdAt: Date.now() }, ...prev]
-      // cap at 24
-      while (next.length > 24) {
+      while (next.length > THUMB_MAX) {
         const last = next.pop()
         if (last) URL.revokeObjectURL(last.url)
       }
@@ -304,14 +354,14 @@ export default function RapidScanCamera() {
   }
 
   async function clearAll() {
-    const list = await idbListMeta(5000)
+    const list = await idbListMeta(6000)
     for (const m of list) await idbDelete(m.id)
     await refreshMeta()
   }
 
-  // -------------------------
+  // -------------------------------------------------------
   // Camera start/stop + device controls
-  // -------------------------
+  // -------------------------------------------------------
   async function startCamera() {
     if (cameraOn) return
 
@@ -326,7 +376,6 @@ export default function RapidScanCamera() {
 
     streamRef.current = stream
     trackRef.current = getVideoTrack(stream)
-
     setSupport(detectSupport(trackRef.current))
 
     const v = videoRef.current
@@ -336,7 +385,7 @@ export default function RapidScanCamera() {
     await v.play()
     setCameraOn(true)
 
-    // apply torch preference if possible
+    // apply torch preference
     if (prefs.torchWanted) {
       const ok = await setTorch(trackRef.current, true)
       setTorchOn(ok)
@@ -344,18 +393,21 @@ export default function RapidScanCamera() {
       setTorchOn(false)
     }
 
+    // reset analysis
     prevGrayRef.current = null
     autoStateRef.current = { phase: "idle", stableFrames: 0, lastCaptureAt: 0, lastDiff: 0 }
+    flowStateRef.current = "READY_FOR_ENTRY"
     setRectResult(null)
     setLastDiff(0)
-    setStatusLine("Camera live")
+    setStatusLine("Camera live — feed cards")
+
     startAnalysisLoop()
   }
 
   async function stopCamera() {
     stopAnalysisLoop()
 
-    // torch off (best effort)
+    // torch off (best-effort)
     if (torchOn) {
       await setTorch(trackRef.current, false)
       setTorchOn(false)
@@ -363,10 +415,11 @@ export default function RapidScanCamera() {
 
     const v = videoRef.current
     if (v?.srcObject) {
-      const stream = v.srcObject as MediaStream
-      stream.getTracks().forEach((t) => t.stop())
+      const s = v.srcObject as MediaStream
+      s.getTracks().forEach((t) => t.stop())
       v.srcObject = null
     }
+
     streamRef.current = null
     trackRef.current = null
     setSupport({ torch: false, focus: false, zoom: false })
@@ -379,39 +432,39 @@ export default function RapidScanCamera() {
     if (!track) return
     const target = !torchOn
     const ok = await setTorch(track, target)
-    setTorchOn(ok ? target : torchOn)
-    setPrefs((p) => ({ ...p, torchWanted: ok ? target : p.torchWanted }))
+    if (ok) {
+      setTorchOn(target)
+      setPrefs((p) => ({ ...p, torchWanted: target }))
+    }
   }
 
   async function handleTapFocus(e: React.PointerEvent) {
     if (!support.focus) return
     const wrap = previewWrapRef.current
     if (!wrap) return
-    const rect = wrap.getBoundingClientRect()
-    const x = (e.clientX - rect.left) / rect.width
-    const y = (e.clientY - rect.top) / rect.height
-
-    // focus on tapped point (0..1)
+    const r = wrap.getBoundingClientRect()
+    const x = (e.clientX - r.left) / r.width
+    const y = (e.clientY - r.top) / r.height
     await setFocusPoint(trackRef.current, { x: clamp01(x), y: clamp01(y) })
-    // quick status bump
     setStatusLine("Focus set")
   }
 
-  // -------------------------
-  // Analysis loop (ROI + rect gate + motion/stability)
-  // -------------------------
+  // -------------------------------------------------------
+  // Analysis loop
+  // -------------------------------------------------------
   function startAnalysisLoop() {
     stopAnalysisLoop()
     rafRef.current = requestAnimationFrame(analysisTick)
   }
+
   function stopAnalysisLoop() {
     if (rafRef.current) cancelAnimationFrame(rafRef.current)
     rafRef.current = null
   }
 
   function getRoiRectPx(vw: number, vh: number, roi: Roi) {
-    const rw = clampInt(Math.floor(vw * roi.wPct), 50, vw)
-    const rh = clampInt(Math.floor(vh * roi.hPct), 50, vh)
+    const rw = clampInt(Math.floor(vw * roi.wPct), 60, vw)
+    const rh = clampInt(Math.floor(vh * roi.hPct), 60, vh)
     const cx = clampInt(Math.floor(vw * roi.cxPct), 0, vw)
     const cy = clampInt(Math.floor(vh * roi.cyPct), 0, vh)
     const rx = clampInt(Math.floor(cx - rw / 2), 0, vw - rw)
@@ -421,7 +474,7 @@ export default function RapidScanCamera() {
 
   async function analysisTick() {
     try {
-      // loop health stats
+      // loop rate measurement
       const now = performance.now()
       if (lastTickRef.current > 0) {
         const dt = now - lastTickRef.current
@@ -429,8 +482,7 @@ export default function RapidScanCamera() {
         const arr = hzWindowRef.current
         arr.push(hz)
         if (arr.length > 20) arr.shift()
-        const avg = arr.reduce((a, b) => a + b, 0) / arr.length
-        setLoopHz(avg)
+        setLoopHz(arr.reduce((a, b) => a + b, 0) / arr.length)
       }
       lastTickRef.current = now
 
@@ -450,9 +502,10 @@ export default function RapidScanCamera() {
       const vw = v.videoWidth || 1280
       const vh = v.videoHeight || 720
 
-      const { rx, ry, rw, rh } = getRoiRectPx(vw, vh, prefs.roi)
+      const roiNow = roiRef.current
+      const { rx, ry, rw, rh } = getRoiRectPx(vw, vh, roiNow)
 
-      // ROI downscale for analysis
+      // analysis canvas: small sample
       c.width = prefs.tuning.sampleW
       c.height = prefs.tuning.sampleH
       ctx.drawImage(v, rx, ry, rw, rh, 0, 0, c.width, c.height)
@@ -460,31 +513,98 @@ export default function RapidScanCamera() {
       const img = ctx.getImageData(0, 0, c.width, c.height)
       const gray = rgbaToGray(img.data)
 
-      // rectangle detect on ROI
+      // fast presence box (for snap + flow)
+      const box = detectCardBox(gray, c.width, c.height)
+
+      // stronger rect gate (optional)
       const rect = detectCardRect(gray, c.width, c.height, prefs.rectTuning)
       setRectResult(rect)
 
-      const cardPresent = rect.present || !prefs.rectGateOn
+      // If rect gate is on, require rect.present; else use box.present
+      const cardPresent = prefs.rectGateOn ? rect.present : box.present
 
-      if (!cardPresent) {
-        prevGrayRef.current = gray
-        if (autoStateRef.current.phase !== "idle") {
-          autoStateRef.current = { ...autoStateRef.current, phase: "idle", stableFrames: 0 }
+      // --- Final Boss Auto Snap ROI ---
+      // Smoothly follow the card center / size to keep it framed.
+      if (prefs.autoSnapRoi && cardPresent && box.present && box.bbox) {
+        const pad = 0.12
+        const bx0 = box.bbox.x0 / c.width
+        const by0 = box.bbox.y0 / c.height
+        const bx1 = box.bbox.x1 / c.width
+        const by1 = box.bbox.y1 / c.height
+
+        const bw = clamp(bx1 - bx0, 0.15, 0.98)
+        const bh = clamp(by1 - by0, 0.15, 0.98)
+        const bcx = bx0 + bw / 2
+        const bcy = by0 + bh / 2
+
+        // shift center within current ROI
+        const dx = (bcx - 0.5) * roiNow.wPct
+        const dy = (bcy - 0.5) * roiNow.hPct
+
+        const targetW = clamp(roiNow.wPct * (bw + pad), 0.35, 0.95)
+        const targetH = clamp(roiNow.hPct * (bh + pad), 0.30, 0.95)
+
+        let targetCx = clamp01(roiNow.cxPct + dx)
+        let targetCy = clamp01(roiNow.cyPct + dy)
+
+        // keep ROI inside view
+        targetCx = clamp(targetCx, targetW / 2, 1 - targetW / 2)
+        targetCy = clamp(targetCy, targetH / 2, 1 - targetH / 2)
+
+        // smooth follow
+        const a = 0.18
+        const nextRoi: Roi = {
+          cxPct: roiNow.cxPct + (targetCx - roiNow.cxPct) * a,
+          cyPct: roiNow.cyPct + (targetCy - roiNow.cyPct) * a,
+          wPct: roiNow.wPct + (targetW - roiNow.wPct) * a,
+          hPct: roiNow.hPct + (targetH - roiNow.hPct) * a,
         }
-        setLastDiff(0)
-        setStatusLine("No card in ROI — put it inside the box")
-        rafRef.current = requestAnimationFrame(analysisTick)
-        return
+
+        roiRef.current = nextRoi
+        setPrefs((p) => ({ ...p, roi: nextRoi }))
       }
 
-      // motion diff ROI-only
+      // diff (motion)
       const prev = prevGrayRef.current
       let diff = 0
       if (prev) diff = meanAbsDiff(prev, gray)
       prevGrayRef.current = gray
       setLastDiff(diff)
 
-      if (prefs.autoOn) {
+      // If no card: re-arm flow
+      if (!cardPresent) {
+        autoStateRef.current = { ...autoStateRef.current, phase: "idle", stableFrames: 0 }
+        if (prefs.flowMode) {
+          flowStateRef.current = "READY_FOR_ENTRY"
+          setStatusLine("Ready — insert next card")
+        } else {
+          setStatusLine("No card in ROI — place card in box")
+        }
+        rafRef.current = requestAnimationFrame(analysisTick)
+        return
+      }
+
+      // backpressure: don’t keep auto-spamming if queue is huge
+      const autoAllowed = prefs.autoOn && (!prefs.flowMode || flowStateRef.current !== "CAPTURED_WAIT_EXIT")
+      const tooBacklogged = counts.queued + counts.processing >= AUTO_BACKPRESSURE_STOP_AT
+
+      // Flow mode: must exit before next capture
+      if (prefs.flowMode) {
+        if (flowStateRef.current === "CAPTURED_WAIT_EXIT") {
+          setStatusLine(tooBacklogged ? "Captured — queue busy (keep slower)" : "Captured ✅ — remove card")
+          rafRef.current = requestAnimationFrame(analysisTick)
+          return
+        }
+
+        if (flowStateRef.current === "READY_FOR_ENTRY") {
+          flowStateRef.current = "WAIT_STABLE"
+          autoStateRef.current = { ...autoStateRef.current, phase: "idle", stableFrames: 0 }
+          setStatusLine("Hold steady…")
+        }
+      }
+
+      // Auto capture (motion/stability)
+      if (autoAllowed && !tooBacklogged) {
         const { state, shouldCapture } = nextAutoCaptureState(
           autoStateRef.current,
           diff,
@@ -493,15 +613,30 @@ export default function RapidScanCamera() {
         )
         autoStateRef.current = state
 
+        // status strings
         const phase = state.phase
-        if (phase === "idle") setStatusLine(`Armed • card detected • diff ${diff.toFixed(1)}`)
-        if (phase === "seeing-motion") setStatusLine(`Card moving in… • diff ${diff.toFixed(1)}`)
-        if (phase === "waiting-stable") setStatusLine(`Hold… ${state.stableFrames}/${prefs.tuning.stableFramesRequired}`)
-        if (phase === "captured") setStatusLine(`Captured ✅ • swap card`)
+        if (!prefs.flowMode) {
+          if (phase === "idle") setStatusLine(`Armed • card detected • diff ${diff.toFixed(1)}`)
+          if (phase === "seeing-motion") setStatusLine(`Card moving in… • diff ${diff.toFixed(1)}`)
+          if (phase === "waiting-stable") setStatusLine(`Hold… ${state.stableFrames}/${prefs.tuning.stableFramesRequired}`)
+          if (phase === "captured") setStatusLine(`Captured ✅ • swap card`)
+        } else {
+          // flow mode messaging
+          if (phase === "waiting-stable") setStatusLine(`Hold… ${state.stableFrames}/${prefs.tuning.stableFramesRequired}`)
+          if (phase === "captured") setStatusLine(`Captured ✅ — remove card`)
+        }
 
-        if (shouldCapture) await captureFrameToQueue()
+        if (shouldCapture) {
+          await captureFrameToQueue()
+
+          // Flow mode: lock until exit
+          if (prefs.flowMode) {
+            flowStateRef.current = "CAPTURED_WAIT_EXIT"
+          }
+        }
       } else {
-        setStatusLine("Manual mode • card detected")
+        if (tooBacklogged) setStatusLine("Queue busy — keep feeding slower")
+        else setStatusLine("Manual mode • card detected")
       }
     } catch {
       // keep alive
@@ -515,9 +650,16 @@ export default function RapidScanCamera() {
     const cap = captureCanvasRef.current
     if (!v || !cap) return
 
+    // hard guard: if queue is absurd, skip auto capture
+    const qCount = counts.queued + counts.processing
+    if (prefs.autoOn && qCount >= QUEUE_MAX - 5) {
+      setStatusLine("Queue maxed — clear or wait")
+      return
+    }
+
     const vw = v.videoWidth || 1280
     const vh = v.videoHeight || 720
-    const { rx, ry, rw, rh } = getRoiRectPx(vw, vh, prefs.roi)
+    const { rx, ry, rw, rh } = getRoiRectPx(vw, vh, roiRef.current)
 
     const outW = prefs.cropToRoi ? rw : vw
     const outH = prefs.cropToRoi ? rh : vh
@@ -539,17 +681,25 @@ export default function RapidScanCamera() {
   }
 
   async function manualCapture() {
+    // manual capture should always be allowed unless queue hard-full
+    const current = await idbCount()
+    if (current >= QUEUE_MAX) {
+      setStatusLine(`Queue full (${QUEUE_MAX}). Clear or wait.`)
+      return
+    }
     await captureFrameToQueue()
+    // if flow mode, go to wait-exit after manual capture too
+    if (prefs.flowMode) flowStateRef.current = "CAPTURED_WAIT_EXIT"
   }
 
-  // -------------------------
-  // ROI drag / resize (stupid smooth)
-  // -------------------------
-  function beginRoiDrag(mode: "move" | "nw" | "ne" | "sw" | "se") {
+  // -------------------------------------------------------
+  // ROI Drag / Resize
+  // -------------------------------------------------------
+  function beginRoiDrag(mode: Exclude<DragMode, null>) {
     return (e: React.PointerEvent) => {
       e.preventDefault()
       e.stopPropagation()
-      dragRef.current = { mode, startX: e.clientX, startY: e.clientY, startRoi: prefs.roi }
+      dragRef.current = { mode, startX: e.clientX, startY: e.clientY, startRoi: roiRef.current }
       ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
     }
   }
@@ -576,20 +726,15 @@ export default function RapidScanCamera() {
       next.cxPct = clamp01(r0.cxPct + dx)
       next.cyPct = clamp01(r0.cyPct + dy)
     } else {
-      // resize from corners: adjust width/height, keep center reasonably stable
-      const sx = dx
-      const sy = dy
-
-      // for corner resize, we change size and also shift center half the delta so corner follows finger
       let dw = 0
       let dh = 0
       let dcx = 0
       let dcy = 0
 
-      if (drag.mode === "nw") { dw = -sx; dh = -sy; dcx = sx / 2; dcy = sy / 2 }
-      if (drag.mode === "ne") { dw =  sx; dh = -sy; dcx = sx / 2; dcy = sy / 2 }
-      if (drag.mode === "sw") { dw = -sx; dh =  sy; dcx = sx / 2; dcy = sy / 2 }
-      if (drag.mode === "se") { dw =  sx; dh =  sy; dcx = sx / 2; dcy = sy / 2 }
+      if (drag.mode === "nw") { dw = -dx; dh = -dy; dcx = dx / 2; dcy = dy / 2 }
+      if (drag.mode === "ne") { dw =  dx; dh = -dy; dcx = dx / 2; dcy = dy / 2 }
+      if (drag.mode === "sw") { dw = -dx; dh =  dy; dcx = dx / 2; dcy = dy / 2 }
+      if (drag.mode === "se") { dw =  dx; dh =  dy; dcx = dx / 2; dcy = dy / 2 }
 
       next.wPct = clamp(r0.wPct + dw, minW, maxW)
       next.hPct = clamp(r0.hPct + dh, minH, maxH)
@@ -597,12 +742,13 @@ export default function RapidScanCamera() {
       next.cyPct = clamp01(r0.cyPct + dcy)
     }
 
-    // keep ROI inside view bounds (soft clamp using size)
+    // keep ROI inside frame bounds
     const halfW = next.wPct / 2
     const halfH = next.hPct / 2
     next.cxPct = clamp(next.cxPct, halfW, 1 - halfW)
     next.cyPct = clamp(next.cyPct, halfH, 1 - halfH)
 
+    roiRef.current = next
     setPrefs((p) => ({ ...p, roi: next }))
   }
 
@@ -610,20 +756,12 @@ export default function RapidScanCamera() {
     dragRef.current.mode = null
   }
 
-  // -------------------------
-  // UI bits
-  // -------------------------
+  // -------------------------------------------------------
+  // UI
+  // -------------------------------------------------------
   const rectDebug = rectResult?.debug
   const rectOk = !!rectResult?.present
 
-  const statusChip = (() => {
-    if (!cameraOn) return { text: "OFF", cls: "bg-slate-800 text-slate-200" }
-    if (isPaused) return { text: "PAUSED", cls: "bg-yellow-600 text-black" }
-    if (counts.error > 0) return { text: "WARN", cls: "bg-orange-600 text-black" }
-    return { text: "LIVE", cls: "bg-emerald-600 text-black" }
-  })()
-
-  // bbox overlay inside ROI box (analysis coords => percent)
   const bboxStyle = useMemo(() => {
     const bbox = rectResult?.bbox
     if (!bbox) return null
@@ -635,6 +773,13 @@ export default function RapidScanCamera() {
     const hPct = ((bbox.y1 - bbox.y0 + 1) / h) * 100
     return { left: `${xPct}%`, top: `${yPct}%`, width: `${wPct}%`, height: `${hPct}%` }
   }, [rectResult, prefs.tuning.sampleW, prefs.tuning.sampleH])
+
+  const statusChip = (() => {
+    if (!cameraOn) return { text: "OFF", cls: "bg-slate-800 text-slate-200" }
+    if (isPaused) return { text: "PAUSED", cls: "bg-yellow-600 text-black" }
+    if (counts.error > 0) return { text: "WARN", cls: "bg-orange-600 text-black" }
+    return { text: "LIVE", cls: "bg-emerald-600 text-black" }
+  })()
 
   return (
     <div className="p-4 space-y-4">
@@ -699,7 +844,7 @@ export default function RapidScanCamera() {
         </button>
       </div>
 
-      {/* Status + metrics */}
+      {/* Status box */}
       <div className="rounded border border-slate-800 bg-slate-950/40 p-3">
         <div className="flex flex-wrap items-center gap-3 justify-between">
           <div className="text-sm text-slate-200">
@@ -709,7 +854,7 @@ export default function RapidScanCamera() {
               {isPaused ? ` • Paused ${Math.ceil((pausedUntil - Date.now()) / 1000)}s` : ""}
             </div>
             <div className="text-xs text-slate-500 mt-1">
-              Tip: drag the ROI box. Tap the preview to focus (if supported).
+              Drag ROI. Tap preview to focus (if supported). Flow mode = one shot per card.
             </div>
           </div>
 
@@ -731,8 +876,62 @@ export default function RapidScanCamera() {
           </div>
         </div>
 
+        {/* Final Boss toggles */}
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            className="px-3 py-2 rounded bg-slate-800 text-white"
+            onClick={() => setPrefs((p) => ({ ...p, autoSnapRoi: !p.autoSnapRoi }))}
+            type="button"
+          >
+            Auto ROI Snap: {prefs.autoSnapRoi ? "ON" : "OFF"}
+          </button>
+
+          <button
+            className="px-3 py-2 rounded bg-slate-800 text-white"
+            onClick={() => {
+              setPrefs((p) => ({ ...p, flowMode: !p.flowMode }))
+              flowStateRef.current = "READY_FOR_ENTRY"
+            }}
+            type="button"
+          >
+            Flow Mode: {prefs.flowMode ? "ON" : "OFF"}
+          </button>
+
+          <button
+            className="px-3 py-2 rounded bg-slate-800 text-white"
+            onClick={() => setPrefs((p) => ({ ...p, cropToRoi: !p.cropToRoi }))}
+            type="button"
+          >
+            Capture Crop: {prefs.cropToRoi ? "ROI" : "FULL"}
+          </button>
+
+          <button
+            className="px-3 py-2 rounded bg-slate-800 text-white"
+            onClick={() => setPrefs((p) => ({ ...p, showRoi: !p.showRoi }))}
+            type="button"
+          >
+            ROI Overlay: {prefs.showRoi ? "ON" : "OFF"}
+          </button>
+
+          <button
+            className="px-3 py-2 rounded bg-slate-800 text-white"
+            onClick={() => setPrefs((p) => ({ ...p, debugOverlay: !p.debugOverlay }))}
+            type="button"
+          >
+            Debug: {prefs.debugOverlay ? "ON" : "OFF"}
+          </button>
+
+          <button
+            className="px-3 py-2 rounded bg-slate-800 text-white"
+            onClick={() => setPrefs((p) => ({ ...p, advancedPanel: !p.advancedPanel }))}
+            type="button"
+          >
+            {prefs.advancedPanel ? "Hide Advanced" : "Show Advanced"}
+          </button>
+        </div>
+
         {prefs.debugOverlay && rectDebug && (
-          <div className="mt-2 grid gap-2 md:grid-cols-4 text-xs text-slate-300">
+          <div className="mt-3 grid gap-2 md:grid-cols-4 text-xs text-slate-300">
             <div className="rounded bg-slate-900/60 p-2">
               <div className="text-slate-500">Edge density</div>
               <div className="font-mono">{rectDebug.edgeDensity.toFixed(3)}</div>
@@ -753,7 +952,7 @@ export default function RapidScanCamera() {
         )}
       </div>
 
-      {/* Main */}
+      {/* Main layout */}
       <div className="grid gap-3 md:grid-cols-2">
         {/* Preview */}
         <div className="rounded border border-slate-800 overflow-hidden bg-black">
@@ -767,16 +966,15 @@ export default function RapidScanCamera() {
           >
             <video ref={videoRef} className="w-full h-auto" playsInline muted />
 
-            {/* ROI overlay (draggable/resizable) */}
             {prefs.showRoi && cameraOn && (
               <div className="absolute inset-0 pointer-events-none">
                 <div
                   className="absolute pointer-events-auto"
                   style={{
-                    left: `${(prefs.roi.cxPct - prefs.roi.wPct / 2) * 100}%`,
-                    top: `${(prefs.roi.cyPct - prefs.roi.hPct / 2) * 100}%`,
-                    width: `${prefs.roi.wPct * 100}%`,
-                    height: `${prefs.roi.hPct * 100}%`,
+                    left: `${(roiRef.current.cxPct - roiRef.current.wPct / 2) * 100}%`,
+                    top: `${(roiRef.current.cyPct - roiRef.current.hPct / 2) * 100}%`,
+                    width: `${roiRef.current.wPct * 100}%`,
+                    height: `${roiRef.current.hPct * 100}%`,
                     border: `2px solid ${rectOk ? "rgba(0,255,200,0.85)" : "rgba(255,60,60,0.85)"}`,
                     borderRadius: 16,
                     boxShadow: "0 0 0 9999px rgba(0,0,0,0.28)",
@@ -786,7 +984,6 @@ export default function RapidScanCamera() {
                   onPointerDown={beginRoiDrag("move")}
                   title="Drag to move ROI"
                 >
-                  {/* bbox debug inside ROI */}
                   {prefs.debugOverlay && bboxStyle && (
                     <div
                       style={{
@@ -799,7 +996,6 @@ export default function RapidScanCamera() {
                     />
                   )}
 
-                  {/* center dot */}
                   <div
                     style={{
                       position: "absolute",
@@ -813,7 +1009,6 @@ export default function RapidScanCamera() {
                     }}
                   />
 
-                  {/* resize handles */}
                   <Handle pos="nw" onPointerDown={beginRoiDrag("nw")} />
                   <Handle pos="ne" onPointerDown={beginRoiDrag("ne")} />
                   <Handle pos="sw" onPointerDown={beginRoiDrag("sw")} />
@@ -842,48 +1037,16 @@ export default function RapidScanCamera() {
           )}
         </div>
 
-        {/* Controls */}
+        {/* Advanced controls */}
         <div className="rounded border border-slate-800 bg-slate-950/40 p-3 space-y-3">
-          <div className="flex flex-wrap items-center gap-2 justify-between">
-            <div className="text-slate-100 font-semibold">Controls</div>
-            <div className="flex gap-2">
-              <button
-                className="px-3 py-2 rounded bg-slate-800 text-white"
-                onClick={() => setPrefs((p) => ({ ...p, advancedPanel: !p.advancedPanel }))}
-                type="button"
-              >
-                {prefs.advancedPanel ? "Hide Advanced" : "Show Advanced"}
-              </button>
-              <button
-                className="px-3 py-2 rounded bg-slate-800 text-white"
-                onClick={() => setPrefs((p) => ({ ...p, debugOverlay: !p.debugOverlay }))}
-                type="button"
-              >
-                Debug: {prefs.debugOverlay ? "ON" : "OFF"}
-              </button>
+          <div className="text-slate-100 font-semibold">Tuning</div>
+
+          {!prefs.advancedPanel ? (
+            <div className="text-xs text-slate-400">
+              Advanced hidden. Turn it on if you want to tweak thresholds.
             </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              className="px-3 py-2 rounded bg-slate-800 text-white"
-              onClick={() => setPrefs((p) => ({ ...p, showRoi: !p.showRoi }))}
-              type="button"
-            >
-              ROI Overlay: {prefs.showRoi ? "ON" : "OFF"}
-            </button>
-
-            <button
-              className="px-3 py-2 rounded bg-slate-800 text-white"
-              onClick={() => setPrefs((p) => ({ ...p, cropToRoi: !p.cropToRoi }))}
-              type="button"
-            >
-              Capture Crop: {prefs.cropToRoi ? "ROI" : "FULL"}
-            </button>
-          </div>
-
-          {prefs.advancedPanel && (
-            <div className="space-y-3 pt-2 border-t border-slate-800">
+          ) : (
+            <>
               <div className="text-slate-200 font-semibold text-sm">Auto-capture</div>
 
               <label className="block text-xs text-slate-300">
@@ -995,9 +1158,9 @@ export default function RapidScanCamera() {
               </label>
 
               <div className="text-xs text-slate-400">
-                If glossy sleeves fail: lower edge threshold, or make ROI a little bigger.
+                Sleeves/glare failing? Lower edge threshold. False positives? Raise perimeter hit.
               </div>
-            </div>
+            </>
           )}
         </div>
       </div>
@@ -1011,7 +1174,10 @@ export default function RapidScanCamera() {
 
         <div className="mt-3 grid gap-2">
           {meta.slice(0, 30).map((j) => (
-            <div key={j.id} className="flex items-center justify-between rounded border border-slate-800 bg-slate-900/40 p-2">
+            <div
+              key={j.id}
+              className="flex items-center justify-between rounded border border-slate-800 bg-slate-900/40 p-2"
+            >
               <div className="flex items-center gap-2">
                 <span className="font-mono text-xs text-slate-300">{j.id.slice(0, 8)}</span>
                 <span
@@ -1045,6 +1211,7 @@ export default function RapidScanCamera() {
   )
 }
 
+// --- UI handle component ---
 function Handle({
   pos,
   onPointerDown,
@@ -1071,10 +1238,10 @@ function Handle({
   return <div style={style} onPointerDown={onPointerDown} title="Resize ROI" />
 }
 
+// --- utils ---
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms))
 }
-
 function clamp01(n: number) {
   return Math.max(0, Math.min(1, n))
 }
