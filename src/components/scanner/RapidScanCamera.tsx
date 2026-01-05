@@ -27,6 +27,7 @@ import {
   type CardRectResult,
 } from "@/lib/visionCardRect"
 import { useLocalStorageState } from "@/lib/useLocalStorageState"
+import { detectSupport, getVideoTrack, setFocusPoint, setTorch, type MediaSupport } from "@/lib/mediaControls"
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -38,7 +39,13 @@ const QUEUE_MAX = 180
 const BASE_BETWEEN_JOBS_MS = 250
 const RATE_LIMIT_PAUSE_MS = 6000
 
-type Roi = { wPct: number; hPct: number }
+// ROI is now draggable + resizable (not forced centered)
+type Roi = {
+  cxPct: number // 0..1 center x
+  cyPct: number // 0..1 center y
+  wPct: number  // 0..1 width
+  hPct: number  // 0..1 height
+}
 
 type UiPrefs = {
   autoOn: boolean
@@ -50,6 +57,7 @@ type UiPrefs = {
   rectTuning: CardRectTuning
   advancedPanel: boolean
   debugOverlay: boolean
+  torchWanted: boolean
 }
 
 const DEFAULT_PREFS: UiPrefs = {
@@ -57,38 +65,45 @@ const DEFAULT_PREFS: UiPrefs = {
   cropToRoi: true,
   showRoi: true,
   rectGateOn: true,
-  roi: { wPct: 0.72, hPct: 0.62 },
+  roi: { cxPct: 0.5, cyPct: 0.5, wPct: 0.72, hPct: 0.62 },
   tuning: DEFAULT_TUNING,
   rectTuning: DEFAULT_CARD_RECT_TUNING,
   advancedPanel: true,
   debugOverlay: true,
+  torchWanted: false,
 }
 
+type Thumb = { id: string; url: string; createdAt: number }
+
 export default function RapidScanCamera() {
-  // refs
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const previewWrapRef = useRef<HTMLDivElement | null>(null)
   const analysisCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const captureCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const rafRef = useRef<number | null>(null)
 
-  // persisted prefs
-  const prefsLS = useLocalStorageState<UiPrefs>("rapid_scan_prefs_v1", DEFAULT_PREFS)
+  const prefsLS = useLocalStorageState<UiPrefs>("rapid_scan_prefs_v2", DEFAULT_PREFS)
   const prefs = prefsLS.value
   const setPrefs = prefsLS.setValue
 
-  // queue meta
   const [meta, setMeta] = useState<QueueItemMeta[]>([])
   const [loadingQueue, setLoadingQueue] = useState(true)
 
-  // workers
   const activeWorkers = useRef(0)
   const stopWorkers = useRef(false)
   const [pausedUntil, setPausedUntil] = useState<number>(0)
   const isPaused = pausedUntil > Date.now()
 
-  // camera + analysis
   const [cameraOn, setCameraOn] = useState(false)
   const [statusLine, setStatusLine] = useState("Idle")
+
+  // Track + device support (torch/focus)
+  const streamRef = useRef<MediaStream | null>(null)
+  const trackRef = useRef<MediaStreamTrack | null>(null)
+  const [support, setSupport] = useState<MediaSupport>({ torch: false, focus: false, zoom: false })
+  const [torchOn, setTorchOn] = useState(false)
+
+  // Auto capture analysis state
   const prevGrayRef = useRef<Uint8Array | null>(null)
   const autoStateRef = useRef<AutoCaptureState>({
     phase: "idle",
@@ -97,12 +112,23 @@ export default function RapidScanCamera() {
     lastDiff: 0,
   })
 
-  // premium debug / health
+  // premium debug
   const [lastDiff, setLastDiff] = useState(0)
   const [loopHz, setLoopHz] = useState(0)
   const lastTickRef = useRef<number>(0)
   const hzWindowRef = useRef<number[]>([])
   const [rectResult, setRectResult] = useState<CardRectResult | null>(null)
+
+  // thumbnails (local, instant feedback)
+  const [thumbs, setThumbs] = useState<Thumb[]>([])
+
+  // ROI drag state
+  const dragRef = useRef<{
+    mode: "move" | "nw" | "ne" | "sw" | "se" | null
+    startX: number
+    startY: number
+    startRoi: Roi
+  }>({ mode: null, startX: 0, startY: 0, startRoi: prefs.roi })
 
   const counts = useMemo(() => {
     const queued = meta.filter((m) => m.status === "queued").length
@@ -125,6 +151,11 @@ export default function RapidScanCamera() {
 
     return () => {
       stopWorkers.current = true
+      // cleanup thumbnails
+      setThumbs((t) => {
+        t.forEach((x) => URL.revokeObjectURL(x.url))
+        return []
+      })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -142,7 +173,6 @@ export default function RapidScanCamera() {
   function ensureWorkersRunning() {
     if (stopWorkers.current) return
     if (isPaused) return
-
     while (activeWorkers.current < CONCURRENT_WORKERS) {
       activeWorkers.current++
       workerLoop().finally(() => {
@@ -174,7 +204,6 @@ export default function RapidScanCamera() {
       } catch (err: any) {
         const msg = String(err?.message ?? err)
         await idbUpdateMeta(next.id, { status: "error", error: msg })
-
         if (/429|rate limit|too many/i.test(msg)) {
           setPausedUntil(Date.now() + RATE_LIMIT_PAUSE_MS)
         }
@@ -243,6 +272,18 @@ export default function RapidScanCamera() {
       filename,
     })
 
+    // local thumbnail (instant feedback)
+    const url = URL.createObjectURL(blob)
+    setThumbs((prev) => {
+      const next = [{ id, url, createdAt: Date.now() }, ...prev]
+      // cap at 24
+      while (next.length > 24) {
+        const last = next.pop()
+        if (last) URL.revokeObjectURL(last.url)
+      }
+      return next
+    })
+
     await refreshMeta()
     ensureWorkersRunning()
   }
@@ -258,9 +299,7 @@ export default function RapidScanCamera() {
 
   async function clearErrors() {
     const list = await idbListMeta(3000)
-    for (const m of list) {
-      if (m.status === "error") await idbDelete(m.id)
-    }
+    for (const m of list) if (m.status === "error") await idbDelete(m.id)
     await refreshMeta()
   }
 
@@ -271,7 +310,7 @@ export default function RapidScanCamera() {
   }
 
   // -------------------------
-  // Camera
+  // Camera start/stop + device controls
   // -------------------------
   async function startCamera() {
     if (cameraOn) return
@@ -285,6 +324,11 @@ export default function RapidScanCamera() {
       audio: false,
     })
 
+    streamRef.current = stream
+    trackRef.current = getVideoTrack(stream)
+
+    setSupport(detectSupport(trackRef.current))
+
     const v = videoRef.current
     if (!v) return
 
@@ -292,42 +336,86 @@ export default function RapidScanCamera() {
     await v.play()
     setCameraOn(true)
 
+    // apply torch preference if possible
+    if (prefs.torchWanted) {
+      const ok = await setTorch(trackRef.current, true)
+      setTorchOn(ok)
+    } else {
+      setTorchOn(false)
+    }
+
     prevGrayRef.current = null
     autoStateRef.current = { phase: "idle", stableFrames: 0, lastCaptureAt: 0, lastDiff: 0 }
     setRectResult(null)
     setLastDiff(0)
     setStatusLine("Camera live")
-
     startAnalysisLoop()
   }
 
-  function stopCamera() {
+  async function stopCamera() {
+    stopAnalysisLoop()
+
+    // torch off (best effort)
+    if (torchOn) {
+      await setTorch(trackRef.current, false)
+      setTorchOn(false)
+    }
+
     const v = videoRef.current
     if (v?.srcObject) {
       const stream = v.srcObject as MediaStream
       stream.getTracks().forEach((t) => t.stop())
       v.srcObject = null
     }
+    streamRef.current = null
+    trackRef.current = null
+    setSupport({ torch: false, focus: false, zoom: false })
     setCameraOn(false)
-    stopAnalysisLoop()
     setStatusLine("Camera stopped")
   }
 
+  async function toggleTorch() {
+    const track = trackRef.current
+    if (!track) return
+    const target = !torchOn
+    const ok = await setTorch(track, target)
+    setTorchOn(ok ? target : torchOn)
+    setPrefs((p) => ({ ...p, torchWanted: ok ? target : p.torchWanted }))
+  }
+
+  async function handleTapFocus(e: React.PointerEvent) {
+    if (!support.focus) return
+    const wrap = previewWrapRef.current
+    if (!wrap) return
+    const rect = wrap.getBoundingClientRect()
+    const x = (e.clientX - rect.left) / rect.width
+    const y = (e.clientY - rect.top) / rect.height
+
+    // focus on tapped point (0..1)
+    await setFocusPoint(trackRef.current, { x: clamp01(x), y: clamp01(y) })
+    // quick status bump
+    setStatusLine("Focus set")
+  }
+
+  // -------------------------
+  // Analysis loop (ROI + rect gate + motion/stability)
+  // -------------------------
   function startAnalysisLoop() {
     stopAnalysisLoop()
     rafRef.current = requestAnimationFrame(analysisTick)
   }
-
   function stopAnalysisLoop() {
     if (rafRef.current) cancelAnimationFrame(rafRef.current)
     rafRef.current = null
   }
 
-  function getCenterRoiRect(w: number, h: number, roiCfg: Roi) {
-    const rw = Math.max(1, Math.floor(w * roiCfg.wPct))
-    const rh = Math.max(1, Math.floor(h * roiCfg.hPct))
-    const rx = Math.max(0, Math.floor((w - rw) / 2))
-    const ry = Math.max(0, Math.floor((h - rh) / 2))
+  function getRoiRectPx(vw: number, vh: number, roi: Roi) {
+    const rw = clampInt(Math.floor(vw * roi.wPct), 50, vw)
+    const rh = clampInt(Math.floor(vh * roi.hPct), 50, vh)
+    const cx = clampInt(Math.floor(vw * roi.cxPct), 0, vw)
+    const cy = clampInt(Math.floor(vh * roi.cyPct), 0, vh)
+    const rx = clampInt(Math.floor(cx - rw / 2), 0, vw - rw)
+    const ry = clampInt(Math.floor(cy - rh / 2), 0, vh - rh)
     return { rx, ry, rw, rh }
   }
 
@@ -362,7 +450,7 @@ export default function RapidScanCamera() {
       const vw = v.videoWidth || 1280
       const vh = v.videoHeight || 720
 
-      const { rx, ry, rw, rh } = getCenterRoiRect(vw, vh, prefs.roi)
+      const { rx, ry, rw, rh } = getRoiRectPx(vw, vh, prefs.roi)
 
       // ROI downscale for analysis
       c.width = prefs.tuning.sampleW
@@ -379,13 +467,12 @@ export default function RapidScanCamera() {
       const cardPresent = rect.present || !prefs.rectGateOn
 
       if (!cardPresent) {
-        // no card => reset capture state to avoid “ghost capture”
         prevGrayRef.current = gray
         if (autoStateRef.current.phase !== "idle") {
           autoStateRef.current = { ...autoStateRef.current, phase: "idle", stableFrames: 0 }
         }
         setLastDiff(0)
-        setStatusLine("No card detected in ROI — center the card in the box")
+        setStatusLine("No card in ROI — put it inside the box")
         rafRef.current = requestAnimationFrame(analysisTick)
         return
       }
@@ -406,21 +493,18 @@ export default function RapidScanCamera() {
         )
         autoStateRef.current = state
 
-        // premium status
         const phase = state.phase
-        if (phase === "idle") setStatusLine(`Armed • Card detected • diff ${diff.toFixed(1)}`)
-        if (phase === "seeing-motion") setStatusLine(`New card entering… • diff ${diff.toFixed(1)}`)
-        if (phase === "waiting-stable") setStatusLine(`Hold still… ${state.stableFrames}/${prefs.tuning.stableFramesRequired}`)
-        if (phase === "captured") setStatusLine(`Captured ✅ • Swap card`)
+        if (phase === "idle") setStatusLine(`Armed • card detected • diff ${diff.toFixed(1)}`)
+        if (phase === "seeing-motion") setStatusLine(`Card moving in… • diff ${diff.toFixed(1)}`)
+        if (phase === "waiting-stable") setStatusLine(`Hold… ${state.stableFrames}/${prefs.tuning.stableFramesRequired}`)
+        if (phase === "captured") setStatusLine(`Captured ✅ • swap card`)
 
-        if (shouldCapture) {
-          await captureFrameToQueue()
-        }
+        if (shouldCapture) await captureFrameToQueue()
       } else {
-        setStatusLine(`Manual mode • Card detected`)
+        setStatusLine("Manual mode • card detected")
       }
     } catch {
-      // keep loop alive
+      // keep alive
     } finally {
       rafRef.current = requestAnimationFrame(analysisTick)
     }
@@ -433,7 +517,7 @@ export default function RapidScanCamera() {
 
     const vw = v.videoWidth || 1280
     const vh = v.videoHeight || 720
-    const { rx, ry, rw, rh } = getCenterRoiRect(vw, vh, prefs.roi)
+    const { rx, ry, rw, rh } = getRoiRectPx(vw, vh, prefs.roi)
 
     const outW = prefs.cropToRoi ? rw : vw
     const outH = prefs.cropToRoi ? rh : vh
@@ -459,7 +543,75 @@ export default function RapidScanCamera() {
   }
 
   // -------------------------
-  // UI helpers (premium)
+  // ROI drag / resize (stupid smooth)
+  // -------------------------
+  function beginRoiDrag(mode: "move" | "nw" | "ne" | "sw" | "se") {
+    return (e: React.PointerEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      dragRef.current = { mode, startX: e.clientX, startY: e.clientY, startRoi: prefs.roi }
+      ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
+    }
+  }
+
+  function onRoiPointerMove(e: React.PointerEvent) {
+    const drag = dragRef.current
+    if (!drag.mode) return
+    const wrap = previewWrapRef.current
+    if (!wrap) return
+
+    const rect = wrap.getBoundingClientRect()
+    const dx = (e.clientX - drag.startX) / rect.width
+    const dy = (e.clientY - drag.startY) / rect.height
+
+    const minW = 0.35
+    const minH = 0.30
+    const maxW = 0.95
+    const maxH = 0.95
+
+    const r0 = drag.startRoi
+    let next: Roi = { ...r0 }
+
+    if (drag.mode === "move") {
+      next.cxPct = clamp01(r0.cxPct + dx)
+      next.cyPct = clamp01(r0.cyPct + dy)
+    } else {
+      // resize from corners: adjust width/height, keep center reasonably stable
+      const sx = dx
+      const sy = dy
+
+      // for corner resize, we change size and also shift center half the delta so corner follows finger
+      let dw = 0
+      let dh = 0
+      let dcx = 0
+      let dcy = 0
+
+      if (drag.mode === "nw") { dw = -sx; dh = -sy; dcx = sx / 2; dcy = sy / 2 }
+      if (drag.mode === "ne") { dw =  sx; dh = -sy; dcx = sx / 2; dcy = sy / 2 }
+      if (drag.mode === "sw") { dw = -sx; dh =  sy; dcx = sx / 2; dcy = sy / 2 }
+      if (drag.mode === "se") { dw =  sx; dh =  sy; dcx = sx / 2; dcy = sy / 2 }
+
+      next.wPct = clamp(r0.wPct + dw, minW, maxW)
+      next.hPct = clamp(r0.hPct + dh, minH, maxH)
+      next.cxPct = clamp01(r0.cxPct + dcx)
+      next.cyPct = clamp01(r0.cyPct + dcy)
+    }
+
+    // keep ROI inside view bounds (soft clamp using size)
+    const halfW = next.wPct / 2
+    const halfH = next.hPct / 2
+    next.cxPct = clamp(next.cxPct, halfW, 1 - halfW)
+    next.cyPct = clamp(next.cyPct, halfH, 1 - halfH)
+
+    setPrefs((p) => ({ ...p, roi: next }))
+  }
+
+  function endRoiDrag() {
+    dragRef.current.mode = null
+  }
+
+  // -------------------------
+  // UI bits
   // -------------------------
   const rectDebug = rectResult?.debug
   const rectOk = !!rectResult?.present
@@ -471,7 +623,7 @@ export default function RapidScanCamera() {
     return { text: "LIVE", cls: "bg-emerald-600 text-black" }
   })()
 
-  // map detected bbox (analysis canvas coords) into ROI overlay coords (percent of ROI)
+  // bbox overlay inside ROI box (analysis coords => percent)
   const bboxStyle = useMemo(() => {
     const bbox = rectResult?.bbox
     if (!bbox) return null
@@ -486,7 +638,7 @@ export default function RapidScanCamera() {
 
   return (
     <div className="p-4 space-y-4">
-      {/* Header controls */}
+      {/* Top bar */}
       <div className="flex flex-wrap items-center gap-2">
         {!cameraOn ? (
           <button className="px-3 py-2 rounded bg-slate-800 text-white" onClick={startCamera} type="button">
@@ -526,6 +678,16 @@ export default function RapidScanCamera() {
           Rect Gate: {prefs.rectGateOn ? "ON" : "OFF"}
         </button>
 
+        <button
+          className={`px-3 py-2 rounded text-white ${support.torch ? "bg-slate-700" : "bg-slate-800 opacity-60"}`}
+          onClick={toggleTorch}
+          type="button"
+          disabled={!cameraOn || !support.torch}
+          title={support.torch ? "Torch" : "Torch not supported on this device/browser"}
+        >
+          Torch: {torchOn ? "ON" : "OFF"}
+        </button>
+
         <button className="px-3 py-2 rounded bg-slate-700 text-white" onClick={retryErrors} type="button">
           Retry Errors
         </button>
@@ -545,6 +707,9 @@ export default function RapidScanCamera() {
             <div className="text-xs text-slate-400">
               Queue {counts.total}/{QUEUE_MAX} • Queued {counts.queued} • Processing {counts.processing} • Errors {counts.error}
               {isPaused ? ` • Paused ${Math.ceil((pausedUntil - Date.now()) / 1000)}s` : ""}
+            </div>
+            <div className="text-xs text-slate-500 mt-1">
+              Tip: drag the ROI box. Tap the preview to focus (if supported).
             </div>
           </div>
 
@@ -588,60 +753,99 @@ export default function RapidScanCamera() {
         )}
       </div>
 
-      {/* Main layout */}
+      {/* Main */}
       <div className="grid gap-3 md:grid-cols-2">
-        {/* Camera preview */}
-        <div className="rounded border border-slate-800 overflow-hidden bg-black relative">
-          <video ref={videoRef} className="w-full h-auto" playsInline muted />
+        {/* Preview */}
+        <div className="rounded border border-slate-800 overflow-hidden bg-black">
+          <div
+            ref={previewWrapRef}
+            className="relative"
+            onPointerDown={handleTapFocus}
+            onPointerMove={onRoiPointerMove}
+            onPointerUp={endRoiDrag}
+            onPointerCancel={endRoiDrag}
+          >
+            <video ref={videoRef} className="w-full h-auto" playsInline muted />
 
-          {/* ROI overlay */}
-          {prefs.showRoi && cameraOn && (
-            <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-              <div
-                style={{
-                  width: `${Math.round(prefs.roi.wPct * 100)}%`,
-                  height: `${Math.round(prefs.roi.hPct * 100)}%`,
-                  border: `2px solid ${rectOk ? "rgba(0,255,200,0.8)" : "rgba(255,60,60,0.85)"}`,
-                  boxShadow: "0 0 0 9999px rgba(0,0,0,0.28)",
-                  borderRadius: 14,
-                  position: "relative",
-                }}
-              >
-                {/* Premium: detected bbox overlay inside ROI */}
-                {prefs.debugOverlay && bboxStyle && (
+            {/* ROI overlay (draggable/resizable) */}
+            {prefs.showRoi && cameraOn && (
+              <div className="absolute inset-0 pointer-events-none">
+                <div
+                  className="absolute pointer-events-auto"
+                  style={{
+                    left: `${(prefs.roi.cxPct - prefs.roi.wPct / 2) * 100}%`,
+                    top: `${(prefs.roi.cyPct - prefs.roi.hPct / 2) * 100}%`,
+                    width: `${prefs.roi.wPct * 100}%`,
+                    height: `${prefs.roi.hPct * 100}%`,
+                    border: `2px solid ${rectOk ? "rgba(0,255,200,0.85)" : "rgba(255,60,60,0.85)"}`,
+                    borderRadius: 16,
+                    boxShadow: "0 0 0 9999px rgba(0,0,0,0.28)",
+                    position: "absolute",
+                    touchAction: "none",
+                  }}
+                  onPointerDown={beginRoiDrag("move")}
+                  title="Drag to move ROI"
+                >
+                  {/* bbox debug inside ROI */}
+                  {prefs.debugOverlay && bboxStyle && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        ...bboxStyle,
+                        border: `2px solid ${rectOk ? "rgba(0,255,120,0.85)" : "rgba(255,160,0,0.85)"}`,
+                        borderRadius: 12,
+                        boxShadow: rectOk ? "0 0 14px rgba(0,255,120,0.25)" : "0 0 14px rgba(255,160,0,0.25)",
+                      }}
+                    />
+                  )}
+
+                  {/* center dot */}
                   <div
                     style={{
                       position: "absolute",
-                      ...bboxStyle,
-                      border: `2px solid ${rectOk ? "rgba(0,255,120,0.85)" : "rgba(255,120,0,0.85)"}`,
-                      borderRadius: 10,
-                      boxShadow: rectOk ? "0 0 12px rgba(0,255,120,0.25)" : "0 0 12px rgba(255,120,0,0.25)",
+                      left: "50%",
+                      top: "50%",
+                      width: 8,
+                      height: 8,
+                      transform: "translate(-50%,-50%)",
+                      borderRadius: 999,
+                      background: "rgba(255,255,255,0.7)",
                     }}
                   />
-                )}
 
-                {/* “Aim points” */}
-                <div
-                  style={{
-                    position: "absolute",
-                    left: "50%",
-                    top: "50%",
-                    width: 8,
-                    height: 8,
-                    transform: "translate(-50%,-50%)",
-                    borderRadius: 999,
-                    background: "rgba(255,255,255,0.65)",
-                  }}
-                />
+                  {/* resize handles */}
+                  <Handle pos="nw" onPointerDown={beginRoiDrag("nw")} />
+                  <Handle pos="ne" onPointerDown={beginRoiDrag("ne")} />
+                  <Handle pos="sw" onPointerDown={beginRoiDrag("sw")} />
+                  <Handle pos="se" onPointerDown={beginRoiDrag("se")} />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* thumbnails */}
+          {thumbs.length > 0 && (
+            <div className="border-t border-slate-800 bg-slate-950/60 p-2">
+              <div className="text-xs text-slate-400 mb-2">Recent captures</div>
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {thumbs.map((t) => (
+                  <img
+                    key={t.id}
+                    src={t.url}
+                    className="h-16 w-auto rounded border border-slate-700"
+                    alt="capture"
+                    draggable={false}
+                  />
+                ))}
               </div>
             </div>
           )}
         </div>
 
-        {/* Controls panel */}
+        {/* Controls */}
         <div className="rounded border border-slate-800 bg-slate-950/40 p-3 space-y-3">
           <div className="flex flex-wrap items-center gap-2 justify-between">
-            <div className="text-slate-100 font-semibold">Capture Controls</div>
+            <div className="text-slate-100 font-semibold">Controls</div>
             <div className="flex gap-2">
               <button
                 className="px-3 py-2 rounded bg-slate-800 text-white"
@@ -678,43 +882,9 @@ export default function RapidScanCamera() {
             </button>
           </div>
 
-          {/* ROI sliders */}
-          <div className="space-y-2">
-            <div className="text-slate-200 font-semibold text-sm">ROI (center)</div>
-
-            <label className="block text-xs text-slate-300">
-              Width: {Math.round(prefs.roi.wPct * 100)}%
-              <input
-                type="range"
-                min={40}
-                max={95}
-                value={Math.round(prefs.roi.wPct * 100)}
-                onChange={(e) =>
-                  setPrefs((p) => ({ ...p, roi: { ...p.roi, wPct: Number(e.target.value) / 100 } }))
-                }
-                className="w-full"
-              />
-            </label>
-
-            <label className="block text-xs text-slate-300">
-              Height: {Math.round(prefs.roi.hPct * 100)}%
-              <input
-                type="range"
-                min={35}
-                max={90}
-                value={Math.round(prefs.roi.hPct * 100)}
-                onChange={(e) =>
-                  setPrefs((p) => ({ ...p, roi: { ...p.roi, hPct: Number(e.target.value) / 100 } }))
-                }
-                className="w-full"
-              />
-            </label>
-          </div>
-
-          {/* Advanced */}
           {prefs.advancedPanel && (
             <div className="space-y-3 pt-2 border-t border-slate-800">
-              <div className="text-slate-200 font-semibold text-sm">Auto-capture (motion/stability)</div>
+              <div className="text-slate-200 font-semibold text-sm">Auto-capture</div>
 
               <label className="block text-xs text-slate-300">
                 Enter threshold: {prefs.tuning.motionEnterThreshold}
@@ -786,7 +956,7 @@ export default function RapidScanCamera() {
               </label>
 
               <div className="text-slate-200 font-semibold text-sm pt-2 border-t border-slate-800">
-                Rectangle detector (premium gate)
+                Rectangle gate
               </div>
 
               <label className="block text-xs text-slate-300">
@@ -807,100 +977,6 @@ export default function RapidScanCamera() {
               </label>
 
               <label className="block text-xs text-slate-300">
-                Min edge density: {prefs.rectTuning.minEdgeDensity.toFixed(3)}
-                <input
-                  type="range"
-                  min={0.005}
-                  max={0.08}
-                  step={0.001}
-                  value={prefs.rectTuning.minEdgeDensity}
-                  onChange={(e) =>
-                    setPrefs((p) => ({
-                      ...p,
-                      rectTuning: { ...p.rectTuning, minEdgeDensity: Number(e.target.value) },
-                    }))
-                  }
-                  className="w-full"
-                />
-              </label>
-
-              <div className="grid grid-cols-2 gap-2">
-                <label className="block text-xs text-slate-300">
-                  Min coverage: {prefs.rectTuning.minBboxCoverage.toFixed(2)}
-                  <input
-                    type="range"
-                    min={0.05}
-                    max={0.6}
-                    step={0.01}
-                    value={prefs.rectTuning.minBboxCoverage}
-                    onChange={(e) =>
-                      setPrefs((p) => ({
-                        ...p,
-                        rectTuning: { ...p.rectTuning, minBboxCoverage: Number(e.target.value) },
-                      }))
-                    }
-                    className="w-full"
-                  />
-                </label>
-
-                <label className="block text-xs text-slate-300">
-                  Max coverage: {prefs.rectTuning.maxBboxCoverage.toFixed(2)}
-                  <input
-                    type="range"
-                    min={0.6}
-                    max={1.0}
-                    step={0.01}
-                    value={prefs.rectTuning.maxBboxCoverage}
-                    onChange={(e) =>
-                      setPrefs((p) => ({
-                        ...p,
-                        rectTuning: { ...p.rectTuning, maxBboxCoverage: Number(e.target.value) },
-                      }))
-                    }
-                    className="w-full"
-                  />
-                </label>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <label className="block text-xs text-slate-300">
-                  Min aspect: {prefs.rectTuning.minAspect.toFixed(2)}
-                  <input
-                    type="range"
-                    min={0.3}
-                    max={0.8}
-                    step={0.01}
-                    value={prefs.rectTuning.minAspect}
-                    onChange={(e) =>
-                      setPrefs((p) => ({
-                        ...p,
-                        rectTuning: { ...p.rectTuning, minAspect: Number(e.target.value) },
-                      }))
-                    }
-                    className="w-full"
-                  />
-                </label>
-
-                <label className="block text-xs text-slate-300">
-                  Max aspect: {prefs.rectTuning.maxAspect.toFixed(2)}
-                  <input
-                    type="range"
-                    min={0.6}
-                    max={1.2}
-                    step={0.01}
-                    value={prefs.rectTuning.maxAspect}
-                    onChange={(e) =>
-                      setPrefs((p) => ({
-                        ...p,
-                        rectTuning: { ...p.rectTuning, maxAspect: Number(e.target.value) },
-                      }))
-                    }
-                    className="w-full"
-                  />
-                </label>
-              </div>
-
-              <label className="block text-xs text-slate-300">
                 Min perimeter hit: {prefs.rectTuning.minPerimeterHitRatio.toFixed(2)}
                 <input
                   type="range"
@@ -919,19 +995,18 @@ export default function RapidScanCamera() {
               </label>
 
               <div className="text-xs text-slate-400">
-                If glossy sleeves break detection: lower **edge threshold**, or widen ROI a bit.
-                If false positives happen: raise **min perimeter hit** and **min edge density**.
+                If glossy sleeves fail: lower edge threshold, or make ROI a little bigger.
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Queue list (premium-ish) */}
+      {/* Queue list */}
       <div className="rounded border border-slate-800 bg-slate-950/40 p-3">
         <div className="flex items-center justify-between">
           <div className="text-slate-100 font-semibold">Queue</div>
-          <div className="text-xs text-slate-400">Newest first • only showing 30</div>
+          <div className="text-xs text-slate-400">Newest first • showing 30</div>
         </div>
 
         <div className="mt-3 grid gap-2">
@@ -964,13 +1039,48 @@ export default function RapidScanCamera() {
         </div>
       </div>
 
-      {/* hidden canvases */}
       <canvas ref={analysisCanvasRef} className="hidden" />
       <canvas ref={captureCanvasRef} className="hidden" />
     </div>
   )
 }
 
+function Handle({
+  pos,
+  onPointerDown,
+}: {
+  pos: "nw" | "ne" | "sw" | "se"
+  onPointerDown: (e: React.PointerEvent) => void
+}) {
+  const style: React.CSSProperties = {
+    position: "absolute",
+    width: 18,
+    height: 18,
+    borderRadius: 999,
+    background: "rgba(255,255,255,0.85)",
+    border: "1px solid rgba(0,0,0,0.25)",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+    touchAction: "none",
+  }
+
+  if (pos === "nw") Object.assign(style, { left: -8, top: -8 })
+  if (pos === "ne") Object.assign(style, { right: -8, top: -8 })
+  if (pos === "sw") Object.assign(style, { left: -8, bottom: -8 })
+  if (pos === "se") Object.assign(style, { right: -8, bottom: -8 })
+
+  return <div style={style} onPointerDown={onPointerDown} title="Resize ROI" />
+}
+
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms))
+}
+
+function clamp01(n: number) {
+  return Math.max(0, Math.min(1, n))
+}
+function clamp(n: number, a: number, b: number) {
+  return Math.max(a, Math.min(b, n))
+}
+function clampInt(n: number, a: number, b: number) {
+  return Math.max(a, Math.min(b, n))
 }
