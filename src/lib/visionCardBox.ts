@@ -1,7 +1,7 @@
 // src/lib/visionCardBox.ts
 export type CardBox = {
   present: boolean
-  bbox?: { x0: number; y0: number; x1: number; y1: number } // in sample coords
+  bbox?: { x0: number; y0: number; x1: number; y1: number } // sample coords
   debug: {
     edgeDensity: number
     bboxCoverage: number
@@ -10,8 +10,8 @@ export type CardBox = {
 }
 
 /**
- * Super fast “is there a card-ish rectangle here?” detector for small grayscale samples.
- * Works best on a 64–128px ROI sample.
+ * Extremely fast "card-ish rectangle present" detector on grayscale samples.
+ * Uses neighbor gradients + bbox coverage/aspect tests.
  */
 export function detectCardBox(
   gray: Uint8Array,
@@ -24,6 +24,7 @@ export function detectCardBox(
     aspectMin?: number
     aspectMax?: number
     marginPx?: number
+    minEdgeCount?: number
   }
 ): CardBox {
   const edgeThreshold = opts?.edgeThreshold ?? 22
@@ -32,12 +33,11 @@ export function detectCardBox(
   const aspectMin = opts?.aspectMin ?? 0.60
   const aspectMax = opts?.aspectMax ?? 0.95
   const marginPx = opts?.marginPx ?? 2
+  const minEdgeCount = opts?.minEdgeCount ?? 50
 
-  // Cheap gradients (no Sobel tables, just neighbor diffs)
   let edgeCount = 0
   let x0 = w, y0 = h, x1 = 0, y1 = 0
 
-  // Skip borders
   for (let y = 1; y < h - 1; y++) {
     const row = y * w
     for (let x = 1; x < w - 1; x++) {
@@ -58,14 +58,10 @@ export function detectCardBox(
   const area = w * h
   const edgeDensity = edgeCount / Math.max(1, area)
 
-  if (edgeCount < 50 || edgeDensity < minEdgeDensity) {
-    return {
-      present: false,
-      debug: { edgeDensity, bboxCoverage: 0, aspect: 0 },
-    }
+  if (edgeCount < minEdgeCount || edgeDensity < minEdgeDensity) {
+    return { present: false, debug: { edgeDensity, bboxCoverage: 0, aspect: 0 } }
   }
 
-  // Expand bbox slightly
   x0 = clampInt(x0 - marginPx, 0, w - 1)
   y0 = clampInt(y0 - marginPx, 0, h - 1)
   x1 = clampInt(x1 + marginPx, 0, w - 1)
