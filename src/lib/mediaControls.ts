@@ -16,10 +16,11 @@ export function getVideoTrack(stream: MediaStream | null) {
 export function detectSupport(track: MediaStreamTrack | null): MediaSupport {
   if (!track) return { torch: false, focus: false, zoom: false }
 
-  const caps: any = (track.getCapabilities?.() ?? {}) as any
+  const caps: any = track.getCapabilities?.() ?? {}
   const torch = !!caps.torch
   const zoom = typeof caps.zoom !== "undefined"
-  // Focus is messy across browsers. We'll attempt "pointsOfInterest" or focusMode.
+
+  // Focus support is inconsistent; we try the common capability flags
   const focus =
     typeof caps.focusMode !== "undefined" ||
     typeof caps.pointsOfInterest !== "undefined" ||
@@ -40,25 +41,19 @@ export async function setTorch(track: MediaStreamTrack | null, on: boolean) {
 
 export async function setFocusPoint(
   track: MediaStreamTrack | null,
-  point: { x: number; y: number } // 0..1
+  point: { x: number; y: number } // normalized 0..1
 ) {
   if (!track?.applyConstraints) return false
   try {
-    // Chrome/Android sometimes accepts pointsOfInterest
+    // Some Chrome/Android builds accept pointsOfInterest
     await track.applyConstraints({
-      advanced: [
-        {
-          pointsOfInterest: [{ x: clamp01(point.x), y: clamp01(point.y) }],
-        },
-      ],
+      advanced: [{ pointsOfInterest: [{ x: clamp01(point.x), y: clamp01(point.y) }] }],
     } as any)
     return true
   } catch {
-    // fallback: try continuous focusMode if available
+    // fallback: request continuous focus if supported
     try {
-      await track.applyConstraints({
-        advanced: [{ focusMode: "continuous" }],
-      } as any)
+      await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] } as any)
       return true
     } catch {
       return false
