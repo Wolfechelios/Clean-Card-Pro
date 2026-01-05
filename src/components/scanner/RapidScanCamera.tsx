@@ -2,7 +2,7 @@
 "use client"
 
 import React, { useEffect, useMemo, useRef, useState } from "react"
-import { createClient } from "@supabase/supabase-js"
+import { supabase } from "@/integrations/supabase/client"
 
 import { withRetry } from "@/lib/retry"
 import {
@@ -41,11 +41,6 @@ import {
   setTorch,
   type MediaSupport,
 } from "@/lib/mediaControls"
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
 
 // --- performance / stability knobs ---
 const CONCURRENT_WORKERS = 3
