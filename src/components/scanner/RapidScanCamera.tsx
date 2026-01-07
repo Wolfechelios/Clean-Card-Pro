@@ -6,13 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
-import { Slider } from "@/components/ui/slider"
 import { Label } from "@/components/ui/label"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
 import {
   Camera,
   CameraOff,
@@ -21,10 +15,9 @@ import {
   Trash2,
   Pause,
   Play,
-  Settings2,
-  ChevronDown,
   Volume2,
   VolumeX,
+  Aperture,
 } from "lucide-react"
 import { supabase } from "@/integrations/supabase/client"
 import {
@@ -119,7 +112,6 @@ export default function RapidScanCamera() {
   const [paused, setPaused] = useState(false)
   const [lastDiff, setLastDiff] = useState(0)
   const [statusLine, setStatusLine] = useState("Tap Start to begin")
-  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // Thumbnails
   const [thumbs, setThumbs] = useState<Thumb[]>([])
@@ -533,17 +525,6 @@ export default function RapidScanCamera() {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // TUNING HELPERS
-  // ──────────────────────────────────────────────────────────────────────────
-  const updateTuning = (key: keyof AutoCaptureTuning, value: number) => {
-    setPrefs((p) => ({ ...p, tuning: { ...p.tuning, [key]: value } }))
-  }
-
-  const resetTuning = () => {
-    setPrefs((p) => ({ ...p, tuning: { ...DEFAULT_TUNING } }))
-  }
-
-  // ──────────────────────────────────────────────────────────────────────────
   // RENDER
   // ──────────────────────────────────────────────────────────────────────────
   const queuedCount = queueMeta.filter((m) => m.status === "queued").length
@@ -611,26 +592,31 @@ export default function RapidScanCamera() {
       {/* Controls */}
       <div className="flex flex-wrap gap-2">
         {!cameraOn ? (
-          <Button onClick={startCamera}>
-            <Camera className="mr-2 h-4 w-4" />
-            Start
+          <Button onClick={startCamera} size="lg">
+            <Camera className="mr-2 h-5 w-5" />
+            Start Camera
           </Button>
         ) : (
-          <Button variant="destructive" onClick={stopCamera}>
-            <CameraOff className="mr-2 h-4 w-4" />
-            Stop
-          </Button>
+          <>
+            <Button 
+              size="lg" 
+              onClick={captureNow}
+              className="bg-primary hover:bg-primary/90"
+            >
+              <Aperture className="mr-2 h-5 w-5" />
+              Capture
+            </Button>
+            
+            <Button variant="destructive" onClick={stopCamera}>
+              <CameraOff className="mr-2 h-4 w-4" />
+              Stop
+            </Button>
+          </>
         )}
 
         {cameraOn && support.torch && (
           <Button variant={torchOn ? "secondary" : "outline"} onClick={toggleTorch}>
             {torchOn ? <Flashlight className="h-4 w-4" /> : <FlashlightOff className="h-4 w-4" />}
-          </Button>
-        )}
-
-        {cameraOn && (
-          <Button variant="outline" onClick={captureNow}>
-            Manual Capture
           </Button>
         )}
 
@@ -667,82 +653,6 @@ export default function RapidScanCamera() {
           </Label>
         </div>
       </div>
-
-      {/* Advanced Tuning */}
-      <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen}>
-        <CollapsibleTrigger asChild>
-          <Button variant="ghost" size="sm" className="w-full justify-between">
-            <span className="flex items-center gap-2">
-              <Settings2 className="h-4 w-4" />
-              Sensitivity Tuning
-            </span>
-            <ChevronDown className={cn("h-4 w-4 transition-transform", settingsOpen && "rotate-180")} />
-          </Button>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="space-y-4 pt-4">
-          <div className="grid gap-4">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm">Motion Enter Threshold</Label>
-                <span className="text-xs text-muted-foreground">{prefs.tuning.motionEnterThreshold}</span>
-              </div>
-              <Slider
-                value={[prefs.tuning.motionEnterThreshold]}
-                min={2}
-                max={30}
-                step={1}
-                onValueChange={([v]) => updateTuning("motionEnterThreshold", v)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm">Stable Threshold</Label>
-                <span className="text-xs text-muted-foreground">{prefs.tuning.stableThreshold}</span>
-              </div>
-              <Slider
-                value={[prefs.tuning.stableThreshold]}
-                min={1}
-                max={15}
-                step={0.5}
-                onValueChange={([v]) => updateTuning("stableThreshold", v)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm">Stable Frames Required</Label>
-                <span className="text-xs text-muted-foreground">{prefs.tuning.stableFramesRequired}</span>
-              </div>
-              <Slider
-                value={[prefs.tuning.stableFramesRequired]}
-                min={3}
-                max={30}
-                step={1}
-                onValueChange={([v]) => updateTuning("stableFramesRequired", v)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm">Cooldown (ms)</Label>
-                <span className="text-xs text-muted-foreground">{prefs.tuning.cooldownMs}</span>
-              </div>
-              <Slider
-                value={[prefs.tuning.cooldownMs]}
-                min={200}
-                max={3000}
-                step={100}
-                onValueChange={([v]) => updateTuning("cooldownMs", v)}
-              />
-            </div>
-
-            <Button variant="outline" size="sm" onClick={resetTuning}>
-              Reset to Defaults
-            </Button>
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
 
       {/* Queue status */}
       <div className="flex gap-2 text-sm flex-wrap">
