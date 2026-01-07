@@ -7,18 +7,24 @@ import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Slider } from "@/components/ui/slider"
+import { Label } from "@/components/ui/label"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import {
   Camera,
   CameraOff,
   Flashlight,
   FlashlightOff,
-  ZoomIn,
-  ZoomOut,
   Trash2,
-  RefreshCcw,
   Pause,
   Play,
-  Focus,
+  Settings2,
+  ChevronDown,
+  Volume2,
+  VolumeX,
 } from "lucide-react"
 import { supabase } from "@/integrations/supabase/client"
 import {
@@ -45,11 +51,14 @@ import {
   idbGet,
   idbClear,
   idbCount,
-  type QueueItem,
   type QueueItemMeta,
 } from "@/lib/idbQueue"
 import { withRetry } from "@/lib/retry"
 import { cn } from "@/lib/utils"
+import { useCameraDevices } from "@/hooks/use-camera-devices"
+import { useCameraZoom } from "@/hooks/use-camera-zoom"
+import { CameraDeviceSelector } from "./CameraDeviceSelector"
+import { ZoomControls } from "./ZoomControls"
 
 // ────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -90,6 +99,7 @@ export default function RapidScanCamera() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const trackRef = useRef<MediaStreamTrack | null>(null)
+  const shutterAudioRef = useRef<HTMLAudioElement | null>(null)
 
   // Analysis loop
   const rafRef = useRef<number>(0)
@@ -109,7 +119,7 @@ export default function RapidScanCamera() {
   const [paused, setPaused] = useState(false)
   const [lastDiff, setLastDiff] = useState(0)
   const [statusLine, setStatusLine] = useState("Tap Start to begin")
-  const [rectResult, setRectResult] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // Thumbnails
   const [thumbs, setThumbs] = useState<Thumb[]>([])
@@ -118,22 +128,58 @@ export default function RapidScanCamera() {
   const [queueMeta, setQueueMeta] = useState<QueueItemMeta[]>([])
   const [pausedUntil, setPausedUntil] = useState(0)
 
+  // Camera devices
+  const {
+    devices,
+    selectedDeviceId,
+    setSelectedDeviceId,
+    isLoading: devicesLoading,
+    refreshDevices,
+  } = useCameraDevices()
+
+  // Camera zoom
+  const {
+    zoomLevel,
+    zoomCapabilities,
+    usingDigitalZoom,
+    detectZoomCapabilities,
+    setZoom,
+    zoomIn,
+    zoomOut,
+    resetZoom,
+  } = useCameraZoom({ streamRef })
+
   // Tuning prefs (persisted in localStorage)
   const [prefs, setPrefs] = useState<{
     autoCapture: boolean
     torchWanted: boolean
+    soundEnabled: boolean
     tuning: AutoCaptureTuning
   }>(() => {
     try {
       const s = localStorage.getItem("rapid_scan_prefs")
-      if (s) return JSON.parse(s)
+      if (s) {
+        const parsed = JSON.parse(s)
+        return { soundEnabled: true, ...parsed }
+      }
     } catch {}
-    return { autoCapture: true, torchWanted: true, tuning: { ...DEFAULT_TUNING } }
+    return { autoCapture: true, torchWanted: true, soundEnabled: true, tuning: { ...DEFAULT_TUNING } }
   })
 
   // Workers
   const workersRunning = useRef(false)
   const stopWorkers = useRef(false)
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // INIT SHUTTER AUDIO
+  // ──────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    shutterAudioRef.current = new Audio("/sounds/shutter.mp3")
+    shutterAudioRef.current.volume = 0.5
+    return () => {
+      shutterAudioRef.current = null
+    }
+  }, [])
 
   // ──────────────────────────────────────────────────────────────────────────
   // PERSIST PREFS
@@ -283,14 +329,14 @@ export default function RapidScanCamera() {
     if (cameraOn) return
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "environment",
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
+      const constraints: MediaStreamConstraints = {
+        video: selectedDeviceId
+          ? { deviceId: { exact: selectedDeviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+          : { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: false,
-      })
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints)
 
       streamRef.current = stream
       trackRef.current = getVideoTrack(stream)
@@ -302,6 +348,9 @@ export default function RapidScanCamera() {
       v.srcObject = stream
       await v.play()
       setCameraOn(true)
+
+      // Detect zoom capabilities
+      detectZoomCapabilities()
 
       // apply torch preference
       if (prefs.torchWanted) {
@@ -315,7 +364,6 @@ export default function RapidScanCamera() {
       prevGrayRef.current = null
       autoStateRef.current = { phase: "idle", stableFrames: 0, lastCaptureAt: 0, lastDiff: 0 }
       flowStateRef.current = "READY_FOR_ENTRY"
-      setRectResult(null)
       setLastDiff(0)
       setStatusLine("Camera live — feed cards")
 
@@ -340,6 +388,14 @@ export default function RapidScanCamera() {
     setCameraOn(false)
     setStatusLine("Camera stopped")
   }
+
+  // Restart camera when device changes
+  useEffect(() => {
+    if (cameraOn && selectedDeviceId) {
+      stopCamera().then(() => startCamera())
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDeviceId])
 
   // ──────────────────────────────────────────────────────────────────────────
   // TORCH / FOCUS
@@ -429,6 +485,12 @@ export default function RapidScanCamera() {
     const video = videoRef.current
     if (!video || video.readyState < 2) return
 
+    // Play shutter sound
+    if (prefs.soundEnabled && shutterAudioRef.current) {
+      shutterAudioRef.current.currentTime = 0
+      shutterAudioRef.current.play().catch(() => {})
+    }
+
     const w = video.videoWidth
     const h = video.videoHeight
     const offscreen = document.createElement("canvas")
@@ -437,7 +499,16 @@ export default function RapidScanCamera() {
     const ctx = offscreen.getContext("2d")
     if (!ctx) return
 
-    ctx.drawImage(video, 0, 0, w, h)
+    // Apply digital zoom crop if using digital zoom
+    if (usingDigitalZoom && zoomLevel > 1) {
+      const cropW = w / zoomLevel
+      const cropH = h / zoomLevel
+      const cropX = (w - cropW) / 2
+      const cropY = (h - cropH) / 2
+      ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, w, h)
+    } else {
+      ctx.drawImage(video, 0, 0, w, h)
+    }
 
     offscreen.toBlob(
       async (blob) => {
@@ -462,6 +533,17 @@ export default function RapidScanCamera() {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
+  // TUNING HELPERS
+  // ──────────────────────────────────────────────────────────────────────────
+  const updateTuning = (key: keyof AutoCaptureTuning, value: number) => {
+    setPrefs((p) => ({ ...p, tuning: { ...p.tuning, [key]: value } }))
+  }
+
+  const resetTuning = () => {
+    setPrefs((p) => ({ ...p, tuning: { ...DEFAULT_TUNING } }))
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
   // RENDER
   // ──────────────────────────────────────────────────────────────────────────
   const queuedCount = queueMeta.filter((m) => m.status === "queued").length
@@ -470,11 +552,24 @@ export default function RapidScanCamera() {
 
   return (
     <Card className="p-4 space-y-4">
+      {/* Camera Device Selector */}
+      <CameraDeviceSelector
+        devices={devices}
+        selectedDeviceId={selectedDeviceId}
+        onDeviceChange={setSelectedDeviceId}
+        onRefresh={refreshDevices}
+        isLoading={devicesLoading}
+      />
+
       {/* Video */}
       <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
         <video
           ref={videoRef}
-          className="w-full h-full object-cover"
+          className={cn(
+            "w-full h-full object-cover transition-transform duration-150",
+            usingDigitalZoom && zoomLevel > 1 && `scale-[${zoomLevel}]`
+          )}
+          style={usingDigitalZoom && zoomLevel > 1 ? { transform: `scale(${zoomLevel})` } : undefined}
           playsInline
           muted
           onClick={handleVideoTap}
@@ -485,12 +580,32 @@ export default function RapidScanCamera() {
           </div>
         )}
         <canvas ref={canvasRef} className="hidden" />
+
+        {/* Zoom Controls Overlay */}
+        {cameraOn && zoomCapabilities.supported && (
+          <ZoomControls
+            zoomLevel={zoomLevel}
+            minZoom={zoomCapabilities.min}
+            maxZoom={zoomCapabilities.max}
+            supported={zoomCapabilities.supported}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+            onZoomChange={setZoom}
+            onReset={resetZoom}
+            variant="overlay"
+          />
+        )}
       </div>
 
       {/* Status */}
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">{statusLine}</span>
-        <Badge variant="outline">Diff: {lastDiff.toFixed(1)}</Badge>
+        <div className="flex items-center gap-2">
+          {usingDigitalZoom && zoomLevel > 1 && (
+            <Badge variant="secondary" className="text-xs">Digital Zoom</Badge>
+          )}
+          <Badge variant="outline">Diff: {lastDiff.toFixed(1)}</Badge>
+        </div>
       </div>
 
       {/* Controls */}
@@ -529,17 +644,108 @@ export default function RapidScanCamera() {
         </Button>
       </div>
 
-      {/* Auto-capture toggle */}
-      <div className="flex items-center gap-2">
-        <Switch
-          checked={prefs.autoCapture}
-          onCheckedChange={(v) => setPrefs((p) => ({ ...p, autoCapture: v }))}
-        />
-        <span className="text-sm">Auto-capture</span>
+      {/* Toggle Row */}
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Switch
+            id="auto-capture"
+            checked={prefs.autoCapture}
+            onCheckedChange={(v) => setPrefs((p) => ({ ...p, autoCapture: v }))}
+          />
+          <Label htmlFor="auto-capture" className="text-sm">Auto-capture</Label>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Switch
+            id="sound-enabled"
+            checked={prefs.soundEnabled}
+            onCheckedChange={(v) => setPrefs((p) => ({ ...p, soundEnabled: v }))}
+          />
+          <Label htmlFor="sound-enabled" className="text-sm flex items-center gap-1">
+            {prefs.soundEnabled ? <Volume2 className="h-3 w-3" /> : <VolumeX className="h-3 w-3" />}
+            Sound
+          </Label>
+        </div>
       </div>
 
+      {/* Advanced Tuning */}
+      <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" size="sm" className="w-full justify-between">
+            <span className="flex items-center gap-2">
+              <Settings2 className="h-4 w-4" />
+              Sensitivity Tuning
+            </span>
+            <ChevronDown className={cn("h-4 w-4 transition-transform", settingsOpen && "rotate-180")} />
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="space-y-4 pt-4">
+          <div className="grid gap-4">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm">Motion Enter Threshold</Label>
+                <span className="text-xs text-muted-foreground">{prefs.tuning.motionEnterThreshold}</span>
+              </div>
+              <Slider
+                value={[prefs.tuning.motionEnterThreshold]}
+                min={2}
+                max={30}
+                step={1}
+                onValueChange={([v]) => updateTuning("motionEnterThreshold", v)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm">Stable Threshold</Label>
+                <span className="text-xs text-muted-foreground">{prefs.tuning.stableThreshold}</span>
+              </div>
+              <Slider
+                value={[prefs.tuning.stableThreshold]}
+                min={1}
+                max={15}
+                step={0.5}
+                onValueChange={([v]) => updateTuning("stableThreshold", v)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm">Stable Frames Required</Label>
+                <span className="text-xs text-muted-foreground">{prefs.tuning.stableFramesRequired}</span>
+              </div>
+              <Slider
+                value={[prefs.tuning.stableFramesRequired]}
+                min={3}
+                max={30}
+                step={1}
+                onValueChange={([v]) => updateTuning("stableFramesRequired", v)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm">Cooldown (ms)</Label>
+                <span className="text-xs text-muted-foreground">{prefs.tuning.cooldownMs}</span>
+              </div>
+              <Slider
+                value={[prefs.tuning.cooldownMs]}
+                min={200}
+                max={3000}
+                step={100}
+                onValueChange={([v]) => updateTuning("cooldownMs", v)}
+              />
+            </div>
+
+            <Button variant="outline" size="sm" onClick={resetTuning}>
+              Reset to Defaults
+            </Button>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+
       {/* Queue status */}
-      <div className="flex gap-2 text-sm">
+      <div className="flex gap-2 text-sm flex-wrap">
         <Badge>Queued: {queuedCount}</Badge>
         <Badge variant="secondary">Processing: {processingCount}</Badge>
         {errorCount > 0 && <Badge variant="destructive">Errors: {errorCount}</Badge>}
