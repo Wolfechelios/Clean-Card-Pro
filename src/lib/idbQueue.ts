@@ -160,3 +160,28 @@ export async function idbCount(): Promise<number> {
   db.close()
   return n
 }
+
+export async function idbGetAll(): Promise<QueueItem[]> {
+  const db = await openDB()
+  const items: QueueItem[] = []
+
+  await tx(db, "readonly", (store) => {
+    const req = store.openCursor()
+    req.onsuccess = () => {
+      const cursor = req.result as IDBCursorWithValue | null
+      if (!cursor) return
+      items.push(cursor.value as QueueItem)
+      cursor.continue()
+    }
+    return req as any
+  })
+
+  db.close()
+  return items.sort((a, b) => b.createdAt - a.createdAt)
+}
+
+export async function idbClear(): Promise<void> {
+  const db = await openDB()
+  await tx(db, "readwrite", (store) => store.clear())
+  db.close()
+}
