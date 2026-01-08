@@ -9,16 +9,19 @@ interface ProcessInfo {
 interface GlobalProcessControlState {
   runningProcesses: ProcessInfo[];
   stopSignal: number;
+  scannerActive: boolean;
   registerProcess: (id: string, name: string) => void;
   unregisterProcess: (id: string) => void;
   stopAllProcesses: () => void;
   isProcessRunning: (id: string) => boolean;
   shouldStop: (processStartTime: number) => boolean;
+  setScannerActive: (active: boolean) => void;
 }
 
 export const useGlobalProcessControl = create<GlobalProcessControlState>((set, get) => ({
   runningProcesses: [],
   stopSignal: 0,
+  scannerActive: false,
   
   registerProcess: (id: string, name: string) => {
     set((state) => ({
@@ -36,9 +39,10 @@ export const useGlobalProcessControl = create<GlobalProcessControlState>((set, g
   },
   
   stopAllProcesses: () => {
-    set((state) => ({
+    set(() => ({
       stopSignal: Date.now(),
-      runningProcesses: []
+      runningProcesses: [],
+      scannerActive: false
     }));
   },
   
@@ -49,5 +53,9 @@ export const useGlobalProcessControl = create<GlobalProcessControlState>((set, g
   shouldStop: (processStartTime: number) => {
     const { stopSignal } = get();
     return stopSignal > processStartTime;
+  },
+  
+  setScannerActive: (active: boolean) => {
+    set({ scannerActive: active });
   }
 }));
