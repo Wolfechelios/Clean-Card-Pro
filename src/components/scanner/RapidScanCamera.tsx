@@ -1,135 +1,125 @@
 // src/components/scanner/RapidScanCamera.tsx
-"use client"
+// Rapid Scan (simple + stable): manual capture only (no auto-capture, no sliders).
+// Features:
+// - Clear, high-res photo capture from live camera preview
+// - Zoom controls (if supported) + tap-to-focus (if supported)
+// - Flash/torch toggle (if supported)
+// - Persistent queue buffer (IndexedDB) so you can keep shooting while jobs process
+// - Live "now scanning" preview overlay + running total value
+// - List of scanned cards with price + whether it's already in your library
 
-import { useEffect, useRef, useState, useCallback } from "react"
-import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Switch } from "@/components/ui/switch"
-import { Label } from "@/components/ui/label"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
 import {
   Camera,
   CameraOff,
   Flashlight,
   FlashlightOff,
+  Loader2,
   Trash2,
-  Pause,
-  Play,
-  Volume2,
-  VolumeX,
-  Aperture,
-} from "lucide-react"
-import { supabase } from "@/integrations/supabase/client"
+} from "lucide-react";
+
+import { supabase } from "@/integrations/supabase/client";
+import { cn } from "@/lib/utils";
+import { insertCardDual } from "@/lib/localCards";
 import {
-  getVideoTrack,
   detectSupport,
-  setTorch,
+  getVideoTrack,
   setFocusPoint,
+  setTorch,
   type MediaSupport,
-} from "@/lib/mediaControls"
-import {
-  rgbaToGray,
-  meanAbsDiff,
-  nextAutoCaptureState,
-  DEFAULT_TUNING,
-  type AutoCaptureState,
-  type AutoCaptureTuning,
-} from "@/lib/visionAutoCapture"
+} from "@/lib/mediaControls";
 import {
   idbAdd,
-  idbDelete,
-  idbGetAll,
-  idbGetNextQueued,
-  idbUpdateMeta,
-  idbGet,
-  idbClear,
   idbCount,
+  idbDelete,
+  idbGetNextQueued,
+  idbGetAll,
+  idbUpdateMeta,
+  idbClear,
   type QueueItemMeta,
-} from "@/lib/idbQueue"
-import { withRetry } from "@/lib/retry"
-import { cn } from "@/lib/utils"
-import { useCameraDevices } from "@/hooks/use-camera-devices"
-import { useCameraZoom } from "@/hooks/use-camera-zoom"
-import { CameraDeviceSelector } from "./CameraDeviceSelector"
-import { ZoomControls } from "./ZoomControls"
+} from "@/lib/idbQueue";
+import { withRetry } from "@/lib/retry";
+import { useCameraDevices } from "@/hooks/use-camera-devices";
+import { useCameraZoom } from "@/hooks/use-camera-zoom";
+import { CameraDeviceSelector } from "./CameraDeviceSelector";
+import { ZoomControls } from "./ZoomControls";
+import { ScannedCardList } from "./ScannedCardList";
 
-// ────────────────────────────────────────────────────────────────────────────
-// CONSTANTS
-// ────────────────────────────────────────────────────────────────────────────
-const QUEUE_MAX = 100
-const THUMB_MAX = 20
-const WORKER_THREADS = 2
-const BASE_BETWEEN_JOBS_MS = 150
-const RATE_LIMIT_PAUSE_MS = 12_000
+// ─────────────────────────────────────────────────────────────────────────────
+// TUNING
+// ─────────────────────────────────────────────────────────────────────────────
 
-type Thumb = { id: string; url: string; createdAt: number }
+const QUEUE_MAX = 40; // buffer size (shots you can take while processing)
+const WORKER_THREADS = 2;
+const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
 
-type FlowState =
-  | "READY_FOR_ENTRY" // waiting for a new card
-  | "CARD_PRESENT" // seeing card, waiting for stability
-  | "CAPTURED" // captured, waiting for card to leave
+type ScannedCard = {
+  id: string;
+  preview: string;
+  status: "queued" | "uploading" | "processing" | "completed" | "error";
+  cardName?: string;
+  cardSet?: string;
+  cardNumber?: string;
+  rarity?: string;
+  value?: number | null;
+  error?: string;
+  dbId?: string;
+  priceFetching?: boolean;
+  libraryQuantity?: number;
+  isInLibrary?: boolean;
+  imageUrl?: string;
+};
 
-// ────────────────────────────────────────────────────────────────────────────
-// HELPERS
-// ────────────────────────────────────────────────────────────────────────────
+type LastOverlay = {
+  label: string;
+  value?: number | null;
+  isInLibrary?: boolean;
+  libraryQuantity?: number;
+};
+
 function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms))
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 function safeUUID() {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return crypto.randomUUID()
-  }
-  return "xxxx-xxxx-xxxx".replace(/x/g, () => ((Math.random() * 16) | 0).toString(16))
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return "xxxx-xxxx-xxxx".replace(/x/g, () => ((Math.random() * 16) | 0).toString(16));
 }
 
-// ────────────────────────────────────────────────────────────────────────────
+function money(n: number | null | undefined) {
+  if (n == null || Number.isNaN(n)) return null;
+  return Math.round(n * 100) / 100;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // COMPONENT
-// ────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function RapidScanCamera() {
-  // Camera refs
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const streamRef = useRef<MediaStream | null>(null)
-  const trackRef = useRef<MediaStreamTrack | null>(null)
-  const shutterAudioRef = useRef<HTMLAudioElement | null>(null)
+  // Camera
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const trackRef = useRef<MediaStreamTrack | null>(null);
 
-  // Analysis loop
-  const rafRef = useRef<number>(0)
-  const prevGrayRef = useRef<Uint8Array | null>(null)
-  const autoStateRef = useRef<AutoCaptureState>({
-    phase: "idle",
-    stableFrames: 0,
-    lastCaptureAt: 0,
-    lastDiff: 0,
-  })
-  const flowStateRef = useRef<FlowState>("READY_FOR_ENTRY")
+  const [cameraOn, setCameraOn] = useState(false);
+  const [support, setSupport] = useState<MediaSupport>({ torch: false, focus: false, zoom: false });
+  const [torchOn, setTorchOn] = useState(false);
+  const [statusLine, setStatusLine] = useState("Tap Start to begin");
+  const [busyCapture, setBusyCapture] = useState(false);
 
-  // State
-  const [cameraOn, setCameraOn] = useState(false)
-  const [support, setSupport] = useState<MediaSupport>({ torch: false, focus: false, zoom: false })
-  const [torchOn, setTorchOn] = useState(false)
-  const [paused, setPaused] = useState(false)
-  const [lastDiff, setLastDiff] = useState(0)
-  const [statusLine, setStatusLine] = useState("Tap Start to begin")
+  // Auth/user
+  const [userId, setUserId] = useState<string | null>(null);
 
-  // Thumbnails
-  const [thumbs, setThumbs] = useState<Thumb[]>([])
+  // Devices
+  const { devices, selectedDeviceId, setSelectedDeviceId, isLoading: devicesLoading, refreshDevices } =
+    useCameraDevices();
 
-  // Queue metadata (refreshes periodically)
-  const [queueMeta, setQueueMeta] = useState<QueueItemMeta[]>([])
-  const [pausedUntil, setPausedUntil] = useState(0)
-
-  // Camera devices
-  const {
-    devices,
-    selectedDeviceId,
-    setSelectedDeviceId,
-    isLoading: devicesLoading,
-    refreshDevices,
-  } = useCameraDevices()
-
-  // Camera zoom
+  // Zoom
   const {
     zoomLevel,
     zoomCapabilities,
@@ -139,186 +129,79 @@ export default function RapidScanCamera() {
     zoomIn,
     zoomOut,
     resetZoom,
-  } = useCameraZoom({ streamRef })
+  } = useCameraZoom({ streamRef });
 
-  // Tuning prefs (persisted in localStorage)
-  const [prefs, setPrefs] = useState<{
-    autoCapture: boolean
-    torchWanted: boolean
-    soundEnabled: boolean
-    tuning: AutoCaptureTuning
-  }>(() => {
-    try {
-      const s = localStorage.getItem("rapid_scan_prefs")
-      if (s) {
-        const parsed = JSON.parse(s)
-        return { soundEnabled: true, ...parsed }
-      }
-    } catch {}
-    return { autoCapture: true, torchWanted: true, soundEnabled: true, tuning: { ...DEFAULT_TUNING } }
-  })
+  // Queue meta for debug/health
+  const [queueMeta, setQueueMeta] = useState<QueueItemMeta[]>([]);
 
-  // Workers
-  const workersRunning = useRef(false)
-  const stopWorkers = useRef(false)
+  // UI list
+  const [cards, setCards] = useState<ScannedCard[]>([]);
+  const [overlay, setOverlay] = useState<LastOverlay | null>(null);
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // INIT SHUTTER AUDIO
-  // ──────────────────────────────────────────────────────────────────────────
+  // Worker controls
+  const workersRunning = useRef(false);
+  const stopWorkers = useRef(false);
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // INIT
+  // ───────────────────────────────────────────────────────────────────────────
+
   useEffect(() => {
-    shutterAudioRef.current = new Audio("/sounds/shutter.mp3")
-    shutterAudioRef.current.volume = 0.5
-    return () => {
-      shutterAudioRef.current = null
-    }
-  }, [])
+    // Best-effort auth
+    supabase.auth
+      .getUser()
+      .then(({ data }) => setUserId(data.user?.id ?? null))
+      .catch(() => setUserId(null));
+  }, []);
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // PERSIST PREFS
-  // ──────────────────────────────────────────────────────────────────────────
-  useEffect(() => {
-    localStorage.setItem("rapid_scan_prefs", JSON.stringify(prefs))
-  }, [prefs])
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // QUEUE REFRESH
-  // ──────────────────────────────────────────────────────────────────────────
   const refreshMeta = useCallback(async () => {
-    const all = await idbGetAll()
-    setQueueMeta(all.map(({ blob, ...rest }) => rest))
-  }, [])
+    const all = await idbGetAll();
+    setQueueMeta(all.map(({ blob: _blob, ...rest }) => rest));
+  }, []);
 
   useEffect(() => {
-    refreshMeta()
-  }, [refreshMeta])
+    refreshMeta();
+  }, [refreshMeta]);
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // WORKERS
-  // ──────────────────────────────────────────────────────────────────────────
-  function ensureWorkersRunning() {
-    if (workersRunning.current) return
-    workersRunning.current = true
-    stopWorkers.current = false
-
-    for (let i = 0; i < WORKER_THREADS; i++) {
-      workerLoop()
+  // Restart camera when device changes
+  useEffect(() => {
+    if (cameraOn && selectedDeviceId) {
+      stopCamera().then(() => startCamera());
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDeviceId]);
 
-  async function workerLoop() {
-    while (!stopWorkers.current) {
-      const pauseMs = pausedUntil - Date.now()
-      if (pauseMs > 0) {
-        await sleep(Math.min(pauseMs, 900))
-        continue
-      }
+  // ───────────────────────────────────────────────────────────────────────────
+  // HELPERS: STATE UPDATE
+  // ───────────────────────────────────────────────────────────────────────────
 
-      const next = await idbGetNextQueued()
-      if (!next) {
-        await sleep(220)
-        continue
-      }
+  const updateCard = useCallback((id: string, patch: Partial<ScannedCard>) => {
+    setCards((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+  }, []);
 
-      await idbUpdateMeta(next.id, { status: "processing", error: undefined })
-      await refreshMeta()
-
-      try {
-        await processOne(next.id)
-        await idbDelete(next.id)
-      } catch (err: any) {
-        const msg = String(err?.message ?? err)
-        await idbUpdateMeta(next.id, { status: "error", error: msg })
-
-        // domino-failure killer: pause after rate limit so everything doesn't fail
-        if (/429|rate limit|too many/i.test(msg)) {
-          setPausedUntil(Date.now() + RATE_LIMIT_PAUSE_MS)
-        }
-      }
-
-      await refreshMeta()
-      await sleep(BASE_BETWEEN_JOBS_MS)
+  const removeCard = useCallback(async (id: string) => {
+    // remove from list
+    setCards((prev) => prev.filter((c) => c.id !== id));
+    // remove from queue if still exists
+    try {
+      await idbDelete(id);
+    } catch {
+      // ignore
     }
-  }
+    await refreshMeta();
+  }, [refreshMeta]);
 
-  async function processOne(id: string) {
-    const item = await idbGet(id)
-    if (!item) throw new Error("Queue item missing")
+  // Total value of completed cards
+  const totalValue = useMemo(() => {
+    return cards.reduce((sum, c) => sum + (c.status === "completed" ? c.value || 0 : 0), 0);
+  }, [cards]);
 
-    const filePath = `cards/${item.id}.jpg`
-    const file = new File([item.blob], item.filename, { type: item.mime })
-
-    // upload
-    await withRetry(async () => {
-      const res = await supabase.storage.from("card-images").upload(filePath, file, { upsert: false })
-      if (res.error) throw new Error(res.error.message)
-      return res.data
-    })
-
-    // signed URL
-    const imageUrl = await withRetry(async () => {
-      const res = await supabase.storage.from("card-images").createSignedUrl(filePath, 60 * 60 * 24)
-      if (res.error) throw new Error(res.error.message)
-      if (!res.data?.signedUrl) throw new Error("Signed URL missing")
-      return res.data.signedUrl
-    })
-
-    // identify
-    await withRetry(
-      async () => {
-        const res = await supabase.functions.invoke("rapid-card-identify", { body: { imageUrl } })
-        if (res.error) throw new Error(res.error.message)
-        return res.data
-      },
-      {
-        retries: 5,
-        baseMs: 900,
-        maxMs: 12000,
-        shouldRetry: (e) =>
-          /429|rate limit|too many|timeout|network|502|503|504/i.test(String(e?.message ?? e)),
-      }
-    )
-  }
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // ENQUEUE
-  // ──────────────────────────────────────────────────────────────────────────
-  async function enqueueBlob(blob: Blob, filename = "card.jpg") {
-    const current = await idbCount()
-    if (current >= QUEUE_MAX) {
-      setStatusLine(`Queue full (${QUEUE_MAX}). Let it process or clear.`)
-      return
-    }
-
-    const id = safeUUID()
-    await idbAdd({
-      id,
-      createdAt: Date.now(),
-      status: "queued",
-      blob,
-      mime: blob.type || "image/jpeg",
-      filename,
-    })
-
-    // local thumb
-    const url = URL.createObjectURL(blob)
-    setThumbs((prev) => {
-      const next = [{ id, url, createdAt: Date.now() }, ...prev]
-      while (next.length > THUMB_MAX) {
-        const last = next.pop()
-        if (last) URL.revokeObjectURL(last.url)
-      }
-      return next
-    })
-
-    await refreshMeta()
-    ensureWorkersRunning()
-  }
-
-  // ──────────────────────────────────────────────────────────────────────────
+  // ───────────────────────────────────────────────────────────────────────────
   // CAMERA
-  // ──────────────────────────────────────────────────────────────────────────
+  // ───────────────────────────────────────────────────────────────────────────
+
   async function startCamera() {
-    if (cameraOn) return
+    if (cameraOn) return;
 
     try {
       const constraints: MediaStreamConstraints = {
@@ -326,354 +209,530 @@ export default function RapidScanCamera() {
           ? { deviceId: { exact: selectedDeviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
           : { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: false,
-      }
+      };
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints)
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
+      trackRef.current = getVideoTrack(stream);
+      setSupport(detectSupport(trackRef.current));
 
-      streamRef.current = stream
-      trackRef.current = getVideoTrack(stream)
-      setSupport(detectSupport(trackRef.current))
+      const v = videoRef.current;
+      if (!v) return;
+      v.srcObject = stream;
+      await v.play();
 
-      const v = videoRef.current
-      if (!v) return
+      setCameraOn(true);
+      setStatusLine("Camera live — tap Capture for each card");
 
-      v.srcObject = stream
-      await v.play()
-      setCameraOn(true)
+      // Zoom capabilities
+      detectZoomCapabilities();
 
-      // Detect zoom capabilities
-      detectZoomCapabilities()
-
-      // apply torch preference
-      if (prefs.torchWanted) {
-        const ok = await setTorch(trackRef.current, true)
-        setTorchOn(ok)
-      } else {
-        setTorchOn(false)
-      }
-
-      // reset analysis
-      prevGrayRef.current = null
-      autoStateRef.current = { phase: "idle", stableFrames: 0, lastCaptureAt: 0, lastDiff: 0 }
-      flowStateRef.current = "READY_FOR_ENTRY"
-      setLastDiff(0)
-      setStatusLine("Camera live — feed cards")
-
-      startAnalysisLoop()
+      // Workers start automatically once you enqueue
     } catch (err: any) {
-      setStatusLine(`Camera error: ${err?.message ?? err}`)
+      setStatusLine(`Camera error: ${err?.message ?? err}`);
+      toast.error("Camera failed to start");
     }
   }
 
   async function stopCamera() {
-    stopAnalysisLoop()
-
     // torch off (best-effort)
     if (torchOn) {
-      await setTorch(trackRef.current, false)
-      setTorchOn(false)
+      await setTorch(trackRef.current, false);
+      setTorchOn(false);
     }
 
-    streamRef.current?.getTracks().forEach((t) => t.stop())
-    streamRef.current = null
-    trackRef.current = null
-    setCameraOn(false)
-    setStatusLine("Camera stopped")
-  }
-
-  // Restart camera when device changes
-  useEffect(() => {
-    if (cameraOn && selectedDeviceId) {
-      stopCamera().then(() => startCamera())
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDeviceId])
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // TORCH / FOCUS
-  // ──────────────────────────────────────────────────────────────────────────
-  async function toggleTorch() {
-    const next = !torchOn
-    const ok = await setTorch(trackRef.current, next)
-    if (ok) {
-      setTorchOn(next)
-      setPrefs((p) => ({ ...p, torchWanted: next }))
-    }
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    trackRef.current = null;
+    setCameraOn(false);
+    setStatusLine("Camera stopped");
   }
 
   const handleVideoTap = useCallback(
     async (e: React.MouseEvent<HTMLVideoElement>) => {
-      if (!support.focus) return
-      const rect = (e.target as HTMLVideoElement).getBoundingClientRect()
-      const x = (e.clientX - rect.left) / rect.width
-      const y = (e.clientY - rect.top) / rect.height
-      await setFocusPoint(trackRef.current, { x, y })
+      if (!support.focus) return;
+      const rect = (e.target as HTMLVideoElement).getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width;
+      const y = (e.clientY - rect.top) / rect.height;
+      await setFocusPoint(trackRef.current, { x, y });
     },
     [support.focus]
-  )
+  );
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // ANALYSIS LOOP (auto-capture)
-  // ──────────────────────────────────────────────────────────────────────────
-  function startAnalysisLoop() {
-    if (rafRef.current) return
-    const loop = () => {
-      if (!paused) analyzeFrame()
-      rafRef.current = requestAnimationFrame(loop)
-    }
-    rafRef.current = requestAnimationFrame(loop)
+  async function toggleTorch() {
+    if (!support.torch) return;
+    const next = !torchOn;
+    const ok = await setTorch(trackRef.current, next);
+    if (ok) setTorchOn(next);
   }
 
-  function stopAnalysisLoop() {
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current)
-      rafRef.current = 0
+  // ───────────────────────────────────────────────────────────────────────────
+  // CAPTURE (MANUAL)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  async function captureAndEnqueue() {
+    if (!cameraOn) return;
+    if (busyCapture) return;
+    setBusyCapture(true);
+
+    try {
+      const current = await idbCount();
+      if (current >= QUEUE_MAX) {
+        toast.error(`Buffer full (${QUEUE_MAX}). Let it process or clear.`);
+        setBusyCapture(false);
+        return;
+      }
+
+      const v = videoRef.current;
+      const c = canvasRef.current;
+      if (!v || !c) {
+        setBusyCapture(false);
+        return;
+      }
+
+      // Make capture resolution match the actual camera feed.
+      const w = v.videoWidth || 1920;
+      const h = v.videoHeight || 1080;
+      c.width = w;
+      c.height = h;
+
+      const ctx = c.getContext("2d", { willReadFrequently: false });
+      if (!ctx) throw new Error("Canvas not available");
+
+      // Draw current frame
+      ctx.drawImage(v, 0, 0, w, h);
+
+      // Convert to high-quality JPEG
+      const blob: Blob | null = await new Promise((resolve) =>
+        c.toBlob(resolve, "image/jpeg", 0.92)
+      );
+      if (!blob) throw new Error("Failed to capture image");
+
+      const id = safeUUID();
+
+      // Local preview immediately
+      const localUrl = URL.createObjectURL(blob);
+      setCards((prev) => [
+        {
+          id,
+          preview: localUrl,
+          status: "queued",
+          priceFetching: true,
+          isInLibrary: false,
+          libraryQuantity: 0,
+        },
+        ...prev,
+      ]);
+
+      // Persist into queue
+      await idbAdd({
+        id,
+        createdAt: Date.now(),
+        status: "queued",
+        blob,
+        mime: blob.type || "image/jpeg",
+        filename: "card.jpg",
+      });
+
+      setStatusLine("Captured — processing in background");
+      setOverlay({ label: "Captured…" });
+
+      await refreshMeta();
+      ensureWorkersRunning();
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message ?? "Capture failed");
+    } finally {
+      setBusyCapture(false);
     }
   }
 
-  function analyzeFrame() {
-    const video = videoRef.current
-    const canvas = canvasRef.current
-    if (!video || !canvas || video.readyState < 2) return
+  // ───────────────────────────────────────────────────────────────────────────
+  // WORKERS (QUEUE PROCESSING)
+  // ───────────────────────────────────────────────────────────────────────────
 
-    const ctx = canvas.getContext("2d", { willReadFrequently: true })
-    if (!ctx) return
+  function ensureWorkersRunning() {
+    if (workersRunning.current) return;
+    workersRunning.current = true;
+    stopWorkers.current = false;
+    for (let i = 0; i < WORKER_THREADS; i++) workerLoop();
+  }
 
-    const { sampleW, sampleH } = prefs.tuning
-    canvas.width = sampleW
-    canvas.height = sampleH
-    ctx.drawImage(video, 0, 0, sampleW, sampleH)
-    const imgData = ctx.getImageData(0, 0, sampleW, sampleH)
-    const gray = rgbaToGray(imgData.data)
+  async function workerLoop() {
+    while (!stopWorkers.current) {
+      const next = await idbGetNextQueued();
+      if (!next) {
+        await sleep(200);
+        continue;
+      }
 
-    if (!prevGrayRef.current) {
-      prevGrayRef.current = gray
-      return
-    }
+      try {
+        await idbUpdateMeta(next.id, { status: "processing" });
+        updateCard(next.id, { status: "processing" });
+        await refreshMeta();
 
-    const diff = meanAbsDiff(prevGrayRef.current, gray)
-    prevGrayRef.current = gray
-    setLastDiff(diff)
+        // Upload
+        updateCard(next.id, { status: "uploading" });
+        const filePath = `cards/${next.id}.jpg`;
+        const file = new File([next.blob], next.filename, { type: next.mime });
 
-    if (!prefs.autoCapture) return
+        await withRetry(async () => {
+          const res = await supabase.storage
+            .from("card-images")
+            .upload(filePath, file, { upsert: false });
+          if (res.error) throw new Error(res.error.message);
+          return res.data;
+        });
 
-    const { state, shouldCapture } = nextAutoCaptureState(
-      autoStateRef.current,
-      diff,
-      Date.now(),
-      prefs.tuning
-    )
-    autoStateRef.current = state
+        // Signed URL
+        const imageUrl = await withRetry(async () => {
+          const res = await supabase.storage
+            .from("card-images")
+            .createSignedUrl(filePath, SIGNED_URL_TTL_SECONDS);
+          if (res.error) throw new Error(res.error.message);
+          if (!res.data?.signedUrl) throw new Error("Signed URL missing");
+          return res.data.signedUrl;
+        });
 
-    if (shouldCapture) {
-      captureNow()
+        updateCard(next.id, { imageUrl });
+
+        // Identify (fast)
+        const identify = await withRetry(
+          async () => {
+            const res = await supabase.functions.invoke("rapid-card-identify", { body: { imageUrl } });
+            if (res.error) throw new Error(res.error.message);
+            if (!res.data?.success) throw new Error(res.data?.error || "Identify failed");
+            return res.data.cardData as any;
+          },
+          {
+            retries: 5,
+            baseMs: 600,
+            maxMs: 8000,
+            shouldRetry: (e) => /429|rate limit|timeout|network|502|503|504/i.test(String(e?.message ?? e)),
+          }
+        );
+
+        const cardName: string = identify?.card_name || "Unknown Card";
+        const cardSet: string | null = identify?.card_set ?? null;
+        const cardNumber: string | null = identify?.card_number ?? null;
+        const rarity: string | null = identify?.rarity ?? null;
+        const gameType: string | null = identify?.game_type ?? null;
+        const sportType: string | null = identify?.sport_type ?? null;
+
+        updateCard(next.id, {
+          cardName,
+          cardSet: cardSet || undefined,
+          cardNumber: cardNumber || undefined,
+          rarity: rarity || undefined,
+          priceFetching: true,
+        });
+
+        setOverlay({ label: cardName });
+
+        // Price
+        let rawPrice: number | null = null;
+        try {
+          const p = await supabase.functions.invoke("fetch-card-prices", {
+            body: {
+              cardName,
+              cardSet,
+              cardNumber,
+              gameType,
+              sportType,
+            },
+          });
+          if (!p.error && p.data) {
+            rawPrice = money(p.data.raw ?? p.data.suggested ?? null);
+          }
+        } catch {
+          rawPrice = null;
+        }
+
+        // Library check (if logged in)
+        let ownedCount = 0;
+        let isInLibrary = false;
+        let existingId: string | undefined = undefined;
+        if (userId) {
+          try {
+            const { count } = await supabase
+              .from("cards")
+              .select("id", { count: "exact", head: true })
+              .eq("user_id", userId)
+              .ilike("card_name", cardName);
+
+            ownedCount = count || 0;
+            isInLibrary = ownedCount > 0;
+
+            if (isInLibrary) {
+              const { data } = await supabase
+                .from("cards")
+                .select("id")
+                .eq("user_id", userId)
+                .ilike("card_name", cardName)
+                .limit(1);
+              existingId = data?.[0]?.id;
+            }
+          } catch {
+            ownedCount = 0;
+            isInLibrary = false;
+          }
+        }
+
+        updateCard(next.id, {
+          status: "completed",
+          value: rawPrice,
+          priceFetching: false,
+          isInLibrary,
+          libraryQuantity: ownedCount,
+          dbId: existingId,
+        });
+        setOverlay({ label: cardName, value: rawPrice, isInLibrary, libraryQuantity: ownedCount });
+
+        await idbDelete(next.id);
+        await refreshMeta();
+      } catch (e: any) {
+        const msg = String(e?.message ?? e);
+        console.error("Rapid scan job failed:", msg);
+        updateCard(next.id, { status: "error", error: msg, priceFetching: false });
+        try {
+          await idbUpdateMeta(next.id, { status: "error", error: msg });
+        } catch {}
+        await refreshMeta();
+      }
+
+      await sleep(120);
     }
   }
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // CAPTURE
-  // ──────────────────────────────────────────────────────────────────────────
-  async function captureNow() {
-    const video = videoRef.current
-    if (!video || video.readyState < 2) return
+  useEffect(() => {
+    return () => {
+      stopWorkers.current = true;
+      workersRunning.current = false;
+    };
+  }, []);
 
-    // Play shutter sound
-    if (prefs.soundEnabled && shutterAudioRef.current) {
-      shutterAudioRef.current.currentTime = 0
-      shutterAudioRef.current.play().catch(() => {})
-    }
+  // ───────────────────────────────────────────────────────────────────────────
+  // ADD TO LIBRARY (optional)
+  // ───────────────────────────────────────────────────────────────────────────
 
-    const w = video.videoWidth
-    const h = video.videoHeight
-    const offscreen = document.createElement("canvas")
-    offscreen.width = w
-    offscreen.height = h
-    const ctx = offscreen.getContext("2d")
-    if (!ctx) return
+  const handleAddToLibrary = useCallback(
+    async (id: string) => {
+      const c = cards.find((x) => x.id === id);
+      if (!c) return;
+      if (!userId) {
+        toast.error("Login required to save to your library");
+        return;
+      }
 
-    // Apply digital zoom crop if using digital zoom
-    if (usingDigitalZoom && zoomLevel > 1) {
-      const cropW = w / zoomLevel
-      const cropH = h / zoomLevel
-      const cropX = (w - cropW) / 2
-      const cropY = (h - cropH) / 2
-      ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, w, h)
-    } else {
-      ctx.drawImage(video, 0, 0, w, h)
-    }
+      if (!c.cardName) {
+        toast.error("Card not identified yet");
+        return;
+      }
 
-    offscreen.toBlob(
-      async (blob) => {
-        if (!blob) return
-        await enqueueBlob(blob, `card_${Date.now()}.jpg`)
-        setStatusLine(`Captured! ${queueMeta.length + 1} in queue`)
-      },
-      "image/jpeg",
-      0.92
-    )
-  }
+      try {
+        updateCard(id, { priceFetching: true });
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // CLEAR QUEUE
-  // ──────────────────────────────────────────────────────────────────────────
-  async function handleClearQueue() {
-    await idbClear()
-    thumbs.forEach((t) => URL.revokeObjectURL(t.url))
-    setThumbs([])
-    await refreshMeta()
-    setStatusLine("Queue cleared")
-  }
+        const inserted = await insertCardDual({
+          user_id: userId,
+          card_name: c.cardName,
+          card_set: c.cardSet ?? null,
+          card_number: c.cardNumber ?? null,
+          rarity: c.rarity ?? null,
+          image_url: c.imageUrl ?? null,
+          current_price_raw: c.value ?? null,
+          suggested_price: c.value ?? null,
+        } as any);
 
-  // ──────────────────────────────────────────────────────────────────────────
+        updateCard(id, {
+          dbId: inserted.id,
+          isInLibrary: true,
+          libraryQuantity: Math.max((c.libraryQuantity || 0) + 1, 1),
+          priceFetching: false,
+        });
+
+        toast.success("Saved to library");
+      } catch (e: any) {
+        console.error(e);
+        updateCard(id, { priceFetching: false });
+        toast.error(e?.message ?? "Failed to save");
+      }
+    },
+    [cards, updateCard, userId]
+  );
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // CLEAR
+  // ───────────────────────────────────────────────────────────────────────────
+
+  const clearAll = useCallback(async () => {
+    setCards((prev) => {
+      prev.forEach((p) => {
+        try {
+          URL.revokeObjectURL(p.preview);
+        } catch {}
+      });
+      return [];
+    });
+    await idbClear();
+    await refreshMeta();
+    setOverlay(null);
+    toast.success("Cleared");
+  }, [refreshMeta]);
+
+  // ───────────────────────────────────────────────────────────────────────────
   // RENDER
-  // ──────────────────────────────────────────────────────────────────────────
-  const queuedCount = queueMeta.filter((m) => m.status === "queued").length
-  const processingCount = queueMeta.filter((m) => m.status === "processing").length
-  const errorCount = queueMeta.filter((m) => m.status === "error").length
+  // ───────────────────────────────────────────────────────────────────────────
 
   return (
-    <Card className="p-4 space-y-4">
-      {/* Camera Device Selector */}
-      <CameraDeviceSelector
-        devices={devices}
-        selectedDeviceId={selectedDeviceId}
-        onDeviceChange={setSelectedDeviceId}
-        onRefresh={refreshDevices}
-        isLoading={devicesLoading}
-      />
-
-      {/* Video */}
-      <div className="relative aspect-video bg-black rounded-lg overflow-hidden">
-        <video
-          ref={videoRef}
-          className={cn(
-            "w-full h-full object-cover transition-transform duration-150",
-            usingDigitalZoom && zoomLevel > 1 && `scale-[${zoomLevel}]`
-          )}
-          style={usingDigitalZoom && zoomLevel > 1 ? { transform: `scale(${zoomLevel})` } : undefined}
-          playsInline
-          muted
-          onClick={handleVideoTap}
-        />
-        {!cameraOn && (
-          <div className="absolute inset-0 flex items-center justify-center bg-muted/80">
-            <span className="text-muted-foreground">Camera Off</span>
+    <div className="space-y-4">
+      <Card className="p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary">Rapid Scan</Badge>
+            <span className="text-sm text-muted-foreground">Manual capture • buffered processing</span>
           </div>
-        )}
-        <canvas ref={canvasRef} className="hidden" />
 
-        {/* Zoom Controls Overlay */}
-        {cameraOn && zoomCapabilities.supported && (
-          <ZoomControls
-            zoomLevel={zoomLevel}
-            minZoom={zoomCapabilities.min}
-            maxZoom={zoomCapabilities.max}
-            supported={zoomCapabilities.supported}
-            onZoomIn={zoomIn}
-            onZoomOut={zoomOut}
-            onZoomChange={setZoom}
-            onReset={resetZoom}
-            variant="overlay"
-          />
-        )}
-      </div>
-
-      {/* Status */}
-      <div className="flex items-center justify-between">
-        <span className="text-sm text-muted-foreground">{statusLine}</span>
-        <div className="flex items-center gap-2">
-          {usingDigitalZoom && zoomLevel > 1 && (
-            <Badge variant="secondary" className="text-xs">Digital Zoom</Badge>
-          )}
-          <Badge variant="outline">Diff: {lastDiff.toFixed(1)}</Badge>
-        </div>
-      </div>
-
-      {/* Controls */}
-      <div className="flex flex-wrap gap-2">
-        {!cameraOn ? (
-          <Button onClick={startCamera} size="lg">
-            <Camera className="mr-2 h-5 w-5" />
-            Start Camera
-          </Button>
-        ) : (
-          <>
-            <Button 
-              size="lg" 
-              onClick={captureNow}
-              className="bg-primary hover:bg-primary/90"
-            >
-              <Aperture className="mr-2 h-5 w-5" />
-              Capture
-            </Button>
-            
-            <Button variant="destructive" onClick={stopCamera}>
-              <CameraOff className="mr-2 h-4 w-4" />
-              Stop
-            </Button>
-          </>
-        )}
-
-        {cameraOn && support.torch && (
-          <Button variant={torchOn ? "secondary" : "outline"} onClick={toggleTorch}>
-            {torchOn ? <Flashlight className="h-4 w-4" /> : <FlashlightOff className="h-4 w-4" />}
-          </Button>
-        )}
-
-        <Button variant="ghost" onClick={() => setPaused((p) => !p)}>
-          {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-        </Button>
-
-        <Button variant="ghost" onClick={handleClearQueue}>
-          <Trash2 className="h-4 w-4 mr-1" />
-          Clear
-        </Button>
-      </div>
-
-      {/* Toggle Row */}
-      <div className="flex items-center gap-4 flex-wrap">
-        <div className="flex items-center gap-2">
-          <Switch
-            id="auto-capture"
-            checked={prefs.autoCapture}
-            onCheckedChange={(v) => setPrefs((p) => ({ ...p, autoCapture: v }))}
-          />
-          <Label htmlFor="auto-capture" className="text-sm">Auto-capture</Label>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="hidden sm:inline-flex">
+              Buffer: {queueMeta.filter((q) => q.status === "queued" || q.status === "processing").length}/{QUEUE_MAX}
+            </Badge>
+            <Badge variant="outline">Total: ${totalValue.toFixed(2)}</Badge>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Switch
-            id="sound-enabled"
-            checked={prefs.soundEnabled}
-            onCheckedChange={(v) => setPrefs((p) => ({ ...p, soundEnabled: v }))}
-          />
-          <Label htmlFor="sound-enabled" className="text-sm flex items-center gap-1">
-            {prefs.soundEnabled ? <Volume2 className="h-3 w-3" /> : <VolumeX className="h-3 w-3" />}
-            Sound
-          </Label>
-        </div>
-      </div>
-
-      {/* Queue status */}
-      <div className="flex gap-2 text-sm flex-wrap">
-        <Badge>Queued: {queuedCount}</Badge>
-        <Badge variant="secondary">Processing: {processingCount}</Badge>
-        {errorCount > 0 && <Badge variant="destructive">Errors: {errorCount}</Badge>}
-      </div>
-
-      {/* Thumbs */}
-      {thumbs.length > 0 && (
-        <div className="flex gap-2 overflow-x-auto py-2">
-          {thumbs.map((t) => (
-            <img
-              key={t.id}
-              src={t.url}
-              alt="thumb"
-              className="h-16 w-auto rounded border object-cover"
+        <div className="mt-4 grid gap-3 md:grid-cols-[1fr_320px]">
+          {/* Camera preview */}
+          <div className="relative overflow-hidden rounded-xl border bg-black">
+            <video
+              ref={videoRef}
+              className={cn("h-[360px] w-full object-cover", support.focus && "cursor-crosshair")}
+              onClick={handleVideoTap}
+              playsInline
+              muted
             />
-          ))}
+            <canvas ref={canvasRef} className="hidden" />
+
+            {/* Overlay */}
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3">
+              <div className="flex items-end justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-xs text-white/80">{statusLine}</div>
+                  <div className="truncate text-sm font-semibold text-white">
+                    {overlay?.label ? overlay.label : ""}
+                  </div>
+                  {overlay?.value != null && (
+                    <div className="text-xs text-white/90">
+                      ${overlay.value.toFixed(2)}{" "}
+                      {overlay.isInLibrary ? `• In library ×${Math.max(overlay.libraryQuantity || 1, 1)}` : "• Not in library"}
+                    </div>
+                  )}
+                </div>
+
+                <div className="text-right text-xs text-white/80">
+                  {zoomCapabilities?.min != null && zoomCapabilities?.max != null && (
+                    <div>
+                      Zoom: {zoomLevel.toFixed(1)}×{usingDigitalZoom ? " (digital)" : ""}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Controls */}
+          <div className="space-y-3">
+            <div className="rounded-xl border p-3">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold">Camera</div>
+                <Button variant="outline" size="sm" onClick={refreshDevices}>
+                  Refresh
+                </Button>
+              </div>
+
+              <div className="mt-3 space-y-3">
+                <CameraDeviceSelector
+                  devices={devices}
+                  selectedDeviceId={selectedDeviceId}
+                  setSelectedDeviceId={setSelectedDeviceId}
+                  isLoading={devicesLoading}
+                />
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={cameraOn ? stopCamera : startCamera}
+                    variant={cameraOn ? "secondary" : "default"}
+                    className="w-full"
+                  >
+                    {cameraOn ? (
+                      <>
+                        <CameraOff className="mr-2 h-4 w-4" /> Stop
+                      </>
+                    ) : (
+                      <>
+                        <Camera className="mr-2 h-4 w-4" /> Start
+                      </>
+                    )}
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    onClick={toggleTorch}
+                    disabled={!cameraOn || !support.torch}
+                    title={support.torch ? "Toggle flash" : "Flash not supported"}
+                  >
+                    {torchOn ? <FlashlightOff className="h-4 w-4" /> : <Flashlight className="h-4 w-4" />}
+                  </Button>
+                </div>
+
+                <Button
+                  onClick={captureAndEnqueue}
+                  disabled={!cameraOn || busyCapture}
+                  className="w-full"
+                >
+                  {busyCapture ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
+                  Capture
+                </Button>
+
+                {/* Zoom */}
+                <ZoomControls
+                  zoomLevel={zoomLevel}
+                  zoomCapabilities={zoomCapabilities}
+                  onZoomIn={zoomIn}
+                  onZoomOut={zoomOut}
+                  onZoomChange={setZoom}
+                  onZoomReset={resetZoom}
+                />
+
+                <div className="flex items-center justify-between gap-2">
+                  <Button variant="outline" size="sm" onClick={clearAll} className="w-full">
+                    <Trash2 className="mr-2 h-4 w-4" /> Clear
+                  </Button>
+                </div>
+
+                <div className="text-xs text-muted-foreground">
+                  Tip: Tap the video to focus (if supported). Zoom in a bit for sharp text. Keep the card steady and fill the frame.
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border p-3">
+              <div className="text-sm font-semibold">Buffer status</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                Queued: {queueMeta.filter((q) => q.status === "queued").length} • Processing: {queueMeta.filter((q) => q.status === "processing").length}
+              </div>
+            </div>
+          </div>
         </div>
-      )}
-    </Card>
-  )
+      </Card>
+
+      {/* Scanned list */}
+      <ScannedCardList
+        cards={cards}
+        onCardUpdate={(id, updates) => updateCard(id, updates as any)}
+        onCardDelete={(id) => removeCard(id)}
+        scanMode={true}
+        onAddToLibrary={(id) => handleAddToLibrary(id)}
+      />
+    </div>
+  );
 }
