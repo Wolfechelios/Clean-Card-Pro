@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -107,32 +107,67 @@ export default function NewDashboard() {
   const [aiAdviceLoading, setAiAdviceLoading] = useState(false);
   const [allCards, setAllCards] = useState<CardType[]>([]);
 
+  // Dashboard refresh throttling (prevents crashes during rapid scanning)
+  const refreshTimerRef = useRef<number | null>(null);
+  const refreshInFlightRef = useRef(false);
+  const pendingRefreshRef = useRef(false);
+  const scannerActiveRef = useRef(scannerActive);
+
+  const triggerDashboardRefresh = useCallback(() => {
+    // If scanning is active, postpone refresh until scanning stops
+    if (scannerActiveRef.current) {
+      pendingRefreshRef.current = true;
+      return;
+    }
+
+    if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
+
+    // Debounce realtime-driven refreshes (rapid scans can emit many updates per second)
+    refreshTimerRef.current = window.setTimeout(async () => {
+      if (refreshInFlightRef.current) return;
+      refreshInFlightRef.current = true;
+      try {
+        await fetchDashboardData();
+      } finally {
+        refreshInFlightRef.current = false;
+      }
+    }, 2000);
+  }, [userId]);
+
+  useEffect(() => {
+    scannerActiveRef.current = scannerActive;
+    if (!scannerActive && pendingRefreshRef.current) {
+      pendingRefreshRef.current = false;
+      triggerDashboardRefresh();
+    }
+  }, [scannerActive, triggerDashboardRefresh]);
+
   useEffect(() => {
     if (authLoading) return;
-    
-    fetchDashboardData();
 
-    // Set up real-time subscription for card changes
+    triggerDashboardRefresh();
+
+    // Real-time subscription for card changes (throttled)
     const channel = supabase
-      .channel('dashboard-cards-changes')
+      .channel("dashboard-cards-changes")
       .on(
-        'postgres_changes',
+        "postgres_changes",
         {
-          event: '*',
-          schema: 'public',
-          table: 'cards'
+          event: "*",
+          schema: "public",
+          table: "cards",
         },
-        (payload) => {
-          console.log('Dashboard card change detected:', payload);
-          fetchDashboardData();
+        () => {
+          triggerDashboardRefresh();
         }
       )
       .subscribe();
 
     return () => {
+      if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
       supabase.removeChannel(channel);
     };
-  }, [authLoading, userId]);
+  }, [authLoading, userId, triggerDashboardRefresh]);
 
   const fetchDashboardData = async () => {
     if (!userId) {
