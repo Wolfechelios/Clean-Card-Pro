@@ -47,6 +47,7 @@ import { useCameraZoom } from "@/hooks/use-camera-zoom";
 import { ZoomControls } from "./ZoomControls";
 import { ScannedCardList } from "./ScannedCardList";
 import { useNativeCamera } from "@/hooks/use-native-camera";
+import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TUNING
@@ -212,6 +213,9 @@ export default function RapidScanCamera() {
 
       setCameraOn(true);
       setStatusLine("Camera live — tap Capture for each card");
+      
+      // Signal scanner active to pause expensive renders elsewhere
+      useGlobalProcessControl.getState().setScannerActive(true);
 
       // Zoom capabilities
       detectZoomCapabilities();
@@ -235,6 +239,9 @@ export default function RapidScanCamera() {
     trackRef.current = null;
     setCameraOn(false);
     setStatusLine("Camera stopped");
+    
+    // Signal scanner inactive
+    useGlobalProcessControl.getState().setScannerActive(false);
   }
 
   const handleVideoTap = useCallback(
