@@ -43,11 +43,10 @@ import {
   type QueueItemMeta,
 } from "@/lib/idbQueue";
 import { withRetry } from "@/lib/retry";
-import { useCameraDevices } from "@/hooks/use-camera-devices";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
-import { CameraDeviceSelector } from "./CameraDeviceSelector";
 import { ZoomControls } from "./ZoomControls";
 import { ScannedCardList } from "./ScannedCardList";
+import { useNativeCamera } from "@/hooks/use-native-camera";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TUNING
@@ -115,9 +114,8 @@ export default function RapidScanCamera() {
   // Auth/user
   const [userId, setUserId] = useState<string | null>(null);
 
-  // Devices
-  const { devices, selectedDeviceId, setSelectedDeviceId, isLoading: devicesLoading, refreshDevices } =
-    useCameraDevices();
+  // Native camera for rapid scan
+  const { isNative, takePhoto } = useNativeCamera();
 
   // Zoom
   const {
@@ -163,13 +161,6 @@ export default function RapidScanCamera() {
     refreshMeta();
   }, [refreshMeta]);
 
-  // Restart camera when device changes
-  useEffect(() => {
-    if (cameraOn && selectedDeviceId) {
-      stopCamera().then(() => startCamera());
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDeviceId]);
 
   // ───────────────────────────────────────────────────────────────────────────
   // HELPERS: STATE UPDATE
@@ -205,9 +196,7 @@ export default function RapidScanCamera() {
 
     try {
       const constraints: MediaStreamConstraints = {
-        video: selectedDeviceId
-          ? { deviceId: { exact: selectedDeviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
-          : { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
+        video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: false,
       };
 
@@ -267,8 +256,67 @@ export default function RapidScanCamera() {
   }
 
   // ───────────────────────────────────────────────────────────────────────────
-  // CAPTURE (MANUAL)
+  // NATIVE CAMERA CAPTURE
   // ───────────────────────────────────────────────────────────────────────────
+
+  async function captureWithNativeCamera() {
+    if (busyCapture) return;
+    setBusyCapture(true);
+
+    try {
+      const current = await idbCount();
+      if (current >= QUEUE_MAX) {
+        toast.error(`Buffer full (${QUEUE_MAX}). Let it process or clear.`);
+        setBusyCapture(false);
+        return;
+      }
+
+      const result = await takePhoto();
+      if (!result) {
+        toast.error("Native camera not available");
+        setBusyCapture(false);
+        return;
+      }
+
+      const id = safeUUID();
+      const localUrl = URL.createObjectURL(result.blob);
+
+      setCards((prev) => [
+        {
+          id,
+          preview: localUrl,
+          status: "queued",
+          priceFetching: true,
+          isInLibrary: false,
+          libraryQuantity: 0,
+        },
+        ...prev,
+      ]);
+
+      await idbAdd({
+        id,
+        createdAt: Date.now(),
+        status: "queued",
+        blob: result.blob,
+        mime: result.blob.type || "image/jpeg",
+        filename: "card.jpg",
+      });
+
+      setStatusLine("Captured — processing in background");
+      setOverlay({ label: "Captured…" });
+
+      await refreshMeta();
+      ensureWorkersRunning();
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message ?? "Native capture failed");
+    } finally {
+      setBusyCapture(false);
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // WEB CAMERA CAPTURE (MANUAL)
 
   async function captureAndEnqueue() {
     if (!cameraOn) return;
@@ -642,28 +690,20 @@ export default function RapidScanCamera() {
           {/* Controls */}
           <div className="space-y-3">
             <div className="rounded-xl border p-3">
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-semibold">Camera</div>
-                <Button variant="outline" size="sm" onClick={refreshDevices}>
-                  Refresh
-                </Button>
-              </div>
+              <div className="text-sm font-semibold mb-3">Camera</div>
 
-              <div className="mt-3 space-y-3">
-                <CameraDeviceSelector
-                  devices={devices}
-                  selectedDeviceId={selectedDeviceId}
-                  setSelectedDeviceId={setSelectedDeviceId}
-                  isLoading={devicesLoading}
-                />
-
+              <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <Button
-                    onClick={cameraOn ? stopCamera : startCamera}
+                    onClick={isNative ? captureWithNativeCamera : (cameraOn ? stopCamera : startCamera)}
                     variant={cameraOn ? "secondary" : "default"}
                     className="w-full"
                   >
-                    {cameraOn ? (
+                    {isNative ? (
+                      <>
+                        <Camera className="mr-2 h-4 w-4" /> Capture with Native Camera
+                      </>
+                    ) : cameraOn ? (
                       <>
                         <CameraOff className="mr-2 h-4 w-4" /> Stop
                       </>
@@ -674,34 +714,42 @@ export default function RapidScanCamera() {
                     )}
                   </Button>
 
-                  <Button
-                    variant="outline"
-                    onClick={toggleTorch}
-                    disabled={!cameraOn || !support.torch}
-                    title={support.torch ? "Toggle flash" : "Flash not supported"}
-                  >
-                    {torchOn ? <FlashlightOff className="h-4 w-4" /> : <Flashlight className="h-4 w-4" />}
-                  </Button>
+                  {!isNative && (
+                    <Button
+                      variant="outline"
+                      onClick={toggleTorch}
+                      disabled={!cameraOn || !support.torch}
+                      title={support.torch ? "Toggle flash" : "Flash not supported"}
+                    >
+                      {torchOn ? <FlashlightOff className="h-4 w-4" /> : <Flashlight className="h-4 w-4" />}
+                    </Button>
+                  )}
                 </div>
 
-                <Button
-                  onClick={captureAndEnqueue}
-                  disabled={!cameraOn || busyCapture}
-                  className="w-full"
-                >
-                  {busyCapture ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
-                  Capture
-                </Button>
+                {!isNative && cameraOn && (
+                  <Button
+                    onClick={captureAndEnqueue}
+                    disabled={!cameraOn || busyCapture}
+                    className="w-full"
+                  >
+                    {busyCapture ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
+                    Capture
+                  </Button>
+                )}
 
-                {/* Zoom */}
-                <ZoomControls
-                  zoomLevel={zoomLevel}
-                  zoomCapabilities={zoomCapabilities}
-                  onZoomIn={zoomIn}
-                  onZoomOut={zoomOut}
-                  onZoomChange={setZoom}
-                  onZoomReset={resetZoom}
-                />
+                {/* Zoom - only for web camera */}
+                {!isNative && (
+                  <ZoomControls
+                    zoomLevel={zoomLevel}
+                    minZoom={zoomCapabilities.min}
+                    maxZoom={zoomCapabilities.max}
+                    supported={zoomCapabilities.supported}
+                    onZoomIn={zoomIn}
+                    onZoomOut={zoomOut}
+                    onZoomChange={setZoom}
+                    onReset={resetZoom}
+                  />
+                )}
 
                 <div className="flex items-center justify-between gap-2">
                   <Button variant="outline" size="sm" onClick={clearAll} className="w-full">
@@ -710,7 +758,9 @@ export default function RapidScanCamera() {
                 </div>
 
                 <div className="text-xs text-muted-foreground">
-                  Tip: Tap the video to focus (if supported). Zoom in a bit for sharp text. Keep the card steady and fill the frame.
+                  {isNative 
+                    ? "Tap capture to use your device's native camera for best quality." 
+                    : "Tip: Tap the video to focus (if supported). Zoom in a bit for sharp text. Keep the card steady and fill the frame."}
                 </div>
               </div>
             </div>
