@@ -13,7 +13,7 @@ import { toast } from "sonner";
 interface ScannedCard {
   id: string;
   preview: string;
-  status: 'queued' | 'uploading' | 'processing' | 'completed' | 'error';
+  status: "queued" | "uploading" | "processing" | "completed" | "error";
   cardName?: string;
   cardSet?: string;
   cardNumber?: string;
@@ -38,7 +38,7 @@ interface ScannedCardListProps {
 
 const RARITY_OPTIONS = [
   "Common",
-  "Uncommon", 
+  "Uncommon",
   "Rare",
   "Super Rare",
   "Ultra Rare",
@@ -52,7 +52,17 @@ const RARITY_OPTIONS = [
   "Reverse Holo",
 ];
 
-export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete, scanMode, onAddToLibrary }: ScannedCardListProps) => {
+// ✅ Preview sizing (change these if you want even bigger/smaller)
+const LIST_THUMB_CLASS = "w-16 h-24 object-cover rounded"; // was w-12 h-16
+const EDIT_PREVIEW_CLASS = "w-40 h-56 object-cover rounded-lg border"; // was w-24 h-32
+
+export const ScannedCardList = ({
+  cards,
+  onCardUpdate,
+  onCardDelete,
+  scanMode,
+  onAddToLibrary,
+}: ScannedCardListProps) => {
   const [editingCard, setEditingCard] = useState<ScannedCard | null>(null);
   const [editForm, setEditForm] = useState({
     cardName: "",
@@ -65,9 +75,9 @@ export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete, scanMode, o
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [addingId, setAddingId] = useState<string | null>(null);
 
-  const completedCards = cards.filter(c => c.status === 'completed');
+  const completedCards = cards.filter((c) => c.status === "completed");
   const totalValue = completedCards.reduce((sum, c) => sum + (c.value || 0), 0);
-  const newCardsCount = scanMode ? completedCards.filter(c => !c.dbId).length : 0;
+  const newCardsCount = scanMode ? completedCards.filter((c) => !c.dbId).length : 0;
 
   const openEditDialog = (card: ScannedCard) => {
     setEditingCard(card);
@@ -82,24 +92,20 @@ export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete, scanMode, o
 
   const handleDelete = async (card: ScannedCard) => {
     if (!onCardDelete) return;
-    
+
     setDeletingId(card.id);
     try {
       // If we have a database ID, delete from database
       if (card.dbId) {
-        const { error } = await supabase
-          .from('cards')
-          .delete()
-          .eq('id', card.dbId);
-
+        const { error } = await supabase.from("cards").delete().eq("id", card.dbId);
         if (error) throw error;
       }
 
       onCardDelete(card.id);
-      toast.success('Card deleted');
+      toast.success("Card deleted");
     } catch (error: any) {
-      console.error('Failed to delete card:', error);
-      toast.error('Failed to delete card');
+      console.error("Failed to delete card:", error);
+      toast.error("Failed to delete card");
     } finally {
       setDeletingId(null);
     }
@@ -107,7 +113,7 @@ export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete, scanMode, o
 
   const handleSave = async () => {
     if (!editingCard) return;
-    
+
     setIsSaving(true);
     try {
       // Update local state
@@ -122,7 +128,7 @@ export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete, scanMode, o
       // If we have a database ID, update the database too
       if (editingCard.dbId) {
         const { error } = await supabase
-          .from('cards')
+          .from("cards")
           .update({
             card_name: editForm.cardName,
             card_set: editForm.cardSet,
@@ -130,16 +136,16 @@ export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete, scanMode, o
             rarity: editForm.rarity,
             suggested_price: editForm.value ? parseFloat(editForm.value) : null,
           })
-          .eq('id', editingCard.dbId);
+          .eq("id", editingCard.dbId);
 
         if (error) throw error;
       }
 
-      toast.success('Card updated successfully');
+      toast.success("Card updated successfully");
       setEditingCard(null);
     } catch (error: any) {
-      console.error('Failed to update card:', error);
-      toast.error('Failed to save changes');
+      console.error("Failed to update card:", error);
+      toast.error("Failed to save changes");
     } finally {
       setIsSaving(false);
     }
@@ -155,25 +161,27 @@ export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete, scanMode, o
             <div className="flex items-center gap-2">
               <CardTitle className="text-lg">Scanned Cards ({completedCards.length})</CardTitle>
               {scanMode && newCardsCount > 0 && (
-                <Badge variant="outline" className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border-amber-300">
+                <Badge
+                  variant="outline"
+                  className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border-amber-300"
+                >
                   {newCardsCount} New
                 </Badge>
               )}
             </div>
             <div className="flex items-center gap-2">
               <DollarSign className="h-5 w-5 text-green-600" />
-              <span className="text-xl font-bold text-green-600">
-                ${totalValue.toFixed(2)}
-              </span>
+              <span className="text-xl font-bold text-green-600">${totalValue.toFixed(2)}</span>
             </div>
           </div>
         </CardHeader>
+
         <CardContent className="space-y-3">
           {completedCards.map((card) => (
             <div
               key={card.id}
               className={`flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors ${
-                scanMode && !card.dbId ? 'border-amber-400 dark:border-amber-600' : ''
+                scanMode && !card.dbId ? "border-amber-400 dark:border-amber-600" : ""
               }`}
             >
               {/* Card image with quantity badge */}
@@ -181,14 +189,16 @@ export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete, scanMode, o
                 <img
                   src={card.preview}
                   alt={card.cardName || "Scanned card"}
-                  className="w-12 h-16 object-cover rounded"
+                  className={LIST_THUMB_CLASS}
                 />
+
                 {/* Library quantity badge */}
                 {card.libraryQuantity !== undefined && card.libraryQuantity > 0 && (
                   <div className="absolute -top-1 -right-1 bg-blue-600 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1">
                     ×{card.libraryQuantity}
                   </div>
                 )}
+
                 {/* New card indicator */}
                 {scanMode && !card.dbId && card.libraryQuantity === 0 && (
                   <div className="absolute -top-1 -right-1 bg-amber-500 text-white text-[8px] font-bold rounded px-1">
@@ -196,10 +206,10 @@ export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete, scanMode, o
                   </div>
                 )}
               </div>
+
               <div className="flex-1 min-w-0 space-y-1">
-                <p className="font-medium text-sm truncate">
-                  {card.cardName || "Unknown Card"}
-                </p>
+                <p className="font-medium text-sm truncate">{card.cardName || "Unknown Card"}</p>
+
                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   {card.cardSet && (
                     <span className="flex items-center gap-1">
@@ -214,6 +224,7 @@ export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete, scanMode, o
                     </span>
                   )}
                 </div>
+
                 {card.rarity && (
                   <Badge variant="secondary" className="text-[10px]">
                     <Sparkles className="h-2.5 w-2.5 mr-1" />
@@ -221,6 +232,7 @@ export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete, scanMode, o
                   </Badge>
                 )}
               </div>
+
               <div className="text-right">
                 {card.priceFetching ? (
                   <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -232,6 +244,7 @@ export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete, scanMode, o
                   <p className="text-xs text-muted-foreground">No price</p>
                 )}
               </div>
+
               <div className="flex items-center gap-1 shrink-0">
                 {/* Add to Library button for scan mode */}
                 {scanMode && !card.dbId && onAddToLibrary && (
@@ -246,28 +259,26 @@ export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete, scanMode, o
                     disabled={addingId === card.id || card.priceFetching}
                     className="text-xs h-7 px-2 gap-1 border-amber-400 text-amber-700 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-300"
                   >
-                    {addingId === card.id ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <Plus className="h-3 w-3" />
-                    )}
+                    {addingId === card.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
                     Add
                   </Button>
                 )}
+
                 {/* Already in library indicator */}
                 {scanMode && card.dbId && (
-                  <Badge variant="secondary" className="text-[10px] bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
+                  <Badge
+                    variant="secondary"
+                    className="text-[10px] bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                  >
                     <Library className="h-2.5 w-2.5 mr-1" />
                     Added
                   </Badge>
                 )}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => openEditDialog(card)}
-                >
+
+                <Button variant="ghost" size="icon" onClick={() => openEditDialog(card)}>
                   <Edit2 className="h-4 w-4" />
                 </Button>
+
                 {onCardDelete && (
                   <Button
                     variant="ghost"
@@ -276,11 +287,7 @@ export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete, scanMode, o
                     disabled={deletingId === card.id}
                     className="text-destructive hover:text-destructive hover:bg-destructive/10"
                   >
-                    {deletingId === card.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-4 w-4" />
-                    )}
+                    {deletingId === card.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
                   </Button>
                 )}
               </div>
@@ -290,45 +297,46 @@ export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete, scanMode, o
       </Card>
 
       <Dialog open={!!editingCard} onOpenChange={(open) => !open && setEditingCard(null)}>
-        <DialogContent className="sm:max-w-md">
+        {/* widened from sm:max-w-md */}
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Edit Card Details</DialogTitle>
           </DialogHeader>
+
           <div className="space-y-4 py-4">
             {editingCard && (
               <div className="flex justify-center mb-4">
-                <img
-                  src={editingCard.preview}
-                  alt="Card preview"
-                  className="w-24 h-32 object-cover rounded-lg border"
-                />
+                <img src={editingCard.preview} alt="Card preview" className={EDIT_PREVIEW_CLASS} />
               </div>
             )}
+
             <div className="space-y-2">
               <Label htmlFor="cardName">Card Name</Label>
               <Input
                 id="cardName"
                 value={editForm.cardName}
-                onChange={(e) => setEditForm(prev => ({ ...prev, cardName: e.target.value }))}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, cardName: e.target.value }))}
                 placeholder="Enter card name"
               />
             </div>
+
             <div className="space-y-2">
               <Label htmlFor="cardSet">Set</Label>
               <Input
                 id="cardSet"
                 value={editForm.cardSet}
-                onChange={(e) => setEditForm(prev => ({ ...prev, cardSet: e.target.value }))}
+                onChange={(e) => setEditForm((prev) => ({ ...prev, cardSet: e.target.value }))}
                 placeholder="Enter card set"
               />
             </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="cardNumber">Card Number</Label>
                 <Input
                   id="cardNumber"
                   value={editForm.cardNumber}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, cardNumber: e.target.value }))}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, cardNumber: e.target.value }))}
                   placeholder="e.g. MRL-051"
                 />
               </div>
@@ -339,17 +347,15 @@ export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete, scanMode, o
                   type="number"
                   step="0.01"
                   value={editForm.value}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, value: e.target.value }))}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, value: e.target.value }))}
                   placeholder="0.00"
                 />
               </div>
             </div>
+
             <div className="space-y-2">
               <Label htmlFor="rarity">Rarity</Label>
-              <Select
-                value={editForm.rarity}
-                onValueChange={(value) => setEditForm(prev => ({ ...prev, rarity: value }))}
-              >
+              <Select value={editForm.rarity} onValueChange={(value) => setEditForm((prev) => ({ ...prev, rarity: value }))}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select rarity" />
                 </SelectTrigger>
@@ -363,6 +369,7 @@ export const ScannedCardList = ({ cards, onCardUpdate, onCardDelete, scanMode, o
               </Select>
             </div>
           </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingCard(null)}>
               Cancel
