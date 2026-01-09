@@ -54,7 +54,7 @@ import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 // ─────────────────────────────────────────────────────────────────────────────
 
 const QUEUE_MAX = 100; // buffer size (shots you can take while processing)
-const WORKER_THREADS = 3; // concurrent processing threads
+const WORKER_THREADS = 2; // reduced from 3 to prevent rate limit avalanche
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
 
 type ScannedCard = {
@@ -451,7 +451,7 @@ export default function RapidScanCamera() {
 
         updateCard(next.id, { imageUrl });
 
-        // Identify (fast)
+        // Identify (fast) - edge function has its own retries, so minimal client retries
         const identify = await withRetry(
           async () => {
             const res = await supabase.functions.invoke("rapid-card-identify", { body: { imageUrl } });
@@ -460,10 +460,10 @@ export default function RapidScanCamera() {
             return res.data.cardData as any;
           },
           {
-            retries: 5,
-            baseMs: 600,
-            maxMs: 8000,
-            shouldRetry: (e) => /429|rate limit|timeout|network|502|503|504/i.test(String(e?.message ?? e)),
+            retries: 2, // Reduced - edge function already has 5 retries
+            baseMs: 2000, // Longer delay between client retries
+            maxMs: 10000,
+            shouldRetry: (e) => /timeout|network|502|503|504/i.test(String(e?.message ?? e)), // Don't retry 429 here - let edge function handle it
           }
         );
 
@@ -555,7 +555,7 @@ export default function RapidScanCamera() {
         await refreshMeta();
       }
 
-      await sleep(120);
+      await sleep(300); // Increased delay between jobs to reduce rate limit pressure
     }
   }
 
