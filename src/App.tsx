@@ -26,6 +26,7 @@ const CardPriceHubPage = lazy(() => import("./pages/CardPriceHubPage"));
 const ImageBackfillPage = lazy(() => import("./pages/ImageBackfillPage"));
 const ImportCleanerPage = lazy(() => import("./pages/ImportCleanerPage"));
 const HelpPage = lazy(() => import("./pages/HelpPage"));
+const SellAssistPage = lazy(() => import("./pages/SellAssistPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient({
@@ -75,6 +76,7 @@ function AppRoutes() {
         <Route path="/graded" element={session ? <Authed><GradedScanPage /></Authed> : <Navigate to="/auth" />} />
         <Route path="/visual-search" element={session ? <Authed><VisualSearchPage /></Authed> : <Navigate to="/auth" />} />
         <Route path="/price-hub" element={session ? <Authed><CardPriceHubPage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/sell-assist" element={session ? <Authed><SellAssistPage /></Authed> : <Navigate to="/auth" />} />
         <Route path="/image-backfill" element={session ? <Authed><ImageBackfillPage /></Authed> : <Navigate to="/auth" />} />
         <Route path="/import-cleaner" element={session ? <Authed><ImportCleanerPage /></Authed> : <Navigate to="/auth" />} />
         <Route path="/help" element={session ? <Authed><HelpPage /></Authed> : <Navigate to="/auth" />} />

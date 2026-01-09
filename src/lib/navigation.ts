@@ -7,6 +7,7 @@ import {
   Search,
   DollarSign,
   Brain,
+  Megaphone,
   Lightbulb,
   Activity,
   Settings,
@@ -47,6 +48,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { icon: Search, label: "Visual Search", path: "/visual-search", keywords: ["image"] },
       { icon: DollarSign, label: "Price Hub", path: "/price-hub", keywords: ["prices", "alerts"] },
       { icon: Brain, label: "Predictor", path: "/predictions", keywords: ["forecast", "value"] },
+      { icon: Megaphone, label: "Sell Assist", path: "/sell-assist", keywords: ["listing", "ebay", "tcgplayer", "whatnot", "market"] },
     ],
   },
   {

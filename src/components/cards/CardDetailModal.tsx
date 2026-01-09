@@ -30,7 +30,8 @@ import { GradedPriceChip } from "@/components/pricing/GradedPriceChip";
 import { TCGPlayerPriceChip } from "@/components/pricing/TCGPlayerPriceChip";
 import { CardImageActions } from "@/components/collections/CardImageActions";
 import { toast } from "sonner";
-import { Pencil, Trash2, X, Save, Search, ImageIcon, CheckCircle2, XCircle, Box, Image } from "lucide-react";
+import { Pencil, Trash2, X, Save, Search, ImageIcon, CheckCircle2, XCircle, Box, Image, Sparkles } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 export interface CardData {
   id: string;
@@ -73,6 +74,7 @@ export function CardDetailModal({
   onUpdate,
   onDelete,
 }: CardDetailModalProps) {
+  const navigate = useNavigate();
   const [isEditing, setIsEditing] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -720,6 +722,18 @@ export function CardDetailModal({
                 <Button variant="outline" onClick={() => setIsEditing(true)}>
                   <Pencil className="h-4 w-4 mr-2" />
                   Edit
+                </Button>
+                <Button
+                  variant="default"
+                  onClick={() => {
+                    if (!card) return;
+                    onOpenChange(false);
+                    navigate(`/sell-assist?cardId=${card.id}`, { state: { card } });
+                  }}
+                  className="gap-2"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Sell Assist
                 </Button>
                 <Button variant="secondary" onClick={() => onOpenChange(false)}>
                   Close
