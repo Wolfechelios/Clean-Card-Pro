@@ -831,107 +831,48 @@ export default function NewDashboard() {
         </CardContent>
       </Card>
 
-      {/* Charts Row - paused when scanner is active to prevent UI freezing */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <Card className="hover-lift">
-          <CardHeader>
-            <CardTitle className="text-base">Value Over Time</CardTitle>
-            {scannerActive && (
-              <p className="text-xs text-muted-foreground">Charts paused while scanning...</p>
-            )}
-          </CardHeader>
-          <CardContent>
-            {scannerActive ? (
-              <div className="flex items-center justify-center h-[260px] text-muted-foreground">
-                <Activity className="h-6 w-6 animate-pulse mr-2" />
-                Scanner active - charts paused
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={260}>
-                <LineChart data={valueOverTime}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.5} />
-                  <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} />
-                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "hsl(var(--popover))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: "8px",
-                      boxShadow: "var(--shadow-lg)",
-                    }}
-                    labelStyle={{ color: "hsl(var(--foreground))" }}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="value" 
-                    stroke="hsl(173, 80%, 50%)" 
-                    strokeWidth={2.5}
-                    dot={{ fill: "hsl(173, 80%, 50%)", strokeWidth: 0, r: 4 }}
-                    activeDot={{ r: 6, fill: "hsl(173, 80%, 50%)", stroke: "hsl(var(--background))", strokeWidth: 2 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="hover-lift">
-          <CardHeader>
-            <CardTitle className="text-base">Rarity Distribution</CardTitle>
-            {scannerActive ? (
-              <p className="text-xs text-muted-foreground">Charts paused while scanning...</p>
-            ) : (
-              <p className="text-xs text-muted-foreground">Click a segment to view cards</p>
-            )}
-          </CardHeader>
-          <CardContent>
-            {scannerActive ? (
-              <div className="flex items-center justify-center h-[260px] text-muted-foreground">
-                <Activity className="h-6 w-6 animate-pulse mr-2" />
-                Scanner active - charts paused
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height={260}>
-                <PieChart>
-                  <Pie
-                    data={rarityData}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                    outerRadius={90}
-                    innerRadius={45}
-                    fill="#8884d8"
-                    dataKey="value"
-                    onClick={(data) => {
-                      if (data && data.name) {
-                        navigate(`/collections?rarity=${encodeURIComponent(data.name)}`);
-                      }
-                    }}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    {rarityData.map((entry, index) => (
-                      <Cell 
-                        key={`cell-${index}`} 
-                        fill={COLORS[index % COLORS.length]}
-                        className="hover:opacity-80 transition-opacity"
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "hsl(var(--popover))",
-                      border: "1px solid hsl(var(--border))",
-                      borderRadius: "8px",
-                      boxShadow: "var(--shadow-lg)",
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      {/* Value Over Time Chart */}
+      <Card className="hover-lift">
+        <CardHeader>
+          <CardTitle className="text-base">Value Over Time</CardTitle>
+          {scannerActive && (
+            <p className="text-xs text-muted-foreground">Charts paused while scanning...</p>
+          )}
+        </CardHeader>
+        <CardContent>
+          {scannerActive ? (
+            <div className="flex items-center justify-center h-[260px] text-muted-foreground">
+              <Activity className="h-6 w-6 animate-pulse mr-2" />
+              Scanner active - charts paused
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={260}>
+              <LineChart data={valueOverTime}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.5} />
+                <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} />
+                <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "hsl(var(--popover))",
+                    border: "1px solid hsl(var(--border))",
+                    borderRadius: "8px",
+                    boxShadow: "var(--shadow-lg)",
+                  }}
+                  labelStyle={{ color: "hsl(var(--foreground))" }}
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="value" 
+                  stroke="hsl(173, 80%, 50%)" 
+                  strokeWidth={2.5}
+                  dot={{ fill: "hsl(173, 80%, 50%)", strokeWidth: 0, r: 4 }}
+                  activeDot={{ r: 6, fill: "hsl(173, 80%, 50%)", stroke: "hsl(var(--background))", strokeWidth: 2 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
 
       {/* AI Collection Advisor */}
       <Card className="hover-lift border-primary/20 bg-gradient-to-br from-primary/5 to-accent/5">
