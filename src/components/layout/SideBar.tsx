@@ -160,7 +160,7 @@ export function SideBar() {
       >
         {/* Logo */}
         <div className="p-4 border-b border-sidebar-border">
-          <div className={"flex items-center gap-2.5 " + (collapsed ? "justify-center" : "")}">
+          <div className={"flex items-center gap-2.5 " + (collapsed ? "justify-center" : "")}>
             <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-glow">
               <Sparkles className="h-5 w-5 text-primary-foreground" />
             </div>
