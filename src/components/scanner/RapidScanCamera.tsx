@@ -758,9 +758,20 @@ export default function RapidScanCamera() {
                   />
                 )}
 
-                <div className="flex items-center justify-between gap-2">
-                  <Button variant="outline" size="sm" onClick={clearAll} className="w-full">
-                    <Trash2 className="mr-2 h-4 w-4" /> Clear
+                {/* Spacer to separate destructive actions */}
+                <div className="pt-4 mt-4 border-t border-destructive/20">
+                  <div className="text-xs text-destructive/70 mb-2">Danger Zone</div>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => {
+                      if (window.confirm("Clear all queued cards? This cannot be undone.")) {
+                        clearAll();
+                      }
+                    }} 
+                    className="w-full border-destructive/50 text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" /> Clear All
                   </Button>
                 </div>
 
