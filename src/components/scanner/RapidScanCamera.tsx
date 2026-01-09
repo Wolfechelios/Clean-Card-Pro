@@ -53,8 +53,8 @@ import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 // TUNING
 // ─────────────────────────────────────────────────────────────────────────────
 
-const QUEUE_MAX = 40; // buffer size (shots you can take while processing)
-const WORKER_THREADS = 2;
+const QUEUE_MAX = 100; // buffer size (shots you can take while processing)
+const WORKER_THREADS = 3; // concurrent processing threads
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
 
 type ScannedCard = {
