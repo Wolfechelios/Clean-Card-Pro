@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
 import { ZoomControls } from "@/components/scanner/ZoomControls";
 import { getMaxQualityStream, captureMaxQualityPhoto, applyFastAutofocus } from "@/lib/camera-optimizations";
+import { withRetry } from "@/lib/retry";
 
 interface BinderScanProps {
   binderName: string;
@@ -42,25 +43,35 @@ interface ProcessingCard {
   cardName?: string;
 }
 
-// Use rapid-card-identify for faster OCR (same as rapid scan)
+// Use rapid-card-identify for faster OCR with retry logic for rate limits
 async function rapidCardIdentify(imageUrl: string) {
-  const { data, error } = await supabase.functions.invoke('rapid-card-identify', {
-    body: { imageUrl }
-  });
-  
-  if (error) throw error;
-  if (!data?.success) throw new Error(data?.error || 'Card identification failed');
-  
-  return {
-    card_name: data.cardName || 'Unknown Card',
-    card_set: data.setName || null,
-    card_number: data.cardNumber || null,
-    rarity: data.rarity || null,
-    edition: null,
-    game_type: data.gameType || null,
-    sport_type: data.sportType || null,
-    confidence: data.confidence || 0.5
-  };
+  return withRetry(
+    async () => {
+      const { data, error } = await supabase.functions.invoke('rapid-card-identify', {
+        body: { imageUrl }
+      });
+      
+      if (error) throw error;
+      if (!data?.success) throw new Error(data?.error || 'Card identification failed');
+      
+      return {
+        card_name: data.cardData?.card_name || data.cardName || 'Unknown Card',
+        card_set: data.cardData?.card_set || data.setName || null,
+        card_number: data.cardData?.card_number || data.cardNumber || null,
+        rarity: data.cardData?.rarity || data.rarity || null,
+        edition: null,
+        game_type: data.cardData?.game_type || data.gameType || null,
+        sport_type: data.cardData?.sport_type || data.sportType || null,
+        confidence: data.cardData?.confidence || data.confidence || 0.5
+      };
+    },
+    {
+      retries: 5,
+      baseMs: 800,
+      maxMs: 10000,
+      shouldRetry: (e) => /429|rate limit|timeout|network|502|503|504/i.test(String(e?.message ?? e)),
+    }
+  );
 }
 
 export function BinderScan({ binderName, onComplete }: BinderScanProps) {
