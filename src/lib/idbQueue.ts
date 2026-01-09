@@ -120,30 +120,46 @@ export async function idbListMeta(limit = 500): Promise<QueueItemMeta[]> {
 
 /**
  * Get the next queued item FIFO (oldest first).
+ * Also picks up stuck "processing" items older than 30s (orphaned from crashes).
  * Returns full item (includes blob).
  */
 export async function idbGetNextQueued(): Promise<QueueItem | null> {
   const db = await openDB()
+  const STUCK_THRESHOLD_MS = 30_000 // 30 seconds
 
   const next = await new Promise<QueueItem | null>((resolve, reject) => {
     const t = db.transaction(STORE, "readonly")
     const store = t.objectStore(STORE)
     const idx = store.index("status_createdAt")
 
-    // Status is first key part, createdAt second.
-    // We want the earliest createdAt among "queued".
-    const range = IDBKeyRange.bound(["queued", 0], ["queued", Number.MAX_SAFE_INTEGER])
-    const req = idx.openCursor(range, "next")
+    // First try "queued" items (oldest first)
+    const queuedRange = IDBKeyRange.bound(["queued", 0], ["queued", Number.MAX_SAFE_INTEGER])
+    const queuedReq = idx.openCursor(queuedRange, "next")
 
-    req.onsuccess = () => {
-      const cursor = req.result as IDBCursorWithValue | null
-      if (!cursor) {
-        resolve(null)
+    queuedReq.onsuccess = () => {
+      const cursor = queuedReq.result as IDBCursorWithValue | null
+      if (cursor) {
+        resolve(cursor.value as QueueItem)
         return
       }
-      resolve(cursor.value as QueueItem)
+
+      // No queued items - check for stuck "processing" items
+      const stuckCutoff = Date.now() - STUCK_THRESHOLD_MS
+      const processingRange = IDBKeyRange.bound(["processing", 0], ["processing", stuckCutoff])
+      const processingReq = idx.openCursor(processingRange, "next")
+
+      processingReq.onsuccess = () => {
+        const pCursor = processingReq.result as IDBCursorWithValue | null
+        if (pCursor) {
+          // Found a stuck item - reset it to queued
+          resolve(pCursor.value as QueueItem)
+        } else {
+          resolve(null)
+        }
+      }
+      processingReq.onerror = () => reject(processingReq.error)
     }
-    req.onerror = () => reject(req.error)
+    queuedReq.onerror = () => reject(queuedReq.error)
 
     t.oncomplete = () => {}
     t.onerror = () => reject(t.error)
