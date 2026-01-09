@@ -5,7 +5,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Optimized for speed - uses faster model and shorter prompt with built-in retry
+// Uses user's own Gemini API key for unlimited scanning (no Lovable AI rate limits)
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -18,14 +18,19 @@ serve(async (req) => {
       throw new Error('imageUrl is required');
     }
 
+    // Prefer user's own Gemini key, fallback to Lovable AI
+    const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY is not configured');
+    
+    const useGeminiDirect = !!GEMINI_API_KEY;
+    
+    if (!GEMINI_API_KEY && !LOVABLE_API_KEY) {
+      throw new Error('No API key configured (GEMINI_API_KEY or LOVABLE_API_KEY required)');
     }
 
-    console.log('Rapid card identification...');
+    console.log(`Rapid card identification using ${useGeminiDirect ? 'Gemini Direct' : 'Lovable AI'}...`);
 
-    // Shorter, focused prompt for faster processing with better rarity detection
+    // Prompt for card identification
     const prompt = `Identify this trading card. Return JSON only:
 {
   "card_name": "name",
@@ -49,91 +54,120 @@ For Yu-Gi-Oh: use SET NUMBER format like LART-EN035 for card_number.
 For sports: include player name in card_name.
 JSON only.`;
 
-    // Retry logic with exponential backoff for rate limits
+    let content: string | null = null;
     let lastError: Error | null = null;
-    const maxRetries = 5;
-    
+    const maxRetries = 3;
+
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'google/gemini-2.5-flash-lite', // Fastest model
-            messages: [
-              {
+        if (useGeminiDirect) {
+          // Direct Gemini API call - no Lovable rate limits!
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{
+                  parts: [
+                    { text: prompt },
+                    { inline_data: { mime_type: 'image/jpeg', data: await fetchImageAsBase64(imageUrl) } }
+                  ]
+                }],
+                generationConfig: {
+                  temperature: 0.1,
+                  maxOutputTokens: 300,
+                }
+              }),
+            }
+          );
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            if (response.status === 429) {
+              const delay = Math.min(10000, 1000 * Math.pow(2, attempt));
+              console.log(`Gemini rate limited, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+              await new Promise(r => setTimeout(r, delay));
+              continue;
+            }
+            throw new Error(`Gemini error ${response.status}: ${errorText}`);
+          }
+
+          const data = await response.json();
+          content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        } else {
+          // Fallback to Lovable AI gateway
+          const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'google/gemini-2.5-flash-lite',
+              messages: [{
                 role: "user",
                 content: [
                   { type: "text", text: prompt },
                   { type: "image_url", image_url: { url: imageUrl } }
                 ]
-              }
-            ],
-            temperature: 0.1,
-            max_tokens: 300,
-          }),
-        });
+              }],
+              temperature: 0.1,
+              max_tokens: 300,
+            }),
+          });
 
-        if (response.ok) {
+          if (!response.ok) {
+            if (response.status === 429) {
+              const delay = Math.min(10000, 1000 * Math.pow(2, attempt));
+              console.log(`Rate limited, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+              await new Promise(r => setTimeout(r, delay));
+              continue;
+            }
+            if (response.status === 402) {
+              return new Response(
+                JSON.stringify({ error: 'Credits exhausted', success: false }),
+                { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+              );
+            }
+            throw new Error(`AI error: ${response.status}`);
+          }
+
           const data = await response.json();
-          const content = data.choices?.[0]?.message?.content;
-
-          if (!content) {
-            throw new Error('No AI response');
-          }
-
-          // Parse JSON response
-          let cardData;
-          try {
-            const jsonMatch = content.match(/```json\n([\s\S]+?)\n```/) || content.match(/```\n([\s\S]+?)\n```/) || content.match(/\{[\s\S]+\}/);
-            const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : content;
-            cardData = JSON.parse(jsonStr.trim());
-          } catch (e) {
-            console.error('Parse error:', content);
-            cardData = { card_name: 'Unknown Card', confidence: 0 };
-          }
-
-          console.log('Identified:', cardData.card_name);
-
-          return new Response(
-            JSON.stringify({ success: true, cardData }),
-            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
+          content = data.choices?.[0]?.message?.content;
         }
 
-        // Handle rate limits with retry
-        if (response.status === 429) {
-          const delay = Math.min(10000, 1000 * Math.pow(2, attempt));
-          console.log(`Rate limited, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
-          await new Promise(r => setTimeout(r, delay));
-          continue;
-        }
-
-        if (response.status === 402) {
-          return new Response(
-            JSON.stringify({ error: 'Credits exhausted', success: false }),
-            { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
-        }
-
-        throw new Error(`AI error: ${response.status}`);
+        if (content) break;
       } catch (err) {
         lastError = err as Error;
         if (attempt < maxRetries - 1) {
-          const delay = Math.min(10000, 1000 * Math.pow(2, attempt));
+          const delay = Math.min(5000, 1000 * Math.pow(2, attempt));
           console.log(`Error, retrying in ${delay}ms: ${err}`);
           await new Promise(r => setTimeout(r, delay));
         }
       }
     }
 
-    // All retries exhausted
+    if (!content) {
+      throw lastError || new Error('No AI response after retries');
+    }
+
+    // Parse JSON response
+    let cardData;
+    try {
+      const jsonMatch = content.match(/```json\n([\s\S]+?)\n```/) || content.match(/```\n([\s\S]+?)\n```/) || content.match(/\{[\s\S]+\}/);
+      const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : content;
+      cardData = JSON.parse(jsonStr.trim());
+    } catch (e) {
+      console.error('Parse error:', content);
+      cardData = { card_name: 'Unknown Card', confidence: 0 };
+    }
+
+    console.log('Identified:', cardData.card_name);
+
     return new Response(
-      JSON.stringify({ error: 'Rate limit exceeded after retries', success: false }),
-      { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Retry-After': '30' } }
+      JSON.stringify({ success: true, cardData }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error) {
@@ -148,3 +182,15 @@ JSON only.`;
     );
   }
 });
+
+// Helper to fetch image and convert to base64 for Gemini direct API
+async function fetchImageAsBase64(url: string): Promise<string> {
+  const response = await fetch(url);
+  const arrayBuffer = await response.arrayBuffer();
+  const uint8Array = new Uint8Array(arrayBuffer);
+  let binary = '';
+  for (let i = 0; i < uint8Array.length; i++) {
+    binary += String.fromCharCode(uint8Array[i]);
+  }
+  return btoa(binary);
+}
