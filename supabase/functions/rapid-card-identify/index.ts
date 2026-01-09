@@ -5,7 +5,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Optimized for speed - uses faster model and shorter prompt
+// Optimized for speed - uses faster model and shorter prompt with built-in retry
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -49,68 +49,91 @@ For Yu-Gi-Oh: use SET NUMBER format like LART-EN035 for card_number.
 For sports: include player name in card_name.
 JSON only.`;
 
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash-lite', // Fastest model
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: prompt },
-              { type: "image_url", image_url: { url: imageUrl } }
-            ]
+    // Retry logic with exponential backoff for rate limits
+    let lastError: Error | null = null;
+    const maxRetries = 5;
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'google/gemini-2.5-flash-lite', // Fastest model
+            messages: [
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: prompt },
+                  { type: "image_url", image_url: { url: imageUrl } }
+                ]
+              }
+            ],
+            temperature: 0.1,
+            max_tokens: 300,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const content = data.choices?.[0]?.message?.content;
+
+          if (!content) {
+            throw new Error('No AI response');
           }
-        ],
-        temperature: 0.1,
-        max_tokens: 300, // Limit response size for speed
-      }),
-    });
 
-    if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: 'Rate limit exceeded', success: false }),
-          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+          // Parse JSON response
+          let cardData;
+          try {
+            const jsonMatch = content.match(/```json\n([\s\S]+?)\n```/) || content.match(/```\n([\s\S]+?)\n```/) || content.match(/\{[\s\S]+\}/);
+            const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : content;
+            cardData = JSON.parse(jsonStr.trim());
+          } catch (e) {
+            console.error('Parse error:', content);
+            cardData = { card_name: 'Unknown Card', confidence: 0 };
+          }
+
+          console.log('Identified:', cardData.card_name);
+
+          return new Response(
+            JSON.stringify({ success: true, cardData }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        // Handle rate limits with retry
+        if (response.status === 429) {
+          const delay = Math.min(10000, 1000 * Math.pow(2, attempt));
+          console.log(`Rate limited, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+
+        if (response.status === 402) {
+          return new Response(
+            JSON.stringify({ error: 'Credits exhausted', success: false }),
+            { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        throw new Error(`AI error: ${response.status}`);
+      } catch (err) {
+        lastError = err as Error;
+        if (attempt < maxRetries - 1) {
+          const delay = Math.min(10000, 1000 * Math.pow(2, attempt));
+          console.log(`Error, retrying in ${delay}ms: ${err}`);
+          await new Promise(r => setTimeout(r, delay));
+        }
       }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: 'Credits exhausted', success: false }),
-          { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-      throw new Error(`AI error: ${response.status}`);
     }
 
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-
-    if (!content) {
-      throw new Error('No AI response');
-    }
-
-    // Parse JSON response
-    let cardData;
-    try {
-      const jsonMatch = content.match(/```json\n([\s\S]+?)\n```/) || content.match(/```\n([\s\S]+?)\n```/) || content.match(/\{[\s\S]+\}/);
-      const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : content;
-      cardData = JSON.parse(jsonStr.trim());
-    } catch (e) {
-      console.error('Parse error:', content);
-      // Return basic data if parse fails
-      cardData = { card_name: 'Unknown Card', confidence: 0 };
-    }
-
-    console.log('Identified:', cardData.card_name);
-
+    // All retries exhausted
     return new Response(
-      JSON.stringify({ success: true, cardData }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({ error: 'Rate limit exceeded after retries', success: false }),
+      { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Retry-After': '30' } }
     );
 
   } catch (error) {
