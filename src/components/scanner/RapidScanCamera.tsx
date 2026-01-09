@@ -53,7 +53,7 @@ import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 // TUNING
 // ─────────────────────────────────────────────────────────────────────────────
 
-const QUEUE_MAX = 100; // buffer size (shots you can take while processing)
+const QUEUE_MAX = 500; // large buffer - uses IndexedDB (device storage)
 const WORKER_THREADS = 2; // reduced from 3 to prevent rate limit avalanche
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
 
