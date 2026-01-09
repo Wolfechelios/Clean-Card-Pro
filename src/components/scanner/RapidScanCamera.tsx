@@ -209,8 +209,47 @@ export default function RapidScanCamera() {
 
       const v = videoRef.current;
       if (!v) return;
+      
+      // Stop any existing stream first
+      if (v.srcObject) {
+        const oldStream = v.srcObject as MediaStream;
+        oldStream.getTracks().forEach(t => t.stop());
+      }
+      
       v.srcObject = stream;
-      await v.play();
+      
+      // Wait for video to be ready before playing
+      await new Promise<void>((resolve, reject) => {
+        const onCanPlay = () => {
+          v.removeEventListener('canplay', onCanPlay);
+          v.removeEventListener('error', onError);
+          resolve();
+        };
+        const onError = (e: Event) => {
+          v.removeEventListener('canplay', onCanPlay);
+          v.removeEventListener('error', onError);
+          reject(new Error('Video failed to load'));
+        };
+        v.addEventListener('canplay', onCanPlay);
+        v.addEventListener('error', onError);
+        
+        // If already ready, resolve immediately
+        if (v.readyState >= 3) {
+          v.removeEventListener('canplay', onCanPlay);
+          v.removeEventListener('error', onError);
+          resolve();
+        }
+      });
+      
+      // Now safe to play
+      try {
+        await v.play();
+      } catch (playErr: any) {
+        // Ignore AbortError from interrupted play - video is still working
+        if (playErr?.name !== 'AbortError') {
+          throw playErr;
+        }
+      }
 
       setCameraOn(true);
       setStatusLine("Camera live — tap Capture for each card");
