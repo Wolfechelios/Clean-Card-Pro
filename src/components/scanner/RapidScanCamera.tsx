@@ -54,8 +54,9 @@ import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 // ─────────────────────────────────────────────────────────────────────────────
 
 const QUEUE_MAX = 500; // large buffer - uses IndexedDB (device storage)
-const WORKER_THREADS = 2; // reduced from 3 to prevent rate limit avalanche
+const WORKER_THREADS = 1; // Single worker to prevent rate limit avalanche
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
+const JOB_DELAY_MS = 800; // Delay between jobs to avoid API rate limits
 
 type ScannedCard = {
   id: string;
@@ -555,7 +556,7 @@ export default function RapidScanCamera() {
         await refreshMeta();
       }
 
-      await sleep(300); // Increased delay between jobs to reduce rate limit pressure
+      await sleep(JOB_DELAY_MS); // Throttle to prevent rate limit avalanche
     }
   }
 
