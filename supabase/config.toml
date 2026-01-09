@@ -109,3 +109,9 @@ verify_jwt = true
 
 [functions.visual-similarity]
 verify_jwt = true
+
+[functions.analyze-psa10-viability]
+verify_jwt = true
+
+[functions.sell-assist]
+verify_jwt = true

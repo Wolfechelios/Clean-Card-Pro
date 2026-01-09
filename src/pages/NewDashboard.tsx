@@ -21,6 +21,7 @@ import {
   ArrowDownRight,
   Target,
   AlertTriangle,
+  Gem,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
@@ -106,7 +107,10 @@ export default function NewDashboard() {
   const [aiAdvice, setAiAdvice] = useState<string | null>(null);
   const [aiAdviceLoading, setAiAdviceLoading] = useState(false);
   const [allCards, setAllCards] = useState<CardType[]>([]);
-
+  
+  // PSA10 viability analysis state
+  const [psa10AnalysisRunning, setPsa10AnalysisRunning] = useState(false);
+  const [psa10AnalysisProgress, setPsa10AnalysisProgress] = useState({ processed: 0, total: 0, viable: 0 });
   // Dashboard refresh throttling (prevents crashes during rapid scanning)
   const refreshTimerRef = useRef<number | null>(null);
   const refreshInFlightRef = useRef(false);
@@ -455,6 +459,72 @@ export default function NewDashboard() {
     }
   };
 
+  // Analyze cards for PSA 10 viability using AI vision
+  const handlePsa10Analysis = async () => {
+    if (allCards.length === 0) {
+      toast.error("No cards to analyze");
+      return;
+    }
+
+    // Only analyze cards with images that haven't been analyzed yet
+    const cardsToAnalyze = allCards.filter(
+      c => c.image_url && !c.image_url.includes('placeholder') && c.psa10_viable === null
+    );
+
+    if (cardsToAnalyze.length === 0) {
+      toast.info("All cards have already been analyzed for PSA 10 viability");
+      return;
+    }
+
+    setPsa10AnalysisRunning(true);
+    setPsa10AnalysisProgress({ processed: 0, total: cardsToAnalyze.length, viable: 0 });
+
+    let processed = 0;
+    let viable = 0;
+
+    // Process in batches of 5 to avoid rate limits
+    const batchSize = 5;
+    for (let i = 0; i < cardsToAnalyze.length; i += batchSize) {
+      const batch = cardsToAnalyze.slice(i, i + batchSize);
+      
+      const results = await Promise.allSettled(
+        batch.map(async (card) => {
+          try {
+            const { data, error } = await supabase.functions.invoke("analyze-psa10-viability", {
+              body: { card_id: card.id }
+            });
+            
+            if (error) throw error;
+            return data;
+          } catch (err) {
+            console.error(`Failed to analyze card ${card.id}:`, err);
+            return null;
+          }
+        })
+      );
+
+      for (const result of results) {
+        processed++;
+        if (result.status === 'fulfilled' && result.value?.psa10_viable) {
+          viable++;
+        }
+      }
+
+      setPsa10AnalysisProgress({ processed, total: cardsToAnalyze.length, viable });
+
+      // Small delay between batches to avoid rate limits
+      if (i + batchSize < cardsToAnalyze.length) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+
+    setPsa10AnalysisRunning(false);
+    toast.success(`Analysis complete! Found ${viable} PSA 10 viable cards out of ${processed} analyzed`);
+    
+    // Refresh cards to show updated viability data
+    triggerDashboardRefresh();
+  };
+
   if (authLoading || isInitialLoading) {
     return <DashboardSkeleton />;
   }
@@ -691,6 +761,75 @@ export default function NewDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* PSA 10 Viability Analysis Card */}
+      <Card className="relative overflow-hidden border-2 border-amber-500/20 bg-gradient-to-br from-amber-500/5 via-background to-primary/5">
+        <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-3xl -mr-16 -mt-16" />
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
+              <Gem className="h-5 w-5 text-amber-500" />
+            </div>
+            <div>
+              <span className="text-lg font-semibold">PSA 10 Viability Scanner</span>
+              <p className="text-xs text-muted-foreground font-normal">AI analyzes card photos to find gem mint candidates</p>
+            </div>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-2">
+              <div className="flex items-center gap-4">
+                <Badge variant="secondary" className="text-xs">
+                  {allCards.filter(c => c.psa10_viable === true).length} viable cards found
+                </Badge>
+                <Badge variant="outline" className="text-xs">
+                  {allCards.filter(c => c.psa10_viable === null && c.image_url && !c.image_url.includes('placeholder')).length} awaiting analysis
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Scans card images for centering, corners, edges, and surface condition
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate("/collections?psa10viable=true")}
+                disabled={allCards.filter(c => c.psa10_viable === true).length === 0}
+              >
+                View Viable Cards
+              </Button>
+              <Button
+                size="sm"
+                onClick={handlePsa10Analysis}
+                disabled={psa10AnalysisRunning || allCards.filter(c => c.psa10_viable === null && c.image_url).length === 0}
+                className="bg-amber-500 hover:bg-amber-600 text-white"
+              >
+                {psa10AnalysisRunning ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Analyzing...
+                  </>
+                ) : (
+                  <>
+                    <Gem className="h-4 w-4 mr-2" />
+                    Analyze Cards
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+          {psa10AnalysisRunning && (
+            <div className="mt-4 space-y-2">
+              <Progress value={(psa10AnalysisProgress.processed / psa10AnalysisProgress.total) * 100} className="h-2" />
+              <p className="text-xs text-muted-foreground">
+                Analyzed {psa10AnalysisProgress.processed} of {psa10AnalysisProgress.total} cards • Found {psa10AnalysisProgress.viable} viable
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Charts Row - paused when scanner is active to prevent UI freezing */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

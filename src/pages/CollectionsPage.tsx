@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
-import { Search, Trash2, RefreshCw, Edit3, ImageOff, X, Download, ImagePlus, Cloud } from "lucide-react";
+import { Search, Trash2, RefreshCw, Edit3, ImageOff, X, Download, ImagePlus, Cloud, Gem } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -52,6 +52,8 @@ interface CardItem {
   sport_type: string | null;
   psa10_price?: number | null;
   cgc10_price?: number | null;
+  psa10_viable?: boolean | null;
+  psa10_viable_confidence?: number | null;
 }
 
 export default function Collections() {
@@ -93,11 +95,16 @@ export default function Collections() {
   const availableSportTypes = Array.from(new Set(cards.map(c => c.sport_type).filter(Boolean))) as string[];
   const availableCollections = Array.from(new Set(cards.map(c => c.collection_name).filter(Boolean))) as string[];
 
-  // Read rarity filter from URL on mount only
+  // Read filters from URL on mount only
   useEffect(() => {
     const rarityParam = searchParams.get("rarity");
     if (rarityParam) {
       setActiveFilters(prev => ({ ...prev, rarity: [rarityParam] }));
+    }
+    
+    const psa10viableParam = searchParams.get("psa10viable");
+    if (psa10viableParam === "true") {
+      setActiveFilters(prev => ({ ...prev, psa10Viable: true }));
     }
     // Only run on initial mount, not on every searchParams change
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -194,6 +201,13 @@ export default function Collections() {
     // Collection name filter
     if (activeFilters.collectionName) {
       filtered = filtered.filter(card => card.collection_name === activeFilters.collectionName);
+    }
+
+    // PSA 10 Viable filter
+    if (activeFilters.psa10Viable === true) {
+      filtered = filtered.filter(card => card.psa10_viable === true);
+    } else if (activeFilters.psa10Viable === false) {
+      filtered = filtered.filter(card => card.psa10_viable === false);
     }
 
     // Date filters
@@ -790,6 +804,21 @@ export default function Collections() {
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${isUpdatingPrices ? 'animate-spin' : ''}`} />
             Update Prices
+          </Button>
+
+          <Button
+            variant={activeFilters.psa10Viable === true ? "default" : "outline"}
+            size="sm"
+            onClick={() => {
+              if (activeFilters.psa10Viable === true) {
+                setActiveFilters(prev => ({ ...prev, psa10Viable: undefined }));
+              } else {
+                setActiveFilters(prev => ({ ...prev, psa10Viable: true }));
+              }
+            }}
+          >
+            <Gem className="h-4 w-4 mr-2" />
+            PSA 10 Viable ({cards.filter(c => c.psa10_viable === true).length})
           </Button>
           
           {selectedCards.size > 0 ? (
