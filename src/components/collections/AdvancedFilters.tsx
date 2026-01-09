@@ -35,6 +35,7 @@ export interface FilterConfig {
   collectionName?: string;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
+  psa10Viable?: boolean | null; // null = all, true = viable, false = not viable
 }
 
 interface AdvancedFiltersProps {

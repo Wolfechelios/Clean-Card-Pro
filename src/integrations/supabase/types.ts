@@ -56,6 +56,7 @@ export type Database = {
           ocr_raw_text: string | null
           player_name: string | null
           printing_key: string | null
+          psa10_analyzed_at: string | null
           psa10_currency: string | null
           psa10_locked: boolean | null
           psa10_match_confidence: number | null
@@ -63,6 +64,9 @@ export type Database = {
           psa10_source: string | null
           psa10_source_ref: string | null
           psa10_updated_at: string | null
+          psa10_viable: boolean | null
+          psa10_viable_confidence: number | null
+          psa10_viable_notes: string | null
           quantity: number | null
           rarity: string | null
           raw_manufacturer: string | null
@@ -124,6 +128,7 @@ export type Database = {
           ocr_raw_text?: string | null
           player_name?: string | null
           printing_key?: string | null
+          psa10_analyzed_at?: string | null
           psa10_currency?: string | null
           psa10_locked?: boolean | null
           psa10_match_confidence?: number | null
@@ -131,6 +136,9 @@ export type Database = {
           psa10_source?: string | null
           psa10_source_ref?: string | null
           psa10_updated_at?: string | null
+          psa10_viable?: boolean | null
+          psa10_viable_confidence?: number | null
+          psa10_viable_notes?: string | null
           quantity?: number | null
           rarity?: string | null
           raw_manufacturer?: string | null
@@ -192,6 +200,7 @@ export type Database = {
           ocr_raw_text?: string | null
           player_name?: string | null
           printing_key?: string | null
+          psa10_analyzed_at?: string | null
           psa10_currency?: string | null
           psa10_locked?: boolean | null
           psa10_match_confidence?: number | null
@@ -199,6 +208,9 @@ export type Database = {
           psa10_source?: string | null
           psa10_source_ref?: string | null
           psa10_updated_at?: string | null
+          psa10_viable?: boolean | null
+          psa10_viable_confidence?: number | null
+          psa10_viable_notes?: string | null
           quantity?: number | null
           rarity?: string | null
           raw_manufacturer?: string | null
