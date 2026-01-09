@@ -7,111 +7,81 @@ import { Loader2 } from "lucide-react";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import AppLayout from "./components/layout/AppLayout";
-import Auth from "./pages/Auth";
-import NewDashboard from "./pages/NewDashboard";
-import ScanPage from "./pages/ScanPage";
-import CollectionsPage from "./pages/CollectionsPage";
-import BindersPage from "./pages/BindersPage";
-import SettingsPage from "./pages/SettingsPage";
-import InsightsPage from "./pages/InsightsPage";
-import PerformancePage from "./pages/PerformancePage";
-import MobileScanPage from "./pages/MobileScanPage";
-import MobileScanRedirect from "./pages/MobileScanRedirect";
-import PredictionsPage from "./pages/PredictionsPage";
-import GradedScanPage from "./pages/GradedScanPage";
-import VisualSearchPage from "./pages/VisualSearchPage";
-import CardPriceHubPage from "./pages/CardPriceHubPage";
-import ImageBackfillPage from "./pages/ImageBackfillPage";
-import ImportCleanerPage from "./pages/ImportCleanerPage";
-import HelpPage from "./pages/HelpPage";
-import NotFound from "./pages/NotFound";
+import { lazy, Suspense } from "react";
 
-const queryClient = new QueryClient();
+const Auth = lazy(() => import("./pages/Auth"));
+const NewDashboard = lazy(() => import("./pages/NewDashboard"));
+const ScanPage = lazy(() => import("./pages/ScanPage"));
+const CollectionsPage = lazy(() => import("./pages/CollectionsPage"));
+const BindersPage = lazy(() => import("./pages/BindersPage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const InsightsPage = lazy(() => import("./pages/InsightsPage"));
+const PerformancePage = lazy(() => import("./pages/PerformancePage"));
+const MobileScanPage = lazy(() => import("./pages/MobileScanPage"));
+const MobileScanRedirect = lazy(() => import("./pages/MobileScanRedirect"));
+const PredictionsPage = lazy(() => import("./pages/PredictionsPage"));
+const GradedScanPage = lazy(() => import("./pages/GradedScanPage"));
+const VisualSearchPage = lazy(() => import("./pages/VisualSearchPage"));
+const CardPriceHubPage = lazy(() => import("./pages/CardPriceHubPage"));
+const ImageBackfillPage = lazy(() => import("./pages/ImageBackfillPage"));
+const ImportCleanerPage = lazy(() => import("./pages/ImportCleanerPage"));
+const HelpPage = lazy(() => import("./pages/HelpPage"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      gcTime: 10 * 60_000,
+      refetchOnWindowFocus: false,
+      retry: 2,
+    },
+  },
+});
+
+function FullscreenLoader() {
+  return (
+    <div className="flex items-center justify-center min-h-screen">
+      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+    </div>
+  );
+}
+
+function Authed({ children }: { children: React.ReactNode }) {
+  return <AppLayout>{children}</AppLayout>;
+}
 
 function AppRoutes() {
   const { session, loading } = useAuth();
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
+  if (loading) return <FullscreenLoader />;
 
   return (
-    <Routes>
-      <Route path="/auth" element={<Auth />} />
-      <Route
-        path="/"
-        element={session ? <Navigate to="/dashboard" /> : <Navigate to="/auth" />}
-      />
-      <Route
-        path="/dashboard"
-        element={session ? <AppLayout><NewDashboard /></AppLayout> : <Navigate to="/auth" />}
-      />
-      <Route
-        path="/scan"
-        element={session ? <AppLayout><ScanPage /></AppLayout> : <Navigate to="/auth" />}
-      />
-      <Route
-        path="/collections"
-        element={session ? <AppLayout><CollectionsPage /></AppLayout> : <Navigate to="/auth" />}
-      />
-      <Route
-        path="/binders"
-        element={session ? <AppLayout><BindersPage /></AppLayout> : <Navigate to="/auth" />}
-      />
-      <Route
-        path="/settings"
-        element={session ? <AppLayout><SettingsPage /></AppLayout> : <Navigate to="/auth" />}
-      />
-      <Route
-        path="/insights"
-        element={session ? <AppLayout><InsightsPage /></AppLayout> : <Navigate to="/auth" />}
-      />
-      <Route
-        path="/performance"
-        element={session ? <AppLayout><PerformancePage /></AppLayout> : <Navigate to="/auth" />}
-      />
-      <Route
-        path="/mobile-scan"
-        element={session ? <MobileScanPage /> : <Navigate to="/auth" />}
-      />
-      <Route
-        path="/mobile-scanner"
-        element={session ? <MobileScanRedirect /> : <Navigate to="/auth" />}
-      />
-      <Route
-        path="/predictions"
-        element={session ? <AppLayout><PredictionsPage /></AppLayout> : <Navigate to="/auth" />}
-      />
-      <Route
-        path="/graded"
-        element={session ? <AppLayout><GradedScanPage /></AppLayout> : <Navigate to="/auth" />}
-      />
-      <Route
-        path="/visual-search"
-        element={session ? <AppLayout><VisualSearchPage /></AppLayout> : <Navigate to="/auth" />}
-      />
-      <Route
-        path="/price-hub"
-        element={session ? <AppLayout><CardPriceHubPage /></AppLayout> : <Navigate to="/auth" />}
-      />
-      <Route
-        path="/image-backfill"
-        element={session ? <AppLayout><ImageBackfillPage /></AppLayout> : <Navigate to="/auth" />}
-      />
-      <Route
-        path="/import-cleaner"
-        element={session ? <AppLayout><ImportCleanerPage /></AppLayout> : <Navigate to="/auth" />}
-      />
-      <Route
-        path="/help"
-        element={session ? <AppLayout><HelpPage /></AppLayout> : <Navigate to="/auth" />}
-      />
-      <Route path="*" element={<NotFound />} />
-    </Routes>
+    <Suspense fallback={<FullscreenLoader />}>
+      <Routes>
+        <Route path="/auth" element={<Auth />} />
+        <Route path="/" element={session ? <Navigate to="/dashboard" /> : <Navigate to="/auth" />} />
+
+        <Route path="/dashboard" element={session ? <Authed><NewDashboard /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/scan" element={session ? <Authed><ScanPage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/collections" element={session ? <Authed><CollectionsPage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/binders" element={session ? <Authed><BindersPage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/settings" element={session ? <Authed><SettingsPage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/insights" element={session ? <Authed><InsightsPage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/performance" element={session ? <Authed><PerformancePage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/mobile-scan" element={session ? <MobileScanPage /> : <Navigate to="/auth" />} />
+        <Route path="/mobile-scanner" element={session ? <MobileScanRedirect /> : <Navigate to="/auth" />} />
+        <Route path="/predictions" element={session ? <Authed><PredictionsPage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/graded" element={session ? <Authed><GradedScanPage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/visual-search" element={session ? <Authed><VisualSearchPage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/price-hub" element={session ? <Authed><CardPriceHubPage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/image-backfill" element={session ? <Authed><ImageBackfillPage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/import-cleaner" element={session ? <Authed><ImportCleanerPage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/help" element={session ? <Authed><HelpPage /></Authed> : <Navigate to="/auth" />} />
+
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </Suspense>
   );
 }
 

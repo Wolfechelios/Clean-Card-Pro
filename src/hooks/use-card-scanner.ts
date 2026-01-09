@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { insertCardDual } from "@/lib/localCards";
 import { toast } from "sonner";
 import { analyzeCardFull } from "@/lib/analyzeCardFull";
+import { withRetry } from "@/lib/retry";
 import { getScannerSettings, type ScanMode } from "./use-scanner-settings";
 
 export interface OCRResult {
@@ -76,6 +77,7 @@ export function useCardScanner({
   const [duplicateCard, setDuplicateCard] = useState<PendingCardData | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const scanLockRef = useRef(false);
 
   const normalize = (s: string) => s.toLowerCase().trim();
 
@@ -180,11 +182,16 @@ export function useCardScanner({
   };
 
   const handleScan = async () => {
+    if (scanLockRef.current || isScanning) {
+      toast.info("Scan already running");
+      return;
+    }
     if (!file || !preview) {
       toast.error("Please select an image first");
       return;
     }
 
+    scanLockRef.current = true;
     setIsScanning(true);
     setScanProgress(0);
 
@@ -197,18 +204,21 @@ export function useCardScanner({
 
       setScanProgress(20);
 
-      const { error: uploadError } = await supabase.storage
-        .from("card-images")
-        .upload(fileName, file);
+      await withRetry(async () => {
+        const { error: uploadError } = await supabase.storage
+          .from("card-images")
+          .upload(fileName, file, { upsert: false });
+        if (uploadError) throw uploadError;
+      });
 
-      if (uploadError) throw uploadError;
-
-      const { data: signedUrlData, error: urlError } = await supabase.storage
-        .from("card-images")
-        .createSignedUrl(fileName, 60 * 60 * 24 * 365);
-
-      if (urlError) throw urlError;
-      const imageUrl = signedUrlData.signedUrl;
+      const imageUrl = await withRetry(async () => {
+        const { data: signedUrlData, error: urlError } = await supabase.storage
+          .from("card-images")
+          .createSignedUrl(fileName, 60 * 60 * 24 * 365);
+        if (urlError) throw urlError;
+        if (!signedUrlData?.signedUrl) throw new Error("Signed URL failed");
+        return signedUrlData.signedUrl;
+      });
 
       setScanProgress(40);
 
@@ -222,12 +232,18 @@ export function useCardScanner({
       let alternatives: Alternative[] = [];
 
       try {
-        const { data: enhancedResult, error: enhancedError } = await supabase.functions.invoke(
-          "enhanced-card-identify",
-          { body: { imageUrl, ocrText: ocr.rawText } }
+        const enhancedResult = await withRetry(
+          async () => {
+            const { data, error } = await supabase.functions.invoke("enhanced-card-identify", {
+              body: { imageUrl, ocrText: ocr.rawText },
+            });
+            if (error) throw new Error(error.message);
+            return data;
+          },
+          { retries: 3, baseMs: 600, maxMs: 5000 }
         );
 
-        if (!enhancedError && enhancedResult?.success) {
+        if (enhancedResult?.success) {
           const cardData = enhancedResult.cardData;
           if (cardData.primary) {
             enhancedData = cardData.primary;
@@ -246,14 +262,18 @@ export function useCardScanner({
 
       let pricingData: any;
       try {
-        const { data: cardIdentification, error: aiError } = await supabase.functions.invoke(
-          "identify-card",
-          { body: { imageUrl, ocrText: ocr.rawText } }
+        const cardIdentification = await withRetry(
+          async () => {
+            const { data, error } = await supabase.functions.invoke("identify-card", {
+              body: { imageUrl, ocrText: ocr.rawText },
+            });
+            if (error) throw new Error(error.message);
+            return data;
+          },
+          { retries: 3, baseMs: 600, maxMs: 7000 }
         );
 
-        if (!aiError && cardIdentification) {
-          pricingData = cardIdentification;
-        }
+        if (cardIdentification) pricingData = cardIdentification;
       } catch (error) {
         console.error("Pricing fetch error:", error);
         toast.warning("Could not fetch pricing data");
@@ -357,6 +377,7 @@ export function useCardScanner({
       setScanProgress(0);
     } finally {
       setIsScanning(false);
+      scanLockRef.current = false;
     }
   };
 

@@ -30,17 +30,27 @@ function PageLoader() {
 export default function AppLayout({ children }: AppLayoutProps) {
   return (
     <div className="min-h-screen min-h-[100dvh] flex w-full bg-background safe-top safe-bottom">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-background focus:px-3 focus:py-2 focus:text-sm focus:shadow-lg"
+      >
+        Skip to content
+      </a>
+
       {/* Subtle gradient overlay */}
       <div className="fixed inset-0 bg-gradient-glow pointer-events-none opacity-30" aria-hidden="true" />
-      
+
       <SideBar />
+
       <div className="flex-1 flex flex-col w-full min-w-0 transition-gpu relative">
         <NavBar />
-        <main className="flex-1 p-4 sm:p-5 md:p-6 lg:p-8 overflow-auto touch-pan-y">
+        <main
+          id="main"
+          className="flex-1 p-4 sm:p-5 md:p-6 lg:p-8 overflow-auto touch-pan-y"
+          role="main"
+        >
           <Suspense fallback={<PageLoader />}>
-            <div className="max-w-[1920px] mx-auto animate-fade-in-up">
-              {children}
-            </div>
+            <div className="max-w-[1920px] mx-auto animate-fade-in-up">{children}</div>
           </Suspense>
         </main>
       </div>
