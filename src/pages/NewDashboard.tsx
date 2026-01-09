@@ -55,8 +55,8 @@ interface DashboardStats {
   avgCardValue: number;
   topRarity: string;
   valueChange: number;
-  psa10Ceiling: number;
-  cardsWithPsa10: number;
+  collectorSaleValue: number;
+  cardsWithPrices: number;
 }
 
 interface ChartData {
@@ -82,8 +82,8 @@ export default function NewDashboard() {
     avgCardValue: 0,
     topRarity: "N/A",
     valueChange: 0,
-    psa10Ceiling: 0,
-    cardsWithPsa10: 0,
+    collectorSaleValue: 0,
+    cardsWithPrices: 0,
   });
   const [recentCards, setRecentCards] = useState<CardType[]>([]);
   const [rarityData, setRarityData] = useState<ChartData[]>([]);
@@ -239,15 +239,13 @@ export default function NewDashboard() {
 
       const valueChange = previousValue > 0 ? ((recentValue - previousValue) / previousValue) * 100 : 0;
 
-      // Calculate PSA 10 ceiling - use psa10_price when available, otherwise estimate from raw price
-      const cardsWithPsa10 = cards.filter(c => c.psa10_price && c.psa10_price > 0);
-      // For cards with PSA 10 price, use it; for others, estimate at 2x raw price as a rough ceiling
-      const psa10Ceiling = cards.reduce((sum, card) => {
-        if (card.psa10_price && card.psa10_price > 0) {
-          return sum + card.psa10_price;
-        }
-        // Estimate: PSA 10 typically worth ~2-3x raw for most cards
-        return sum + ((card.current_price_raw || 0) * 2);
+      // Calculate realistic collector sale value (what you could sell for today)
+      // Raw cards: ~75% of market (collector margin), graded: closer to market
+      const cardsWithPrices = cards.filter(c => c.current_price_raw && c.current_price_raw > 0);
+      const collectorSaleValue = cards.reduce((sum, card) => {
+        const rawPrice = card.current_price_raw || 0;
+        // Collector-to-collector typically 70-80% of market for raw cards
+        return sum + (rawPrice * 0.75);
       }, 0);
 
       setStats({
@@ -257,8 +255,8 @@ export default function NewDashboard() {
         avgCardValue: avgValue,
         topRarity,
         valueChange,
-        psa10Ceiling,
-        cardsWithPsa10: cardsWithPsa10.length,
+        collectorSaleValue,
+        cardsWithPrices: cardsWithPrices.length,
       });
 
       setAllCards(cards);
@@ -546,57 +544,52 @@ export default function NewDashboard() {
         </Card>
       </div>
 
-      {/* PSA 10 Collection Ceiling - Prominent Feature */}
-      <Card className="relative overflow-hidden border-2 border-primary/20 bg-gradient-to-br from-primary/5 via-background to-accent/5">
-        <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-3xl -mr-16 -mt-16" />
+      {/* Collector Sale Value - What you could sell for today */}
+      <Card className="relative overflow-hidden border-2 border-success/20 bg-gradient-to-br from-success/5 via-background to-accent/5">
+        <div className="absolute top-0 right-0 w-32 h-32 bg-success/10 rounded-full blur-3xl -mr-16 -mt-16" />
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
-              <Target className="h-5 w-5 text-primary" />
+            <div className="h-10 w-10 rounded-xl bg-success/10 flex items-center justify-center">
+              <DollarSign className="h-5 w-5 text-success" />
             </div>
             <div>
-              <span className="text-lg font-semibold">Collection Ceiling</span>
-              <p className="text-xs text-muted-foreground font-normal">Estimated max value if all cards graded PSA 10</p>
+              <span className="text-lg font-semibold">Collector Sale Value</span>
+              <p className="text-xs text-muted-foreground font-normal">Realistic price selling to another collector today</p>
             </div>
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex items-end justify-between">
             <div>
-              <div className="text-4xl font-bold text-gradient-primary">
-                ${stats.psa10Ceiling.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              <div className="text-4xl font-bold text-success">
+                ${stats.collectorSaleValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <div className="flex items-center gap-4 mt-3">
                 <Badge variant="secondary" className="text-xs">
-                  {stats.cardsWithPsa10} cards with verified PSA 10 prices
+                  {stats.cardsWithPrices} of {stats.totalCards} cards priced
                 </Badge>
-                {stats.psa10Ceiling > stats.totalValue && (
-                  <span className="text-sm text-success flex items-center gap-1">
-                    <ArrowUpRight className="h-4 w-4" />
-                    +${(stats.psa10Ceiling - stats.totalValue).toLocaleString(undefined, { maximumFractionDigits: 0 })} potential
-                  </span>
-                )}
+                <span className="text-sm text-muted-foreground flex items-center gap-1">
+                  ~75% of market value
+                </span>
               </div>
             </div>
             <Button 
               variant="outline" 
               size="sm" 
-              onClick={() => navigate("/collections?tab=psa10")}
+              onClick={() => navigate("/collections")}
               className="shrink-0"
             >
-              Update Prices
+              View Collection
               <ArrowUpRight className="h-4 w-4 ml-1" />
             </Button>
           </div>
-          {stats.cardsWithPsa10 < stats.totalCards && (
-            <div className="mt-4 p-3 rounded-lg bg-muted/50 flex items-start gap-2">
-              <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
-              <p className="text-xs text-muted-foreground">
-                {stats.totalCards - stats.cardsWithPsa10} cards use estimated values (2× raw price). 
-                Run PSA 10 lookup for accurate ceiling.
-              </p>
-            </div>
-          )}
+          <div className="mt-4 p-3 rounded-lg bg-muted/50 flex items-start gap-2">
+            <Target className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+            <p className="text-xs text-muted-foreground">
+              Based on typical collector-to-collector sales (~75% of market). 
+              Actual value depends on card condition and buyer demand.
+            </p>
+          </div>
         </CardContent>
       </Card>
 
