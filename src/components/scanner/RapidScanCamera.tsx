@@ -106,6 +106,7 @@ export default function RapidScanCamera() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const trackRef = useRef<MediaStreamTrack | null>(null);
+  const startingCameraRef = useRef(false);
 
   const [cameraOn, setCameraOn] = useState(false);
   const [support, setSupport] = useState<MediaSupport>({ torch: false, focus: false, zoom: false });
@@ -194,7 +195,9 @@ export default function RapidScanCamera() {
   // ───────────────────────────────────────────────────────────────────────────
 
   async function startCamera() {
-    if (cameraOn) return;
+    if (cameraOn || startingCameraRef.current) return;
+    
+    startingCameraRef.current = true;
 
     try {
       const constraints: MediaStreamConstraints = {
@@ -208,7 +211,10 @@ export default function RapidScanCamera() {
       setSupport(detectSupport(trackRef.current));
 
       const v = videoRef.current;
-      if (!v) return;
+      if (!v) {
+        startingCameraRef.current = false;
+        return;
+      }
       
       // Stop any existing stream first
       if (v.srcObject) {
@@ -264,6 +270,8 @@ export default function RapidScanCamera() {
     } catch (err: any) {
       setStatusLine(`Camera error: ${err?.message ?? err}`);
       toast.error("Camera failed to start");
+    } finally {
+      startingCameraRef.current = false;
     }
   }
 
