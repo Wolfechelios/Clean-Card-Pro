@@ -56,12 +56,13 @@ JSON only.`;
 
     let content: string | null = null;
     let lastError: Error | null = null;
-    const maxRetries = 3;
+    let geminiExhausted = false;
 
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      try {
-        if (useGeminiDirect) {
-          // Direct Gemini API call - no Lovable rate limits!
+    // Try Gemini Direct first (if key exists)
+    if (useGeminiDirect) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          console.log(`Gemini attempt ${attempt + 1}/2...`);
           const response = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
             {
@@ -85,18 +86,34 @@ JSON only.`;
           if (!response.ok) {
             const errorText = await response.text();
             if (response.status === 429) {
-              const delay = Math.min(10000, 1000 * Math.pow(2, attempt));
-              console.log(`Gemini rate limited, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
-              await new Promise(r => setTimeout(r, delay));
-              continue;
+              console.log(`Gemini rate limited (attempt ${attempt + 1}), will try fallback...`);
+              geminiExhausted = true;
+              break; // Exit Gemini loop, try Lovable AI
             }
             throw new Error(`Gemini error ${response.status}: ${errorText}`);
           }
 
           const data = await response.json();
           content = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        } else {
-          // Fallback to Lovable AI gateway
+          if (content) {
+            console.log('Gemini Direct success');
+            break;
+          }
+        } catch (err) {
+          lastError = err as Error;
+          console.log(`Gemini error: ${err}`);
+          if (attempt === 0) {
+            await new Promise(r => setTimeout(r, 500));
+          }
+        }
+      }
+    }
+
+    // Fallback to Lovable AI if Gemini failed/exhausted
+    if (!content && LOVABLE_API_KEY) {
+      console.log('Falling back to Lovable AI...');
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
           const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -119,8 +136,8 @@ JSON only.`;
 
           if (!response.ok) {
             if (response.status === 429) {
-              const delay = Math.min(10000, 1000 * Math.pow(2, attempt));
-              console.log(`Rate limited, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+              const delay = Math.min(8000, 2000 * Math.pow(2, attempt));
+              console.log(`Lovable AI rate limited, waiting ${delay}ms (attempt ${attempt + 1}/3)`);
               await new Promise(r => setTimeout(r, delay));
               continue;
             }
@@ -130,26 +147,29 @@ JSON only.`;
                 { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
               );
             }
-            throw new Error(`AI error: ${response.status}`);
+            throw new Error(`Lovable AI error: ${response.status}`);
           }
 
           const data = await response.json();
           content = data.choices?.[0]?.message?.content;
-        }
-
-        if (content) break;
-      } catch (err) {
-        lastError = err as Error;
-        if (attempt < maxRetries - 1) {
-          const delay = Math.min(5000, 1000 * Math.pow(2, attempt));
-          console.log(`Error, retrying in ${delay}ms: ${err}`);
-          await new Promise(r => setTimeout(r, delay));
+          if (content) {
+            console.log('Lovable AI fallback success');
+            break;
+          }
+        } catch (err) {
+          lastError = err as Error;
+          if (attempt < 2) {
+            await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+          }
         }
       }
     }
 
     if (!content) {
-      throw lastError || new Error('No AI response after retries');
+      const errorMsg = geminiExhausted 
+        ? 'Gemini quota exhausted and Lovable AI fallback failed' 
+        : (lastError?.message || 'No AI response');
+      throw new Error(errorMsg);
     }
 
     // Parse JSON response
