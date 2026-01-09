@@ -737,10 +737,11 @@ export default function RapidScanCamera() {
                   <Button
                     onClick={captureAndEnqueue}
                     disabled={!cameraOn || busyCapture}
-                    className="w-full"
+                    size="lg"
+                    className="w-full h-16 text-lg font-bold"
                   >
-                    {busyCapture ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
-                    Capture
+                    {busyCapture ? <Loader2 className="mr-2 h-6 w-6 animate-spin" /> : <Camera className="mr-2 h-6 w-6" />}
+                    CAPTURE
                   </Button>
                 )}
 
@@ -758,20 +759,21 @@ export default function RapidScanCamera() {
                   />
                 )}
 
-                {/* Spacer to separate destructive actions */}
-                <div className="pt-4 mt-4 border-t border-destructive/20">
-                  <div className="text-xs text-destructive/70 mb-2">Danger Zone</div>
+                {/* Tiny clear button with double confirmation */}
+                <div className="pt-6 mt-6 border-t flex justify-end">
                   <Button 
-                    variant="outline" 
-                    size="sm" 
+                    variant="ghost" 
+                    size="sm"
                     onClick={() => {
-                      if (window.confirm("Clear all queued cards? This cannot be undone.")) {
-                        clearAll();
+                      if (window.confirm("Clear all queued cards?")) {
+                        if (window.confirm("Are you SURE? This cannot be undone.")) {
+                          clearAll();
+                        }
                       }
                     }} 
-                    className="w-full border-destructive/50 text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                    className="h-6 px-2 text-[10px] text-muted-foreground/50 hover:text-destructive"
                   >
-                    <Trash2 className="mr-2 h-4 w-4" /> Clear All
+                    <Trash2 className="h-3 w-3 mr-1" /> clear
                   </Button>
                 </div>
 
