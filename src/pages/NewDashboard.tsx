@@ -239,9 +239,16 @@ export default function NewDashboard() {
 
       const valueChange = previousValue > 0 ? ((recentValue - previousValue) / previousValue) * 100 : 0;
 
-      // Calculate PSA 10 ceiling - sum of psa10_price for cards that have it
+      // Calculate PSA 10 ceiling - use psa10_price when available, otherwise estimate from raw price
       const cardsWithPsa10 = cards.filter(c => c.psa10_price && c.psa10_price > 0);
-      const psa10Ceiling = cardsWithPsa10.reduce((sum, card) => sum + (card.psa10_price || 0), 0);
+      // For cards with PSA 10 price, use it; for others, estimate at 2x raw price as a rough ceiling
+      const psa10Ceiling = cards.reduce((sum, card) => {
+        if (card.psa10_price && card.psa10_price > 0) {
+          return sum + card.psa10_price;
+        }
+        // Estimate: PSA 10 typically worth ~2-3x raw for most cards
+        return sum + ((card.current_price_raw || 0) * 2);
+      }, 0);
 
       setStats({
         totalCards: cards.length,
@@ -549,7 +556,7 @@ export default function NewDashboard() {
             </div>
             <div>
               <span className="text-lg font-semibold">Collection Ceiling</span>
-              <p className="text-xs text-muted-foreground font-normal">Maximum potential value if all cards graded PSA 10</p>
+              <p className="text-xs text-muted-foreground font-normal">Estimated max value if all cards graded PSA 10</p>
             </div>
           </CardTitle>
         </CardHeader>
@@ -561,7 +568,7 @@ export default function NewDashboard() {
               </div>
               <div className="flex items-center gap-4 mt-3">
                 <Badge variant="secondary" className="text-xs">
-                  {stats.cardsWithPsa10} of {stats.totalCards} cards priced
+                  {stats.cardsWithPsa10} cards with verified PSA 10 prices
                 </Badge>
                 {stats.psa10Ceiling > stats.totalValue && (
                   <span className="text-sm text-success flex items-center gap-1">
@@ -585,8 +592,8 @@ export default function NewDashboard() {
             <div className="mt-4 p-3 rounded-lg bg-muted/50 flex items-start gap-2">
               <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
               <p className="text-xs text-muted-foreground">
-                {stats.totalCards - stats.cardsWithPsa10} cards don't have PSA 10 prices yet. 
-                Run a PSA 10 lookup to get complete ceiling estimates.
+                {stats.totalCards - stats.cardsWithPsa10} cards use estimated values (2× raw price). 
+                Run PSA 10 lookup for accurate ceiling.
               </p>
             </div>
           )}
