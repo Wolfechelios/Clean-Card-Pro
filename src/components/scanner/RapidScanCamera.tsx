@@ -1,6 +1,7 @@
 // src/components/scanner/RapidScanCamera.tsx
-// Rapid Scan (simple + stable): manual capture only (no auto-capture, no sliders).
+// Rapid Scan with optional AutoScan mode.
 // Features:
+// - Manual capture OR auto-capture (stability-based state machine)
 // - Clear, high-res photo capture from live camera preview
 // - Zoom controls (if supported) + tap-to-focus (if supported)
 // - Flash/torch toggle (if supported)
@@ -12,6 +13,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
   Camera,
@@ -20,6 +23,8 @@ import {
   FlashlightOff,
   Loader2,
   Trash2,
+  Zap,
+  ZapOff,
 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -44,7 +49,9 @@ import {
 } from "@/lib/idbQueue";
 import { withRetry } from "@/lib/retry";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
+import { useAutoScan } from "@/hooks/use-autoscan";
 import { ZoomControls } from "./ZoomControls";
+import { AutoScanIndicator } from "./AutoScanIndicator";
 import { ScannedCardList } from "./ScannedCardList";
 import { useNativeCamera } from "@/hooks/use-native-camera";
 import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
@@ -113,6 +120,7 @@ export default function RapidScanCamera() {
   const [torchOn, setTorchOn] = useState(false);
   const [statusLine, setStatusLine] = useState("Tap Start to begin");
   const [busyCapture, setBusyCapture] = useState(false);
+  const [autoScanEnabled, setAutoScanEnabled] = useState(false);
 
   // Auth/user
   const [userId, setUserId] = useState<string | null>(null);
@@ -142,6 +150,30 @@ export default function RapidScanCamera() {
   // Worker controls
   const workersRunning = useRef(false);
   const stopWorkers = useRef(false);
+
+  // Queue capacity check for autoscan
+  const queueHasCapacity = useMemo(() => {
+    const pending = queueMeta.filter(q => q.status === "queued" || q.status === "processing").length;
+    return pending < QUEUE_MAX;
+  }, [queueMeta]);
+
+  // Ref to track if auto-capture should fire (avoids circular deps)
+  const autoCaptureRef = useRef<(() => void) | null>(null);
+
+  // AutoScan hook - handles frame analysis and capture decisions
+  const { status: autoScanStatus, reset: resetAutoScan } = useAutoScan({
+    videoRef,
+    enabled: autoScanEnabled && cameraOn && !isNative,
+    queueHasCapacity,
+    onCapture: () => autoCaptureRef.current?.(),
+    tuning: {
+      requiredStableMs: 1000,
+      maxDriftPx: 6,
+      maxSizeVar: 0.03,
+      lostMsToUnlock: 250,
+      cooldownMs: 300,
+    },
+  });
 
   // ───────────────────────────────────────────────────────────────────────────
   // INIT
@@ -371,7 +403,7 @@ export default function RapidScanCamera() {
   }
 
   // ───────────────────────────────────────────────────────────────────────────
-  // WEB CAMERA CAPTURE (MANUAL)
+  // WEB CAMERA CAPTURE (MANUAL + AUTOSCAN)
 
   async function captureAndEnqueue() {
     if (!cameraOn) return;
@@ -449,6 +481,9 @@ export default function RapidScanCamera() {
       setBusyCapture(false);
     }
   }
+
+  // Wire up autoCaptureRef so the hook can trigger captures
+  autoCaptureRef.current = captureAndEnqueue;
 
   // ───────────────────────────────────────────────────────────────────────────
   // WORKERS (QUEUE PROCESSING)
@@ -692,7 +727,8 @@ export default function RapidScanCamera() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <Badge variant="secondary">Rapid Scan</Badge>
-            <span className="text-sm text-muted-foreground">Manual capture • buffered processing</span>
+            {autoScanEnabled && <Badge variant="default" className="bg-green-600"><Zap className="h-3 w-3 mr-1" />Auto</Badge>}
+            <span className="text-sm text-muted-foreground">{autoScanEnabled ? "Auto-capture • stability-based" : "Manual capture • buffered"}</span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -715,7 +751,12 @@ export default function RapidScanCamera() {
             />
             <canvas ref={canvasRef} className="hidden" />
 
-            {/* Overlay */}
+            {/* AutoScan indicator */}
+            {autoScanEnabled && cameraOn && !isNative && (
+              <div className="absolute inset-x-0 top-0 p-2">
+                <AutoScanIndicator status={autoScanStatus} />
+              </div>
+            )}
             <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3">
               <div className="flex items-end justify-between gap-2">
                 <div className="min-w-0">
@@ -781,7 +822,23 @@ export default function RapidScanCamera() {
                   )}
                 </div>
 
+                {/* AutoScan toggle */}
                 {!isNative && cameraOn && (
+                  <div className="flex items-center justify-between rounded-lg border p-2">
+                    <div className="flex items-center gap-2">
+                      {autoScanEnabled ? <Zap className="h-4 w-4 text-green-500" /> : <ZapOff className="h-4 w-4 text-muted-foreground" />}
+                      <Label htmlFor="autoscan" className="text-sm font-medium">Auto-Scan</Label>
+                    </div>
+                    <Switch
+                      id="autoscan"
+                      checked={autoScanEnabled}
+                      onCheckedChange={setAutoScanEnabled}
+                    />
+                  </div>
+                )}
+
+                {/* Manual capture button - hidden when autoscan is on */}
+                {!isNative && cameraOn && !autoScanEnabled && (
                   <Button
                     onClick={captureAndEnqueue}
                     disabled={!cameraOn || busyCapture}
