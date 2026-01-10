@@ -56,6 +56,10 @@ export class FrameAnalyzer {
   private sampleWidth = 160;
   private sampleHeight = 120;
 
+  // ROI motion tracking (for stability / enter-exit behavior)
+  private lastRoiGray?: Uint8Array;
+  private motionEma = 999;
+
   constructor(config: Partial<FrameAnalyzerConfig> = {}) {
     this.config = { ...DEFAULT_ANALYZER_CONFIG, ...config };
     this.analysisCanvas = document.createElement("canvas");
@@ -86,19 +90,19 @@ export class FrameAnalyzer {
     this.analysisCtx.drawImage(video, 0, 0, this.sampleWidth, this.sampleHeight);
     const imageData = this.analysisCtx.getImageData(0, 0, this.sampleWidth, this.sampleHeight);
 
-    // Detect card-like rectangle
+    // Detect presence inside the ROI (center box). This function also updates motion EMA.
     const bbox = this.detectCardBbox(imageData);
-    
+
     // Check if card is in ROI (center region)
     const inRoi = bbox ? this.isInRoi(bbox) : false;
-    
+
     // Calculate confidence based on bbox characteristics
     const confidence = bbox ? this.calculateConfidence(bbox) : 0;
 
-    // Calculate drift from last frame
+    // Drift is ROI motion (not bbox-center drift) so "enter/exit" behaves reliably.
     const driftPx = this.calculateDrift(bbox);
 
-    // Calculate size variance from rolling average
+    // Size variance from rolling average
     const sizeVar = this.calculateSizeVariance(bbox);
 
     // Quality checks
@@ -152,82 +156,95 @@ export class FrameAnalyzer {
   }
 
   /**
-   * Simple edge-based card detection using Sobel-like gradient
+   * ROI-based presence detection.
+   *
+   * Goal: make Auto-Scan behave like "enter the box -> hold still -> capture -> exit the box".
+   *
+   * We avoid full-frame bbox detection (expensive + unreliable) and instead:
+   * - Look for enough edge density INSIDE the center ROI (means "something card-like entered")
+   * - Track ROI motion via frame differencing (means "holding steady")
    */
   private detectCardBbox(imageData: ImageData): BBox | undefined {
     const { width, height, data } = imageData;
-    
-    // Convert to grayscale and compute gradients
-    const gray = new Uint8Array(width * height);
-    for (let i = 0; i < data.length; i += 4) {
-      const idx = i / 4;
-      gray[idx] = Math.round(data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
-    }
 
-    // Find edges using simple gradient magnitude
-    let edgeCount = 0;
-    let sumX = 0;
-    let sumY = 0;
-    let minX = width;
-    let maxX = 0;
-    let minY = height;
-    let maxY = 0;
-    
-    const edgeThreshold = 30;
+    const roi = this.getRoiRect();
+    const roiW = roi.w;
+    const roiH = roi.h;
 
-    for (let y = 1; y < height - 1; y++) {
-      for (let x = 1; x < width - 1; x++) {
-        const idx = y * width + x;
-        
-        // Simple Sobel-ish gradient
-        const gx = gray[idx + 1] - gray[idx - 1];
-        const gy = gray[idx + width] - gray[idx - width];
-        const magnitude = Math.sqrt(gx * gx + gy * gy);
-
-        if (magnitude > edgeThreshold) {
-          edgeCount++;
-          sumX += x;
-          sumY += y;
-          minX = Math.min(minX, x);
-          maxX = Math.max(maxX, x);
-          minY = Math.min(minY, y);
-          maxY = Math.max(maxY, y);
-        }
+    // Build ROI grayscale buffer
+    const gray = new Uint8Array(roiW * roiH);
+    let p = 0;
+    for (let y = 0; y < roiH; y++) {
+      const srcY = (roi.y + y) * width;
+      for (let x = 0; x < roiW; x++) {
+        const srcIdx = (srcY + (roi.x + x)) * 4;
+        gray[p++] = Math.round(data[srcIdx] * 0.299 + data[srcIdx + 1] * 0.587 + data[srcIdx + 2] * 0.114);
       }
     }
 
-    // Need minimum edges to consider it a card
-    const minEdges = (width * height) * 0.02; // 2% of pixels should be edges
-    if (edgeCount < minEdges) {
-      return undefined;
+    // Motion (mean absolute difference) inside ROI
+    let motionMean = 255;
+    if (this.lastRoiGray && this.lastRoiGray.length === gray.length) {
+      let sum = 0;
+      for (let i = 0; i < gray.length; i++) sum += Math.abs(gray[i] - this.lastRoiGray[i]);
+      motionMean = sum / gray.length;
+    }
+    this.lastRoiGray = gray;
+
+    // Smooth motion to avoid jittery stability
+    if (this.motionEma === 999) this.motionEma = motionMean;
+    else this.motionEma = this.motionEma * 0.7 + motionMean * 0.3;
+
+    // Edge density inside ROI (fast gradient, no sqrt)
+    const edgeThreshold = 28;
+    let edgeCount = 0;
+    const innerW = Math.max(0, roiW - 2);
+    const innerH = Math.max(0, roiH - 2);
+    const denom = Math.max(1, innerW * innerH);
+
+    for (let y = 1; y < roiH - 1; y++) {
+      for (let x = 1; x < roiW - 1; x++) {
+        const idx = y * roiW + x;
+        const gx = gray[idx + 1] - gray[idx - 1];
+        const gy = gray[idx + roiW] - gray[idx - roiW];
+        const mag = Math.abs(gx) + Math.abs(gy);
+        if (mag > edgeThreshold) edgeCount++;
+      }
     }
 
-    // Bounding box must have reasonable aspect ratio (trading cards are ~2.5:3.5)
-    const boxW = maxX - minX;
-    const boxH = maxY - minY;
-    const aspect = boxW / Math.max(boxH, 1);
-    
-    // Cards have aspect ratio roughly 0.5-0.9 (portrait) or 1.1-2.0 (landscape)
-    const validAspect = (aspect > 0.4 && aspect < 1.0) || (aspect > 1.0 && aspect < 2.2);
-    
-    // Box must be at least 20% of frame in both dimensions
-    const validSize = boxW > width * 0.2 && boxH > height * 0.2;
+    const edgeDensity = edgeCount / denom;
 
-    if (!validAspect || !validSize) {
-      return undefined;
-    }
+    // Presence threshold tuned for 160x120 sampling ROI.
+    // (Keeps false positives low while still triggering on a card entering the box.)
+    if (edgeDensity < 0.045) return undefined;
 
-    const cx = (minX + maxX) / 2;
-    const cy = (minY + maxY) / 2;
-    const area = boxW * boxH;
+    // Return a fixed bbox matching the ROI (centered), normalized 0..1
+    const wN = roiW / width;
+    const hN = roiH / height;
 
     return {
-      cx: cx / width,   // Normalize to 0-1
-      cy: cy / height,
-      w: boxW / width,
-      h: boxH / height,
-      area: area / (width * height),
+      cx: 0.5,
+      cy: 0.5,
+      w: wN,
+      h: hN,
+      area: wN * hN,
     };
+  }
+
+  private getRoiRect(): { x: number; y: number; w: number; h: number } {
+    const pad = this.config.roiPadding;
+
+    // Match the on-screen overlay: ~70% width, card aspect ratio.
+    const roiWidthFrac = Math.max(0.2, 1 - 2 * pad);
+    const cardAspect = 2.5 / 3.5; // width/height
+    const roiHeightFrac = Math.min(1, roiWidthFrac / cardAspect);
+
+    const w = Math.max(8, Math.round(this.sampleWidth * roiWidthFrac));
+    const h = Math.max(8, Math.round(this.sampleHeight * roiHeightFrac));
+    const x = Math.round((this.sampleWidth - w) / 2);
+    const y = Math.round((this.sampleHeight - h) / 2);
+
+    return { x, y, w, h };
   }
 
   private isInRoi(bbox: BBox): boolean {
@@ -261,16 +278,17 @@ export class FrameAnalyzer {
   }
 
   private calculateDrift(bbox?: BBox): number {
-    if (!bbox || !this.lastBbox) {
-      return 999; // No comparison possible
+    // We intentionally use ROI motion (frame differencing) rather than bbox center drift.
+    // This matches the desired behavior: "when something enters/exits the box".
+    if (!bbox) {
+      this.motionEma = 999;
+      return 999;
     }
 
-    // Drift in normalized coordinates, convert to approximate pixels
-    // Assuming ~160px sample width
-    const dx = (bbox.cx - this.lastBbox.cx) * this.sampleWidth;
-    const dy = (bbox.cy - this.lastBbox.cy) * this.sampleHeight;
-    
-    return Math.sqrt(dx * dx + dy * dy);
+    // Map motion mean (0..255-ish) to a px-like scale for the controller thresholds.
+    // (Lower is steadier.)
+    const motion = this.motionEma === 999 ? 999 : this.motionEma;
+    return motion === 999 ? 999 : motion / 6;
   }
 
   private calculateSizeVariance(bbox?: BBox): number {

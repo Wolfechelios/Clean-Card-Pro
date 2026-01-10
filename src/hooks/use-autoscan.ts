@@ -47,6 +47,7 @@ export function useAutoScan({
   const analyzerRef = useRef<FrameAnalyzer | null>(null);
   const rafRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number>(0);
+  const lastStatusUpdateRef = useRef<number>(0);
   const targetFpsRef = useRef(15); // Analyze at 15fps max to save CPU
 
   const [status, setStatus] = useState<AutoScanStatus>({
@@ -125,21 +126,25 @@ export function useAutoScan({
         queueHasCapacity
       );
 
-      // Update status for UI
-      setStatus({
-        enabled: true,
-        state: decision.state,
-        progress: controllerRef.current.getProgress(),
-        qualityIssue: decision.qualityIssue || null,
-        queueFull: !queueHasCapacity,
-        frameStats: {
-          sharpness: analysis.sharpnessValue,
-          exposure: analysis.exposureValue,
-          glare: analysis.glareValue,
-          drift: analysis.driftPx,
-          confidence: analysis.confidence,
-        },
-      });
+      // Update status for UI (throttled to reduce re-render cost)
+      const statusUpdateInterval = 1000 / 10; // 10fps UI updates
+      if (decision.action === "CAPTURE" || (now - lastStatusUpdateRef.current) >= statusUpdateInterval) {
+        lastStatusUpdateRef.current = now;
+        setStatus({
+          enabled: true,
+          state: decision.state,
+          progress: controllerRef.current.getProgress(),
+          qualityIssue: decision.qualityIssue || null,
+          queueFull: !queueHasCapacity,
+          frameStats: {
+            sharpness: analysis.sharpnessValue,
+            exposure: analysis.exposureValue,
+            glare: analysis.glareValue,
+            drift: analysis.driftPx,
+            confidence: analysis.confidence,
+          },
+        });
+      }
 
       // Trigger capture if decided
       if (decision.action === "CAPTURE") {
@@ -156,6 +161,7 @@ export function useAutoScan({
   useEffect(() => {
     if (enabled) {
       lastFrameTimeRef.current = performance.now();
+      lastStatusUpdateRef.current = 0;
       controllerRef.current?.reset();
       analyzerRef.current?.reset();
       rafRef.current = requestAnimationFrame(frameLoop);
@@ -164,7 +170,7 @@ export function useAutoScan({
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
-      setStatus(s => ({ ...s, enabled: false, state: "SEARCHING", progress: 0 }));
+      setStatus((s) => ({ ...s, enabled: false, state: "SEARCHING", progress: 0 }));
     }
 
     return () => {
