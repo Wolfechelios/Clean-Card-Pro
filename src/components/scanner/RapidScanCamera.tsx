@@ -20,6 +20,8 @@ import {
   FlashlightOff,
   Loader2,
   Trash2,
+  Timer,
+  TimerOff,
 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -113,6 +115,11 @@ export default function RapidScanCamera() {
   const [torchOn, setTorchOn] = useState(false);
   const [statusLine, setStatusLine] = useState("Tap Start to begin");
   const [busyCapture, setBusyCapture] = useState(false);
+
+  // Auto-timer
+  const [autoTimerActive, setAutoTimerActive] = useState(false);
+  const autoTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [autoTimerCountdown, setAutoTimerCountdown] = useState(0);
 
   // Auth/user
   const [userId, setUserId] = useState<string | null>(null);
@@ -543,6 +550,54 @@ export default function RapidScanCamera() {
   }
 
   // ───────────────────────────────────────────────────────────────────────────
+  // AUTO-TIMER
+  // ───────────────────────────────────────────────────────────────────────────
+
+  const startAutoTimer = useCallback(() => {
+    if (!cameraOn || isNative) return;
+    setAutoTimerActive(true);
+    setAutoTimerCountdown(2);
+    
+    // Capture immediately on start
+    captureAndEnqueue();
+    
+    // Then capture every 2 seconds
+    autoTimerRef.current = setInterval(() => {
+      setAutoTimerCountdown((prev) => {
+        if (prev <= 1) {
+          captureAndEnqueue();
+          return 2;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, [cameraOn, isNative]);
+
+  const stopAutoTimer = useCallback(() => {
+    setAutoTimerActive(false);
+    setAutoTimerCountdown(0);
+    if (autoTimerRef.current) {
+      clearInterval(autoTimerRef.current);
+      autoTimerRef.current = null;
+    }
+  }, []);
+
+  // Cleanup timer on unmount or camera stop
+  useEffect(() => {
+    if (!cameraOn && autoTimerActive) {
+      stopAutoTimer();
+    }
+  }, [cameraOn, autoTimerActive, stopAutoTimer]);
+
+  useEffect(() => {
+    return () => {
+      if (autoTimerRef.current) {
+        clearInterval(autoTimerRef.current);
+      }
+    };
+  }, []);
+
+  // ───────────────────────────────────────────────────────────────────────────
   // WORKERS (QUEUE PROCESSING)
   // ───────────────────────────────────────────────────────────────────────────
 
@@ -891,15 +946,36 @@ export default function RapidScanCamera() {
                 </div>
 
                 {!isNative && cameraOn && (
-                  <Button
-                    onClick={captureAndEnqueue}
-                    disabled={!cameraOn || busyCapture}
-                    size="lg"
-                    className="w-full h-16 text-lg font-bold"
-                  >
-                    {busyCapture ? <Loader2 className="mr-2 h-6 w-6 animate-spin" /> : <Camera className="mr-2 h-6 w-6" />}
-                    CAPTURE
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={captureAndEnqueue}
+                      disabled={!cameraOn || busyCapture || autoTimerActive}
+                      size="lg"
+                      className="flex-1 h-16 text-lg font-bold"
+                    >
+                      {busyCapture ? <Loader2 className="mr-2 h-6 w-6 animate-spin" /> : <Camera className="mr-2 h-6 w-6" />}
+                      CAPTURE
+                    </Button>
+                    <Button
+                      onClick={autoTimerActive ? stopAutoTimer : startAutoTimer}
+                      variant={autoTimerActive ? "destructive" : "secondary"}
+                      size="lg"
+                      className="h-16 px-4"
+                      title={autoTimerActive ? "Stop auto-capture" : "Start auto-capture every 2 seconds"}
+                    >
+                      {autoTimerActive ? (
+                        <div className="flex flex-col items-center">
+                          <TimerOff className="h-5 w-5" />
+                          <span className="text-xs mt-0.5">{autoTimerCountdown}s</span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center">
+                          <Timer className="h-5 w-5" />
+                          <span className="text-xs mt-0.5">2s</span>
+                        </div>
+                      )}
+                    </Button>
+                  </div>
                 )}
 
                 {/* Zoom reset button - pinch controls are now on video */}
