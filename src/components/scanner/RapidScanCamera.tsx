@@ -1,7 +1,6 @@
 // src/components/scanner/RapidScanCamera.tsx
-// Rapid Scan with optional AutoScan mode.
+// Rapid Scan (simple + stable): manual capture only (no auto-capture, no sliders).
 // Features:
-// - Manual capture OR auto-capture (stability-based state machine)
 // - Clear, high-res photo capture from live camera preview
 // - Zoom controls (if supported) + tap-to-focus (if supported)
 // - Flash/torch toggle (if supported)
@@ -13,8 +12,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
   Camera,
@@ -23,8 +20,6 @@ import {
   FlashlightOff,
   Loader2,
   Trash2,
-  Zap,
-  ZapOff,
 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -49,10 +44,7 @@ import {
 } from "@/lib/idbQueue";
 import { withRetry } from "@/lib/retry";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
-import { useAutoScan } from "@/hooks/use-autoscan";
 import { ZoomControls } from "./ZoomControls";
-import { AutoScanIndicator } from "./AutoScanIndicator";
-import { ScanROIOverlay } from "./ScanROIOverlay";
 import { ScannedCardList } from "./ScannedCardList";
 import { useNativeCamera } from "@/hooks/use-native-camera";
 import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
@@ -121,7 +113,6 @@ export default function RapidScanCamera() {
   const [torchOn, setTorchOn] = useState(false);
   const [statusLine, setStatusLine] = useState("Tap Start to begin");
   const [busyCapture, setBusyCapture] = useState(false);
-  const [autoScanEnabled, setAutoScanEnabled] = useState(false);
 
   // Auth/user
   const [userId, setUserId] = useState<string | null>(null);
@@ -151,32 +142,6 @@ export default function RapidScanCamera() {
   // Worker controls
   const workersRunning = useRef(false);
   const stopWorkers = useRef(false);
-
-  // Queue capacity check for autoscan
-  const queueHasCapacity = useMemo(() => {
-    const pending = queueMeta.filter(q => q.status === "queued" || q.status === "processing").length;
-    return pending < QUEUE_MAX;
-  }, [queueMeta]);
-
-  // Ref to track if auto-capture should fire (avoids circular deps)
-  const autoCaptureRef = useRef<(() => void) | null>(null);
-
-  // AutoScan hook - handles frame analysis and capture decisions
-  const { status: autoScanStatus, reset: resetAutoScan } = useAutoScan({
-    videoRef,
-    enabled: autoScanEnabled && cameraOn && !isNative,
-    // Prevent the state machine from "capturing" while a capture is already in flight.
-    // Otherwise it can lock itself (CAPTURED_LOCK) while captureAndEnqueue() early-returns.
-    queueHasCapacity: queueHasCapacity && !busyCapture,
-    onCapture: () => autoCaptureRef.current?.(),
-    tuning: {
-      requiredStableMs: 1000,
-      maxDriftPx: 6,
-      maxSizeVar: 0.03,
-      lostMsToUnlock: 250,
-      cooldownMs: 300,
-    },
-  });
 
   // ───────────────────────────────────────────────────────────────────────────
   // INIT
@@ -395,8 +360,7 @@ export default function RapidScanCamera() {
       setStatusLine("Captured — processing in background");
       setOverlay({ label: "Captured…" });
 
-      // Don't block shutter on a full queue metadata refresh.
-      void refreshMeta();
+      await refreshMeta();
       ensureWorkersRunning();
     } catch (e: any) {
       console.error(e);
@@ -407,7 +371,7 @@ export default function RapidScanCamera() {
   }
 
   // ───────────────────────────────────────────────────────────────────────────
-  // WEB CAMERA CAPTURE (MANUAL + AUTOSCAN)
+  // WEB CAMERA CAPTURE (MANUAL)
 
   async function captureAndEnqueue() {
     if (!cameraOn) return;
@@ -429,25 +393,22 @@ export default function RapidScanCamera() {
         return;
       }
 
-      // Fast capture: downscale very large camera feeds so shutter stays responsive.
-      // (4K frames + high JPEG quality can make toBlob() take seconds on some devices.)
-      const srcW = v.videoWidth || 1920;
-      const srcH = v.videoHeight || 1080;
-      const maxDim = 1600;
-      const scale = Math.min(1, maxDim / Math.max(srcW, srcH));
-      const w = Math.max(1, Math.round(srcW * scale));
-      const h = Math.max(1, Math.round(srcH * scale));
+      // Make capture resolution match the actual camera feed.
+      const w = v.videoWidth || 1920;
+      const h = v.videoHeight || 1080;
       c.width = w;
       c.height = h;
 
       const ctx = c.getContext("2d", { willReadFrequently: false });
       if (!ctx) throw new Error("Canvas not available");
 
-      // Draw current frame (downscaled)
-      ctx.drawImage(v, 0, 0, srcW, srcH, 0, 0, w, h);
+      // Draw current frame
+      ctx.drawImage(v, 0, 0, w, h);
 
-      // Convert to JPEG (slightly lower quality for speed, still OCR-friendly)
-      const blob: Blob | null = await new Promise((resolve) => c.toBlob(resolve, "image/jpeg", 0.88));
+      // Convert to high-quality JPEG
+      const blob: Blob | null = await new Promise((resolve) =>
+        c.toBlob(resolve, "image/jpeg", 0.92)
+      );
       if (!blob) throw new Error("Failed to capture image");
 
       const id = safeUUID();
@@ -479,8 +440,7 @@ export default function RapidScanCamera() {
       setStatusLine("Captured — processing in background");
       setOverlay({ label: "Captured…" });
 
-      // Don't block shutter on a full queue metadata refresh.
-      void refreshMeta();
+      await refreshMeta();
       ensureWorkersRunning();
     } catch (e: any) {
       console.error(e);
@@ -489,9 +449,6 @@ export default function RapidScanCamera() {
       setBusyCapture(false);
     }
   }
-
-  // Wire up autoCaptureRef so the hook can trigger captures
-  autoCaptureRef.current = captureAndEnqueue;
 
   // ───────────────────────────────────────────────────────────────────────────
   // WORKERS (QUEUE PROCESSING)
@@ -735,8 +692,7 @@ export default function RapidScanCamera() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <Badge variant="secondary">Rapid Scan</Badge>
-            {autoScanEnabled && <Badge variant="default" className="bg-green-600"><Zap className="h-3 w-3 mr-1" />Auto</Badge>}
-            <span className="text-sm text-muted-foreground">{autoScanEnabled ? "Auto-capture • stability-based" : "Manual capture • buffered"}</span>
+            <span className="text-sm text-muted-foreground">Manual capture • buffered processing</span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -759,20 +715,7 @@ export default function RapidScanCamera() {
             />
             <canvas ref={canvasRef} className="hidden" />
 
-            {/* AutoScan ROI overlay - always shows when autoscan enabled */}
-            <ScanROIOverlay 
-              enabled={autoScanEnabled && cameraOn && !isNative}
-              state={autoScanStatus.state}
-              progress={autoScanStatus.progress}
-              qualityIssue={autoScanStatus.qualityIssue}
-            />
-
-            {/* AutoScan status indicator */}
-            {autoScanEnabled && cameraOn && !isNative && (
-              <div className="absolute inset-x-0 top-0 p-2">
-                <AutoScanIndicator status={autoScanStatus} />
-              </div>
-            )}
+            {/* Overlay */}
             <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3">
               <div className="flex items-end justify-between gap-2">
                 <div className="min-w-0">
@@ -838,42 +781,7 @@ export default function RapidScanCamera() {
                   )}
                 </div>
 
-                {/* AutoScan toggle - always visible when not native */}
-                {!isNative && (
-                  <div className={cn(
-                    "flex items-center justify-between rounded-lg border p-3",
-                    autoScanEnabled && "border-green-500/50 bg-green-500/10"
-                  )}>
-                    <div className="flex items-center gap-2">
-                      {autoScanEnabled ? (
-                        <Zap className="h-5 w-5 text-green-500" />
-                      ) : (
-                        <ZapOff className="h-5 w-5 text-muted-foreground" />
-                      )}
-                      <div>
-                        <Label htmlFor="autoscan" className="text-sm font-medium">Auto-Scan</Label>
-                        <p className="text-xs text-muted-foreground">
-                          {autoScanEnabled 
-                            ? "Auto-captures when card is stable" 
-                            : "Tap to enable automatic capture"}
-                        </p>
-                      </div>
-                    </div>
-                    <Switch
-                      id="autoscan"
-                      checked={autoScanEnabled}
-                      onCheckedChange={(checked) => {
-                        setAutoScanEnabled(checked);
-                        if (checked) {
-                          resetAutoScan();
-                        }
-                      }}
-                    />
-                  </div>
-                )}
-
-                {/* Manual capture button - hidden when autoscan is on */}
-                {!isNative && cameraOn && !autoScanEnabled && (
+                {!isNative && cameraOn && (
                   <Button
                     onClick={captureAndEnqueue}
                     disabled={!cameraOn || busyCapture}
