@@ -39,11 +39,11 @@ export type FrameAnalyzerConfig = {
 };
 
 export const DEFAULT_ANALYZER_CONFIG: FrameAnalyzerConfig = {
-  roiPadding: 0.1,
-  minSharpness: 100,
-  minExposure: 40,
-  maxExposure: 220,
-  maxGlareRatio: 0.05,
+  roiPadding: 0.15,          // 15% padding from edges
+  minSharpness: 50,          // Lowered - less strict
+  minExposure: 30,           // More tolerant of darker scenes
+  maxExposure: 230,          // More tolerant of brighter scenes
+  maxGlareRatio: 0.08,       // 8% glare tolerance
   historySize: 10,
 };
 

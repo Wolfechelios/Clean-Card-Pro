@@ -34,12 +34,12 @@ export type AutoScanTuning = {
 };
 
 export const DEFAULT_AUTOSCAN_TUNING: AutoScanTuning = {
-  minConfidence: 0.70,
-  requiredStableMs: 1000,
-  maxDriftPx: 6,
-  maxSizeVar: 0.03,     // 3%
-  lostMsToUnlock: 250,
-  cooldownMs: 250,
+  minConfidence: 0.50,       // Lowered for easier detection
+  requiredStableMs: 800,     // Slightly faster capture
+  maxDriftPx: 8,             // More tolerant of movement
+  maxSizeVar: 0.05,          // 5% - more tolerant
+  lostMsToUnlock: 200,
+  cooldownMs: 300,
 };
 
 export class AutoScanController {

@@ -52,6 +52,7 @@ import { useCameraZoom } from "@/hooks/use-camera-zoom";
 import { useAutoScan } from "@/hooks/use-autoscan";
 import { ZoomControls } from "./ZoomControls";
 import { AutoScanIndicator } from "./AutoScanIndicator";
+import { ScanROIOverlay } from "./ScanROIOverlay";
 import { ScannedCardList } from "./ScannedCardList";
 import { useNativeCamera } from "@/hooks/use-native-camera";
 import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
@@ -751,7 +752,15 @@ export default function RapidScanCamera() {
             />
             <canvas ref={canvasRef} className="hidden" />
 
-            {/* AutoScan indicator */}
+            {/* AutoScan ROI overlay - always shows when autoscan enabled */}
+            <ScanROIOverlay 
+              enabled={autoScanEnabled && cameraOn && !isNative}
+              state={autoScanStatus.state}
+              progress={autoScanStatus.progress}
+              qualityIssue={autoScanStatus.qualityIssue}
+            />
+
+            {/* AutoScan status indicator */}
             {autoScanEnabled && cameraOn && !isNative && (
               <div className="absolute inset-x-0 top-0 p-2">
                 <AutoScanIndicator status={autoScanStatus} />
@@ -822,17 +831,36 @@ export default function RapidScanCamera() {
                   )}
                 </div>
 
-                {/* AutoScan toggle */}
-                {!isNative && cameraOn && (
-                  <div className="flex items-center justify-between rounded-lg border p-2">
+                {/* AutoScan toggle - always visible when not native */}
+                {!isNative && (
+                  <div className={cn(
+                    "flex items-center justify-between rounded-lg border p-3",
+                    autoScanEnabled && "border-green-500/50 bg-green-500/10"
+                  )}>
                     <div className="flex items-center gap-2">
-                      {autoScanEnabled ? <Zap className="h-4 w-4 text-green-500" /> : <ZapOff className="h-4 w-4 text-muted-foreground" />}
-                      <Label htmlFor="autoscan" className="text-sm font-medium">Auto-Scan</Label>
+                      {autoScanEnabled ? (
+                        <Zap className="h-5 w-5 text-green-500" />
+                      ) : (
+                        <ZapOff className="h-5 w-5 text-muted-foreground" />
+                      )}
+                      <div>
+                        <Label htmlFor="autoscan" className="text-sm font-medium">Auto-Scan</Label>
+                        <p className="text-xs text-muted-foreground">
+                          {autoScanEnabled 
+                            ? "Auto-captures when card is stable" 
+                            : "Tap to enable automatic capture"}
+                        </p>
+                      </div>
                     </div>
                     <Switch
                       id="autoscan"
                       checked={autoScanEnabled}
-                      onCheckedChange={setAutoScanEnabled}
+                      onCheckedChange={(checked) => {
+                        setAutoScanEnabled(checked);
+                        if (checked) {
+                          resetAutoScan();
+                        }
+                      }}
                     />
                   </div>
                 )}
