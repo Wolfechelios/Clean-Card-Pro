@@ -165,7 +165,9 @@ export default function RapidScanCamera() {
   const { status: autoScanStatus, reset: resetAutoScan } = useAutoScan({
     videoRef,
     enabled: autoScanEnabled && cameraOn && !isNative,
-    queueHasCapacity,
+    // Prevent the state machine from "capturing" while a capture is already in flight.
+    // Otherwise it can lock itself (CAPTURED_LOCK) while captureAndEnqueue() early-returns.
+    queueHasCapacity: queueHasCapacity && !busyCapture,
     onCapture: () => autoCaptureRef.current?.(),
     tuning: {
       requiredStableMs: 1000,
@@ -393,7 +395,8 @@ export default function RapidScanCamera() {
       setStatusLine("Captured — processing in background");
       setOverlay({ label: "Captured…" });
 
-      await refreshMeta();
+      // Don't block shutter on a full queue metadata refresh.
+      void refreshMeta();
       ensureWorkersRunning();
     } catch (e: any) {
       console.error(e);
@@ -426,22 +429,25 @@ export default function RapidScanCamera() {
         return;
       }
 
-      // Make capture resolution match the actual camera feed.
-      const w = v.videoWidth || 1920;
-      const h = v.videoHeight || 1080;
+      // Fast capture: downscale very large camera feeds so shutter stays responsive.
+      // (4K frames + high JPEG quality can make toBlob() take seconds on some devices.)
+      const srcW = v.videoWidth || 1920;
+      const srcH = v.videoHeight || 1080;
+      const maxDim = 1600;
+      const scale = Math.min(1, maxDim / Math.max(srcW, srcH));
+      const w = Math.max(1, Math.round(srcW * scale));
+      const h = Math.max(1, Math.round(srcH * scale));
       c.width = w;
       c.height = h;
 
       const ctx = c.getContext("2d", { willReadFrequently: false });
       if (!ctx) throw new Error("Canvas not available");
 
-      // Draw current frame
-      ctx.drawImage(v, 0, 0, w, h);
+      // Draw current frame (downscaled)
+      ctx.drawImage(v, 0, 0, srcW, srcH, 0, 0, w, h);
 
-      // Convert to high-quality JPEG
-      const blob: Blob | null = await new Promise((resolve) =>
-        c.toBlob(resolve, "image/jpeg", 0.92)
-      );
+      // Convert to JPEG (slightly lower quality for speed, still OCR-friendly)
+      const blob: Blob | null = await new Promise((resolve) => c.toBlob(resolve, "image/jpeg", 0.88));
       if (!blob) throw new Error("Failed to capture image");
 
       const id = safeUUID();
@@ -473,7 +479,8 @@ export default function RapidScanCamera() {
       setStatusLine("Captured — processing in background");
       setOverlay({ label: "Captured…" });
 
-      await refreshMeta();
+      // Don't block shutter on a full queue metadata refresh.
+      void refreshMeta();
       ensureWorkersRunning();
     } catch (e: any) {
       console.error(e);

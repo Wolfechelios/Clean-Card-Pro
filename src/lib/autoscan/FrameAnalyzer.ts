@@ -60,19 +60,31 @@ export class FrameAnalyzer {
   private lastRoiGray?: Uint8Array;
   private motionEma = 999;
 
+  // Adaptive ROI "presence" tracking (prevents background edges from keeping us "locked")
+  private present = false;
+  private exitHold = 0;
+  private bgEdgeEma = 0;
+  private bgStdEma = 0;
+
   constructor(config: Partial<FrameAnalyzerConfig> = {}) {
     this.config = { ...DEFAULT_ANALYZER_CONFIG, ...config };
     this.analysisCanvas = document.createElement("canvas");
     this.analysisCanvas.width = this.sampleWidth;
     this.analysisCanvas.height = this.sampleHeight;
-    this.analysisCtx = this.analysisCanvas.getContext("2d", { 
-      willReadFrequently: true 
+    this.analysisCtx = this.analysisCanvas.getContext("2d", {
+      willReadFrequently: true,
     })!;
   }
 
   reset() {
     this.lastBbox = undefined;
     this.bboxHistory = [];
+    this.lastRoiGray = undefined;
+    this.motionEma = 999;
+    this.present = false;
+    this.exitHold = 0;
+    this.bgEdgeEma = 0;
+    this.bgStdEma = 0;
   }
 
   /**
@@ -90,7 +102,7 @@ export class FrameAnalyzer {
     this.analysisCtx.drawImage(video, 0, 0, this.sampleWidth, this.sampleHeight);
     const imageData = this.analysisCtx.getImageData(0, 0, this.sampleWidth, this.sampleHeight);
 
-    // Detect presence inside the ROI (center box). This function also updates motion EMA.
+    // ROI presence detection (enter -> stabilize -> capture -> exit)
     const bbox = this.detectCardBbox(imageData);
 
     // Check if card is in ROI (center region)
@@ -111,8 +123,7 @@ export class FrameAnalyzer {
     const glareValue = this.measureGlare(imageData);
 
     const sharpnessOk = sharpnessValue >= this.config.minSharpness;
-    const exposureOk = exposureValue >= this.config.minExposure && 
-                       exposureValue <= this.config.maxExposure;
+    const exposureOk = exposureValue >= this.config.minExposure && exposureValue <= this.config.maxExposure;
     const glareOk = glareValue <= this.config.maxGlareRatio;
 
     // Update history
@@ -158,11 +169,12 @@ export class FrameAnalyzer {
   /**
    * ROI-based presence detection.
    *
-   * Goal: make Auto-Scan behave like "enter the box -> hold still -> capture -> exit the box".
+   * Desired behavior:
+   * - Card enters ROI -> we consider it present
+   * - While present, we track motion for stability
+   * - After capture, we must reliably detect "card left ROI" so CAPTURED_LOCK can unlock
    *
-   * We avoid full-frame bbox detection (expensive + unreliable) and instead:
-   * - Look for enough edge density INSIDE the center ROI (means "something card-like entered")
-   * - Track ROI motion via frame differencing (means "holding steady")
+   * Key idea: Use an adaptive baseline for the ROI so background edges don't keep "present" true.
    */
   private detectCardBbox(imageData: ImageData): BBox | undefined {
     const { width, height, data } = imageData;
@@ -171,23 +183,34 @@ export class FrameAnalyzer {
     const roiW = roi.w;
     const roiH = roi.h;
 
-    // Build ROI grayscale buffer
+    // Build ROI grayscale buffer + stats
     const gray = new Uint8Array(roiW * roiH);
     let p = 0;
+    let sum = 0;
+    let sumSq = 0;
+
     for (let y = 0; y < roiH; y++) {
       const srcY = (roi.y + y) * width;
       for (let x = 0; x < roiW; x++) {
         const srcIdx = (srcY + (roi.x + x)) * 4;
-        gray[p++] = Math.round(data[srcIdx] * 0.299 + data[srcIdx + 1] * 0.587 + data[srcIdx + 2] * 0.114);
+        const g = Math.round(data[srcIdx] * 0.299 + data[srcIdx + 1] * 0.587 + data[srcIdx + 2] * 0.114);
+        gray[p++] = g;
+        sum += g;
+        sumSq += g * g;
       }
     }
+
+    const n = Math.max(1, gray.length);
+    const mean = sum / n;
+    const variance = sumSq / n - mean * mean;
+    const std = Math.sqrt(Math.max(0, variance));
 
     // Motion (mean absolute difference) inside ROI
     let motionMean = 255;
     if (this.lastRoiGray && this.lastRoiGray.length === gray.length) {
-      let sum = 0;
-      for (let i = 0; i < gray.length; i++) sum += Math.abs(gray[i] - this.lastRoiGray[i]);
-      motionMean = sum / gray.length;
+      let diffSum = 0;
+      for (let i = 0; i < gray.length; i++) diffSum += Math.abs(gray[i] - this.lastRoiGray[i]);
+      motionMean = diffSum / gray.length;
     }
     this.lastRoiGray = gray;
 
@@ -214,9 +237,40 @@ export class FrameAnalyzer {
 
     const edgeDensity = edgeCount / denom;
 
-    // Presence threshold tuned for 160x120 sampling ROI.
-    // (Keeps false positives low while still triggering on a card entering the box.)
-    if (edgeDensity < 0.045) return undefined;
+    // Initialize baseline on first run
+    if (this.bgEdgeEma === 0 && this.bgStdEma === 0) {
+      this.bgEdgeEma = edgeDensity;
+      this.bgStdEma = std;
+    }
+
+    // Adaptive thresholds (hysteresis)
+    const enterEdge = this.bgEdgeEma + 0.015;
+    const enterStd = this.bgStdEma + 8;
+    const exitEdge = this.bgEdgeEma + 0.008;
+    const exitStd = this.bgStdEma + 4;
+
+    if (!this.present) {
+      // Track baseline while empty
+      this.bgEdgeEma = this.bgEdgeEma * 0.9 + edgeDensity * 0.1;
+      this.bgStdEma = this.bgStdEma * 0.9 + std * 0.1;
+
+      if (edgeDensity > enterEdge || std > enterStd) {
+        this.present = true;
+        this.exitHold = 0;
+      } else {
+        return undefined;
+      }
+    } else {
+      // Present -> decide when it has "exited" (needs a few consecutive frames)
+      const shouldExit = edgeDensity < exitEdge && std < exitStd;
+      this.exitHold = shouldExit ? this.exitHold + 1 : 0;
+
+      if (this.exitHold >= 3) {
+        this.present = false;
+        this.exitHold = 0;
+        return undefined;
+      }
+    }
 
     // Return a fixed bbox matching the ROI (centered), normalized 0..1
     const wN = roiW / width;
@@ -250,10 +304,7 @@ export class FrameAnalyzer {
   private isInRoi(bbox: BBox): boolean {
     const pad = this.config.roiPadding;
     // Card center should be within the center region (with padding from edges)
-    return bbox.cx >= pad && 
-           bbox.cx <= (1 - pad) && 
-           bbox.cy >= pad && 
-           bbox.cy <= (1 - pad);
+    return bbox.cx >= pad && bbox.cx <= 1 - pad && bbox.cy >= pad && bbox.cy <= 1 - pad;
   }
 
   private calculateConfidence(bbox: BBox): number {
@@ -261,20 +312,17 @@ export class FrameAnalyzer {
     // - Area coverage (bigger = more confident)
     // - Center alignment (centered = more confident)
     // - Aspect ratio (closer to card ratio = more confident)
-    
+
     const areaCoverage = Math.min(bbox.area / 0.3, 1); // Caps at 30% coverage
-    
-    const centerDist = Math.sqrt(
-      Math.pow(bbox.cx - 0.5, 2) + 
-      Math.pow(bbox.cy - 0.5, 2)
-    );
+
+    const centerDist = Math.sqrt(Math.pow(bbox.cx - 0.5, 2) + Math.pow(bbox.cy - 0.5, 2));
     const centerScore = Math.max(0, 1 - centerDist * 2);
-    
+
     const aspect = bbox.w / Math.max(bbox.h, 0.001);
     const idealAspect = 0.714; // 2.5:3.5 standard card
     const aspectScore = Math.max(0, 1 - Math.abs(aspect - idealAspect) * 2);
 
-    return (areaCoverage * 0.4 + centerScore * 0.4 + aspectScore * 0.2);
+    return areaCoverage * 0.4 + centerScore * 0.4 + aspectScore * 0.2;
   }
 
   private calculateDrift(bbox?: BBox): number {
@@ -297,9 +345,9 @@ export class FrameAnalyzer {
     }
 
     // Calculate average area
-    const areas = this.bboxHistory.map(b => b.area);
+    const areas = this.bboxHistory.map((b) => b.area);
     const avgArea = areas.reduce((a, b) => a + b, 0) / areas.length;
-    
+
     if (avgArea === 0) return 0;
 
     // Current deviation from average
