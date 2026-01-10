@@ -292,16 +292,88 @@ export default function RapidScanCamera() {
     useGlobalProcessControl.getState().setScannerActive(false);
   }
 
+  // Pinch-to-zoom state
+  const pinchRef = useRef<{ initialDistance: number; initialZoom: number } | null>(null);
+
+  const getDistance = useCallback((t1: React.Touch, t2: React.Touch) => {
+    const dx = t1.clientX - t2.clientX;
+    const dy = t1.clientY - t2.clientY;
+    return Math.hypot(dx, dy);
+  }, []);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLVideoElement>) => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      const distance = getDistance(e.touches[0], e.touches[1]);
+      pinchRef.current = { initialDistance: distance, initialZoom: zoomLevel };
+    }
+  }, [zoomLevel, getDistance]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent<HTMLVideoElement>) => {
+    if (e.touches.length === 2 && pinchRef.current) {
+      e.preventDefault();
+      const distance = getDistance(e.touches[0], e.touches[1]);
+      const scale = distance / pinchRef.current.initialDistance;
+      const newZoom = Math.min(
+        Math.max(pinchRef.current.initialZoom * scale, zoomCapabilities.min),
+        zoomCapabilities.max
+      );
+      setZoom(newZoom);
+    }
+  }, [getDistance, zoomCapabilities, setZoom]);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLVideoElement>) => {
+    if (e.touches.length < 2) {
+      pinchRef.current = null;
+    }
+  }, []);
+
+  // Tap-to-focus with auto-focus trigger
   const handleVideoTap = useCallback(
     async (e: React.MouseEvent<HTMLVideoElement>) => {
-      if (!support.focus) return;
       const rect = (e.target as HTMLVideoElement).getBoundingClientRect();
       const x = (e.clientX - rect.left) / rect.width;
       const y = (e.clientY - rect.top) / rect.height;
-      await setFocusPoint(trackRef.current, { x, y });
+      
+      // Trigger focus point if supported
+      if (support.focus) {
+        await setFocusPoint(trackRef.current, { x, y });
+      }
+      
+      // Also trigger a fast autofocus via constraint
+      if (trackRef.current?.applyConstraints) {
+        try {
+          await trackRef.current.applyConstraints({
+            advanced: [{ focusMode: "manual" } as any],
+          });
+          await new Promise((r) => setTimeout(r, 50));
+          await trackRef.current.applyConstraints({
+            advanced: [{ focusMode: "continuous" } as any],
+          });
+        } catch {
+          // Ignore - some devices don't support focus mode changes
+        }
+      }
     },
     [support.focus]
   );
+
+  // Auto-focus on camera start
+  useEffect(() => {
+    if (!cameraOn || !trackRef.current) return;
+    
+    const triggerAutoFocus = async () => {
+      try {
+        await trackRef.current?.applyConstraints({
+          advanced: [{ focusMode: "continuous" } as any],
+        });
+      } catch {
+        // Ignore
+      }
+    };
+    
+    triggerAutoFocus();
+  }, [cameraOn]);
 
   async function toggleTorch() {
     if (!support.torch) return;
@@ -705,15 +777,36 @@ export default function RapidScanCamera() {
 
         <div className="mt-4 grid gap-3 md:grid-cols-[1fr_320px]">
           {/* Camera preview */}
-          <div className="relative overflow-hidden rounded-xl border bg-black">
+          <div className="relative overflow-hidden rounded-xl border bg-black touch-none">
             <video
               ref={videoRef}
-              className={cn("h-[360px] w-full object-cover", support.focus && "cursor-crosshair")}
+              className={cn(
+                "h-[360px] w-full object-cover cursor-crosshair",
+                usingDigitalZoom && zoomLevel > 1 && "transition-transform duration-100"
+              )}
+              style={usingDigitalZoom && zoomLevel > 1 ? { transform: `scale(${zoomLevel})` } : undefined}
               onClick={handleVideoTap}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
               playsInline
               muted
             />
             <canvas ref={canvasRef} className="hidden" />
+
+            {/* Pinch zoom indicator */}
+            {cameraOn && zoomCapabilities.supported && (
+              <div className="absolute top-3 right-3 z-10">
+                <div className="bg-black/70 rounded-full px-3 py-1.5 flex items-center gap-2">
+                  <span className="text-xs text-white font-medium">
+                    {zoomLevel.toFixed(1)}×
+                  </span>
+                  {usingDigitalZoom && (
+                    <span className="text-[10px] text-white/60">digital</span>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Overlay */}
             <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3">
@@ -731,12 +824,8 @@ export default function RapidScanCamera() {
                   )}
                 </div>
 
-                <div className="text-right text-xs text-white/80">
-                  {zoomCapabilities?.min != null && zoomCapabilities?.max != null && (
-                    <div>
-                      Zoom: {zoomLevel.toFixed(1)}×{usingDigitalZoom ? " (digital)" : ""}
-                    </div>
-                  )}
+                <div className="text-right text-[10px] text-white/60">
+                  {cameraOn && "Pinch to zoom • Tap to focus"}
                 </div>
               </div>
             </div>
@@ -793,18 +882,16 @@ export default function RapidScanCamera() {
                   </Button>
                 )}
 
-                {/* Zoom - only for web camera */}
-                {!isNative && (
-                  <ZoomControls
-                    zoomLevel={zoomLevel}
-                    minZoom={zoomCapabilities.min}
-                    maxZoom={zoomCapabilities.max}
-                    supported={zoomCapabilities.supported}
-                    onZoomIn={zoomIn}
-                    onZoomOut={zoomOut}
-                    onZoomChange={setZoom}
-                    onReset={resetZoom}
-                  />
+                {/* Zoom reset button - pinch controls are now on video */}
+                {!isNative && cameraOn && zoomLevel > 1 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={resetZoom}
+                    className="w-full"
+                  >
+                    Reset Zoom ({zoomLevel.toFixed(1)}×)
+                  </Button>
                 )}
 
                 {/* Tiny clear button with double confirmation */}
