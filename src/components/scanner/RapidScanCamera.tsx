@@ -54,7 +54,7 @@ import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 // ─────────────────────────────────────────────────────────────────────────────
 
 const QUEUE_MAX = 500; // large buffer - uses IndexedDB (device storage)
-const WORKER_THREADS = 2; // Process 2 cards in parallel
+const WORKER_THREADS = 3; // Process 3 cards in parallel
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
 const JOB_DELAY_MS = 800; // Delay between jobs to avoid API rate limits
 
