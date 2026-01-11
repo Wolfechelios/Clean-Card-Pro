@@ -255,7 +255,7 @@ export default function NewDashboard() {
       }, 0);
 
       setStats({
-        totalCards: cards.length,
+        totalCards: totalCards,
         totalValue,
         recentScans,
         avgCardValue: avgValue,
