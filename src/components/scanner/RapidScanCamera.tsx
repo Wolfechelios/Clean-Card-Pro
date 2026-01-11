@@ -262,7 +262,7 @@ export default function RapidScanCamera() {
         try {
           const track = trackRef.current;
           // Try common constraint shapes
-          await track?.applyConstraints?.({ advanced: [{ focusMode: "manual" }] });
+          await track?.applyConstraints?.({ advanced: [{ focusMode: "manual" } as MediaTrackConstraintSet] });
         } catch {
           // ignore
         }
