@@ -26,6 +26,7 @@ import { BulkRarityReanalyze } from "@/components/collections/BulkRarityReanalyz
 import { BulkImageLookup } from "@/components/collections/BulkImageLookup";
 import { BulkCardReidentify } from "@/components/settings/BulkCardReidentify";
 import { BulkPSA10Update } from "@/components/pricing/BulkPSA10Update";
+import { BulkPriceRefresh } from "@/components/pricing/BulkPriceRefresh";
 import { SettingsSkeleton } from "@/components/ui/loading-skeletons";
 import { useScannerSettings } from "@/hooks/use-scanner-settings";
 import { Slider } from "@/components/ui/slider";
@@ -596,6 +597,16 @@ export default function Settings() {
                 <RefreshCw className={`h-4 w-4 mr-2 ${isUpdatingPrices ? 'animate-spin' : ''}`} />
                 Update All Prices {totalCards > 0 ? `(${totalCards} cards)` : ''}
               </Button>
+            </div>
+
+            <Separator />
+
+            {/* Bulk Price Refresh for missing prices */}
+            <div>
+              <p className="text-sm text-muted-foreground mb-2">
+                Fetch prices for cards that are missing price data
+              </p>
+              <BulkPriceRefresh />
             </div>
 
             <Separator />

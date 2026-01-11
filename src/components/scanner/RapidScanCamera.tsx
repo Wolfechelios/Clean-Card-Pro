@@ -865,6 +865,53 @@ export default function RapidScanCamera() {
     [cards, updateCard, userId]
   );
 
+  const handleAddAllToLibrary = useCallback(async () => {
+    if (!userId) {
+      toast.error("Login required to save to your library");
+      return;
+    }
+
+    const newCards = cards.filter((c) => c.status === "completed" && !c.dbId && c.cardName);
+    if (newCards.length === 0) {
+      toast.info("No new cards to add");
+      return;
+    }
+
+    toast.loading(`Adding ${newCards.length} cards to library...`, { id: "bulk-add" });
+
+    let added = 0;
+    for (const c of newCards) {
+      try {
+        updateCard(c.id, { priceFetching: true });
+
+        const inserted = await insertCardDual({
+          user_id: userId,
+          card_name: c.cardName!,
+          card_set: c.cardSet ?? null,
+          card_number: c.cardNumber ?? null,
+          rarity: c.rarity ?? null,
+          image_url: c.imageUrl ?? null,
+          current_price_raw: c.value ?? null,
+          suggested_price: c.value ?? null,
+        } as any);
+
+        updateCard(c.id, {
+          dbId: inserted.id,
+          isInLibrary: true,
+          libraryQuantity: Math.max((c.libraryQuantity || 0) + 1, 1),
+          priceFetching: false,
+        });
+
+        added++;
+      } catch (e: any) {
+        console.error(`Failed to add ${c.cardName}:`, e);
+        updateCard(c.id, { priceFetching: false });
+      }
+    }
+
+    toast.success(`Added ${added} of ${newCards.length} cards to library`, { id: "bulk-add" });
+  }, [cards, updateCard, userId]);
+
   // ───────────────────────────────────────────────────────────────────────────
   // CLEAR
   // ───────────────────────────────────────────────────────────────────────────
@@ -1127,6 +1174,7 @@ export default function RapidScanCamera() {
         onCardDelete={(id) => removeCard(id)}
         scanMode={true}
         onAddToLibrary={(id) => handleAddToLibrary(id)}
+        onAddAllToLibrary={handleAddAllToLibrary}
         onReorder={(orderedIds) => {
           setCards((prev) => {
             const byId = new Map(prev.map((c) => [c.id, c]));
