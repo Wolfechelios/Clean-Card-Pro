@@ -38,6 +38,7 @@ interface CardItem {
   current_price_psa10: number | null;
   image_url: string;
   suggested_price: number | null;
+  quantity?: number | null;
 }
 
 export default function PredictionsPage() {
@@ -165,7 +166,7 @@ export default function PredictionsPage() {
                 </div>
                 <div>
                   <p className="text-2xl font-bold">
-                    ${cards.reduce((sum, c) => sum + (c.suggested_price || 0), 0).toFixed(0)}
+                    ${cards.reduce((sum, c) => sum + (c.suggested_price || 0) * (c.quantity || 1), 0).toFixed(0)}
                   </p>
                   <p className="text-xs text-muted-foreground">Total Collection Value</p>
                 </div>
@@ -343,7 +344,7 @@ export default function PredictionsPage() {
             ) : (
               <CollectionValuePrediction 
                 cards={cards} 
-                totalValue={cards.reduce((sum, c) => sum + (c.suggested_price || 0), 0)} 
+                totalValue={cards.reduce((sum, c) => sum + (c.suggested_price || 0) * (c.quantity || 1), 0)} 
               />
             )}
           </div>

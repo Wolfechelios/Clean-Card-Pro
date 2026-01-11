@@ -54,6 +54,7 @@ interface CardItem {
   cgc10_price?: number | null;
   psa10_viable?: boolean | null;
   psa10_viable_confidence?: number | null;
+  quantity?: number | null;
 }
 
 export default function Collections() {
@@ -899,7 +900,7 @@ export default function Collections() {
         </span>
         {filteredCards.length > 0 && (
           <span className="font-medium text-foreground">
-            Total Value: ${filteredCards.reduce((sum, c) => sum + (c.current_price_raw || 0), 0).toFixed(2)}
+            Total Value: ${filteredCards.reduce((sum, c) => sum + (c.current_price_raw || 0) * (c.quantity || 1), 0).toFixed(2)}
           </span>
         )}
       </div>

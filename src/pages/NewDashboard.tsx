@@ -211,8 +211,9 @@ export default function NewDashboard() {
 
     if (allCards.length > 0) {
       const cards = allCards;
-      const totalValue = cards.reduce((sum, card) => sum + (card.current_price_raw || 0), 0);
-      const avgValue = cards.length > 0 ? totalValue / cards.length : 0;
+      const totalValue = cards.reduce((sum, card) => sum + (card.current_price_raw || 0) * (card.quantity || 1), 0);
+      const totalCards = cards.reduce((sum, card) => sum + (card.quantity || 1), 0);
+      const avgValue = totalCards > 0 ? totalValue / totalCards : 0;
 
       const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
       const recentScans = cards.filter((c) => new Date(c.created_at) > dayAgo).length;
@@ -232,14 +233,14 @@ export default function NewDashboard() {
 
       const recentValue = cards
         .filter((c) => new Date(c.created_at) > sevenDaysAgo)
-        .reduce((sum, card) => sum + (card.current_price_raw || 0), 0);
+        .reduce((sum, card) => sum + (card.current_price_raw || 0) * (card.quantity || 1), 0);
 
       const previousValue = cards
         .filter((c) => {
           const date = new Date(c.created_at);
           return date > fourteenDaysAgo && date <= sevenDaysAgo;
         })
-        .reduce((sum, card) => sum + (card.current_price_raw || 0), 0);
+        .reduce((sum, card) => sum + (card.current_price_raw || 0) * (card.quantity || 1), 0);
 
       const valueChange = previousValue > 0 ? ((recentValue - previousValue) / previousValue) * 100 : 0;
 
@@ -248,8 +249,9 @@ export default function NewDashboard() {
       const cardsWithPrices = cards.filter(c => c.current_price_raw && c.current_price_raw > 0);
       const collectorSaleValue = cards.reduce((sum, card) => {
         const rawPrice = card.current_price_raw || 0;
+        const qty = card.quantity || 1;
         // Collector-to-collector typically 70-80% of market for raw cards
-        return sum + (rawPrice * 0.75);
+        return sum + (rawPrice * 0.75 * qty);
       }, 0);
 
       setStats({
@@ -298,7 +300,7 @@ export default function NewDashboard() {
         .filter((c) => new Date(c.created_at) > thirtyDaysAgo)
         .forEach((card) => {
           const date = new Date(card.created_at).toLocaleDateString();
-          dailyValues[date] = (dailyValues[date] || 0) + (card.current_price_raw || 0);
+          dailyValues[date] = (dailyValues[date] || 0) + (card.current_price_raw || 0) * (card.quantity || 1);
         });
 
       const valueTimeData = Object.entries(dailyValues)
@@ -325,7 +327,7 @@ export default function NewDashboard() {
 
     try {
       // Prepare collection summary for AI
-      const totalValue = allCards.reduce((sum, c) => sum + (c.current_price_raw || 0), 0);
+      const totalValue = allCards.reduce((sum, c) => sum + (c.current_price_raw || 0) * (c.quantity || 1), 0);
       const topValueCards = [...allCards].sort((a, b) => (b.current_price_raw || 0) - (a.current_price_raw || 0)).slice(0, 20);
       const lowValueCards = [...allCards].sort((a, b) => (a.current_price_raw || 0) - (b.current_price_raw || 0)).slice(0, 20);
       

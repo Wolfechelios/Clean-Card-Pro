@@ -56,13 +56,15 @@ serve(async (req) => {
     console.log(`Analyzing collection of ${cards.length} cards...`);
 
     // Prepare collection summary for AI
+    const totalCardsCount = cards.reduce((sum, card) => sum + (card.quantity || 1), 0);
+    const totalValueCalc = cards.reduce((sum, card) => sum + (card.current_price_raw || 0) * (card.quantity || 1), 0);
     const collectionSummary = {
-      totalCards: cards.length,
-      totalValue: cards.reduce((sum, card) => sum + (card.current_price_raw || 0), 0),
-      avgValue: cards.reduce((sum, card) => sum + (card.current_price_raw || 0), 0) / cards.length,
+      totalCards: totalCardsCount,
+      totalValue: totalValueCalc,
+      avgValue: totalCardsCount > 0 ? totalValueCalc / totalCardsCount : 0,
       rarityDistribution: cards.reduce((acc, card) => {
         const rarity = card.rarity || 'Unknown';
-        acc[rarity] = (acc[rarity] || 0) + 1;
+        acc[rarity] = (acc[rarity] || 0) + (card.quantity || 1);
         return acc;
       }, {} as Record<string, number>),
       gameTypes: [...new Set(cards.map(c => c.game_type).filter(Boolean))],
