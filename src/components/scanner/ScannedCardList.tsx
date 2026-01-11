@@ -34,6 +34,7 @@ interface ScannedCardListProps {
   onCardDelete?: (id: string) => void;
   scanMode?: boolean;
   onAddToLibrary?: (id: string) => void;
+  onAddAllToLibrary?: () => void;
   onReorder?: (orderedIds: string[]) => void;
 }
 
@@ -63,6 +64,7 @@ export const ScannedCardList = ({
   onCardDelete,
   scanMode,
   onAddToLibrary,
+  onAddAllToLibrary,
   onReorder,
 }: ScannedCardListProps) => {
   const [editingCard, setEditingCard] = useState<ScannedCard | null>(null);
@@ -76,11 +78,22 @@ export const ScannedCardList = ({
   const [isSaving, setIsSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [addingId, setAddingId] = useState<string | null>(null);
+  const [isAddingAll, setIsAddingAll] = useState(false);
 
   const completedCards = cards.filter((c) => c.status === "completed");
   const [dragId, setDragId] = useState<string | null>(null);
   const totalValue = completedCards.reduce((sum, c) => sum + (c.value || 0), 0);
   const newCardsCount = scanMode ? completedCards.filter((c) => !c.dbId).length : 0;
+
+  const handleAddAll = async () => {
+    if (!onAddAllToLibrary) return;
+    setIsAddingAll(true);
+    try {
+      await onAddAllToLibrary();
+    } finally {
+      setIsAddingAll(false);
+    }
+  };
 
   const openEditDialog = (card: ScannedCard) => {
     setEditingCard(card);
@@ -186,9 +199,24 @@ export const ScannedCardList = ({
                 </Badge>
               )}
             </div>
-            <div className="flex items-center gap-2">
-              <DollarSign className="h-5 w-5 text-green-600" />
-              <span className="text-xl font-bold text-green-600">${totalValue.toFixed(2)}</span>
+            <div className="flex items-center gap-3">
+              {/* Add All button */}
+              {scanMode && newCardsCount > 0 && onAddAllToLibrary && (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={handleAddAll}
+                  disabled={isAddingAll}
+                  className="bg-amber-600 hover:bg-amber-700 text-white"
+                >
+                  {isAddingAll ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Plus className="h-4 w-4 mr-1" />}
+                  Add All ({newCardsCount})
+                </Button>
+              )}
+              <div className="flex items-center gap-1">
+                <DollarSign className="h-5 w-5 text-green-600" />
+                <span className="text-xl font-bold text-green-600">${totalValue.toFixed(2)}</span>
+              </div>
             </div>
           </div>
         </CardHeader>
