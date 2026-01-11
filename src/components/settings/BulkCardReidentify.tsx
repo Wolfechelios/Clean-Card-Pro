@@ -102,58 +102,65 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
 
   const identifyAndLookupImage = async (card: CardToProcess): Promise<boolean> => {
     try {
-      // Build search text from card info
-      const searchParts = [
-        card.card_name,
-        card.player_name,
-        card.card_set,
-        card.card_number ? `#${card.card_number}` : null,
-        card.year?.toString(),
-      ].filter(Boolean);
+      // If the card has a valid image (not placeholder), use enhanced-card-identify for AI-based re-identification
+      const hasValidImage = card.image_url && 
+        !card.image_url.includes('placeholder') && 
+        !card.image_url.includes('placehold.co') &&
+        card.image_url.startsWith('http');
 
-      const searchText = searchParts.join(" ");
+      let updatedCardName = card.card_name;
+      let updatedCardSet = card.card_set;
 
-      // Step 1: Re-identify the card using enhanced-card-identify
-      const { data: identifyData, error: identifyError } = await supabase.functions.invoke(
-        "enhanced-card-identify",
-        {
-          body: {
-            searchText,
-            gameType: card.game_type || card.sport_type,
-          },
+      if (hasValidImage) {
+        // Use AI vision to re-identify the card from its image
+        const { data: identifyData, error: identifyError } = await supabase.functions.invoke(
+          "enhanced-card-identify",
+          {
+            body: {
+              imageUrl: card.image_url,
+            },
+          }
+        );
+
+        if (!identifyError && identifyData?.success && identifyData?.cardData?.primary) {
+          const primary = identifyData.cardData.primary;
+          const updateData: Record<string, any> = {};
+          
+          if (primary.card_name) {
+            updateData.card_name = primary.card_name;
+            updatedCardName = primary.card_name;
+          }
+          if (primary.card_set) {
+            updateData.card_set = primary.card_set;
+            updatedCardSet = primary.card_set;
+          }
+          if (primary.card_number) updateData.card_number = primary.card_number;
+          if (primary.rarity) updateData.rarity = primary.rarity;
+          if (primary.year) updateData.year = parseInt(primary.year) || null;
+          if (primary.game_type) updateData.game_type = primary.game_type;
+          if (primary.sport_type) updateData.sport_type = primary.sport_type;
+          if (primary.manufacturer) updateData.manufacturer = primary.manufacturer;
+          if (primary.edition) updateData.edition = primary.edition;
+
+          if (Object.keys(updateData).length > 0) {
+            await supabase
+              .from("cards")
+              .update(updateData)
+              .eq("id", card.id);
+            
+            return true;
+          }
         }
-      );
-
-      if (identifyError) {
-        console.error("Identify error for card:", card.id, identifyError);
-        return false;
       }
 
-      // Update card with new identification data if found
-      if (identifyData?.card) {
-        const updateData: Record<string, any> = {};
-        
-        if (identifyData.card.name) updateData.card_name = identifyData.card.name;
-        if (identifyData.card.set) updateData.card_set = identifyData.card.set;
-        if (identifyData.card.number) updateData.card_number = identifyData.card.number;
-        if (identifyData.card.rarity) updateData.rarity = identifyData.card.rarity;
-        if (identifyData.card.year) updateData.year = identifyData.card.year;
-
-        if (Object.keys(updateData).length > 0) {
-          await supabase
-            .from("cards")
-            .update(updateData)
-            .eq("id", card.id);
-        }
-      }
-
-      // Step 2: Look up and attach image
+      // If no valid image or AI failed, try to find an image using text-based lookup
       const { data: imageData, error: imageError } = await supabase.functions.invoke(
         "generate-card-image-url",
         {
           body: {
-            cardName: identifyData?.card?.name || card.card_name,
-            cardSet: identifyData?.card?.set || card.card_set,
+            cardName: updatedCardName,
+            cardSet: updatedCardSet,
+            cardNumber: card.card_number,
             gameType: card.game_type || card.sport_type,
           },
         }
