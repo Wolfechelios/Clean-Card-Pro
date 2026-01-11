@@ -334,3 +334,24 @@ select:focus {
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
 }
+
+/* Camera capture flash */
+@keyframes captureFlash {
+  0% {
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.capture-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: white;
+  animation: captureFlash 220ms ease-out;
+}

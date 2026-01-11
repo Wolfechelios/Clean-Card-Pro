@@ -1,4 +1,4 @@
-import { Bell, User, LogOut, Settings, Sparkles, ScanLine } from "lucide-react";
+import { Bell, User, LogOut, Settings, Sparkles, ScanLine, Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -12,9 +12,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Breadcrumbs } from "./Breadcrumbs";
+import { useTheme } from "next-themes";
 
 export function NavBar() {
   const navigate = useNavigate();
+  const { theme, setTheme } = useTheme();
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -48,6 +50,21 @@ export function NavBar() {
         >
           <ScanLine className="mr-2 h-4 w-4" aria-hidden="true" />
           Scan
+        </Button>
+
+        {/* Theme toggle */}
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="text-muted-foreground hover:text-foreground transition-all"
+          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          aria-label="Toggle theme"
+        >
+          {theme === "dark" ? (
+            <Sun className="h-[18px] w-[18px]" aria-hidden="true" />
+          ) : (
+            <Moon className="h-[18px] w-[18px]" aria-hidden="true" />
+          )}
         </Button>
 
         <Button

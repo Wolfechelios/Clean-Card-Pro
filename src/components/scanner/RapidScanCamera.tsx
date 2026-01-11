@@ -50,6 +50,9 @@ import { ZoomControls } from "./ZoomControls";
 import { ScannedCardList } from "./ScannedCardList";
 import { useNativeCamera } from "@/hooks/use-native-camera";
 import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
+import { getScannerSettings, useScannerSettings } from "@/hooks/use-scanner-settings";
+import { hapticTap } from "@/lib/haptics";
+import { useVoiceCommand } from "@/hooks/use-voice-command";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TUNING
@@ -103,6 +106,8 @@ function money(n: number | null | undefined) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function RapidScanCamera() {
+  const { settings, updateSettings } = useScannerSettings();
+
   // Camera
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -116,16 +121,51 @@ export default function RapidScanCamera() {
   const [statusLine, setStatusLine] = useState("Tap Start to begin");
   const [busyCapture, setBusyCapture] = useState(false);
 
+  // Capture UX
+  const [flashActive, setFlashActive] = useState(false);
+
   // Auto-timer
   const [autoTimerActive, setAutoTimerActive] = useState(false);
   const autoTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [autoTimerCountdown, setAutoTimerCountdown] = useState(0);
+
+  const autoTimerSeconds = settings.autoTimerIntervalSeconds ?? 2;
+
+  const triggerFlash = useCallback(() => {
+    if (!settings.flashOnCapture) return;
+    setFlashActive(true);
+    window.setTimeout(() => setFlashActive(false), 240);
+  }, [settings.flashOnCapture]);
+
+  const triggerHaptics = useCallback(() => {
+    if (!settings.hapticsOnCapture) return;
+    hapticTap(25);
+  }, [settings.hapticsOnCapture]);
 
   // Auth/user
   const [userId, setUserId] = useState<string | null>(null);
 
   // Native camera for rapid scan
   const { isNative, takePhoto } = useNativeCamera();
+
+  const captureNow = useCallback(async () => {
+    if (busyCapture) return;
+    if (isNative) {
+      await captureWithNativeCamera();
+      return;
+    }
+    if (!cameraOn) return;
+    await captureAndEnqueue();
+  }, [busyCapture, isNative, cameraOn]);
+
+  const voice = useVoiceCommand({
+    enabled: settings.voiceCaptureEnabled && (isNative || cameraOn),
+    keyword: settings.voiceCaptureKeyword,
+    onMatch: () => {
+      // Prevent double-triggers from interim results
+      captureNow();
+    },
+  });
 
   // Zoom
   const {
@@ -216,6 +256,17 @@ export default function RapidScanCamera() {
       streamRef.current = stream;
       trackRef.current = getVideoTrack(stream);
       setSupport(detectSupport(trackRef.current));
+
+      // Optional: manual focus lock (best-effort; many browsers ignore this)
+      if (settings.manualFocusLock) {
+        try {
+          const track = trackRef.current;
+          // Try common constraint shapes
+          await track?.applyConstraints?.({ advanced: [{ focusMode: "manual" }] });
+        } catch {
+          // ignore
+        }
+      }
 
       const v = videoRef.current;
       if (!v) {
@@ -414,6 +465,8 @@ export default function RapidScanCamera() {
   async function captureWithNativeCamera() {
     if (busyCapture) return;
     setBusyCapture(true);
+    triggerFlash();
+    triggerHaptics();
     playShutterSound();
 
     try {
@@ -475,6 +528,8 @@ export default function RapidScanCamera() {
     if (!cameraOn) return;
     if (busyCapture) return;
     setBusyCapture(true);
+    triggerFlash();
+    triggerHaptics();
     playShutterSound();
 
     try {
@@ -556,22 +611,22 @@ export default function RapidScanCamera() {
   const startAutoTimer = useCallback(() => {
     if (!cameraOn || isNative) return;
     setAutoTimerActive(true);
-    setAutoTimerCountdown(2);
+    setAutoTimerCountdown(autoTimerSeconds);
     
     // Capture immediately on start
     captureAndEnqueue();
     
-    // Then capture every 2 seconds
+    // Then capture every N seconds
     autoTimerRef.current = setInterval(() => {
       setAutoTimerCountdown((prev) => {
         if (prev <= 1) {
           captureAndEnqueue();
-          return 2;
+          return autoTimerSeconds;
         }
         return prev - 1;
       });
     }, 1000);
-  }, [cameraOn, isNative]);
+  }, [cameraOn, isNative, autoTimerSeconds]);
 
   const stopAutoTimer = useCallback(() => {
     setAutoTimerActive(false);
@@ -834,7 +889,12 @@ export default function RapidScanCamera() {
   // ───────────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-4">
+    <div
+      className={cn(
+        "space-y-4",
+        settings.fullscreenScanMode && "fixed inset-0 z-50 bg-background p-2 sm:p-4 overflow-auto"
+      )}
+    >
       <Card className="p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
@@ -869,6 +929,9 @@ export default function RapidScanCamera() {
             />
             <canvas ref={canvasRef} className="hidden" />
 
+            {flashActive && <div className="capture-flash" />}
+            {flashActive && <div className="capture-flash" />}
+
             {/* Pinch zoom indicator */}
             {cameraOn && zoomCapabilities.supported && (
               <div className="absolute top-3 right-3 z-10">
@@ -879,6 +942,18 @@ export default function RapidScanCamera() {
                   {usingDigitalZoom && (
                     <span className="text-[10px] text-white/60">digital</span>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* Voice capture */}
+            {settings.voiceCaptureEnabled && (
+              <div className="absolute top-3 left-3 z-10">
+                <div className="bg-black/70 rounded-full px-3 py-1.5 flex items-center gap-2">
+                  <span className="text-xs text-white font-medium">Voice</span>
+                  <span className={cn("text-[10px]", voice.listening ? "text-emerald-300" : "text-white/60")}>
+                    {voice.supported ? (voice.listening ? "listening" : "idle") : "unsupported"}
+                  </span>
                 </div>
               </div>
             )}
@@ -961,7 +1036,7 @@ export default function RapidScanCamera() {
                       variant={autoTimerActive ? "destructive" : "secondary"}
                       size="lg"
                       className="h-16 px-4"
-                      title={autoTimerActive ? "Stop auto-capture" : "Start auto-capture every 2 seconds"}
+                    title={autoTimerActive ? "Stop auto-capture" : `Start auto-capture every ${autoTimerSeconds}s`}
                     >
                       {autoTimerActive ? (
                         <div className="flex flex-col items-center">
@@ -971,9 +1046,28 @@ export default function RapidScanCamera() {
                       ) : (
                         <div className="flex flex-col items-center">
                           <Timer className="h-5 w-5" />
-                          <span className="text-xs mt-0.5">2s</span>
+                          <span className="text-xs mt-0.5">{autoTimerSeconds}s</span>
                         </div>
                       )}
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      className="h-16 px-3"
+                      disabled={autoTimerActive}
+                      onClick={() => {
+                        const current = settings.autoTimerIntervalSeconds;
+                        const next = current === 1 ? 2 : current === 2 ? 5 : 1;
+                        updateSettings({ autoTimerIntervalSeconds: next });
+                        toast.info(`Auto-timer set to ${next}s`);
+                      }}
+                      title="Change auto-timer interval"
+                    >
+                      <div className="flex flex-col items-center">
+                        <span className="text-xs font-semibold">Interval</span>
+                        <span className="text-sm font-bold">{autoTimerSeconds}s</span>
+                      </div>
                     </Button>
                   </div>
                 )}
@@ -1033,6 +1127,18 @@ export default function RapidScanCamera() {
         onCardDelete={(id) => removeCard(id)}
         scanMode={true}
         onAddToLibrary={(id) => handleAddToLibrary(id)}
+        onReorder={(orderedIds) => {
+          setCards((prev) => {
+            const byId = new Map(prev.map((c) => [c.id, c]));
+            // Only reorder completed cards; keep non-completed at top
+            const completed = prev.filter((c) => c.status === "completed");
+            const rest = prev.filter((c) => c.status !== "completed");
+            const nextCompleted = orderedIds.map((id) => byId.get(id)).filter(Boolean) as any[];
+            // Fallback for any missing
+            const missing = completed.filter((c) => !orderedIds.includes(c.id));
+            return [...rest, ...nextCompleted, ...missing];
+          });
+        }}
       />
     </div>
   );

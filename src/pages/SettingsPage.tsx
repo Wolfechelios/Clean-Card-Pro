@@ -454,6 +454,92 @@ export default function Settings() {
               </div>
             </div>
           )}
+
+          <Separator />
+
+          {/* Capture & UI */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold">Capture & UI</h3>
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-sm font-medium">Haptic feedback on capture</Label>
+                <p className="text-xs text-muted-foreground">Vibrate when a photo is taken</p>
+              </div>
+              <Switch
+                checked={scannerSettings.hapticsOnCapture}
+                onCheckedChange={(checked) => updateScannerSettings({ hapticsOnCapture: checked })}
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-sm font-medium">Capture flash animation</Label>
+                <p className="text-xs text-muted-foreground">Screen flash effect when capturing</p>
+              </div>
+              <Switch
+                checked={scannerSettings.flashOnCapture}
+                onCheckedChange={(checked) => updateScannerSettings({ flashOnCapture: checked })}
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label className="text-sm font-medium">Auto-timer interval</Label>
+              <select
+                className="h-10 rounded-md border bg-background px-3 text-sm"
+                value={scannerSettings.autoTimerIntervalSeconds}
+                onChange={(e) => updateScannerSettings({ autoTimerIntervalSeconds: Number(e.target.value) as any })}
+              >
+                <option value={1}>1 second</option>
+                <option value={2}>2 seconds</option>
+                <option value={5}>5 seconds</option>
+              </select>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-sm font-medium">Voice-activated capture</Label>
+                <p className="text-xs text-muted-foreground">Say “snap” to take a photo (browser support varies)</p>
+              </div>
+              <Switch
+                checked={scannerSettings.voiceCaptureEnabled}
+                onCheckedChange={(checked) => updateScannerSettings({ voiceCaptureEnabled: checked })}
+              />
+            </div>
+
+            {scannerSettings.voiceCaptureEnabled && (
+              <div className="grid gap-2">
+                <Label className="text-sm font-medium">Voice keyword</Label>
+                <Input
+                  value={scannerSettings.voiceCaptureKeyword}
+                  onChange={(e) => updateScannerSettings({ voiceCaptureKeyword: e.target.value })}
+                  placeholder="snap"
+                />
+              </div>
+            )}
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-sm font-medium">Manual focus lock toggle</Label>
+                <p className="text-xs text-muted-foreground">Best-effort; some devices ignore this</p>
+              </div>
+              <Switch
+                checked={scannerSettings.manualFocusLock}
+                onCheckedChange={(checked) => updateScannerSettings({ manualFocusLock: checked })}
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-sm font-medium">Fullscreen scan mode</Label>
+                <p className="text-xs text-muted-foreground">Hide most UI while scanning</p>
+              </div>
+              <Switch
+                checked={scannerSettings.fullscreenScanMode}
+                onCheckedChange={(checked) => updateScannerSettings({ fullscreenScanMode: checked })}
+              />
+            </div>
+          </div>
         </CardContent>
       </Card>
 

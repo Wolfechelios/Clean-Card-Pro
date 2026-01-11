@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, Camera, Upload, Shield, CheckCircle2, XCircle, ExternalLink, RefreshCw, Award, Focus, Package } from "lucide-react";
 import { getMaxQualityStream, captureMaxQualityPhoto, triggerFastFocus } from "@/lib/camera-optimizations";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import QrScanner from "react-qr-scanner";
 
 interface GradedCard {
   id: string;
@@ -57,6 +58,7 @@ export default function GradedScanPage() {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [gradedCards, setGradedCards] = useState<GradedCard[]>([]);
   const [loadingCards, setLoadingCards] = useState(true);
+  const [qrResult, setQrResult] = useState<string>("");
 
   // Fetch graded cards from collection
   const fetchGradedCards = useCallback(async () => {
@@ -390,7 +392,7 @@ export default function GradedScanPage() {
           </div>
 
           <Tabs defaultValue="upload">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="upload" className="gap-2">
                 <Upload className="h-4 w-4" />
                 Upload
@@ -398,6 +400,10 @@ export default function GradedScanPage() {
               <TabsTrigger value="camera" className="gap-2">
                 <Camera className="h-4 w-4" />
                 Camera
+              </TabsTrigger>
+              <TabsTrigger value="qr" className="gap-2">
+                <ScanLine className="h-4 w-4" />
+                QR / Barcode
               </TabsTrigger>
             </TabsList>
 
@@ -460,6 +466,42 @@ export default function GradedScanPage() {
                   </div>
                 </Button>
               )}
+            </TabsContent>
+
+            <TabsContent value="qr" className="space-y-4">
+              <div className="rounded-lg border overflow-hidden">
+                <QrScanner
+                  delay={250}
+                  onError={() => {
+                    // ignore noisy camera errors
+                  }}
+                  onScan={(data: any) => {
+                    const text = data?.text || data;
+                    if (!text) return;
+                    const raw = String(text);
+                    setQrResult(raw);
+                    // Extract a cert-like number if present
+                    const m = raw.match(/\b\d{6,}\b/);
+                    if (m) {
+                      setCardData((prev) => ({ ...prev, certNumber: m[0] }));
+                      toast.success("Captured cert number");
+                    } else {
+                      toast.info("QR scanned — paste/confirm cert in the form");
+                    }
+                  }}
+                  style={{ width: "100%" }}
+                />
+              </div>
+
+              {qrResult && (
+                <div className="rounded-lg border bg-muted/20 p-3">
+                  <div className="text-xs font-medium mb-1">Last scan</div>
+                  <div className="text-xs text-muted-foreground break-all">{qrResult}</div>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Tip: This works best on PSA/CGC/BGS slab QR codes or barcodes. If your device blocks camera access, use the Upload tab.
+              </p>
             </TabsContent>
           </Tabs>
 

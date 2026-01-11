@@ -8,12 +8,29 @@ export interface ScannerSettings {
   autoConfirmEnabled: boolean;
   autoConfirmThreshold: number; // 0-100, percentage
   scanMode: ScanMode; // NEW
+
+  // Capture UX
+  hapticsOnCapture: boolean;
+  flashOnCapture: boolean;
+  autoTimerIntervalSeconds: 1 | 2 | 5;
+  voiceCaptureEnabled: boolean;
+  voiceCaptureKeyword: string;
+  manualFocusLock: boolean;
+  fullscreenScanMode: boolean;
 }
 
 const DEFAULT_SETTINGS: ScannerSettings = {
   autoConfirmEnabled: true,
   autoConfirmThreshold: 75,
   scanMode: "SAVE", // NEW default keeps old behavior
+
+  hapticsOnCapture: true,
+  flashOnCapture: true,
+  autoTimerIntervalSeconds: 2,
+  voiceCaptureEnabled: false,
+  voiceCaptureKeyword: "snap",
+  manualFocusLock: false,
+  fullscreenScanMode: false,
 };
 
 export function useScannerSettings() {

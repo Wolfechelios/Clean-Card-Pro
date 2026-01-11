@@ -34,6 +34,7 @@ interface ScannedCardListProps {
   onCardDelete?: (id: string) => void;
   scanMode?: boolean;
   onAddToLibrary?: (id: string) => void;
+  onReorder?: (orderedIds: string[]) => void;
 }
 
 const RARITY_OPTIONS = [
@@ -62,6 +63,7 @@ export const ScannedCardList = ({
   onCardDelete,
   scanMode,
   onAddToLibrary,
+  onReorder,
 }: ScannedCardListProps) => {
   const [editingCard, setEditingCard] = useState<ScannedCard | null>(null);
   const [editForm, setEditForm] = useState({
@@ -76,6 +78,7 @@ export const ScannedCardList = ({
   const [addingId, setAddingId] = useState<string | null>(null);
 
   const completedCards = cards.filter((c) => c.status === "completed");
+  const [dragId, setDragId] = useState<string | null>(null);
   const totalValue = completedCards.reduce((sum, c) => sum + (c.value || 0), 0);
   const newCardsCount = scanMode ? completedCards.filter((c) => !c.dbId).length : 0;
 
@@ -88,6 +91,20 @@ export const ScannedCardList = ({
       rarity: card.rarity || "",
       value: card.value?.toString() || "",
     });
+  };
+
+  const handleDropReorder = (targetId: string) => {
+    if (!onReorder) return;
+    if (!dragId || dragId === targetId) return;
+
+    const ordered = [...completedCards];
+    const from = ordered.findIndex((c) => c.id === dragId);
+    const to = ordered.findIndex((c) => c.id === targetId);
+    if (from < 0 || to < 0) return;
+
+    const [moved] = ordered.splice(from, 1);
+    ordered.splice(to, 0, moved);
+    onReorder(ordered.map((c) => c.id));
   };
 
   const handleDelete = async (card: ScannedCard) => {
@@ -180,6 +197,24 @@ export const ScannedCardList = ({
           {completedCards.map((card) => (
             <div
               key={card.id}
+              draggable={Boolean(onReorder)}
+              onDragStart={() => setDragId(card.id)}
+              onDragOver={(e) => {
+                if (!onReorder) return;
+                e.preventDefault();
+              }}
+              onDrop={() => {
+                if (!onReorder || !dragId || dragId === card.id) return;
+                const ids = completedCards.map((c) => c.id);
+                const from = ids.indexOf(dragId);
+                const to = ids.indexOf(card.id);
+                if (from < 0 || to < 0) return;
+                const next = [...ids];
+                next.splice(from, 1);
+                next.splice(to, 0, dragId);
+                onReorder(next);
+                setDragId(null);
+              }}
               className={`flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors ${
                 scanMode && !card.dbId ? "border-amber-400 dark:border-amber-600" : ""
               }`}
