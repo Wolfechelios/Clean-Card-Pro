@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Camera, Upload, Shield, CheckCircle2, XCircle, ExternalLink, RefreshCw, Award, Focus, Package } from "lucide-react";
+import { Loader2, Camera, Upload, Shield, CheckCircle2, XCircle, ExternalLink, RefreshCw, Award, Focus, Package, ScanLine } from "lucide-react";
 import { getMaxQualityStream, captureMaxQualityPhoto, triggerFastFocus } from "@/lib/camera-optimizations";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import QrScanner from "react-qr-scanner";
