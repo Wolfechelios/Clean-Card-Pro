@@ -895,7 +895,7 @@ export default function Collections() {
       {/* Results count */}
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>
-          Showing {filteredCards.length} of {cards.length} cards
+          Showing {filteredCards.reduce((sum, c) => sum + (c.quantity || 1), 0)} of {cards.reduce((sum, c) => sum + (c.quantity || 1), 0)} cards
           {Object.keys(activeFilters).filter(k => k !== 'sortBy' && k !== 'sortOrder').length > 0 && ' (filtered)'}
         </span>
         {filteredCards.length > 0 && (
