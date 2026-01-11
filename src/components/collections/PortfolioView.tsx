@@ -14,6 +14,7 @@ interface PortfolioViewProps {
     created_at: string;
     rarity: string | null;
     card_set: string | null;
+    quantity?: number | null;
   }>;
 }
 
@@ -56,8 +57,9 @@ export default function PortfolioView({ cards }: PortfolioViewProps) {
   };
 
   // Calculate portfolio metrics
-  const totalValue = cards.reduce((sum, card) => sum + (card.current_price_raw || 0), 0);
-  const avgCardValue = cards.length > 0 ? totalValue / cards.length : 0;
+  const totalValue = cards.reduce((sum, card) => sum + (card.current_price_raw || 0) * (card.quantity || 1), 0);
+  const totalCards = cards.reduce((sum, card) => sum + (card.quantity || 1), 0);
+  const avgCardValue = totalCards > 0 ? totalValue / totalCards : 0;
 
   // Top performers
   const topCards = [...cards]
@@ -71,7 +73,7 @@ export default function PortfolioView({ cards }: PortfolioViewProps) {
     if (!acc[rarity]) {
       acc[rarity] = 0;
     }
-    acc[rarity] += card.current_price_raw || 0;
+    acc[rarity] += (card.current_price_raw || 0) * (card.quantity || 1);
     return acc;
   }, {});
 
