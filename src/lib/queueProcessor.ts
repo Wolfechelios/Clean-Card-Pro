@@ -74,9 +74,18 @@ type ProcessorStore = ProcessorState & {
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
 const JOB_DELAY_MS = 800;
 const POLL_INTERVAL_MS = 500;
+const WORKER_SCALE_INTERVAL_MS = 2000; // How often to check if we can scale up
 
-function getWorkerThreadCount(): number {
+function getMaxWorkerCount(): number {
   return getScannerSettings().batchScanSize || 3;
+}
+
+// Adaptive scaling: start with fewer workers and scale up based on queue size
+function getTargetWorkerCount(queueSize: number, maxWorkers: number): number {
+  if (queueSize === 0) return 1;
+  // Scale workers proportionally: 1 worker per 2 queue items, capped at max
+  const proportional = Math.ceil(queueSize / 2);
+  return Math.min(Math.max(1, proportional), maxWorkers);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -159,12 +168,39 @@ async function getUserId(): Promise<string | null> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 let workersActive = 0;
+let scalingInterval: ReturnType<typeof setInterval> | null = null;
 
 function startWorkers() {
-  const targetWorkers = getWorkerThreadCount();
-  for (let i = workersActive; i < targetWorkers; i++) {
+  // Start with just 1 worker initially
+  if (workersActive === 0) {
     workersActive++;
-    workerLoop(i);
+    workerLoop(0);
+  }
+  
+  // Start adaptive scaling interval
+  if (!scalingInterval) {
+    scalingInterval = setInterval(async () => {
+      const store = useQueueProcessor.getState();
+      if (!store.isRunning) {
+        if (scalingInterval) {
+          clearInterval(scalingInterval);
+          scalingInterval = null;
+        }
+        return;
+      }
+      
+      const queueSize = await idbCount();
+      const maxWorkers = getMaxWorkerCount();
+      const targetWorkers = getTargetWorkerCount(queueSize, maxWorkers);
+      
+      // Scale up if needed
+      while (workersActive < targetWorkers && store.isRunning) {
+        const newWorkerId = workersActive;
+        workersActive++;
+        console.log(`[QueueProcessor] Scaling up: starting worker ${newWorkerId} (${workersActive}/${maxWorkers} active, queue: ${queueSize})`);
+        workerLoop(newWorkerId);
+      }
+    }, WORKER_SCALE_INTERVAL_MS);
   }
 }
 
@@ -176,6 +212,16 @@ async function workerLoop(workerId: number) {
     if (store().isPaused) {
       await sleep(POLL_INTERVAL_MS);
       continue;
+    }
+
+    // Check if this worker should scale down (we have more workers than needed)
+    const queueSize = await idbCount();
+    const maxWorkers = getMaxWorkerCount();
+    const targetWorkers = getTargetWorkerCount(queueSize, maxWorkers);
+    
+    if (workerId >= targetWorkers && workersActive > targetWorkers) {
+      console.log(`[QueueProcessor] Scaling down: stopping worker ${workerId} (target: ${targetWorkers}, active: ${workersActive})`);
+      break; // Exit this worker loop
     }
 
     const next = await idbGetNextQueued();
@@ -213,6 +259,10 @@ async function workerLoop(workerId: number) {
   workersActive--;
   if (workersActive === 0) {
     useQueueProcessor.getState()._setRunning(false);
+    if (scalingInterval) {
+      clearInterval(scalingInterval);
+      scalingInterval = null;
+    }
   }
 }
 
