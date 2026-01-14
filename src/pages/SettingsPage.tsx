@@ -18,7 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { LogOut, Trash2, User, Lock, ImageOff, Clock, RefreshCw, Database, ScanLine, ImageIcon, Wand2 } from "lucide-react";
+import { LogOut, Trash2, User, Lock, ImageOff, Clock, RefreshCw, Database, ScanLine, ImageIcon, Wand2, Cpu } from "lucide-react";
 
 import ServiceImportExport from "@/components/settings/ServiceImportExport";
 import DeviceStorageSettings from "@/components/settings/DeviceStorageSettings";
@@ -55,6 +55,7 @@ export default function Settings() {
   const [showDeleteUnknown, setShowDeleteUnknown] = useState(false);
   const [unknownCardCount, setUnknownCardCount] = useState(0);
   const [nullRarityCount, setNullRarityCount] = useState(0);
+  const [showStressTest, setShowStressTest] = useState(false);
 
   useEffect(() => {
     loadUserData();
@@ -743,8 +744,26 @@ export default function Settings() {
       />
 
 
-      {/* Queue Stress Test */}
-      <QueueStressTest />
+      {/* Queue Stress Test Toggle */}
+      <Card className="bg-card border-border">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Cpu className="h-5 w-5" />
+                Developer Tools
+              </CardTitle>
+              <CardDescription>Advanced testing and debugging tools</CardDescription>
+            </div>
+            <Switch
+              checked={showStressTest}
+              onCheckedChange={setShowStressTest}
+            />
+          </div>
+        </CardHeader>
+      </Card>
+
+      {showStressTest && <QueueStressTest />}
 
       {/* Device Storage (Android/iOS only) */}
       <DeviceStorageSettings />
