@@ -7,9 +7,10 @@ import { Loader2 } from "lucide-react";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import AppLayout from "./components/layout/AppLayout";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
-
+import { checkAndResumeQueue } from "@/lib/queueProcessor";
+import { QueueStatusIndicator } from "@/components/scanner/QueueStatusIndicator";
 const Auth = lazy(() => import("./pages/Auth"));
 const NewDashboard = lazy(() => import("./pages/NewDashboard"));
 const ScanPage = lazy(() => import("./pages/ScanPage"));
@@ -89,6 +90,11 @@ function AppRoutes() {
 }
 
 const App = () => {
+  // Auto-resume queue processing on app start
+  useEffect(() => {
+    checkAndResumeQueue();
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
@@ -99,6 +105,7 @@ const App = () => {
               <Sonner />
               <BrowserRouter>
                 <AppRoutes />
+                <QueueStatusIndicator />
               </BrowserRouter>
             </ErrorBoundary>
           </TooltipProvider>
