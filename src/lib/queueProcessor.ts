@@ -6,6 +6,7 @@
 import { create } from "zustand";
 import { supabase } from "@/integrations/supabase/client";
 import { withRetry } from "@/lib/retry";
+import { getScannerSettings } from "@/hooks/use-scanner-settings";
 import {
   idbGetNextQueued,
   idbUpdateMeta,
@@ -70,10 +71,13 @@ type ProcessorStore = ProcessorState & {
 // CONFIG
 // ─────────────────────────────────────────────────────────────────────────────
 
-const WORKER_THREADS = 3;
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
 const JOB_DELAY_MS = 800;
 const POLL_INTERVAL_MS = 500;
+
+function getWorkerThreadCount(): number {
+  return getScannerSettings().batchScanSize || 3;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ZUSTAND STORE
@@ -157,7 +161,8 @@ async function getUserId(): Promise<string | null> {
 let workersActive = 0;
 
 function startWorkers() {
-  for (let i = workersActive; i < WORKER_THREADS; i++) {
+  const targetWorkers = getWorkerThreadCount();
+  for (let i = workersActive; i < targetWorkers; i++) {
     workersActive++;
     workerLoop(i);
   }
