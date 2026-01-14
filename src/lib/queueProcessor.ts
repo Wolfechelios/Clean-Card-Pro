@@ -12,6 +12,7 @@ import {
   idbUpdateMeta,
   idbDelete,
   idbCount,
+  idbCountQueued,
   idbGetAll,
   type QueueItem,
   type QueueItemMeta,
@@ -82,10 +83,10 @@ function getMaxWorkerCount(): number {
 
 // Adaptive scaling: start with fewer workers and scale up based on queue size
 function getTargetWorkerCount(queueSize: number, maxWorkers: number): number {
+  // Always keep at least 1 worker if there might be items
   if (queueSize === 0) return 1;
-  // Scale workers proportionally: 1 worker per 2 queue items, capped at max
-  const proportional = Math.ceil(queueSize / 2);
-  return Math.min(Math.max(1, proportional), maxWorkers);
+  // Scale workers: 1 worker per queue item, up to max
+  return Math.min(queueSize, maxWorkers);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -189,7 +190,8 @@ function startWorkers() {
         return;
       }
       
-      const queueSize = await idbCount();
+      // Use idbCountQueued to count actually processable items
+      const queueSize = await idbCountQueued();
       const maxWorkers = getMaxWorkerCount();
       const targetWorkers = getTargetWorkerCount(queueSize, maxWorkers);
       
@@ -215,11 +217,12 @@ async function workerLoop(workerId: number) {
     }
 
     // Check if this worker should scale down (we have more workers than needed)
-    const queueSize = await idbCount();
+    // Only scale down workers with ID > 0 to ensure at least one worker always runs
+    const queueSize = await idbCountQueued();
     const maxWorkers = getMaxWorkerCount();
     const targetWorkers = getTargetWorkerCount(queueSize, maxWorkers);
     
-    if (workerId >= targetWorkers && workersActive > targetWorkers) {
+    if (workerId > 0 && workerId >= targetWorkers && workersActive > targetWorkers) {
       console.log(`[QueueProcessor] Scaling down: stopping worker ${workerId} (target: ${targetWorkers}, active: ${workersActive})`);
       break; // Exit this worker loop
     }
@@ -409,4 +412,4 @@ export async function checkAndResumeQueue(): Promise<void> {
 // EXPORTS FOR EXTERNAL USE
 // ─────────────────────────────────────────────────────────────────────────────
 
-export { idbAdd, idbCount, idbClear, idbGetAll, idbDelete } from "@/lib/idbQueue";
+export { idbAdd, idbCount, idbCountQueued, idbClear, idbGetAll, idbDelete } from "@/lib/idbQueue";
