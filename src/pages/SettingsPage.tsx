@@ -541,6 +541,34 @@ export default function Settings() {
                 onCheckedChange={(checked) => updateScannerSettings({ fullscreenScanMode: checked })}
               />
             </div>
+
+            <Separator />
+
+            {/* Batch Processing */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold">Batch Processing</h3>
+              <div>
+                <Label htmlFor="batch-scan-size" className="text-sm font-medium">
+                  Concurrent Scan Workers: {scannerSettings.batchScanSize}
+                </Label>
+                <p className="text-xs text-muted-foreground mt-1 mb-3">
+                  Number of cards to process simultaneously. Higher = faster but uses more resources.
+                </p>
+                <Slider
+                  id="batch-scan-size"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={[scannerSettings.batchScanSize]}
+                  onValueChange={(value) => updateScannerSettings({ batchScanSize: value[0] })}
+                  className="w-full"
+                />
+                <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                  <span>1 (Slowest, least resources)</span>
+                  <span>100 (Fastest, most resources)</span>
+                </div>
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>

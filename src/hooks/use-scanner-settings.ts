@@ -17,6 +17,9 @@ export interface ScannerSettings {
   voiceCaptureKeyword: string;
   manualFocusLock: boolean;
   fullscreenScanMode: boolean;
+
+  // Batch processing
+  batchScanSize: number; // 1-100, concurrent cards to process
 }
 
 const DEFAULT_SETTINGS: ScannerSettings = {
@@ -31,6 +34,8 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   voiceCaptureKeyword: "snap",
   manualFocusLock: false,
   fullscreenScanMode: false,
+
+  batchScanSize: 3, // Default 3 concurrent workers
 };
 
 export function useScannerSettings() {
