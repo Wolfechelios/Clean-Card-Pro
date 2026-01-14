@@ -38,13 +38,11 @@ import {
   idbAdd,
   idbCount,
   idbDelete,
-  idbGetNextQueued,
   idbGetAll,
-  idbUpdateMeta,
   idbClear,
   type QueueItemMeta,
 } from "@/lib/idbQueue";
-import { withRetry } from "@/lib/retry";
+import { useQueueProcessor } from "@/lib/queueProcessor";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
 import { ZoomControls } from "./ZoomControls";
 import { ScannedCardList } from "./ScannedCardList";
@@ -59,9 +57,6 @@ import { useVoiceCommand } from "@/hooks/use-voice-command";
 // ─────────────────────────────────────────────────────────────────────────────
 
 const QUEUE_MAX = 500; // large buffer - uses IndexedDB (device storage)
-const WORKER_THREADS = 3; // Process 3 cards in parallel
-const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
-const JOB_DELAY_MS = 800; // Delay between jobs to avoid API rate limits
 
 type ScannedCard = {
   id: string;
@@ -186,9 +181,8 @@ export default function RapidScanCamera() {
   const [cards, setCards] = useState<ScannedCard[]>([]);
   const [overlay, setOverlay] = useState<LastOverlay | null>(null);
 
-  // Worker controls
-  const workersRunning = useRef(false);
-  const stopWorkers = useRef(false);
+  // Global queue processor
+  const queueProcessor = useQueueProcessor();
 
   // ───────────────────────────────────────────────────────────────────────────
   // INIT
@@ -653,168 +647,49 @@ export default function RapidScanCamera() {
   }, []);
 
   // ───────────────────────────────────────────────────────────────────────────
-  // WORKERS (QUEUE PROCESSING)
+  // QUEUE PROCESSING (delegated to standalone processor)
   // ───────────────────────────────────────────────────────────────────────────
 
   function ensureWorkersRunning() {
-    if (workersRunning.current) return;
-    workersRunning.current = true;
-    stopWorkers.current = false;
-    for (let i = 0; i < WORKER_THREADS; i++) workerLoop();
+    // Start the global queue processor
+    queueProcessor.start();
   }
 
-  async function workerLoop() {
-    while (!stopWorkers.current) {
-      const next = await idbGetNextQueued();
-      if (!next) {
-        await sleep(200);
-        continue;
-      }
-
-      try {
-        await idbUpdateMeta(next.id, { status: "processing" });
-        updateCard(next.id, { status: "processing" });
-        await refreshMeta();
-
-        // Upload
-        updateCard(next.id, { status: "uploading" });
-        const filePath = `cards/${next.id}.jpg`;
-        const file = new File([next.blob], next.filename, { type: next.mime });
-
-        await withRetry(async () => {
-          const res = await supabase.storage
-            .from("card-images")
-            .upload(filePath, file, { upsert: false });
-          if (res.error) throw new Error(res.error.message);
-          return res.data;
-        });
-
-        // Signed URL
-        const imageUrl = await withRetry(async () => {
-          const res = await supabase.storage
-            .from("card-images")
-            .createSignedUrl(filePath, SIGNED_URL_TTL_SECONDS);
-          if (res.error) throw new Error(res.error.message);
-          if (!res.data?.signedUrl) throw new Error("Signed URL missing");
-          return res.data.signedUrl;
-        });
-
-        updateCard(next.id, { imageUrl });
-
-        // Identify (fast) - edge function has its own retries, so minimal client retries
-        const identify = await withRetry(
-          async () => {
-            const res = await supabase.functions.invoke("rapid-card-identify", { body: { imageUrl } });
-            if (res.error) throw new Error(res.error.message);
-            if (!res.data?.success) throw new Error(res.data?.error || "Identify failed");
-            return res.data.cardData as any;
-          },
-          {
-            retries: 2, // Reduced - edge function already has 5 retries
-            baseMs: 2000, // Longer delay between client retries
-            maxMs: 10000,
-            shouldRetry: (e) => /timeout|network|502|503|504/i.test(String(e?.message ?? e)), // Don't retry 429 here - let edge function handle it
-          }
-        );
-
-        const cardName: string = identify?.card_name || "Unknown Card";
-        const cardSet: string | null = identify?.card_set ?? null;
-        const cardNumber: string | null = identify?.card_number ?? null;
-        const rarity: string | null = identify?.rarity ?? null;
-        const gameType: string | null = identify?.game_type ?? null;
-        const sportType: string | null = identify?.sport_type ?? null;
-
-        updateCard(next.id, {
-          cardName,
-          cardSet: cardSet || undefined,
-          cardNumber: cardNumber || undefined,
-          rarity: rarity || undefined,
-          priceFetching: true,
-        });
-
-        setOverlay({ label: cardName });
-
-        // Price
-        let rawPrice: number | null = null;
-        try {
-          const p = await supabase.functions.invoke("fetch-card-prices", {
-            body: {
-              cardName,
-              cardSet,
-              cardNumber,
-              gameType,
-              sportType,
-            },
-          });
-          if (!p.error && p.data) {
-            rawPrice = money(p.data.raw ?? p.data.suggested ?? null);
-          }
-        } catch {
-          rawPrice = null;
-        }
-
-        // Library check (if logged in)
-        let ownedCount = 0;
-        let isInLibrary = false;
-        let existingId: string | undefined = undefined;
-        if (userId) {
-          try {
-            const { count } = await supabase
-              .from("cards")
-              .select("id", { count: "exact", head: true })
-              .eq("user_id", userId)
-              .ilike("card_name", cardName);
-
-            ownedCount = count || 0;
-            isInLibrary = ownedCount > 0;
-
-            if (isInLibrary) {
-              const { data } = await supabase
-                .from("cards")
-                .select("id")
-                .eq("user_id", userId)
-                .ilike("card_name", cardName)
-                .limit(1);
-              existingId = data?.[0]?.id;
-            }
-          } catch {
-            ownedCount = 0;
-            isInLibrary = false;
-          }
-        }
-
-        updateCard(next.id, {
-          status: "completed",
-          value: rawPrice,
-          priceFetching: false,
-          isInLibrary,
-          libraryQuantity: ownedCount,
-          dbId: existingId,
-        });
-        setOverlay({ label: cardName, value: rawPrice, isInLibrary, libraryQuantity: ownedCount });
-
-        await idbDelete(next.id);
-        await refreshMeta();
-      } catch (e: any) {
-        const msg = String(e?.message ?? e);
-        console.error("Rapid scan job failed:", msg);
-        updateCard(next.id, { status: "error", error: msg, priceFetching: false });
-        try {
-          await idbUpdateMeta(next.id, { status: "error", error: msg });
-        } catch {}
-        await refreshMeta();
-      }
-
-      await sleep(JOB_DELAY_MS); // Throttle to prevent rate limit avalanche
-    }
-  }
-
+  // Sync UI state from processor's last processed card
   useEffect(() => {
-    return () => {
-      stopWorkers.current = true;
-      workersRunning.current = false;
-    };
-  }, []);
+    if (!queueProcessor.lastProcessedCard) return;
+
+    const card = queueProcessor.lastProcessedCard;
+    updateCard(card.id, {
+      status: "completed",
+      cardName: card.cardName,
+      cardSet: card.cardSet,
+      cardNumber: card.cardNumber,
+      rarity: card.rarity,
+      value: card.value,
+      imageUrl: card.imageUrl,
+      isInLibrary: card.isInLibrary,
+      libraryQuantity: card.libraryQuantity,
+      dbId: card.dbId,
+      priceFetching: false,
+    });
+
+    setOverlay({
+      label: card.cardName,
+      value: card.value,
+      isInLibrary: card.isInLibrary,
+      libraryQuantity: card.libraryQuantity,
+    });
+
+    refreshMeta();
+  }, [queueProcessor.lastProcessedCard, updateCard, refreshMeta]);
+
+  // Sync processing state from global processor
+  useEffect(() => {
+    if (queueProcessor.currentItem) {
+      updateCard(queueProcessor.currentItem, { status: "processing" });
+    }
+  }, [queueProcessor.currentItem, updateCard]);
 
   // ───────────────────────────────────────────────────────────────────────────
   // ADD TO LIBRARY (optional)
