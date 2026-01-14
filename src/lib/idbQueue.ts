@@ -120,12 +120,12 @@ export async function idbListMeta(limit = 500): Promise<QueueItemMeta[]> {
 
 /**
  * Get the next queued item FIFO (oldest first).
- * Also picks up stuck "processing" items older than 30s (orphaned from crashes).
+ * Also picks up stuck "processing" items older than 5s (orphaned from crashes/scaling).
  * Returns full item (includes blob).
  */
 export async function idbGetNextQueued(): Promise<QueueItem | null> {
   const db = await openDB()
-  const STUCK_THRESHOLD_MS = 30_000 // 30 seconds
+  const STUCK_THRESHOLD_MS = 5_000 // 5 seconds - reduced for faster recovery
 
   const next = await new Promise<QueueItem | null>((resolve, reject) => {
     const t = db.transaction(STORE, "readonly")
@@ -151,7 +151,7 @@ export async function idbGetNextQueued(): Promise<QueueItem | null> {
       processingReq.onsuccess = () => {
         const pCursor = processingReq.result as IDBCursorWithValue | null
         if (pCursor) {
-          // Found a stuck item - reset it to queued
+          // Found a stuck item - will be reset to processing by worker
           resolve(pCursor.value as QueueItem)
         } else {
           resolve(null)
@@ -168,6 +168,47 @@ export async function idbGetNextQueued(): Promise<QueueItem | null> {
 
   db.close()
   return next
+}
+
+/**
+ * Count only items that are actually processable (queued or stuck processing)
+ */
+export async function idbCountQueued(): Promise<number> {
+  const db = await openDB()
+  const STUCK_THRESHOLD_MS = 5_000
+  
+  const count = await new Promise<number>((resolve, reject) => {
+    const t = db.transaction(STORE, "readonly")
+    const store = t.objectStore(STORE)
+    const idx = store.index("status_createdAt")
+    let total = 0
+
+    // Count "queued" items
+    const queuedRange = IDBKeyRange.bound(["queued", 0], ["queued", Number.MAX_SAFE_INTEGER])
+    const queuedReq = idx.count(queuedRange)
+
+    queuedReq.onsuccess = () => {
+      total += queuedReq.result
+
+      // Count stuck "processing" items
+      const stuckCutoff = Date.now() - STUCK_THRESHOLD_MS
+      const processingRange = IDBKeyRange.bound(["processing", 0], ["processing", stuckCutoff])
+      const processingReq = idx.count(processingRange)
+
+      processingReq.onsuccess = () => {
+        total += processingReq.result
+        resolve(total)
+      }
+      processingReq.onerror = () => reject(processingReq.error)
+    }
+    queuedReq.onerror = () => reject(queuedReq.error)
+
+    t.oncomplete = () => {}
+    t.onerror = () => reject(t.error)
+  })
+
+  db.close()
+  return count
 }
 
 export async function idbCount(): Promise<number> {
