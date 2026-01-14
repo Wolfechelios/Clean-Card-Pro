@@ -27,6 +27,7 @@ import { BulkImageLookup } from "@/components/collections/BulkImageLookup";
 import { BulkCardReidentify } from "@/components/settings/BulkCardReidentify";
 import { BulkPSA10Update } from "@/components/pricing/BulkPSA10Update";
 import { BulkPriceRefresh } from "@/components/pricing/BulkPriceRefresh";
+import { QueueStressTest } from "@/components/settings/QueueStressTest";
 import { SettingsSkeleton } from "@/components/ui/loading-skeletons";
 import { useScannerSettings } from "@/hooks/use-scanner-settings";
 import { Slider } from "@/components/ui/slider";
@@ -713,6 +714,9 @@ export default function Settings() {
         onComplete={loadCollectionStats} 
       />
 
+
+      {/* Queue Stress Test */}
+      <QueueStressTest />
 
       {/* Device Storage (Android/iOS only) */}
       <DeviceStorageSettings />
