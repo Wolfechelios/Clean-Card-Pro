@@ -83,8 +83,8 @@ function getMaxWorkerCount(): number {
 
 // Adaptive scaling: start with fewer workers and scale up based on queue size
 function getTargetWorkerCount(queueSize: number, maxWorkers: number): number {
-  // Always keep at least 1 worker if there might be items
-  if (queueSize === 0) return 1;
+  // If nothing is queued, we want to wind down to 0 workers (processor should auto-stop)
+  if (queueSize <= 0) return 0;
   // Scale workers: 1 worker per queue item, up to max
   return Math.min(queueSize, maxWorkers);
 }
@@ -128,10 +128,10 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   },
 
   refreshQueue: async () => {
-    const count = await idbCount();
+    const queuedCount = await idbCountQueued();
     const all = await idbGetAll();
     set({
-      queueCount: count,
+      queueCount: queuedCount,
       queueMeta: all.map(({ blob: _blob, ...rest }) => rest),
     });
   },
@@ -236,15 +236,20 @@ async function workerLoop(workerId: number) {
 
     const next = await idbGetNextQueued();
     if (!next) {
-      // No work - check if we should auto-stop
-      const count = await idbCount();
-      useQueueProcessor.getState()._setQueueCount(count);
-      
-      if (count === 0) {
-        await sleep(POLL_INTERVAL_MS);
-        continue;
+      // No processable work.
+      const queuedCount = await idbCountQueued();
+      const totalCount = await idbCount();
+      useQueueProcessor.getState()._setQueueCount(queuedCount);
+
+      // If there are no queued/stuck-processing items left, stop the processor.
+      // (There may still be "error" items in storage; those are not processable.)
+      if (queuedCount === 0) {
+        useQueueProcessor.getState()._setRunning(false);
+        break;
       }
-      await sleep(200);
+
+      // Otherwise, wait a moment and poll again.
+      await sleep(totalCount === 0 ? POLL_INTERVAL_MS : 200);
       continue;
     }
 
@@ -408,9 +413,9 @@ export async function checkAndResumeQueue(): Promise<void> {
   if (autoResumeChecked) return;
   autoResumeChecked = true;
 
-  const count = await idbCount();
-  if (count > 0) {
-    console.log(`[QueueProcessor] Found ${count} items in queue, auto-resuming...`);
+  const queuedCount = await idbCountQueued();
+  if (queuedCount > 0) {
+    console.log(`[QueueProcessor] Found ${queuedCount} queued items, auto-resuming...`);
     useQueueProcessor.getState().start();
   }
 }
