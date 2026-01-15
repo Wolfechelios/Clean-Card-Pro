@@ -115,3 +115,6 @@ verify_jwt = true
 
 [functions.sell-assist]
 verify_jwt = true
+
+[functions.delete-user-account]
+verify_jwt = false
