@@ -14,6 +14,7 @@ import {
   X,
   CheckCircle2,
   AlertCircle,
+  RotateCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
@@ -35,6 +36,15 @@ export function QueueStatusIndicator() {
   } = useQueueProcessor();
 
   const [minimized, setMinimized] = useState(false);
+  const [restarting, setRestarting] = useState(false);
+
+  const handleRestart = async () => {
+    setRestarting(true);
+    stop();
+    await new Promise((r) => setTimeout(r, 300));
+    start();
+    setRestarting(false);
+  };
 
   // Refresh queue count on mount
   useEffect(() => {
@@ -135,6 +145,12 @@ export function QueueStatusIndicator() {
           <Button size="sm" onClick={resume} className="flex-1">
             <Play className="h-3 w-3 mr-1" />
             Resume
+          </Button>
+        )}
+        {queueCount > 0 && (
+          <Button size="sm" variant="outline" onClick={handleRestart} disabled={restarting}>
+            <RotateCcw className={cn("h-3 w-3 mr-1", restarting && "animate-spin")} />
+            Restart
           </Button>
         )}
         {isRunning && (
