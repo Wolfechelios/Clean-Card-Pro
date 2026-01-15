@@ -22,6 +22,7 @@ import { LogOut, Trash2, User, Lock, ImageOff, Clock, RefreshCw, Database, ScanL
 
 import ServiceImportExport from "@/components/settings/ServiceImportExport";
 import DeviceStorageSettings from "@/components/settings/DeviceStorageSettings";
+import { OfflineStoragePanel } from "@/components/settings/OfflineStoragePanel";
 import { BulkRarityReanalyze } from "@/components/collections/BulkRarityReanalyze";
 import { BulkImageLookup } from "@/components/collections/BulkImageLookup";
 import { BulkCardReidentify } from "@/components/settings/BulkCardReidentify";
@@ -766,6 +767,9 @@ export default function Settings() {
       </Card>
 
       {showStressTest && <QueueStressTest />}
+
+      {/* Offline Storage */}
+      <OfflineStoragePanel />
 
       {/* Device Storage (Android/iOS only) */}
       <DeviceStorageSettings />

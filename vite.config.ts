@@ -26,6 +26,7 @@ export default defineConfig(({ mode }) => ({
         orientation: "portrait",
         scope: "/",
         start_url: "/",
+        categories: ["utilities", "lifestyle"],
         icons: [
           {
             src: "/pwa-192x192.png",
@@ -44,22 +45,88 @@ export default defineConfig(({ mode }) => ({
             purpose: "maskable",
           },
         ],
+        screenshots: [],
+        shortcuts: [
+          {
+            name: "Scan Card",
+            short_name: "Scan",
+            url: "/scan",
+            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }],
+          },
+          {
+            name: "My Collection",
+            short_name: "Collection",
+            url: "/collections",
+            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }],
+          },
+        ],
       },
       workbox: {
-        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,jpg,jpeg,webp,woff,woff2}"],
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5MB
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i,
+            // Cache Supabase API calls
+            urlPattern: /^https:\/\/.*\.supabase\.co\/rest\/.*/i,
             handler: "NetworkFirst",
             options: {
-              cacheName: "supabase-cache",
+              cacheName: "supabase-api-cache",
               expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 60 * 60, // 1 hour
+                maxEntries: 200,
+                maxAgeSeconds: 60 * 60 * 24, // 24 hours
+              },
+              networkTimeoutSeconds: 10,
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
+          },
+          {
+            // Cache Supabase storage (images)
+            urlPattern: /^https:\/\/.*\.supabase\.co\/storage\/.*/i,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "supabase-storage-cache",
+              expiration: {
+                maxEntries: 500,
+                maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
+          },
+          {
+            // Cache external card images
+            urlPattern: /^https:\/\/(images\.pokemontcg\.io|product-images\.tcgplayer\.com|tcgplayer-cdn\.tcgplayer\.com|i\.ebayimg\.com)\/.*/i,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "card-images-cache",
+              expiration: {
+                maxEntries: 1000,
+                maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
+          },
+          {
+            // Cache Google Fonts
+            urlPattern: /^https:\/\/fonts\.(googleapis|gstatic)\.com\/.*/i,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "google-fonts-cache",
+              expiration: {
+                maxEntries: 30,
+                maxAgeSeconds: 60 * 60 * 24 * 365, // 1 year
               },
             },
           },
         ],
+      },
+      devOptions: {
+        enabled: false, // Don't enable SW in dev
       },
     }),
   ].filter(Boolean),

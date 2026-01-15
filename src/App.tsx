@@ -12,6 +12,7 @@ import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { checkAndResumeQueue } from "@/lib/queueProcessor";
 import { QueueStatusIndicator } from "@/components/scanner/QueueStatusIndicator";
 import { SplashScreen } from "@/components/SplashScreen";
+import { OfflineIndicator } from "@/components/OfflineIndicator";
 const Auth = lazy(() => import("./pages/Auth"));
 const NewDashboard = lazy(() => import("./pages/NewDashboard"));
 const ScanPage = lazy(() => import("./pages/ScanPage"));
@@ -118,6 +119,7 @@ const App = () => {
               <BrowserRouter>
                 <AppRoutes />
                 <QueueStatusIndicator />
+                <OfflineIndicator />
               </BrowserRouter>
             </ErrorBoundary>
           </TooltipProvider>
