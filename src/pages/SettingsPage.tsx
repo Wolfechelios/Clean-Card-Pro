@@ -323,16 +323,18 @@ export default function Settings() {
     if (!userId) return;
     
     try {
-      // Delete all user data
-      await supabase.from("cards").delete().eq("user_id", userId);
-      await supabase.from("profiles").delete().eq("id", userId);
+      // Call edge function to completely delete user account
+      // This uses admin privileges to delete from auth.users,
+      // which CASCADE deletes all related data
+      const { error } = await supabase.functions.invoke("delete-user-account");
       
-      // Note: Actual user deletion from auth.users requires admin privileges
-      // For now, we'll sign them out after deleting their data
+      if (error) throw error;
+      
+      // Sign out locally (session is already invalid on server)
       await signOut();
       
       navigate("/auth");
-      toast.success("Account data deleted successfully");
+      toast.success("Account deleted successfully");
     } catch (error) {
       console.error("Error deleting account:", error);
       toast.error("Failed to delete account");
