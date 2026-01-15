@@ -6,6 +6,7 @@ export type QueueStatus = "queued" | "processing" | "success" | "error"
 export type QueueItem = {
   id: string
   createdAt: number
+  processingStartedAt?: number // Track when processing started for stuck detection
   status: QueueStatus
   error?: string
 
@@ -83,7 +84,12 @@ export async function idbUpdateMeta(id: string, patch: Partial<QueueItemMeta>): 
     req.onsuccess = () => {
       const current = req.result as QueueItem | undefined
       if (!current) return
-      const next: QueueItem = { ...current, ...patch }
+      // Track when processing started for stuck detection
+      const next: QueueItem = { 
+        ...current, 
+        ...patch,
+        ...(patch.status === "processing" ? { processingStartedAt: Date.now() } : {})
+      }
       store.put(next)
     }
   })
@@ -143,16 +149,24 @@ export async function idbGetNextQueued(): Promise<QueueItem | null> {
         return
       }
 
-      // No queued items - check for stuck "processing" items
+      // No queued items - check for stuck "processing" items using processingStartedAt
       const stuckCutoff = Date.now() - STUCK_THRESHOLD_MS
-      const processingRange = IDBKeyRange.bound(["processing", 0], ["processing", stuckCutoff])
+      // Scan all processing items and check processingStartedAt
+      const processingRange = IDBKeyRange.bound(["processing", 0], ["processing", Number.MAX_SAFE_INTEGER])
       const processingReq = idx.openCursor(processingRange, "next")
 
       processingReq.onsuccess = () => {
         const pCursor = processingReq.result as IDBCursorWithValue | null
         if (pCursor) {
-          // Found a stuck item - will be reset to processing by worker
-          resolve(pCursor.value as QueueItem)
+          const item = pCursor.value as QueueItem
+          // Check if stuck based on processingStartedAt (or createdAt as fallback)
+          const startedAt = item.processingStartedAt || item.createdAt
+          if (startedAt < stuckCutoff) {
+            resolve(item)
+          } else {
+            // Not stuck yet, check next
+            pCursor.continue()
+          }
         } else {
           resolve(null)
         }
@@ -176,6 +190,7 @@ export async function idbGetNextQueued(): Promise<QueueItem | null> {
 export async function idbCountQueued(): Promise<number> {
   const db = await openDB()
   const STUCK_THRESHOLD_MS = 5_000
+  const stuckCutoff = Date.now() - STUCK_THRESHOLD_MS
   
   const count = await new Promise<number>((resolve, reject) => {
     const t = db.transaction(STORE, "readonly")
@@ -190,14 +205,24 @@ export async function idbCountQueued(): Promise<number> {
     queuedReq.onsuccess = () => {
       total += queuedReq.result
 
-      // Count stuck "processing" items
-      const stuckCutoff = Date.now() - STUCK_THRESHOLD_MS
-      const processingRange = IDBKeyRange.bound(["processing", 0], ["processing", stuckCutoff])
-      const processingReq = idx.count(processingRange)
+      // Count stuck "processing" items by scanning and checking processingStartedAt
+      const processingRange = IDBKeyRange.bound(["processing", 0], ["processing", Number.MAX_SAFE_INTEGER])
+      const processingReq = idx.openCursor(processingRange)
+      let stuckCount = 0
 
       processingReq.onsuccess = () => {
-        total += processingReq.result
-        resolve(total)
+        const cursor = processingReq.result as IDBCursorWithValue | null
+        if (cursor) {
+          const item = cursor.value as QueueItem
+          const startedAt = item.processingStartedAt || item.createdAt
+          if (startedAt < stuckCutoff) {
+            stuckCount++
+          }
+          cursor.continue()
+        } else {
+          total += stuckCount
+          resolve(total)
+        }
       }
       processingReq.onerror = () => reject(processingReq.error)
     }

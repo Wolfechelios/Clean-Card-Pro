@@ -111,6 +111,12 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
 
   stop: () => {
     set({ isRunning: false, isPaused: false });
+    // Reset worker count so next start works properly
+    workersActive = 0;
+    if (scalingInterval) {
+      clearInterval(scalingInterval);
+      scalingInterval = null;
+    }
   },
 
   pause: () => {
