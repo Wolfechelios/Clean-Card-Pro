@@ -7,10 +7,11 @@ import { Loader2 } from "lucide-react";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import AppLayout from "./components/layout/AppLayout";
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { checkAndResumeQueue } from "@/lib/queueProcessor";
 import { QueueStatusIndicator } from "@/components/scanner/QueueStatusIndicator";
+import { SplashScreen } from "@/components/SplashScreen";
 const Auth = lazy(() => import("./pages/Auth"));
 const NewDashboard = lazy(() => import("./pages/NewDashboard"));
 const ScanPage = lazy(() => import("./pages/ScanPage"));
@@ -92,6 +93,14 @@ function AppRoutes() {
 }
 
 const App = () => {
+  const [showSplash, setShowSplash] = useState(() => {
+    // Only show splash when launched as PWA (standalone mode)
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as any).standalone === true ||
+      document.referrer.includes('android-app://');
+    return isStandalone;
+  });
+
   // Auto-resume queue processing on app start
   useEffect(() => {
     checkAndResumeQueue();
@@ -103,6 +112,7 @@ const App = () => {
         <AuthProvider>
           <TooltipProvider>
             <ErrorBoundary>
+              {showSplash && <SplashScreen onComplete={() => setShowSplash(false)} />}
               <Toaster />
               <Sonner />
               <BrowserRouter>
