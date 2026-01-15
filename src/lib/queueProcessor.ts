@@ -179,8 +179,9 @@ let scalingInterval: ReturnType<typeof setInterval> | null = null;
 
 function startWorkers() {
   // Start with just 1 worker initially
-  if (workersActive === 0) {
-    workersActive++;
+  // (workersActive can go negative if the app was stopped mid-loop; clamp it)
+  if (workersActive <= 0) {
+    workersActive = 1;
     workerLoop(0);
   }
   
@@ -265,7 +266,7 @@ async function workerLoop(workerId: number) {
     await sleep(JOB_DELAY_MS);
   }
 
-  workersActive--;
+  workersActive = Math.max(0, workersActive - 1);
   if (workersActive === 0) {
     useQueueProcessor.getState()._setRunning(false);
     if (scalingInterval) {
