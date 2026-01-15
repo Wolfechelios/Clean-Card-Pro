@@ -2,6 +2,7 @@ import { SideBar } from "./SideBar";
 import { NavBar } from "./NavBar";
 import { ReactNode, Suspense } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAutoSync } from "@/hooks/use-auto-sync";
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -28,6 +29,9 @@ function PageLoader() {
 }
 
 export default function AppLayout({ children }: AppLayoutProps) {
+  // Auto-sync cards for offline use when authenticated
+  useAutoSync();
+
   return (
     <div className="min-h-screen min-h-[100dvh] flex w-full bg-background safe-top safe-bottom">
       <a
