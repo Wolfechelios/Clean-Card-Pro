@@ -29,6 +29,7 @@ const ImageBackfillPage = lazy(() => import("./pages/ImageBackfillPage"));
 const ImportCleanerPage = lazy(() => import("./pages/ImportCleanerPage"));
 const HelpPage = lazy(() => import("./pages/HelpPage"));
 const SellAssistPage = lazy(() => import("./pages/SellAssistPage"));
+const InstallPage = lazy(() => import("./pages/InstallPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient({
@@ -63,6 +64,7 @@ function AppRoutes() {
     <Suspense fallback={<FullscreenLoader />}>
       <Routes>
         <Route path="/auth" element={<Auth />} />
+        <Route path="/install" element={<InstallPage />} />
         <Route path="/" element={session ? <Navigate to="/dashboard" /> : <Navigate to="/auth" />} />
 
         <Route path="/dashboard" element={session ? <Authed><NewDashboard /></Authed> : <Navigate to="/auth" />} />
