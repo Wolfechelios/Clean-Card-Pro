@@ -18,17 +18,21 @@ serve(async (req) => {
       throw new Error('imageUrl is required');
     }
 
-    // Prefer user's own Gemini key, fallback to Lovable AI
+    // Prefer Lovable AI (always available), only use Gemini if key is valid
     const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     
-    const useGeminiDirect = !!GEMINI_API_KEY;
+    // Only use Gemini if key looks valid (not empty, not placeholder)
+    const useGeminiDirect = GEMINI_API_KEY && 
+      GEMINI_API_KEY.length > 10 && 
+      !GEMINI_API_KEY.startsWith('your_') &&
+      !GEMINI_API_KEY.includes('placeholder');
     
-    if (!GEMINI_API_KEY && !LOVABLE_API_KEY) {
-      throw new Error('No API key configured (GEMINI_API_KEY or LOVABLE_API_KEY required)');
+    if (!LOVABLE_API_KEY && !useGeminiDirect) {
+      throw new Error('No valid API key configured');
     }
 
-    console.log(`Rapid card identification using ${useGeminiDirect ? 'Gemini Direct' : 'Lovable AI'}...`);
+    console.log(`Rapid card identification using ${useGeminiDirect ? 'Gemini Direct (user key)' : 'Lovable AI'}...`);
 
     // Prompt for card identification
     const prompt = `Identify this trading card. Return JSON only:
@@ -56,10 +60,70 @@ JSON only.`;
 
     let content: string | null = null;
     let lastError: Error | null = null;
-    let geminiExhausted = false;
+    let lovableExhausted = false;
 
-    // Try Gemini Direct first (if key exists)
-    if (useGeminiDirect) {
+    // Try Lovable AI FIRST (always available, no user key needed)
+    if (LOVABLE_API_KEY) {
+      console.log('Trying Lovable AI...');
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'google/gemini-2.5-flash-lite',
+              messages: [{
+                role: "user",
+                content: [
+                  { type: "text", text: prompt },
+                  { type: "image_url", image_url: { url: imageUrl } }
+                ]
+              }],
+              temperature: 0.1,
+              max_tokens: 300,
+            }),
+          });
+
+          if (!response.ok) {
+            if (response.status === 429) {
+              const delay = Math.min(4000, 1000 * Math.pow(2, attempt));
+              console.log(`Lovable AI rate limited, waiting ${delay}ms (attempt ${attempt + 1}/3)`);
+              await new Promise(r => setTimeout(r, delay));
+              if (attempt === 2) {
+                lovableExhausted = true;
+              }
+              continue;
+            }
+            if (response.status === 402) {
+              lovableExhausted = true;
+              console.log('Lovable AI credits exhausted, trying Gemini fallback...');
+              break;
+            }
+            throw new Error(`Lovable AI error: ${response.status}`);
+          }
+
+          const data = await response.json();
+          content = data.choices?.[0]?.message?.content;
+          if (content) {
+            console.log('Lovable AI success');
+            break;
+          }
+        } catch (err) {
+          lastError = err as Error;
+          console.log(`Lovable AI error: ${err}`);
+          if (attempt < 2) {
+            await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+          }
+        }
+      }
+    }
+
+    // Fallback to Gemini Direct if Lovable AI failed/exhausted AND user has valid key
+    if (!content && useGeminiDirect && lovableExhausted) {
+      console.log('Falling back to Gemini Direct (user key)...');
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
           console.log(`Gemini attempt ${attempt + 1}/2...`);
@@ -86,9 +150,15 @@ JSON only.`;
           if (!response.ok) {
             const errorText = await response.text();
             if (response.status === 429) {
-              console.log(`Gemini rate limited (attempt ${attempt + 1}), will try fallback...`);
-              geminiExhausted = true;
-              break; // Exit Gemini loop, try Lovable AI
+              console.log(`Gemini rate limited (attempt ${attempt + 1})`);
+              if (attempt < 1) {
+                await new Promise(r => setTimeout(r, 1000));
+                continue;
+              }
+            }
+            if (response.status === 400 && errorText.includes('API_KEY_INVALID')) {
+              console.log('Gemini API key is invalid, skipping fallback');
+              break;
             }
             throw new Error(`Gemini error ${response.status}: ${errorText}`);
           }
@@ -96,7 +166,7 @@ JSON only.`;
           const data = await response.json();
           content = data.candidates?.[0]?.content?.parts?.[0]?.text;
           if (content) {
-            console.log('Gemini Direct success');
+            console.log('Gemini Direct fallback success');
             break;
           }
         } catch (err) {
@@ -109,65 +179,9 @@ JSON only.`;
       }
     }
 
-    // Fallback to Lovable AI if Gemini failed/exhausted
-    if (!content && LOVABLE_API_KEY) {
-      console.log('Falling back to Lovable AI...');
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'google/gemini-2.5-flash-lite',
-              messages: [{
-                role: "user",
-                content: [
-                  { type: "text", text: prompt },
-                  { type: "image_url", image_url: { url: imageUrl } }
-                ]
-              }],
-              temperature: 0.1,
-              max_tokens: 300,
-            }),
-          });
-
-          if (!response.ok) {
-            if (response.status === 429) {
-              const delay = Math.min(8000, 2000 * Math.pow(2, attempt));
-              console.log(`Lovable AI rate limited, waiting ${delay}ms (attempt ${attempt + 1}/3)`);
-              await new Promise(r => setTimeout(r, delay));
-              continue;
-            }
-            if (response.status === 402) {
-              return new Response(
-                JSON.stringify({ error: 'Credits exhausted', success: false }),
-                { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-              );
-            }
-            throw new Error(`Lovable AI error: ${response.status}`);
-          }
-
-          const data = await response.json();
-          content = data.choices?.[0]?.message?.content;
-          if (content) {
-            console.log('Lovable AI fallback success');
-            break;
-          }
-        } catch (err) {
-          lastError = err as Error;
-          if (attempt < 2) {
-            await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-          }
-        }
-      }
-    }
-
     if (!content) {
-      const errorMsg = geminiExhausted 
-        ? 'Gemini quota exhausted and Lovable AI fallback failed' 
+      const errorMsg = lovableExhausted 
+        ? 'Rate limited - please try again in a moment' 
         : (lastError?.message || 'No AI response');
       throw new Error(errorMsg);
     }
