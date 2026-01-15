@@ -216,7 +216,9 @@ export default function NewDashboard() {
       const avgValue = totalCards > 0 ? totalValue / totalCards : 0;
 
       const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const recentScans = cards.filter((c) => new Date(c.created_at) > dayAgo).length;
+      const recentScans = cards
+        .filter((c) => new Date(c.created_at) > dayAgo)
+        .reduce((sum, card) => sum + (card.quantity || 1), 0);
 
       const rarityCounts = cards.reduce(
         (acc, card) => {
