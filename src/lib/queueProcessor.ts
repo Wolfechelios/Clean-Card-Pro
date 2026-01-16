@@ -73,12 +73,14 @@ type ProcessorStore = ProcessorState & {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
-const JOB_DELAY_MS = 800;
-const POLL_INTERVAL_MS = 500;
-const WORKER_SCALE_INTERVAL_MS = 2000; // How often to check if we can scale up
+const JOB_DELAY_MS = 100; // Reduced for faster processing
+const POLL_INTERVAL_MS = 150; // Faster polling
+const WORKER_SCALE_INTERVAL_MS = 300; // Scale up faster
+const MAX_CONCURRENT_WORKERS = 3; // Hard cap at 3 workers
 
 function getMaxWorkerCount(): number {
-  return getScannerSettings().batchScanSize || 3;
+  const userSetting = getScannerSettings().batchScanSize || 3;
+  return Math.min(userSetting, MAX_CONCURRENT_WORKERS); // Never exceed 3
 }
 
 // Adaptive scaling: start with fewer workers and scale up based on queue size

@@ -556,20 +556,20 @@ export default function Settings() {
                   Concurrent Scan Workers: {scannerSettings.batchScanSize}
                 </Label>
                 <p className="text-xs text-muted-foreground mt-1 mb-3">
-                  Number of cards to process simultaneously. Higher = faster but uses more resources.
+                  Number of cards to process simultaneously (max 3 for stability).
                 </p>
                 <Slider
                   id="batch-scan-size"
                   min={1}
-                  max={100}
+                  max={3}
                   step={1}
-                  value={[scannerSettings.batchScanSize]}
+                  value={[Math.min(scannerSettings.batchScanSize, 3)]}
                   onValueChange={(value) => updateScannerSettings({ batchScanSize: value[0] })}
                   className="w-full"
                 />
                 <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                  <span>1 (Slowest, least resources)</span>
-                  <span>100 (Fastest, most resources)</span>
+                  <span>1 (Sequential)</span>
+                  <span>3 (Max parallel)</span>
                 </div>
               </div>
             </div>

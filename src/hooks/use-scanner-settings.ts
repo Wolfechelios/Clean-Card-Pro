@@ -19,7 +19,7 @@ export interface ScannerSettings {
   fullscreenScanMode: boolean;
 
   // Batch processing
-  batchScanSize: number; // 1-100, concurrent cards to process
+  batchScanSize: number; // 1-3, concurrent cards to process (max 3)
 }
 
 const DEFAULT_SETTINGS: ScannerSettings = {
