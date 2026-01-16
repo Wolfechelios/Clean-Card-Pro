@@ -980,7 +980,7 @@ export default function RapidScanCamera() {
                       disabled={autoTimerActive}
                       onClick={() => {
                         const current = settings.autoTimerIntervalSeconds;
-                        const next = current === 1 ? 2 : current === 2 ? 5 : 1;
+                        const next = current === 1 ? 1.5 : current === 1.5 ? 2 : current === 2 ? 5 : 1;
                         updateSettings({ autoTimerIntervalSeconds: next });
                         toast.info(`Auto-timer set to ${next}s`);
                       }}

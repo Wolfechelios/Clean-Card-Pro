@@ -12,7 +12,7 @@ export interface ScannerSettings {
   // Capture UX
   hapticsOnCapture: boolean;
   flashOnCapture: boolean;
-  autoTimerIntervalSeconds: 1 | 2 | 5;
+  autoTimerIntervalSeconds: 1 | 1.5 | 2 | 5;
   voiceCaptureEnabled: boolean;
   voiceCaptureKeyword: string;
   manualFocusLock: boolean;
