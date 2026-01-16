@@ -11,13 +11,8 @@ export function useQueueAutoResume() {
   const { queueCount, isRunning, processedCount, errorCount } = useQueueProcessor();
 
   useEffect(() => {
-    // Check for pending items on mount
-    checkAndResumeQueue().then(() => {
-      const count = useQueueProcessor.getState().queueCount;
-      if (count > 0) {
-        toast.info(`Resuming ${count} queued scans from previous session`);
-      }
-    });
+    // Silently resume any pending items on mount (no popup)
+    checkAndResumeQueue();
   }, []);
 
   return { queueCount, isRunning, processedCount, errorCount };
