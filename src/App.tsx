@@ -13,6 +13,10 @@ import { checkAndResumeQueue } from "@/lib/queueProcessor";
 import { QueueStatusIndicator } from "@/components/scanner/QueueStatusIndicator";
 import { SplashScreen } from "@/components/SplashScreen";
 import { OfflineIndicator } from "@/components/OfflineIndicator";
+import { PWAOnboarding } from "@/components/pwa/PWAOnboarding";
+import { PWAInstallBanner } from "@/components/pwa/PWAInstallBanner";
+import { usePWAOnboarding } from "@/hooks/use-pwa-onboarding";
+
 const Auth = lazy(() => import("./pages/Auth"));
 const NewDashboard = lazy(() => import("./pages/NewDashboard"));
 const ScanPage = lazy(() => import("./pages/ScanPage"));
@@ -93,6 +97,24 @@ function AppRoutes() {
   );
 }
 
+function PWAWrapper({ children }: { children: React.ReactNode }) {
+  const { shouldShowOnboarding, completeOnboarding, isStandalone } = usePWAOnboarding();
+
+  return (
+    <>
+      {shouldShowOnboarding && (
+        <PWAOnboarding 
+          onComplete={completeOnboarding} 
+          onSkip={completeOnboarding}
+        />
+      )}
+      {children}
+      {/* Show install banner only when not in standalone mode */}
+      {!isStandalone && <PWAInstallBanner />}
+    </>
+  );
+}
+
 const App = () => {
   const [showSplash, setShowSplash] = useState(() => {
     // Only show splash when launched as PWA (standalone mode)
@@ -117,9 +139,11 @@ const App = () => {
               <Toaster />
               <Sonner />
               <BrowserRouter>
-                <AppRoutes />
-                <QueueStatusIndicator />
-                <OfflineIndicator />
+                <PWAWrapper>
+                  <AppRoutes />
+                  <QueueStatusIndicator />
+                  <OfflineIndicator />
+                </PWAWrapper>
               </BrowserRouter>
             </ErrorBoundary>
           </TooltipProvider>
