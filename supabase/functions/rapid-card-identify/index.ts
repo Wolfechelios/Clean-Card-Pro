@@ -65,7 +65,7 @@ JSON only.`;
     // Try Lovable AI FIRST (always available, no user key needed)
     if (LOVABLE_API_KEY) {
       console.log('Trying Lovable AI...');
-      for (let attempt = 0; attempt < 3; attempt++) {
+      for (let attempt = 0; attempt < 5; attempt++) {
         try {
           const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
             method: 'POST',
@@ -89,10 +89,10 @@ JSON only.`;
 
           if (!response.ok) {
             if (response.status === 429) {
-              const delay = Math.min(4000, 1000 * Math.pow(2, attempt));
-              console.log(`Lovable AI rate limited, waiting ${delay}ms (attempt ${attempt + 1}/3)`);
+              const delay = Math.min(10_000, 1000 * Math.pow(2, attempt));
+              console.log(`Lovable AI rate limited, waiting ${delay}ms (attempt ${attempt + 1}/5)`);
               await new Promise(r => setTimeout(r, delay));
-              if (attempt === 2) {
+              if (attempt === 4) {
                 lovableExhausted = true;
               }
               continue;
@@ -114,7 +114,7 @@ JSON only.`;
         } catch (err) {
           lastError = err as Error;
           console.log(`Lovable AI error: ${err}`);
-          if (attempt < 2) {
+          if (attempt < 4) {
             await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
           }
         }
@@ -192,7 +192,7 @@ JSON only.`;
       const jsonMatch = content.match(/```json\n([\s\S]+?)\n```/) || content.match(/```\n([\s\S]+?)\n```/) || content.match(/\{[\s\S]+\}/);
       const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : content;
       cardData = JSON.parse(jsonStr.trim());
-    } catch (e) {
+    } catch (_e) {
       console.error('Parse error:', content);
       cardData = { card_name: 'Unknown Card', confidence: 0 };
     }
@@ -206,13 +206,16 @@ JSON only.`;
 
   } catch (error) {
     console.error('Rapid identify error:', error);
+    const message = error instanceof Error ? error.message : 'Error';
+    const status = /rate limit/i.test(message) ? 429 : 500;
+
     return new Response(
-      JSON.stringify({ 
-        error: error instanceof Error ? error.message : 'Error',
+      JSON.stringify({
+        error: message,
         success: false,
         cardData: { card_name: 'Unknown Card', confidence: 0 }
       }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });
