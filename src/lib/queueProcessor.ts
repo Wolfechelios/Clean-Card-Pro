@@ -179,6 +179,12 @@ async function getUserId(): Promise<string | null> {
 let workersActive = 0;
 let scalingInterval: ReturnType<typeof setInterval> | null = null;
 
+// When the backend rate-limits, pause all workers briefly to avoid marking jobs as permanent errors.
+let rateLimitUntil = 0;
+function isRateLimitError(e: unknown): boolean {
+  return /rate limit|429/i.test(String((e as any)?.message ?? e));
+}
+
 function startWorkers() {
   // Start with just 1 worker initially
   // (workersActive can go negative if the app was stopped mid-loop; clamp it)
@@ -225,6 +231,13 @@ async function workerLoop(workerId: number) {
       continue;
     }
 
+    // Global backoff when upstream rate-limits
+    const now = Date.now();
+    if (rateLimitUntil > now) {
+      await sleep(Math.min(POLL_INTERVAL_MS, rateLimitUntil - now));
+      continue;
+    }
+
     // Check if this worker should scale down (we have more workers than needed)
     // Only scale down workers with ID > 0 to ensure at least one worker always runs
     const queueSize = await idbCountQueued();
@@ -259,11 +272,18 @@ async function workerLoop(workerId: number) {
       await processJob(next);
       store()._incrementProcessed();
     } catch (e: any) {
+      const msg = String(e?.message ?? e);
       console.error(`[Worker ${workerId}] Job failed:`, e);
-      store()._incrementError();
-      
-      // Mark as error in queue
-      await idbUpdateMeta(next.id, { status: "error", error: String(e?.message ?? e) });
+
+      // If we're rate-limited, re-queue the job and pause all workers briefly.
+      if (isRateLimitError(e)) {
+        rateLimitUntil = Math.max(rateLimitUntil, Date.now() + 5000);
+        await idbUpdateMeta(next.id, { status: "queued", error: msg });
+      } else {
+        store()._incrementError();
+        // Mark as error in queue
+        await idbUpdateMeta(next.id, { status: "error", error: msg });
+      }
     }
 
     // Refresh queue meta
