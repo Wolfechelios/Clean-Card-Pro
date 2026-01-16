@@ -1,15 +1,18 @@
 {
-  "name": "CleanCards - Card Collection Manager",
+  "name": "CleanCards - Trading Card Manager",
   "short_name": "CleanCards",
-  "description": "AI-powered trading card scanner and collection manager",
+  "description": "AI-powered trading card scanner and collection manager. Scan, identify, and price your cards instantly.",
   "theme_color": "#000000",
   "background_color": "#000000",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "portrait-primary",
   "scope": "/",
-  "start_url": "/",
-  "id": "/",
-  "categories": ["utilities", "lifestyle"],
+  "start_url": "/?source=pwa",
+  "id": "cleancards-pwa",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["utilities", "lifestyle", "entertainment"],
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/pwa-192x192.png",
@@ -30,18 +33,41 @@
       "purpose": "maskable"
     }
   ],
+  "screenshots": [
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "CleanCards Home"
+    }
+  ],
   "shortcuts": [
     {
       "name": "Scan Card",
       "short_name": "Scan",
-      "url": "/scan",
+      "description": "Scan a new trading card",
+      "url": "/scan?source=shortcut",
       "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
     },
     {
       "name": "My Collection",
       "short_name": "Collection",
-      "url": "/collections",
+      "description": "View your card collection",
+      "url": "/collections?source=shortcut",
+      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "View collection stats",
+      "url": "/dashboard?source=shortcut",
       "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
     }
-  ]
+  ],
+  "display_override": ["standalone", "minimal-ui"],
+  "handle_links": "preferred",
+  "launch_handler": {
+    "client_mode": ["navigate-existing", "auto"]
+  }
 }
