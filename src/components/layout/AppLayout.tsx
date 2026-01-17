@@ -46,15 +46,15 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
       <SideBar />
 
-      <div className="flex-1 flex flex-col w-full min-w-0 transition-gpu relative">
+      <div className="flex-1 flex flex-col w-full min-w-0 transition-gpu relative overflow-hidden">
         <NavBar />
         <main
           id="main"
-          className="flex-1 p-4 sm:p-5 md:p-6 lg:p-8 overflow-auto touch-pan-y"
+          className="flex-1 px-3 py-4 xs:px-4 sm:px-5 md:px-6 lg:px-8 overflow-auto touch-pan-y"
           role="main"
         >
           <Suspense fallback={<PageLoader />}>
-            <div className="max-w-[1920px] mx-auto animate-fade-in-up">{children}</div>
+            <div className="max-w-[1920px] mx-auto animate-fade-in-up w-full">{children}</div>
           </Suspense>
         </main>
       </div>
