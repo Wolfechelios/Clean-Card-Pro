@@ -25,56 +25,67 @@ export function NavBar() {
   };
 
   return (
-    <nav className="h-14 sm:h-16 bg-card/80 glass border-b border-border/50 flex items-center justify-between px-4 sm:px-6 sticky top-0 z-40 transition-fast" aria-label="Top navigation">
+    <nav className="h-12 xs:h-14 sm:h-16 bg-card/80 glass border-b border-border/50 flex items-center justify-between px-2 xs:px-3 sm:px-4 md:px-6 sticky top-0 z-40 transition-fast" aria-label="Top navigation">
       {/* Mobile: logo (sidebar hidden) */}
-      <div className="flex items-center gap-2.5 lg:hidden pl-10">
-        <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-glow">
-          <Sparkles className="h-4 w-4 text-primary-foreground" />
+      <div className="flex items-center gap-2 lg:hidden pl-10 xs:pl-12 min-w-0">
+        <div className="h-7 w-7 xs:h-8 xs:w-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center shadow-glow shrink-0">
+          <Sparkles className="h-3.5 w-3.5 xs:h-4 xs:w-4 text-primary-foreground" />
         </div>
-        <h1 className="text-base font-bold text-foreground">Card Scanner</h1>
+        <h1 className="text-sm xs:text-base font-bold text-foreground truncate">Card Scanner</h1>
       </div>
 
       {/* Desktop: breadcrumbs */}
-      <div className="hidden lg:flex items-center gap-3 min-w-0">
+      <div className="hidden lg:flex items-center gap-3 min-w-0 flex-1">
         <Breadcrumbs />
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1 xs:gap-1.5 sm:gap-2 shrink-0">
         {/* Primary action */}
         <Button
           variant="secondary"
           size="sm"
           onClick={() => navigate("/scan")}
-          className="hidden sm:inline-flex"
+          className="hidden md:inline-flex"
           aria-label="Go to Scan"
         >
           <ScanLine className="mr-2 h-4 w-4" aria-hidden="true" />
           Scan
+        </Button>
+        
+        {/* Mobile scan button */}
+        <Button
+          variant="secondary"
+          size="icon-sm"
+          onClick={() => navigate("/scan")}
+          className="md:hidden"
+          aria-label="Go to Scan"
+        >
+          <ScanLine className="h-4 w-4" aria-hidden="true" />
         </Button>
 
         {/* Theme toggle */}
         <Button
           variant="ghost"
           size="icon-sm"
-          className="text-muted-foreground hover:text-foreground transition-all"
+          className="text-muted-foreground hover:text-foreground transition-all h-8 w-8 xs:h-9 xs:w-9"
           onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
           aria-label="Toggle theme"
         >
           {theme === "dark" ? (
-            <Sun className="h-[18px] w-[18px]" aria-hidden="true" />
+            <Sun className="h-4 w-4 xs:h-[18px] xs:w-[18px]" aria-hidden="true" />
           ) : (
-            <Moon className="h-[18px] w-[18px]" aria-hidden="true" />
+            <Moon className="h-4 w-4 xs:h-[18px] xs:w-[18px]" aria-hidden="true" />
           )}
         </Button>
 
         <Button
           variant="ghost"
           size="icon-sm"
-          className="text-muted-foreground hover:text-foreground transition-all relative"
+          className="text-muted-foreground hover:text-foreground transition-all relative h-8 w-8 xs:h-9 xs:w-9"
           aria-label="View notifications"
         >
-          <Bell className="h-[18px] w-[18px]" aria-hidden="true" />
-          <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-primary animate-pulse" aria-hidden="true" />
+          <Bell className="h-4 w-4 xs:h-[18px] xs:w-[18px]" aria-hidden="true" />
+          <span className="absolute top-1.5 right-1.5 xs:top-2 xs:right-2 h-1.5 w-1.5 xs:h-2 xs:w-2 rounded-full bg-primary animate-pulse" aria-hidden="true" />
         </Button>
 
         <DropdownMenu>
