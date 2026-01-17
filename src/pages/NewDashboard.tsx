@@ -8,7 +8,9 @@ import {
   TrendingDown,
   DollarSign,
   Package,
+  Star,
   RefreshCw,
+  Scan as ScanIcon,
   BookOpen,
   Camera,
   Activity,
@@ -16,7 +18,9 @@ import {
   Sparkles,
   Loader2,
   ArrowUpRight,
+  ArrowDownRight,
   Target,
+  AlertTriangle,
   Gem,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,6 +28,9 @@ import { useNavigate } from "react-router-dom";
 import {
   LineChart,
   Line,
+  PieChart,
+  Pie,
+  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -32,6 +39,7 @@ import {
 } from "recharts";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { analyzeCardFull } from "@/lib/analyzeCardFull";
 import { DashboardSkeleton } from "@/components/ui/loading-skeletons";
 import { CardDetailModal, CardData } from "@/components/cards/CardDetailModal";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -41,16 +49,27 @@ import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 
 type CardType = Database["public"]["Tables"]["cards"]["Row"];
 
-type ValuePoint = { name: string; value: number };
-
 interface DashboardStats {
   totalCards: number;
   totalValue: number;
   recentScans: number;
   avgCardValue: number;
+  topRarity: string;
   valueChange: number;
   collectorSaleValue: number;
   cardsWithPrices: number;
+}
+
+interface ChartData {
+  name: string;
+  value: number;
+  count?: number;
+}
+
+interface BulkScanResult {
+  imageUrl: string;
+  status: "pending" | "success" | "error";
+  error?: string;
 }
 
 export default function NewDashboard() {
@@ -62,12 +81,15 @@ export default function NewDashboard() {
     totalValue: 0,
     recentScans: 0,
     avgCardValue: 0,
+    topRarity: "N/A",
     valueChange: 0,
     collectorSaleValue: 0,
     cardsWithPrices: 0,
   });
   const [recentCards, setRecentCards] = useState<CardType[]>([]);
-  const [valueOverTime, setValueOverTime] = useState<ValuePoint[]>([]);
+  const [rarityData, setRarityData] = useState<ChartData[]>([]);
+  const [conditionData, setConditionData] = useState<ChartData[]>([]);
+  const [valueOverTime, setValueOverTime] = useState<ChartData[]>([]);
   const [topCards, setTopCards] = useState<CardType[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -75,6 +97,10 @@ export default function NewDashboard() {
   const [binderUploading, setBinderUploading] = useState(false);
   const [binderError, setBinderError] = useState<string | null>(null);
 
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const [bulkItems, setBulkItems] = useState<BulkScanResult[]>([]);
+  const [bulkProgress, setBulkProgress] = useState(0);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [selectedCard, setSelectedCard] = useState<CardData | null>(null);
   const [showCardDetail, setShowCardDetail] = useState(false);
@@ -194,6 +220,16 @@ export default function NewDashboard() {
         .filter((c) => new Date(c.created_at) > dayAgo)
         .reduce((sum, card) => sum + (card.quantity || 1), 0);
 
+      const rarityCounts = cards.reduce(
+        (acc, card) => {
+          const rarity = card.rarity || "Unknown";
+          acc[rarity] = (acc[rarity] || 0) + 1;
+          return acc;
+        },
+        {} as Record<string, number>,
+      );
+      const topRarity = Object.entries(rarityCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "N/A";
+
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
 
@@ -225,6 +261,7 @@ export default function NewDashboard() {
         totalValue,
         recentScans,
         avgCardValue: avgValue,
+        topRarity,
         valueChange,
         collectorSaleValue,
         cardsWithPrices: cardsWithPrices.length,
@@ -236,7 +273,28 @@ export default function NewDashboard() {
       const sorted = [...cards].sort((a, b) => (b.current_price_raw || 0) - (a.current_price_raw || 0));
       setTopCards(sorted.slice(0, 100));
 
-      // Simple 7-day value trend (sum of card values added per day)
+      const rarityChartData = Object.entries(rarityCounts).map(([name, count]) => ({
+        name,
+        value: count,
+        count,
+      }));
+      setRarityData(rarityChartData);
+
+      const conditionCounts = cards.reduce(
+        (acc, card) => {
+          const condition = card.condition || "ungraded";
+          acc[condition] = (acc[condition] || 0) + 1;
+          return acc;
+        },
+        {} as Record<string, number>,
+      );
+      const conditionChartData = Object.entries(conditionCounts).map(([name, count]) => ({
+        name,
+        value: count,
+        count,
+      }));
+      setConditionData(conditionChartData);
+
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       const dailyValues: Record<string, number> = {};
 
@@ -253,11 +311,12 @@ export default function NewDashboard() {
         .slice(-7);
 
       setValueOverTime(valueTimeData);
-
     }
     setIsInitialLoading(false);
     setIsRefreshing(false);
   };
+
+  const COLORS = ["hsl(173, 80%, 50%)", "hsl(262, 83%, 58%)", "hsl(152, 76%, 43%)", "hsl(38, 92%, 50%)", "hsl(210, 80%, 55%)", "hsl(330, 80%, 55%)"];
 
   const getAIAdvice = async () => {
     if (allCards.length === 0) {
@@ -337,6 +396,70 @@ export default function NewDashboard() {
       setBinderError(err?.message ?? "Binder scan failed.");
     } finally {
       setBinderUploading(false);
+    }
+  };
+
+  const handleBulkFilesChange: React.ChangeEventHandler<HTMLInputElement> = async (event) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    setBulkError(null);
+    setBulkItems([]);
+    setBulkProgress(0);
+    setBulkUploading(true);
+
+    try {
+      const initial: BulkScanResult[] = Array.from(files).map(() => ({
+        imageUrl: "",
+        status: "pending",
+      }));
+      setBulkItems(initial);
+
+      const total = files.length;
+      const updated: BulkScanResult[] = [];
+      let completed = 0;
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        let item: BulkScanResult = {
+          imageUrl: "",
+          status: "pending",
+        };
+
+        try {
+          const ext = file.name.split(".").pop() ?? "jpg";
+          const filePath = `bulk/${crypto.randomUUID()}.${ext}`;
+
+          const { error: uploadError } = await supabase.storage.from("card-images").upload(filePath, file, {
+            cacheControl: "3600",
+            upsert: false,
+          });
+
+          if (uploadError) {
+            throw new Error(uploadError.message);
+          }
+
+          const { data } = supabase.storage.from("card-images").getPublicUrl(filePath);
+          const publicUrl = data.publicUrl;
+          item.imageUrl = publicUrl;
+
+          await analyzeCardFull(publicUrl);
+
+          item.status = "success";
+        } catch (err: any) {
+          item.status = "error";
+          item.error = err?.message ?? "Scan failed.";
+        }
+
+        updated.push(item);
+        completed += 1;
+        setBulkItems([...updated, ...initial.slice(i + 1)]);
+        setBulkProgress(Math.round((completed / total) * 100));
+      }
+    } catch (err: any) {
+      setBulkError(err?.message ?? "Bulk scan failed.");
+    } finally {
+      setBulkUploading(false);
     }
   };
 
@@ -484,15 +607,13 @@ export default function NewDashboard() {
         <Card className="stat-card hover-lift">
           <CardHeader className="pb-1.5 xs:pb-2 px-3 xs:px-4 pt-3 xs:pt-4">
             <CardTitle className="text-xs xs:text-sm font-medium text-muted-foreground flex items-center gap-1.5 xs:gap-2">
-              <DollarSign className="h-3.5 w-3.5 xs:h-4 xs:w-4 shrink-0" />
-              <span className="truncate">Priced Cards</span>
+              <Star className="h-3.5 w-3.5 xs:h-4 xs:w-4 shrink-0" />
+              <span className="truncate">Top Rarity</span>
             </CardTitle>
           </CardHeader>
           <CardContent className="px-3 xs:px-4 pb-3 xs:pb-4">
-            <div className="text-xl xs:text-2xl sm:text-3xl font-bold truncate">{stats.cardsWithPrices.toLocaleString()}</div>
-            <p className="text-2xs xs:text-xs text-muted-foreground mt-1 xs:mt-2 truncate">
-              {stats.totalCards > 0 ? Math.round((stats.cardsWithPrices / stats.totalCards) * 100) : 0}% of collection
-            </p>
+            <div className="text-xl xs:text-2xl sm:text-3xl font-bold truncate">{stats.topRarity}</div>
+            <p className="text-2xs xs:text-xs text-muted-foreground mt-1 xs:mt-2 truncate">Most common</p>
           </CardContent>
         </Card>
       </div>
@@ -592,7 +713,56 @@ export default function NewDashboard() {
           </CardContent>
         </Card>
 
-        {/* Bulk Scan removed from dashboard (kept as a dedicated workflow elsewhere) */}
+        <Card className="hover-lift sm:col-span-2 lg:col-span-1">
+          <CardHeader className="pb-2 xs:pb-3 px-3 xs:px-4 pt-3 xs:pt-4">
+            <CardTitle className="flex items-center gap-2 text-sm xs:text-base">
+              <div className="h-7 w-7 xs:h-8 xs:w-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
+                <Activity className="h-3.5 w-3.5 xs:h-4 xs:w-4 text-accent" />
+              </div>
+              <span className="truncate">Bulk Scan</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 xs:space-y-3 px-3 xs:px-4 pb-3 xs:pb-4">
+            <p className="text-xs xs:text-sm text-muted-foreground leading-relaxed line-clamp-2">
+              Batch upload multiple card images.
+            </p>
+            <Input
+              type="file"
+              accept="image/*"
+              multiple
+              disabled={bulkUploading}
+              onChange={handleBulkFilesChange}
+              className="text-xs xs:text-sm"
+            />
+            {(bulkUploading || bulkProgress > 0) && (
+              <div className="space-y-1.5">
+                <Progress value={bulkProgress} className="h-1.5 xs:h-2" />
+                <p className="text-2xs xs:text-xs text-muted-foreground">{bulkProgress}%</p>
+              </div>
+            )}
+            {bulkError && <p className="text-2xs xs:text-xs text-destructive truncate">{bulkError}</p>}
+            {bulkItems.length > 0 && (
+              <div className="max-h-20 xs:max-h-24 overflow-auto rounded-lg bg-secondary/50 p-2 xs:p-3 space-y-1">
+                {bulkItems.map((item, idx) => (
+                  <div key={idx} className="flex items-center justify-between text-2xs xs:text-xs">
+                    <span className="truncate max-w-[60%] text-muted-foreground">{item.imageUrl || `Item ${idx + 1}`}</span>
+                    <span
+                      className={
+                        item.status === "success"
+                          ? "text-success font-medium"
+                          : item.status === "error"
+                            ? "text-destructive font-medium"
+                            : "text-muted-foreground"
+                      }
+                    >
+                      {item.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* PSA 10 Viability Analysis Card */}
