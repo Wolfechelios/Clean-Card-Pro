@@ -9,11 +9,12 @@ import { withRetry } from "@/lib/retry";
 import { getScannerSettings } from "@/hooks/use-scanner-settings";
 import { logScannerError, logApiError } from "@/lib/crashAnalytics";
 import {
-  idbGetNextQueued,
+  idbClaimNextQueued,
   idbUpdateMeta,
   idbDelete,
   idbCount,
   idbCountQueued,
+  idbCountByStatus,
   idbGetAll,
   type QueueItem,
   type QueueItemMeta,
@@ -47,7 +48,6 @@ export type ProcessorState = {
   currentItem: string | null;
   lastProcessedCard: ProcessedCard | null;
   queueMeta: QueueItemMeta[];
-  processedEvents: ProcessedCard[];
 };
 
 type ProcessorStore = ProcessorState & {
@@ -66,8 +66,6 @@ type ProcessorStore = ProcessorState & {
   _setCurrentItem: (v: string | null) => void;
   _setLastProcessedCard: (v: ProcessedCard | null) => void;
   _setQueueMeta: (v: QueueItemMeta[]) => void;
-  _pushProcessedEvent: (v: ProcessedCard) => void;
-  _consumeProcessedEvents: () => ProcessedCard[];
   _incrementProcessed: () => void;
   _incrementError: () => void;
 };
@@ -108,7 +106,6 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   currentItem: null,
   lastProcessedCard: null,
   queueMeta: [],
-  processedEvents: [],
 
   start: () => {
     if (get().isRunning) return;
@@ -151,12 +148,6 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   _setCurrentItem: (v) => set({ currentItem: v }),
   _setLastProcessedCard: (v) => set({ lastProcessedCard: v }),
   _setQueueMeta: (v) => set({ queueMeta: v }),
-  _pushProcessedEvent: (v) => set((s) => ({ processedEvents: [...s.processedEvents, v] })),
-  _consumeProcessedEvents: () => {
-    const events = get().processedEvents;
-    set({ processedEvents: [] });
-    return events;
-  },
   _incrementProcessed: () => set((s) => ({ processedCount: s.processedCount + 1 })),
   _incrementError: () => set((s) => ({ errorCount: s.errorCount + 1 })),
 }));
@@ -235,6 +226,9 @@ function startWorkers() {
 async function workerLoop(workerId: number) {
   const store = useQueueProcessor.getState;
 
+  // Unique lock id per worker instance to prevent duplicate picks
+  const lockId = `${Date.now()}_${Math.random().toString(16).slice(2)}_w${workerId}`
+
   while (store().isRunning) {
     // Paused? Wait
     if (store().isPaused) {
@@ -260,16 +254,16 @@ async function workerLoop(workerId: number) {
       break; // Exit this worker loop
     }
 
-    const next = await idbGetNextQueued();
+    const next = await idbClaimNextQueued(lockId);
     if (!next) {
       // No processable work.
-      const queuedCount = await idbCountQueued();
+      const queuedCount = await idbCountByStatus("queued");
+      const processingCount = await idbCountByStatus("processing");
       const totalCount = await idbCount();
       useQueueProcessor.getState()._setQueueCount(queuedCount);
 
-      // If nothing is queued/stuck AND nothing is currently processing, we can stop.
-      // With multiple workers, it's normal to temporarily have 0 queued while items are actively processing.
-      const processingCount = await idbCountStatus("processing");
+      // Stop only when nothing is queued AND nothing is currently processing.
+      // With multiple workers, it's normal for queued to briefly hit 0 while jobs are in-flight.
       if (queuedCount === 0 && processingCount === 0) {
         useQueueProcessor.getState()._setRunning(false);
         break;
@@ -326,7 +320,7 @@ async function processJob(item: QueueItem): Promise<void> {
   const store = useQueueProcessor.getState();
   store._setCurrentItem(item.id);
 
-  // Mark processing
+  // Mark processing (idbClaimNextQueued already sets this, but keep it idempotent)
   await idbUpdateMeta(item.id, { status: "processing" });
 
   // Upload to storage
@@ -445,9 +439,7 @@ async function processJob(item: QueueItem): Promise<void> {
     dbId: existingId,
   };
 
-  store._pushProcessedEvent(processedCard);
-  store._pushProcessedEvent(processedCard);
-  store._setLastProcessedCard(processedCard); // optional UI convenience
+  store._setLastProcessedCard(processedCard);
   store._setCurrentItem(null);
 
   // Success - remove from queue
@@ -475,4 +467,4 @@ export async function checkAndResumeQueue(): Promise<void> {
 // EXPORTS FOR EXTERNAL USE
 // ─────────────────────────────────────────────────────────────────────────────
 
-export { idbAdd, idbCount, idbCountQueued, idbCountStatus, idbClear, idbGetAll, idbDelete } from "@/lib/idbQueue";
+export { idbAdd, idbCount, idbCountQueued, idbClear, idbGetAll, idbDelete } from "@/lib/idbQueue";

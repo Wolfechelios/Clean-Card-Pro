@@ -10,6 +10,10 @@ export type QueueItem = {
   status: QueueStatus
   error?: string
 
+  // Optional transient lock metadata (not indexed)
+  // Helps prevent multiple workers from picking the same job.
+  lockedBy?: string
+
   // Stored image payload
   blob: Blob
   mime: string
@@ -125,13 +129,82 @@ export async function idbListMeta(limit = 500): Promise<QueueItemMeta[]> {
 }
 
 /**
+ * Atomically claim the next processable item FIFO (oldest first).
+ * Prevents multiple concurrent workers from grabbing the same job.
+ *
+ * Also picks up truly stuck "processing" items older than STUCK_THRESHOLD_MS.
+ */
+export async function idbClaimNextQueued(lockId: string): Promise<QueueItem | null> {
+  const db = await openDB()
+  const STUCK_THRESHOLD_MS = 120_000 // 2 minutes; uploads + edge functions can easily exceed 5s.
+  const stuckCutoff = Date.now() - STUCK_THRESHOLD_MS
+
+  const claimed = await new Promise<QueueItem | null>((resolve, reject) => {
+    const t = db.transaction(STORE, "readwrite")
+    const store = t.objectStore(STORE)
+    const idx = store.index("status_createdAt")
+
+    const claim = (cursor: IDBCursorWithValue) => {
+      const item = cursor.value as QueueItem
+      const next: QueueItem = {
+        ...item,
+        status: "processing",
+        processingStartedAt: Date.now(),
+        lockedBy: lockId,
+      }
+      cursor.update(next)
+      resolve(next)
+    }
+
+    // 1) queued first (oldest)
+    const queuedRange = IDBKeyRange.bound(["queued", 0], ["queued", Number.MAX_SAFE_INTEGER])
+    const queuedReq = idx.openCursor(queuedRange, "next")
+
+    queuedReq.onsuccess = () => {
+      const cursor = queuedReq.result as IDBCursorWithValue | null
+      if (cursor) {
+        claim(cursor)
+        return
+      }
+
+      // 2) no queued: look for stuck processing
+      const processingRange = IDBKeyRange.bound(["processing", 0], ["processing", Number.MAX_SAFE_INTEGER])
+      const processingReq = idx.openCursor(processingRange, "next")
+
+      processingReq.onsuccess = () => {
+        const pCursor = processingReq.result as IDBCursorWithValue | null
+        if (!pCursor) {
+          resolve(null)
+          return
+        }
+        const item = pCursor.value as QueueItem
+        const startedAt = item.processingStartedAt || item.createdAt
+        if (startedAt < stuckCutoff) {
+          claim(pCursor)
+        } else {
+          pCursor.continue()
+        }
+      }
+      processingReq.onerror = () => reject(processingReq.error)
+    }
+
+    queuedReq.onerror = () => reject(queuedReq.error)
+    t.onerror = () => reject(t.error)
+    t.onabort = () => reject(t.error)
+  })
+
+  db.close()
+  return claimed
+}
+
+/**
  * Get the next queued item FIFO (oldest first).
  * Also picks up stuck "processing" items older than 5s (orphaned from crashes/scaling).
  * Returns full item (includes blob).
  */
 export async function idbGetNextQueued(): Promise<QueueItem | null> {
   const db = await openDB()
-  const STUCK_THRESHOLD_MS = 5_000 // 5 seconds - reduced for faster recovery
+  const STUCK_THRESHOLD_MS = 120_000 // 2 minutes
 
   const next = await new Promise<QueueItem | null>((resolve, reject) => {
     const t = db.transaction(STORE, "readonly")
@@ -189,7 +262,7 @@ export async function idbGetNextQueued(): Promise<QueueItem | null> {
  */
 export async function idbCountQueued(): Promise<number> {
   const db = await openDB()
-  const STUCK_THRESHOLD_MS = 5_000
+  const STUCK_THRESHOLD_MS = 120_000
   const stuckCutoff = Date.now() - STUCK_THRESHOLD_MS
   
   const count = await new Promise<number>((resolve, reject) => {
@@ -236,9 +309,16 @@ export async function idbCountQueued(): Promise<number> {
   return count
 }
 
-export async function idbCountStatus(status: QueueStatus): Promise<number> {
+export async function idbCount(): Promise<number> {
   const db = await openDB()
-  const count = await new Promise<number>((resolve, reject) => {
+  const n = (await tx(db, "readonly", (store) => store.count())) as number
+  db.close()
+  return n
+}
+
+export async function idbCountByStatus(status: QueueStatus): Promise<number> {
+  const db = await openDB()
+  const n = (await new Promise<number>((resolve, reject) => {
     const t = db.transaction(STORE, "readonly")
     const store = t.objectStore(STORE)
     const idx = store.index("status_createdAt")
@@ -248,14 +328,7 @@ export async function idbCountStatus(status: QueueStatus): Promise<number> {
     req.onerror = () => reject(req.error)
     t.onerror = () => reject(t.error)
     t.onabort = () => reject(t.error)
-  })
-  db.close()
-  return count
-}
-
-export async function idbCount(): Promise<number> {
-  const db = await openDB()
-  const n = (await tx(db, "readonly", (store) => store.count())) as number
+  })) as number
   db.close()
   return n
 }
