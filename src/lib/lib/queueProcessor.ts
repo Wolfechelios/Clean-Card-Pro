@@ -46,9 +46,8 @@ export type ProcessorState = {
   errorCount: number;
   currentItem: string | null;
   lastProcessedCard: ProcessedCard | null;
-  // Lossless stream of completions (needed for concurrent workers)
-  processedEvents: ProcessedCard[];
   queueMeta: QueueItemMeta[];
+  processedEvents: ProcessedCard[];
 };
 
 type ProcessorStore = ProcessorState & {
@@ -66,10 +65,9 @@ type ProcessorStore = ProcessorState & {
   _setErrorCount: (v: number) => void;
   _setCurrentItem: (v: string | null) => void;
   _setLastProcessedCard: (v: ProcessedCard | null) => void;
-  // Internal event buffer helpers
+  _setQueueMeta: (v: QueueItemMeta[]) => void;
   _pushProcessedEvent: (v: ProcessedCard) => void;
   _consumeProcessedEvents: () => ProcessedCard[];
-  _setQueueMeta: (v: QueueItemMeta[]) => void;
   _incrementProcessed: () => void;
   _incrementError: () => void;
 };
@@ -109,8 +107,8 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   errorCount: 0,
   currentItem: null,
   lastProcessedCard: null,
-  processedEvents: [],
   queueMeta: [],
+  processedEvents: [],
 
   start: () => {
     if (get().isRunning) return;
@@ -152,13 +150,13 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   _setErrorCount: (v) => set({ errorCount: v }),
   _setCurrentItem: (v) => set({ currentItem: v }),
   _setLastProcessedCard: (v) => set({ lastProcessedCard: v }),
+  _setQueueMeta: (v) => set({ queueMeta: v }),
   _pushProcessedEvent: (v) => set((s) => ({ processedEvents: [...s.processedEvents, v] })),
   _consumeProcessedEvents: () => {
     const events = get().processedEvents;
     set({ processedEvents: [] });
     return events;
   },
-  _setQueueMeta: (v) => set({ queueMeta: v }),
   _incrementProcessed: () => set((s) => ({ processedCount: s.processedCount + 1 })),
   _incrementError: () => set((s) => ({ errorCount: s.errorCount + 1 })),
 }));
@@ -269,9 +267,10 @@ async function workerLoop(workerId: number) {
       const totalCount = await idbCount();
       useQueueProcessor.getState()._setQueueCount(queuedCount);
 
-      // If there are no queued/stuck-processing items left, stop the processor.
-      // (There may still be "error" items in storage; those are not processable.)
-      if (queuedCount === 0) {
+      // If nothing is queued/stuck AND nothing is currently processing, we can stop.
+      // With multiple workers, it's normal to temporarily have 0 queued while items are actively processing.
+      const processingCount = await idbCountStatus("processing");
+      if (queuedCount === 0 && processingCount === 0) {
         useQueueProcessor.getState()._setRunning(false);
         break;
       }
@@ -446,11 +445,9 @@ async function processJob(item: QueueItem): Promise<void> {
     dbId: existingId,
   };
 
-  // IMPORTANT: multiple workers can complete at nearly the same time.
-  // A single "lastProcessedCard" field will get overwritten, causing UI to miss completions.
-  // So we push into a lossless event buffer and optionally also set lastProcessedCard for "latest" overlays.
   store._pushProcessedEvent(processedCard);
-  store._setLastProcessedCard(processedCard);
+  store._pushProcessedEvent(processedCard);
+  store._setLastProcessedCard(processedCard); // optional UI convenience
   store._setCurrentItem(null);
 
   // Success - remove from queue
@@ -478,4 +475,4 @@ export async function checkAndResumeQueue(): Promise<void> {
 // EXPORTS FOR EXTERNAL USE
 // ─────────────────────────────────────────────────────────────────────────────
 
-export { idbAdd, idbCount, idbCountQueued, idbClear, idbGetAll, idbDelete } from "@/lib/idbQueue";
+export { idbAdd, idbCount, idbCountQueued, idbCountStatus, idbClear, idbGetAll, idbDelete } from "@/lib/idbQueue";

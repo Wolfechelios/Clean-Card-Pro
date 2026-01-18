@@ -655,10 +655,9 @@ export default function RapidScanCamera() {
     queueProcessor.start();
   }
 
-  // Sync UI state from processor's processed events.
-  // NOTE: Using only "lastProcessedCard" loses updates when multiple workers complete close together.
+  // Sync UI state from processor completion events (concurrency-safe)
   useEffect(() => {
-    const events = queueProcessor._consumeProcessedEvents();
+    const events = queueProcessor._consumeProcessedEvents?.();
     if (!events || events.length === 0) return;
 
     for (const card of events) {
@@ -686,7 +685,7 @@ export default function RapidScanCamera() {
     });
 
     refreshMeta();
-  }, [queueProcessor.processedEvents, queueProcessor._consumeProcessedEvents, updateCard, refreshMeta]);
+  }, [queueProcessor.processedEvents, updateCard, refreshMeta]);
 
   // Sync processing state from global processor
   useEffect(() => {
