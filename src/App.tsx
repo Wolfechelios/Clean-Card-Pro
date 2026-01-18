@@ -7,8 +7,9 @@ import { Loader2 } from "lucide-react";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import AppLayout from "./components/layout/AppLayout";
-import { lazy, Suspense, useEffect, useState, forwardRef } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
+import { installGlobalErrorHandlers } from "@/lib/crashAnalytics";
 import { checkAndResumeQueue } from "@/lib/queueProcessor";
 import { QueueStatusIndicator } from "@/components/scanner/QueueStatusIndicator";
 import { SplashScreen } from "@/components/SplashScreen";
@@ -49,14 +50,13 @@ const queryClient = new QueryClient({
   },
 });
 
-const FullscreenLoader = forwardRef<HTMLDivElement>((_, ref) => {
+function FullscreenLoader() {
   return (
-    <div ref={ref} className="flex items-center justify-center min-h-screen">
+    <div className="flex items-center justify-center min-h-screen">
       <Loader2 className="h-8 w-8 animate-spin text-primary" />
     </div>
   );
-});
-FullscreenLoader.displayName = "FullscreenLoader";
+}
 
 function Authed({ children }: { children: React.ReactNode }) {
   return <AppLayout>{children}</AppLayout>;
@@ -125,8 +125,9 @@ const App = () => {
     return isStandalone;
   });
 
-  // Auto-resume queue processing on app start
+  // Install global error handlers and auto-resume queue on app start
   useEffect(() => {
+    installGlobalErrorHandlers();
     checkAndResumeQueue();
   }, []);
 

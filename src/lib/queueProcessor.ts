@@ -7,6 +7,7 @@ import { create } from "zustand";
 import { supabase } from "@/integrations/supabase/client";
 import { withRetry } from "@/lib/retry";
 import { getScannerSettings } from "@/hooks/use-scanner-settings";
+import { logScannerError, logApiError } from "@/lib/crashAnalytics";
 import {
   idbGetNextQueued,
   idbUpdateMeta,
@@ -275,6 +276,13 @@ async function workerLoop(workerId: number) {
       const msg = String(e?.message ?? e);
       console.error(`[Worker ${workerId}] Job failed:`, e);
 
+      // Log to crash analytics
+      logScannerError(e instanceof Error ? e : new Error(msg), 'rapid', {
+        workerId,
+        jobId: next.id,
+        queueSize: await idbCountQueued(),
+      });
+
       // If we're rate-limited, re-queue the job and pause all workers briefly.
       if (isRateLimitError(e)) {
         rateLimitUntil = Math.max(rateLimitUntil, Date.now() + 5000);
@@ -333,22 +341,30 @@ async function processJob(item: QueueItem): Promise<void> {
   });
 
   // Identify card
-  const identify = await withRetry(
-    async () => {
-      const res = await supabase.functions.invoke("rapid-card-identify", {
-        body: { imageUrl },
-      });
-      if (res.error) throw new Error(res.error.message);
-      if (!res.data?.success) throw new Error(res.data?.error || "Identify failed");
-      return res.data.cardData as any;
-    },
-    {
-      retries: 2,
-      baseMs: 2000,
-      maxMs: 10000,
-      shouldRetry: (e) => /timeout|network|502|503|504/i.test(String(e?.message ?? e)),
-    }
-  );
+  let identify: any;
+  try {
+    identify = await withRetry(
+      async () => {
+        const res = await supabase.functions.invoke("rapid-card-identify", {
+          body: { imageUrl },
+        });
+        if (res.error) throw new Error(res.error.message);
+        if (!res.data?.success) throw new Error(res.data?.error || "Identify failed");
+        return res.data.cardData as any;
+      },
+      {
+        retries: 2,
+        baseMs: 2000,
+        maxMs: 10000,
+        shouldRetry: (e) => /timeout|network|502|503|504/i.test(String(e?.message ?? e)),
+      }
+    );
+  } catch (e: any) {
+    logApiError(e instanceof Error ? e : new Error(String(e?.message ?? e)), 'rapid-card-identify', {
+      jobId: item.id,
+    });
+    throw e;
+  }
 
   const cardName: string = identify?.card_name || "Unknown Card";
   const cardSet: string | null = identify?.card_set ?? null;

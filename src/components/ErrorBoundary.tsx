@@ -1,6 +1,7 @@
 import React, { Component, ErrorInfo, ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, RefreshCw, WifiOff } from "lucide-react";
+import { logCrash } from "@/lib/crashAnalytics";
 
 interface Props {
   children: ReactNode;
@@ -38,6 +39,11 @@ export class ErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("ErrorBoundary caught an error:", error, errorInfo);
+    
+    // Log to crash analytics
+    logCrash('component_error', error, {
+      componentStack: errorInfo.componentStack,
+    });
     
     // Auto-retry for dynamic import errors (likely network issues)
     if (isDynamicImportError(error) && this.state.retryCount < 2) {
