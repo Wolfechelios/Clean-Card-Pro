@@ -7,7 +7,7 @@ import { Loader2 } from "lucide-react";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import AppLayout from "./components/layout/AppLayout";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState, forwardRef } from "react";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { checkAndResumeQueue } from "@/lib/queueProcessor";
 import { QueueStatusIndicator } from "@/components/scanner/QueueStatusIndicator";
@@ -49,13 +49,14 @@ const queryClient = new QueryClient({
   },
 });
 
-function FullscreenLoader() {
+const FullscreenLoader = forwardRef<HTMLDivElement>((_, ref) => {
   return (
-    <div className="flex items-center justify-center min-h-screen">
+    <div ref={ref} className="flex items-center justify-center min-h-screen">
       <Loader2 className="h-8 w-8 animate-spin text-primary" />
     </div>
   );
-}
+});
+FullscreenLoader.displayName = "FullscreenLoader";
 
 function Authed({ children }: { children: React.ReactNode }) {
   return <AppLayout>{children}</AppLayout>;
