@@ -130,7 +130,7 @@ const Scanner = ({ userId }: ScannerProps) => {
               scanMode={pendingCard.scanMode}
               ownedCount={pendingCard.ownedCount}
               isInLibrary={pendingCard.isInLibrary}
-              currentPriceRaw={pendingCard.fallbackData?.currentPriceRaw ?? null}
+              currentPriceRaw={pendingCard.fallbackData?.raw ?? pendingCard.fallbackData?.suggested ?? null}
               onConfirm={handleConfirmCard}
               onSelectAlternative={handleSelectAlternative}
               onCancel={handleCancelCard}
@@ -172,7 +172,7 @@ const Scanner = ({ userId }: ScannerProps) => {
               scanMode={pendingCard.scanMode}
               ownedCount={pendingCard.ownedCount}
               isInLibrary={pendingCard.isInLibrary}
-              currentPriceRaw={pendingCard.fallbackData?.currentPriceRaw ?? null}
+              currentPriceRaw={pendingCard.fallbackData?.raw ?? pendingCard.fallbackData?.suggested ?? null}
               onConfirm={handleConfirmCard}
               onSelectAlternative={handleSelectAlternative}
               onCancel={handleCancelCard}
@@ -204,7 +204,7 @@ const Scanner = ({ userId }: ScannerProps) => {
               scanMode={pendingCard.scanMode}
               ownedCount={pendingCard.ownedCount}
               isInLibrary={pendingCard.isInLibrary}
-              currentPriceRaw={pendingCard.fallbackData?.currentPriceRaw ?? null}
+              currentPriceRaw={pendingCard.fallbackData?.raw ?? pendingCard.fallbackData?.suggested ?? null}
               onConfirm={handleConfirmCard}
               onSelectAlternative={handleSelectAlternative}
               onCancel={handleCancelCard}
@@ -227,7 +227,7 @@ const Scanner = ({ userId }: ScannerProps) => {
               scanMode={pendingCard.scanMode}
               ownedCount={pendingCard.ownedCount}
               isInLibrary={pendingCard.isInLibrary}
-              currentPriceRaw={pendingCard.fallbackData?.currentPriceRaw ?? null}
+              currentPriceRaw={pendingCard.fallbackData?.raw ?? pendingCard.fallbackData?.suggested ?? null}
               onConfirm={handleConfirmCard}
               onSelectAlternative={handleSelectAlternative}
               onCancel={handleCancelCard}
