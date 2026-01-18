@@ -655,34 +655,38 @@ export default function RapidScanCamera() {
     queueProcessor.start();
   }
 
-  // Sync UI state from processor's last processed card
+  // Sync UI state from processor's processed events.
+  // NOTE: Using only "lastProcessedCard" loses updates when multiple workers complete close together.
   useEffect(() => {
-    if (!queueProcessor.lastProcessedCard) return;
+    const events = queueProcessor._consumeProcessedEvents();
+    if (!events || events.length === 0) return;
 
-    const card = queueProcessor.lastProcessedCard;
-    updateCard(card.id, {
-      status: "completed",
-      cardName: card.cardName,
-      cardSet: card.cardSet,
-      cardNumber: card.cardNumber,
-      rarity: card.rarity,
-      value: card.value,
-      imageUrl: card.imageUrl,
-      isInLibrary: card.isInLibrary,
-      libraryQuantity: card.libraryQuantity,
-      dbId: card.dbId,
-      priceFetching: false,
-    });
+    for (const card of events) {
+      updateCard(card.id, {
+        status: "completed",
+        cardName: card.cardName,
+        cardSet: card.cardSet,
+        cardNumber: card.cardNumber,
+        rarity: card.rarity,
+        value: card.value,
+        imageUrl: card.imageUrl,
+        isInLibrary: card.isInLibrary,
+        libraryQuantity: card.libraryQuantity,
+        dbId: card.dbId,
+        priceFetching: false,
+      });
+    }
 
+    const last = events[events.length - 1];
     setOverlay({
-      label: card.cardName,
-      value: card.value,
-      isInLibrary: card.isInLibrary,
-      libraryQuantity: card.libraryQuantity,
+      label: last.cardName,
+      value: last.value,
+      isInLibrary: last.isInLibrary,
+      libraryQuantity: last.libraryQuantity,
     });
 
     refreshMeta();
-  }, [queueProcessor.lastProcessedCard, updateCard, refreshMeta]);
+  }, [queueProcessor.processedEvents, queueProcessor._consumeProcessedEvents, updateCard, refreshMeta]);
 
   // Sync processing state from global processor
   useEffect(() => {
