@@ -22,6 +22,7 @@ import {
   Trash2,
   Timer,
   TimerOff,
+  Focus,
 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -44,6 +45,7 @@ import {
 } from "@/lib/idbQueue";
 import { useQueueProcessor } from "@/lib/queueProcessor";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
+import { useAutoFocus } from "@/hooks/use-auto-focus";
 import { ZoomControls } from "./ZoomControls";
 import { ScannedCardList } from "./ScannedCardList";
 import { useNativeCamera } from "@/hooks/use-native-camera";
@@ -173,6 +175,9 @@ export default function RapidScanCamera() {
     zoomOut,
     resetZoom,
   } = useCameraZoom({ streamRef });
+
+  // Auto-focus
+  const autoFocus = useAutoFocus({ trackRef, enabled: cameraOn });
 
   // Queue meta for debug/health
   const [queueMeta, setQueueMeta] = useState<QueueItemMeta[]>([]);
@@ -318,6 +323,9 @@ export default function RapidScanCamera() {
       // Zoom capabilities
       detectZoomCapabilities();
 
+      // Apply continuous autofocus if enabled
+      await autoFocus.applyContinuousAutoFocus();
+
       // Workers start automatically once you enqueue
     } catch (err: any) {
       setStatusLine(`Camera error: ${err?.message ?? err}`);
@@ -340,11 +348,14 @@ export default function RapidScanCamera() {
     setCameraOn(false);
     setStatusLine("Camera stopped");
     
+    // Stop periodic focus when camera stops
+    autoFocus.stopPeriodicFocus();
+
     // Signal scanner inactive
     useGlobalProcessControl.getState().setScannerActive(false);
   }
 
-  // Pinch-to-zoom state
+  // Pinch-to-zoom state (respects feature flag)
   const pinchRef = useRef<{ initialDistance: number; initialZoom: number } | null>(null);
 
   const getDistance = useCallback((t1: React.Touch, t2: React.Touch) => {
@@ -354,14 +365,16 @@ export default function RapidScanCamera() {
   }, []);
 
   const handleTouchStart = useCallback((e: React.TouchEvent<HTMLVideoElement>) => {
+    if (!settings.featurePinchToZoom) return;
     if (e.touches.length === 2) {
       e.preventDefault();
       const distance = getDistance(e.touches[0], e.touches[1]);
       pinchRef.current = { initialDistance: distance, initialZoom: zoomLevel };
     }
-  }, [zoomLevel, getDistance]);
+  }, [zoomLevel, getDistance, settings.featurePinchToZoom]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent<HTMLVideoElement>) => {
+    if (!settings.featurePinchToZoom) return;
     if (e.touches.length === 2 && pinchRef.current) {
       e.preventDefault();
       const distance = getDistance(e.touches[0], e.touches[1]);
@@ -372,7 +385,7 @@ export default function RapidScanCamera() {
       );
       setZoom(newZoom);
     }
-  }, [getDistance, zoomCapabilities, setZoom]);
+  }, [getDistance, zoomCapabilities, setZoom, settings.featurePinchToZoom]);
 
   const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLVideoElement>) => {
     if (e.touches.length < 2) {
@@ -380,55 +393,36 @@ export default function RapidScanCamera() {
     }
   }, []);
 
-  // Tap-to-focus with auto-focus trigger
+  // Tap-to-focus using new autoFocus hook (respects feature flag)
   const handleVideoTap = useCallback(
     async (e: React.MouseEvent<HTMLVideoElement>) => {
+      if (!settings.featureTapToFocus) return;
+      
       const rect = (e.target as HTMLVideoElement).getBoundingClientRect();
       const x = (e.clientX - rect.left) / rect.width;
       const y = (e.clientY - rect.top) / rect.height;
       
-      // Trigger focus point if supported
-      if (support.focus) {
-        await setFocusPoint(trackRef.current, { x, y });
-      }
-      
-      // Also trigger a fast autofocus via constraint
-      if (trackRef.current?.applyConstraints) {
-        try {
-          await trackRef.current.applyConstraints({
-            advanced: [{ focusMode: "manual" } as any],
-          });
-          await new Promise((r) => setTimeout(r, 50));
-          await trackRef.current.applyConstraints({
-            advanced: [{ focusMode: "continuous" } as any],
-          });
-        } catch {
-          // Ignore - some devices don't support focus mode changes
-        }
-      }
+      await autoFocus.focusAtPoint(x, y);
     },
-    [support.focus]
+    [settings.featureTapToFocus, autoFocus]
   );
 
-  // Auto-focus on camera start
+  // Auto-focus on camera start (now handled by autoFocus.applyContinuousAutoFocus in startCamera)
+  // This effect is kept for backwards compatibility but defers to the hook
   useEffect(() => {
     if (!cameraOn || !trackRef.current) return;
-    
-    const triggerAutoFocus = async () => {
-      try {
-        await trackRef.current?.applyConstraints({
-          advanced: [{ focusMode: "continuous" } as any],
-        });
-      } catch {
-        // Ignore
-      }
-    };
-    
-    triggerAutoFocus();
-  }, [cameraOn]);
+    // The hook already handles this in startCamera, but we can trigger focus here too
+    autoFocus.applyContinuousAutoFocus();
+  }, [cameraOn, autoFocus]);
+
+  // Manual focus trigger function
+  const handleManualFocus = useCallback(async () => {
+    await autoFocus.triggerFocus();
+    toast.success("Focus triggered");
+  }, [autoFocus]);
 
   async function toggleTorch() {
-    if (!support.torch) return;
+    if (!settings.featureTorchControl || !support.torch) return;
     const next = !torchOn;
     const ok = await setTorch(trackRef.current, next);
     if (ok) setTorchOn(next);
@@ -897,7 +891,9 @@ export default function RapidScanCamera() {
                 </div>
 
                 <div className="text-right text-[10px] text-white/60">
-                  {cameraOn && "Pinch to zoom • Tap to focus"}
+                  {cameraOn && settings.featurePinchToZoom && "Pinch to zoom"}
+                  {cameraOn && settings.featurePinchToZoom && settings.featureTapToFocus && " • "}
+                  {cameraOn && settings.featureTapToFocus && "Tap to focus"}
                 </div>
               </div>
             </div>
@@ -930,7 +926,7 @@ export default function RapidScanCamera() {
                     )}
                   </Button>
 
-                  {!isNative && (
+                  {!isNative && settings.featureTorchControl && (
                     <Button
                       variant="outline"
                       onClick={toggleTorch}
@@ -938,6 +934,17 @@ export default function RapidScanCamera() {
                       title={support.torch ? "Toggle flash" : "Flash not supported"}
                     >
                       {torchOn ? <FlashlightOff className="h-4 w-4" /> : <Flashlight className="h-4 w-4" />}
+                    </Button>
+                  )}
+
+                  {!isNative && settings.featureAutoFocus && (
+                    <Button
+                      variant="outline"
+                      onClick={handleManualFocus}
+                      disabled={!cameraOn}
+                      title="Trigger manual focus"
+                    >
+                      <Focus className="h-4 w-4" />
                     </Button>
                   )}
                 </div>

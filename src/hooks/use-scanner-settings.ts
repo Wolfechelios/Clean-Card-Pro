@@ -7,7 +7,7 @@ export type ScanMode = "SAVE" | "SCAN_ONLY";
 export interface ScannerSettings {
   autoConfirmEnabled: boolean;
   autoConfirmThreshold: number; // 0-100, percentage
-  scanMode: ScanMode; // NEW
+  scanMode: ScanMode;
 
   // Capture UX
   hapticsOnCapture: boolean;
@@ -20,12 +20,26 @@ export interface ScannerSettings {
 
   // Batch processing
   batchScanSize: number; // 1-3, concurrent cards to process (max 3)
+
+  // Feature flags - Camera
+  featureAutoFocus: boolean;
+  featureContinuousAutoFocus: boolean;
+  featureTapToFocus: boolean;
+  featureZoomControls: boolean;
+  featureDigitalZoomFallback: boolean;
+  featurePinchToZoom: boolean;
+  featureTorchControl: boolean;
+
+  // Feature flags - Capture
+  featureAntiGlare: boolean;
+  featureOCREnhancement: boolean;
+  featureHighResCapture: boolean;
 }
 
 const DEFAULT_SETTINGS: ScannerSettings = {
   autoConfirmEnabled: true,
   autoConfirmThreshold: 75,
-  scanMode: "SAVE", // NEW default keeps old behavior
+  scanMode: "SAVE",
 
   hapticsOnCapture: true,
   flashOnCapture: true,
@@ -35,7 +49,21 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   manualFocusLock: false,
   fullscreenScanMode: false,
 
-  batchScanSize: 3, // Default 3 concurrent workers
+  batchScanSize: 3,
+
+  // Feature flags - Camera (all enabled by default)
+  featureAutoFocus: true,
+  featureContinuousAutoFocus: true,
+  featureTapToFocus: true,
+  featureZoomControls: true,
+  featureDigitalZoomFallback: true,
+  featurePinchToZoom: true,
+  featureTorchControl: true,
+
+  // Feature flags - Capture (all enabled by default)
+  featureAntiGlare: true,
+  featureOCREnhancement: true,
+  featureHighResCapture: true,
 };
 
 export function useScannerSettings() {
