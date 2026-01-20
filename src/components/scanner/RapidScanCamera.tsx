@@ -655,37 +655,34 @@ export default function RapidScanCamera() {
     queueProcessor.start();
   }
 
-  // Sync UI state from processor completion events (concurrency-safe)
+  // Sync UI state from processor's last processed card
   useEffect(() => {
-    const events = queueProcessor._consumeProcessedEvents?.();
-    if (!events || events.length === 0) return;
+    if (!queueProcessor.lastProcessedCard) return;
 
-    for (const card of events) {
-      updateCard(card.id, {
-        status: "completed",
-        cardName: card.cardName,
-        cardSet: card.cardSet,
-        cardNumber: card.cardNumber,
-        rarity: card.rarity,
-        value: card.value,
-        imageUrl: card.imageUrl,
-        isInLibrary: card.isInLibrary,
-        libraryQuantity: card.libraryQuantity,
-        dbId: card.dbId,
-        priceFetching: false,
-      });
-    }
+    const card = queueProcessor.lastProcessedCard;
+    updateCard(card.id, {
+      status: "completed",
+      cardName: card.cardName,
+      cardSet: card.cardSet,
+      cardNumber: card.cardNumber,
+      rarity: card.rarity,
+      value: card.value,
+      imageUrl: card.imageUrl,
+      isInLibrary: card.isInLibrary,
+      libraryQuantity: card.libraryQuantity,
+      dbId: card.dbId,
+      priceFetching: false,
+    });
 
-    const last = events[events.length - 1];
     setOverlay({
-      label: last.cardName,
-      value: last.value,
-      isInLibrary: last.isInLibrary,
-      libraryQuantity: last.libraryQuantity,
+      label: card.cardName,
+      value: card.value,
+      isInLibrary: card.isInLibrary,
+      libraryQuantity: card.libraryQuantity,
     });
 
     refreshMeta();
-  }, [queueProcessor.processedEvents, updateCard, refreshMeta]);
+  }, [queueProcessor.lastProcessedCard, updateCard, refreshMeta]);
 
   // Sync processing state from global processor
   useEffect(() => {
