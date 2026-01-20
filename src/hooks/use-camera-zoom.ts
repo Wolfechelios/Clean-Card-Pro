@@ -1,5 +1,6 @@
 import { useState, useCallback, RefObject } from "react";
 import { toast } from "sonner";
+import { getScannerSettings } from "./use-scanner-settings";
 
 interface UseCameraZoomOptions {
   streamRef: RefObject<MediaStream | null>;
@@ -25,6 +26,7 @@ interface ZoomCapabilities {
  * Camera zoom helper.
  * - Uses hardware zoom (track constraints) when available
  * - Falls back to digital zoom (CSS scale + capture crop) when not
+ * - Respects feature flags from scanner settings
  */
 export function useCameraZoom({
   streamRef,
@@ -42,6 +44,22 @@ export function useCameraZoom({
   });
 
   const detectZoomCapabilities = useCallback(async () => {
+    const settings = getScannerSettings();
+    
+    // Check if zoom controls are enabled
+    if (!settings.featureZoomControls) {
+      setZoomCapabilities({
+        supported: false,
+        hardware: false,
+        min: 1,
+        max: 1,
+        step: 0,
+      });
+      setZoomLevel(1);
+      console.log("[Zoom] Zoom controls disabled by feature flag");
+      return;
+    }
+
     if (!streamRef.current) return;
 
     try {
@@ -49,7 +67,7 @@ export function useCameraZoom({
       if (!track) return;
 
       const capabilities = track.getCapabilities?.() as any;
-      const settings = track.getSettings?.() as any;
+      const trackSettings = track.getSettings?.() as any;
 
       if (capabilities?.zoom) {
         // Hardware zoom supported
@@ -60,14 +78,14 @@ export function useCameraZoom({
           max: capabilities.zoom.max ?? Math.max(maxZoom, 4),
           step: capabilities.zoom.step ?? step,
         });
-        if (typeof settings?.zoom === 'number') {
-          setZoomLevel(settings.zoom);
+        if (typeof trackSettings?.zoom === "number") {
+          setZoomLevel(trackSettings.zoom);
         } else {
           setZoomLevel(1);
         }
-        console.log("Hardware zoom capabilities detected:", capabilities.zoom);
-      } else {
-        // Digital fallback (still "supported" from UX perspective)
+        console.log("[Zoom] Hardware zoom detected:", capabilities.zoom);
+      } else if (settings.featureDigitalZoomFallback) {
+        // Digital fallback enabled
         setZoomCapabilities({
           supported: true,
           hardware: false,
@@ -76,23 +94,46 @@ export function useCameraZoom({
           step,
         });
         setZoomLevel(1);
-        console.log("Hardware zoom not supported - using digital zoom fallback");
+        console.log("[Zoom] Using digital zoom fallback");
+      } else {
+        // Digital fallback disabled
+        setZoomCapabilities({
+          supported: false,
+          hardware: false,
+          min: 1,
+          max: 1,
+          step: 0,
+        });
+        setZoomLevel(1);
+        console.log("[Zoom] No hardware zoom and digital fallback disabled");
       }
     } catch (e) {
-      console.log("Error detecting zoom capabilities:", e);
-      // Still allow digital zoom fallback
-      setZoomCapabilities({
-        supported: true,
-        hardware: false,
-        min: minZoom,
-        max: maxZoom,
-        step,
-      });
+      console.log("[Zoom] Error detecting capabilities:", e);
+      const settings = getScannerSettings();
+      if (settings.featureDigitalZoomFallback) {
+        setZoomCapabilities({
+          supported: true,
+          hardware: false,
+          min: minZoom,
+          max: maxZoom,
+          step,
+        });
+      } else {
+        setZoomCapabilities({
+          supported: false,
+          hardware: false,
+          min: 1,
+          max: 1,
+          step: 0,
+        });
+      }
     }
   }, [streamRef, minZoom, maxZoom, step]);
 
   const setZoom = useCallback(
     async (level: number) => {
+      const settings = getScannerSettings();
+      if (!settings.featureZoomControls) return false;
       if (!streamRef.current) return false;
 
       const clampedLevel = Math.min(
@@ -113,16 +154,23 @@ export function useCameraZoom({
           setZoomLevel(clampedLevel);
           return true;
         } catch (e) {
-          console.error("Failed to set hardware zoom, falling back to digital:", e);
-          setZoomCapabilities((prev) => ({ ...prev, hardware: false }));
-          setZoomLevel(clampedLevel);
-          return true;
+          console.error("[Zoom] Hardware zoom failed, falling back:", e);
+          if (settings.featureDigitalZoomFallback) {
+            setZoomCapabilities((prev) => ({ ...prev, hardware: false }));
+            setZoomLevel(clampedLevel);
+            return true;
+          }
+          return false;
         }
       }
 
-      // Digital zoom
-      setZoomLevel(clampedLevel);
-      return true;
+      // Digital zoom (if enabled)
+      if (settings.featureDigitalZoomFallback) {
+        setZoomLevel(clampedLevel);
+        return true;
+      }
+
+      return false;
     },
     [streamRef, zoomCapabilities]
   );
@@ -155,3 +203,4 @@ export function useCameraZoom({
     resetZoom,
   };
 }
+
