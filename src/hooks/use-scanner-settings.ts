@@ -7,7 +7,7 @@ export type ScanMode = "SAVE" | "SCAN_ONLY";
 export interface ScannerSettings {
   autoConfirmEnabled: boolean;
   autoConfirmThreshold: number; // 0-100, percentage
-  scanMode: ScanMode;
+  scanMode: ScanMode; // NEW
 
   // Capture UX
   hapticsOnCapture: boolean;
@@ -18,28 +18,21 @@ export interface ScannerSettings {
   manualFocusLock: boolean;
   fullscreenScanMode: boolean;
 
+  // Camera assist
+  autoFocusAssist: boolean; // periodic refocus helper
+  autoFocusOnStart: boolean;
+  autoFocusBeforeCapture: boolean;
+  autoZoomOnStart: boolean;
+  autoZoomLevel: 1 | 1.5 | 2 | 2.5 | 3;
+
   // Batch processing
   batchScanSize: number; // 1-3, concurrent cards to process (max 3)
-
-  // Feature flags - Camera
-  featureAutoFocus: boolean;
-  featureContinuousAutoFocus: boolean;
-  featureTapToFocus: boolean;
-  featureZoomControls: boolean;
-  featureDigitalZoomFallback: boolean;
-  featurePinchToZoom: boolean;
-  featureTorchControl: boolean;
-
-  // Feature flags - Capture
-  featureAntiGlare: boolean;
-  featureOCREnhancement: boolean;
-  featureHighResCapture: boolean;
 }
 
 const DEFAULT_SETTINGS: ScannerSettings = {
   autoConfirmEnabled: true,
   autoConfirmThreshold: 75,
-  scanMode: "SAVE",
+  scanMode: "SAVE", // NEW default keeps old behavior
 
   hapticsOnCapture: true,
   flashOnCapture: true,
@@ -49,21 +42,13 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   manualFocusLock: false,
   fullscreenScanMode: false,
 
-  batchScanSize: 3,
+  autoFocusAssist: true,
+  autoFocusOnStart: true,
+  autoFocusBeforeCapture: true,
+  autoZoomOnStart: false,
+  autoZoomLevel: 2,
 
-  // Feature flags - Camera (all enabled by default)
-  featureAutoFocus: true,
-  featureContinuousAutoFocus: true,
-  featureTapToFocus: true,
-  featureZoomControls: true,
-  featureDigitalZoomFallback: true,
-  featurePinchToZoom: true,
-  featureTorchControl: true,
-
-  // Feature flags - Capture (all enabled by default)
-  featureAntiGlare: true,
-  featureOCREnhancement: true,
-  featureHighResCapture: true,
+  batchScanSize: 3, // Default 3 concurrent workers
 };
 
 export function useScannerSettings() {

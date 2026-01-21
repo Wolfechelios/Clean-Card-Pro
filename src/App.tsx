@@ -11,6 +11,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { installGlobalErrorHandlers } from "@/lib/crashAnalytics";
 import { checkAndResumeQueue } from "@/lib/queueProcessor";
+import { FeatureGate } from "@/components/FeatureGate";
 import { QueueStatusIndicator } from "@/components/scanner/QueueStatusIndicator";
 import { SplashScreen } from "@/components/SplashScreen";
 import { OfflineIndicator } from "@/components/OfflineIndicator";
@@ -77,19 +78,19 @@ function AppRoutes() {
         <Route path="/dashboard" element={session ? <Authed><NewDashboard /></Authed> : <Navigate to="/auth" />} />
         <Route path="/scan" element={session ? <Authed><ScanPage /></Authed> : <Navigate to="/auth" />} />
         <Route path="/collections" element={session ? <Authed><CollectionsPage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/binders" element={session ? <Authed><BindersPage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/binders" element={session ? <Authed><FeatureGate flag="binders"><BindersPage /></FeatureGate></Authed> : <Navigate to="/auth" />} />
         <Route path="/settings" element={session ? <Authed><SettingsPage /></Authed> : <Navigate to="/auth" />} />
         <Route path="/insights" element={session ? <Authed><InsightsPage /></Authed> : <Navigate to="/auth" />} />
         <Route path="/performance" element={session ? <Authed><PerformancePage /></Authed> : <Navigate to="/auth" />} />
         <Route path="/mobile-scan" element={session ? <MobileScanPage /> : <Navigate to="/auth" />} />
         <Route path="/mobile-scanner" element={session ? <MobileScanRedirect /> : <Navigate to="/auth" />} />
-        <Route path="/predictions" element={session ? <Authed><PredictionsPage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/graded" element={session ? <Authed><GradedScanPage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/visual-search" element={session ? <Authed><VisualSearchPage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/price-hub" element={session ? <Authed><CardPriceHubPage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/sell-assist" element={session ? <Authed><SellAssistPage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/image-backfill" element={session ? <Authed><ImageBackfillPage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/import-cleaner" element={session ? <Authed><ImportCleanerPage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/predictions" element={session ? <Authed><FeatureGate flag="predictions"><PredictionsPage /></FeatureGate></Authed> : <Navigate to="/auth" />} />
+        <Route path="/graded" element={session ? <Authed><FeatureGate flag="gradedScan"><GradedScanPage /></FeatureGate></Authed> : <Navigate to="/auth" />} />
+        <Route path="/visual-search" element={session ? <Authed><FeatureGate flag="visualSearch"><VisualSearchPage /></FeatureGate></Authed> : <Navigate to="/auth" />} />
+        <Route path="/price-hub" element={session ? <Authed><FeatureGate flag="priceHub"><CardPriceHubPage /></FeatureGate></Authed> : <Navigate to="/auth" />} />
+        <Route path="/sell-assist" element={session ? <Authed><FeatureGate flag="sellAssist"><SellAssistPage /></FeatureGate></Authed> : <Navigate to="/auth" />} />
+        <Route path="/image-backfill" element={session ? <Authed><FeatureGate flag="imageBackfill"><ImageBackfillPage /></FeatureGate></Authed> : <Navigate to="/auth" />} />
+        <Route path="/import-cleaner" element={session ? <Authed><FeatureGate flag="importCleaner"><ImportCleanerPage /></FeatureGate></Authed> : <Navigate to="/auth" />} />
         <Route path="/help" element={session ? <Authed><HelpPage /></Authed> : <Navigate to="/auth" />} />
 
         <Route path="*" element={<NotFound />} />

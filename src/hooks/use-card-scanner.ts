@@ -2,7 +2,6 @@ import { useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { insertCardDual } from "@/lib/localCards";
 import { toast } from "sonner";
-import { analyzeCardFull } from "@/lib/analyzeCardFull";
 import { withRetry } from "@/lib/retry";
 import { getScannerSettings, type ScanMode } from "./use-scanner-settings";
 
@@ -161,24 +160,46 @@ export function useCardScanner({
     }
   };
 
-  const performOCR = async (imageUrl: string): Promise<OCRResult> => {
+  /**
+   * FAST PATH (single card): use the rapid-card-identify edge function (Gemini Flash Lite via Lovable)
+   * instead of analyze-card-full + heavy OCR.
+   *
+   * Why: analyze-card-full is great, but it's slow. For single-card scanning we want responsiveness.
+   */
+  const rapidIdentify = async (imageUrl: string): Promise<{ ocr: OCRResult; identified: any }> => {
     setScanProgress(10);
-    const analysis = await analyzeCardFull(imageUrl);
-    setScanProgress(80);
 
-    const ocrText = analysis.vision.ocr_text;
-    const lines = ocrText.split("\n").filter((line) => line.trim());
-    const cardName = lines[0] || "Unknown Card";
-    const cardSet = lines.find((line) => line.toLowerCase().includes("set")) || "";
-    const cardNumber = lines.find((line) => /\d+\/\d+/.test(line)) || "";
+    const identified = await withRetry(
+      async () => {
+        const { data, error } = await supabase.functions.invoke("rapid-card-identify", {
+          body: { imageUrl },
+        });
+        if (error) throw new Error(error.message);
+        if (!data?.success) throw new Error(data?.error || "Rapid identify failed");
+        return data.cardData;
+      },
+      { retries: 2, baseMs: 600, maxMs: 6000 }
+    );
 
-    return {
-      cardName: cardName.trim(),
-      cardSet: cardSet.replace(/set/i, "").trim(),
-      cardNumber: cardNumber.trim(),
-      confidence: 95,
-      rawText: ocrText,
+    const conf01 = typeof identified?.confidence === "number" ? identified.confidence : 0.5;
+    const ocr: OCRResult = {
+      cardName: (identified?.card_name || "Unknown Card").toString(),
+      cardSet: identified?.card_set ? identified.card_set.toString() : "",
+      cardNumber: identified?.card_number ? identified.card_number.toString() : "",
+      confidence: Math.round(Math.max(0, Math.min(1, conf01)) * 100),
+      // We no longer rely on raw OCR text in the fast path. Keep a compact trace for later debugging.
+      rawText: JSON.stringify({
+        card_name: identified?.card_name,
+        card_set: identified?.card_set,
+        card_number: identified?.card_number,
+        rarity: identified?.rarity,
+        game_type: identified?.game_type,
+        sport_type: identified?.sport_type,
+        confidence: identified?.confidence,
+      }),
     };
+
+    return { ocr, identified };
   };
 
   const handleScan = async () => {
@@ -222,77 +243,83 @@ export function useCardScanner({
 
       setScanProgress(40);
 
-      const ocr = await performOCR(imageUrl);
-      setOcrResult(ocr);
-      setScanProgress(60);
-
-      toast.info("Identifying card with AI...");
-
-      let enhancedData: any;
+      // FAST: identify via rapid-card-identify (Gemini Flash Lite via Lovable).
+      // If it fails for some reason, we fall back to the slower enhanced-card-identify.
+      let identified: any | null = null;
+      let ocr: OCRResult | null = null;
       let alternatives: Alternative[] = [];
 
       try {
+        const r = await rapidIdentify(imageUrl);
+        identified = r.identified;
+        ocr = r.ocr;
+        setOcrResult(ocr);
+        toast.success(`Card identified: ${ocr.cardName}`);
+      } catch (error) {
+        console.error("Rapid identify error:", error);
+        toast.warning("Fast identify failed, using slower fallback...");
+
+        // Slower fallback (kept for reliability)
         const enhancedResult = await withRetry(
           async () => {
-            const { data, error } = await supabase.functions.invoke("enhanced-card-identify", {
-              body: { imageUrl, ocrText: ocr.rawText },
+            const { data, error: fnError } = await supabase.functions.invoke("enhanced-card-identify", {
+              body: { imageUrl, ocrText: "" },
             });
-            if (error) throw new Error(error.message);
+            if (fnError) throw new Error(fnError.message);
             return data;
           },
-          { retries: 3, baseMs: 600, maxMs: 5000 }
+          { retries: 2, baseMs: 800, maxMs: 8000 }
         );
 
-        if (enhancedResult?.success) {
-          const cardData = enhancedResult.cardData;
-          if (cardData.primary) {
-            enhancedData = cardData.primary;
-            alternatives = cardData.alternatives || [];
-          } else {
-            enhancedData = cardData;
-          }
-          toast.success(`Card identified: ${enhancedData.card_name}`);
-        }
-      } catch (error) {
-        console.error("Enhanced identification error:", error);
-        toast.warning("Using fallback identification...");
+        const cardData = enhancedResult?.cardData?.primary || enhancedResult?.cardData || enhancedResult;
+        identified = cardData;
+        alternatives = enhancedResult?.cardData?.alternatives || [];
+        ocr = {
+          cardName: (cardData?.card_name || "Unknown Card").toString(),
+          cardSet: cardData?.card_set ? cardData.card_set.toString() : "",
+          cardNumber: cardData?.card_number ? cardData.card_number.toString() : "",
+          confidence: Math.round(((cardData?.confidence ?? 0.5) as number) * 100),
+          rawText: JSON.stringify(cardData ?? {}),
+        };
+        setOcrResult(ocr);
       }
 
-      setScanProgress(70);
+      setScanProgress(65);
 
-      let pricingData: any;
+      // FAST pricing: use fetch-card-prices (already used by rapid scan queue processor)
+      let pricingData: any = null;
       try {
-        const cardIdentification = await withRetry(
-          async () => {
-            const { data, error } = await supabase.functions.invoke("identify-card", {
-              body: { imageUrl, ocrText: ocr.rawText },
-            });
-            if (error) throw new Error(error.message);
-            return data;
-          },
-          { retries: 3, baseMs: 600, maxMs: 7000 }
-        );
+        const cardName = ocr?.cardName || identified?.card_name || "Unknown Card";
+        const cardSet = ocr?.cardSet || identified?.card_set || null;
+        const cardNumber = ocr?.cardNumber || identified?.card_number || null;
+        const gameType = identified?.game_type || null;
+        const sportType = identified?.sport_type || null;
 
-        if (cardIdentification) pricingData = cardIdentification;
+        const { data, error: priceErr } = await supabase.functions.invoke("fetch-card-prices", {
+          body: { cardName, cardSet, cardNumber, gameType, sportType },
+        });
+        if (priceErr) throw new Error(priceErr.message);
+        pricingData = data;
       } catch (error) {
         console.error("Pricing fetch error:", error);
         toast.warning("Could not fetch pricing data");
+        pricingData = null;
       }
 
-      setScanProgress(90);
+      setScanProgress(85);
 
-      const identifiedCard: IdentifiedCard = enhancedData || {
-        card_name: pricingData?.cardName || ocr.cardName,
-        card_set: pricingData?.cardSet || ocr.cardSet,
-        card_number: pricingData?.cardNumber || ocr.cardNumber,
-        rarity: pricingData?.rarity || null,
-        edition: pricingData?.edition || null,
-        game_type: pricingData?.gameType || null,
-        sport_type: pricingData?.sportType || null,
-        year: pricingData?.year || null,
-        manufacturer: pricingData?.manufacturer || null,
-        confidence: enhancedData?.confidence || pricingData?.confidence || ocr.confidence,
-        description: pricingData?.notes || "",
+      const identifiedCard: IdentifiedCard = {
+        card_name: (identified?.card_name || ocr?.cardName || "Unknown Card").toString(),
+        card_set: identified?.card_set ?? ocr?.cardSet ?? null,
+        card_number: identified?.card_number ?? ocr?.cardNumber ?? null,
+        rarity: identified?.rarity ?? null,
+        edition: identified?.edition ?? null,
+        game_type: identified?.game_type ?? null,
+        sport_type: identified?.sport_type ?? null,
+        year: identified?.year ?? null,
+        manufacturer: identified?.manufacturer ?? null,
+        confidence: Math.round(((identified?.confidence ?? (ocr?.confidence ?? 50) / 100) as number) * 100),
+        description: identified?.description || "",
       };
 
       const dup = await checkForDuplicate(identifiedCard.card_name, identifiedCard.card_set);
@@ -328,17 +355,17 @@ export function useCardScanner({
             card_number: identifiedCard.card_number,
             rarity: identifiedCard.rarity,
             edition: identifiedCard.edition,
-            condition: pricingData?.condition || "ungraded",
+            condition: "ungraded",
             sport_type: identifiedCard.sport_type,
             game_type: identifiedCard.game_type,
             notes: identifiedCard.description,
             ocr_confidence: identifiedCard.confidence,
             ocr_raw_text: ocr.rawText,
-            current_price_raw: pricingData?.currentPriceRaw,
-            current_price_psa9: pricingData?.currentPricePsa9,
-            current_price_psa10: pricingData?.currentPricePsa10,
-            suggested_price: pricingData?.suggestedPrice,
-            ebay_listing_url: pricingData?.ebayListingUrl,
+            current_price_raw: pricingData?.raw ?? null,
+            current_price_psa9: pricingData?.psa9 ?? null,
+            current_price_psa10: pricingData?.psa10 ?? null,
+            suggested_price: pricingData?.suggested ?? null,
+            ebay_listing_url: pricingData?.ebayUrl ?? pricingData?.ebay_url ?? null,
             image_url: imageUrl,
             thumbnail_url: imageUrl,
             last_price_update: new Date().toISOString(),
@@ -403,17 +430,17 @@ export function useCardScanner({
         card_number: editedCard.card_number,
         rarity: editedCard.rarity,
         edition: editedCard.edition,
-        condition: pendingCard.fallbackData?.condition || "ungraded",
+        condition: "ungraded",
         sport_type: editedCard.sport_type,
         game_type: editedCard.game_type,
         notes: editedCard.description,
         ocr_confidence: editedCard.confidence,
         ocr_raw_text: ocrResult?.rawText,
-        current_price_raw: pendingCard.fallbackData?.currentPriceRaw,
-        current_price_psa9: pendingCard.fallbackData?.currentPricePsa9,
-        current_price_psa10: pendingCard.fallbackData?.currentPricePsa10,
-        suggested_price: pendingCard.fallbackData?.suggestedPrice,
-        ebay_listing_url: pendingCard.fallbackData?.ebayListingUrl,
+        current_price_raw: pendingCard.fallbackData?.raw ?? null,
+        current_price_psa9: pendingCard.fallbackData?.psa9 ?? null,
+        current_price_psa10: pendingCard.fallbackData?.psa10 ?? null,
+        suggested_price: pendingCard.fallbackData?.suggested ?? null,
+        ebay_listing_url: pendingCard.fallbackData?.ebayUrl ?? null,
         image_url: pendingCard.imageUrl,
         thumbnail_url: pendingCard.imageUrl,
         last_price_update: new Date().toISOString(),
@@ -451,17 +478,17 @@ export function useCardScanner({
         card_number: duplicateCard.identifiedCard.card_number,
         rarity: duplicateCard.identifiedCard.rarity,
         edition: duplicateCard.identifiedCard.edition,
-        condition: duplicateCard.fallbackData?.condition || "ungraded",
+        condition: "ungraded",
         sport_type: duplicateCard.identifiedCard.sport_type,
         game_type: duplicateCard.identifiedCard.game_type,
         notes: duplicateCard.identifiedCard.description,
         ocr_confidence: duplicateCard.identifiedCard.confidence,
         ocr_raw_text: ocrResult?.rawText,
-        current_price_raw: duplicateCard.fallbackData?.currentPriceRaw,
-        current_price_psa9: duplicateCard.fallbackData?.currentPricePsa9,
-        current_price_psa10: duplicateCard.fallbackData?.currentPricePsa10,
-        suggested_price: duplicateCard.fallbackData?.suggestedPrice,
-        ebay_listing_url: duplicateCard.fallbackData?.ebayListingUrl,
+        current_price_raw: duplicateCard.fallbackData?.raw ?? null,
+        current_price_psa9: duplicateCard.fallbackData?.psa9 ?? null,
+        current_price_psa10: duplicateCard.fallbackData?.psa10 ?? null,
+        suggested_price: duplicateCard.fallbackData?.suggested ?? null,
+        ebay_listing_url: duplicateCard.fallbackData?.ebayUrl ?? null,
         image_url: duplicateCard.imageUrl,
         thumbnail_url: duplicateCard.imageUrl,
         last_price_update: new Date().toISOString(),
