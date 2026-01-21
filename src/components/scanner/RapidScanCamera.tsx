@@ -309,6 +309,42 @@ export default function RapidScanCamera() {
   // CAMERA
   // ───────────────────────────────────────────────────────────────────────────
 
+
+  const measureLuma01 = useCallback((): number | null => {
+    const v = videoRef.current;
+    if (!v || v.readyState < 2) return null;
+
+    // Create a tiny offscreen canvas once; downsample for speed.
+    let c = lumaCanvasRef.current;
+    if (!c) {
+      c = document.createElement("canvas");
+      c.width = 48;
+      c.height = 48;
+      lumaCanvasRef.current = c;
+    }
+    const ctx = c.getContext("2d", { willReadFrequently: true } as any);
+    if (!ctx) return null;
+
+    try {
+      ctx.drawImage(v, 0, 0, c.width, c.height);
+      const img = ctx.getImageData(0, 0, c.width, c.height).data;
+      let sum = 0;
+      // Sample every 4 pixels to keep it light.
+      for (let i = 0; i < img.length; i += 16) {
+        const r = img[i];
+        const g = img[i + 1];
+        const b = img[i + 2];
+        // perceived luminance
+        sum += 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      }
+      const samples = img.length / 16;
+      const avg = sum / samples; // 0..255
+      return Math.max(0, Math.min(1, avg / 255));
+    } catch {
+      return null;
+    }
+  }, []);
+
   async function startCamera() {
     if (cameraOn || startingCameraRef.current) return;
     
@@ -407,7 +443,7 @@ export default function RapidScanCamera() {
       setStatusLine("Camera live — tap Capture for each card");
 
       // Auto-focus assist: periodically refocus near center to keep cards sharp
-      if (settings.autoFocusAssist && support.focus) {
+      if (settings.autoFocusAssist && sup.focus) {
         if (autoFocusRef.current) {
           clearInterval(autoFocusRef.current);
           autoFocusRef.current = null;
@@ -420,6 +456,61 @@ export default function RapidScanCamera() {
         }, 2500);
       }
       
+
+      // Low light assist: sample frame brightness and nudge exposure/torch (best-effort)
+      if (settings.lowLightAssistEnabled) {
+        if (lowLightRef.current) {
+          clearInterval(lowLightRef.current);
+          lowLightRef.current = null;
+        }
+        // Set exposure mode to continuous if supported (more stable for moving light)
+        if (sup.exposureMode) {
+          void setExposureMode(trackRef.current, "continuous");
+        }
+        const caps = getExposureCompCaps(trackRef.current);
+        // initialize exposureCompRef from current settings if available
+        try {
+          const current: any = trackRef.current?.getSettings?.() ?? {};
+          if (typeof current.exposureCompensation === "number") {
+            exposureCompRef.current = current.exposureCompensation;
+          }
+        } catch {
+          // ignore
+        }
+        lowLightRef.current = setInterval(async () => {
+          const luma = measureLuma01();
+          if (luma == null) return;
+
+          const target = Math.max(0.2, Math.min(0.85, (settings.lowLightTargetBrightness ?? 55) / 100));
+          const deadband = 0.05;
+
+          // Torch behavior: only in very low light
+          if (settings.lowLightAllowTorch && sup.torch) {
+            if (luma < 0.22 && !torchOn) {
+              await setTorch(trackRef.current, true);
+              setTorchOn(true);
+            } else if (luma > 0.30 && torchOn) {
+              await setTorch(trackRef.current, false);
+              setTorchOn(false);
+            }
+          }
+
+          // Exposure compensation nudges
+          if (sup.exposureCompensation && caps) {
+            const step = caps.step;
+            let cur = exposureCompRef.current;
+            if (typeof cur !== "number") cur = 0;
+            let next = cur;
+            if (luma < target - deadband) next = Math.min(caps.max, cur + step);
+            if (luma > target + deadband) next = Math.max(caps.min, cur - step);
+            if (next !== cur) {
+              exposureCompRef.current = next;
+              await setExposureCompensation(trackRef.current, next);
+            }
+          }
+        }, 1500);
+      }
+
       // Signal scanner active to pause expensive renders elsewhere
       useGlobalProcessControl.getState().setScannerActive(true);
 
@@ -448,6 +539,10 @@ export default function RapidScanCamera() {
   }
 
   async function stopCamera() {
+    if (lowLightRef.current) {
+      clearInterval(lowLightRef.current);
+      lowLightRef.current = null;
+    }
     if (autoFocusRef.current) {
       clearInterval(autoFocusRef.current);
       autoFocusRef.current = null;
@@ -552,7 +647,7 @@ export default function RapidScanCamera() {
   }, [cameraOn]);
 
   async function toggleTorch() {
-    if (!support.torch) return;
+    if (!sup.torch) return;
     const next = !torchOn;
     const ok = await setTorch(trackRef.current, next);
     if (ok) setTorchOn(next);
@@ -687,7 +782,7 @@ export default function RapidScanCamera() {
       if (!ctx) throw new Error("Canvas not available");
 
       // Best-effort focus nudge right before capture
-      if (settings.autoFocusAssist && support.focus) {
+      if (settings.autoFocusAssist && sup.focus) {
         try {
           await setFocusPoint(trackRef.current, 0.5, 0.5);
         } catch {
@@ -1089,8 +1184,8 @@ export default function RapidScanCamera() {
                     <Button
                       variant="outline"
                       onClick={toggleTorch}
-                      disabled={!cameraOn || !support.torch}
-                      title={support.torch ? "Toggle flash" : "Flash not supported"}
+                      disabled={!cameraOn || !sup.torch}
+                      title={sup.torch ? "Toggle flash" : "Flash not supported"}
                     >
                       {torchOn ? <FlashlightOff className="h-4 w-4" /> : <Flashlight className="h-4 w-4" />}
                     </Button>

@@ -9,6 +9,8 @@ export type MediaSupport = {
   focus: boolean;
   whiteBalanceMode: boolean;
   colorTemperature: boolean;
+  exposureCompensation: boolean;
+  exposureMode: boolean;
 };
 
 export function getVideoTrack(stream: MediaStream | null | undefined): MediaStreamTrack | null {
@@ -26,9 +28,11 @@ export function detectSupport(track: MediaStreamTrack | null): MediaSupport {
       focus: !!caps.focusMode || typeof caps.focusDistance !== "undefined",
       whiteBalanceMode: !!caps.whiteBalanceMode,
       colorTemperature: typeof caps.colorTemperature !== "undefined",
+      exposureCompensation: typeof caps.exposureCompensation !== "undefined",
+      exposureMode: typeof caps.exposureMode !== "undefined",
     };
   } catch {
-    return { torch: false, zoom: false, focus: false, whiteBalanceMode: false, colorTemperature: false };
+    return { torch: false, zoom: false, focus: false, whiteBalanceMode: false, colorTemperature: false, exposureCompensation: false, exposureMode: false };
   }
 }
 
@@ -57,6 +61,40 @@ export async function setWhiteBalance(
   if (typeof opts.temperatureK === "number") advanced.colorTemperature = Math.round(opts.temperatureK);
   try {
     await track.applyConstraints({ advanced: [advanced] });
+  } catch {
+    // ignore
+  }
+}
+
+
+export function getExposureCompCaps(track: MediaStreamTrack | null): { min: number; max: number; step: number } | null {
+  try {
+    const caps: any = track?.getCapabilities?.() ?? {};
+    if (typeof caps.exposureCompensation === 'undefined') return null;
+    const c = caps.exposureCompensation;
+    return {
+      min: typeof c.min === 'number' ? c.min : -2,
+      max: typeof c.max === 'number' ? c.max : 2,
+      step: typeof c.step === 'number' && c.step > 0 ? c.step : 0.1,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function setExposureMode(track: MediaStreamTrack | null, mode: 'auto' | 'continuous' | 'manual') {
+  if (!track?.applyConstraints) return;
+  try {
+    await track.applyConstraints({ advanced: [{ exposureMode: mode } as any] });
+  } catch {
+    // ignore
+  }
+}
+
+export async function setExposureCompensation(track: MediaStreamTrack | null, value: number) {
+  if (!track?.applyConstraints) return;
+  try {
+    await track.applyConstraints({ advanced: [{ exposureCompensation: value } as any] });
   } catch {
     // ignore
   }

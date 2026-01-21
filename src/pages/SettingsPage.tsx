@@ -598,6 +598,52 @@ export default function Settings() {
               )}
             </div>
 
+
+              <div className="flex items-center justify-between mt-4">
+                <div className="space-y-0.5">
+                  <Label className="text-sm font-medium">Low light assist</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Nudges exposure (and optionally torch) to keep scans readable when lighting changes. Best-effort; support varies.
+                  </p>
+                </div>
+                <Switch
+                  checked={scannerSettings.lowLightAssistEnabled}
+                  onCheckedChange={(checked) => updateScannerSettings({ lowLightAssistEnabled: checked })}
+                />
+              </div>
+
+              {scannerSettings.lowLightAssistEnabled && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">
+                      Target brightness: {Math.round(scannerSettings.lowLightTargetBrightness)}%
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Higher targets push the camera brighter. If the image looks washed out, lower this.
+                    </p>
+                    <Slider
+                      min={25}
+                      max={80}
+                      step={1}
+                      value={[scannerSettings.lowLightTargetBrightness]}
+                      onValueChange={(v) => updateScannerSettings({ lowLightTargetBrightness: v[0] })}
+                      className="w-full"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label className="text-sm font-medium">Allow torch in very low light</Label>
+                      <p className="text-xs text-muted-foreground">Uses the flashlight if your device exposes it</p>
+                    </div>
+                    <Switch
+                      checked={scannerSettings.lowLightAllowTorch}
+                      onCheckedChange={(checked) => updateScannerSettings({ lowLightAllowTorch: checked })}
+                    />
+                  </div>
+                </div>
+              )}
+
             <Separator />
 
             {/* Batch Processing */}

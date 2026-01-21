@@ -31,6 +31,11 @@ export interface ScannerSettings {
   whiteBalanceMode: WhiteBalanceMode;
   whiteBalanceTemperatureK: number; // used when whiteBalanceMode === 'manual'
 
+  // Low light assist (best-effort exposure/torch nudges; browser support varies)
+  lowLightAssistEnabled: boolean;
+  lowLightTargetBrightness: number; // 0-100, higher = brighter target
+  lowLightAllowTorch: boolean; // if supported, can toggle torch in very low light
+
   // Batch processing
   batchScanSize: number; // 1-3, concurrent cards to process (max 3)
 }
@@ -56,6 +61,10 @@ const DEFAULT_SETTINGS: ScannerSettings = {
 
   whiteBalanceMode: "continuous",
   whiteBalanceTemperatureK: 5000,
+
+  lowLightAssistEnabled: true,
+  lowLightTargetBrightness: 55,
+  lowLightAllowTorch: false,
 
   batchScanSize: 3, // Default 3 concurrent workers
 };
