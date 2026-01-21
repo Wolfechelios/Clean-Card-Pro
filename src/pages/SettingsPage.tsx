@@ -554,6 +554,52 @@ export default function Settings() {
 
             <Separator />
 
+            {/* Lighting */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold">Lighting</h3>
+
+              <div className="grid gap-2">
+                <Label className="text-sm font-medium">White balance</Label>
+                <p className="text-xs text-muted-foreground">
+                  Helps color/brightness match your environment. Support depends on device/browser.
+                </p>
+                <select
+                  className="h-10 rounded-md border bg-background px-3 text-sm"
+                  value={scannerSettings.whiteBalanceMode}
+                  onChange={(e) => updateScannerSettings({ whiteBalanceMode: e.target.value as any })}
+                >
+                  <option value="continuous">Auto (Continuous, recommended)</option>
+                  <option value="auto">Auto (Standard)</option>
+                  <option value="manual">Manual (temperature)</option>
+                </select>
+              </div>
+
+              {scannerSettings.whiteBalanceMode === "manual" && (
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">
+                    Temperature: {Math.round(scannerSettings.whiteBalanceTemperatureK)}K
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Lower = warmer (yellow). Higher = cooler (blue). Typical indoor is ~3000–4500K, daylight ~5000–6500K.
+                  </p>
+                  <Slider
+                    min={2500}
+                    max={7500}
+                    step={100}
+                    value={[scannerSettings.whiteBalanceTemperatureK]}
+                    onValueChange={(v) => updateScannerSettings({ whiteBalanceTemperatureK: v[0] })}
+                    className="w-full"
+                  />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Warm</span>
+                    <span>Cool</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <Separator />
+
             {/* Batch Processing */}
             <div className="space-y-3">
               <h3 className="text-sm font-semibold">Batch Processing</h3>

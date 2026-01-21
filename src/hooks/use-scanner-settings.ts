@@ -4,6 +4,8 @@ const SCANNER_SETTINGS_KEY = "card-scanner-settings";
 
 export type ScanMode = "SAVE" | "SCAN_ONLY";
 
+export type WhiteBalanceMode = "auto" | "continuous" | "manual";
+
 export interface ScannerSettings {
   autoConfirmEnabled: boolean;
   autoConfirmThreshold: number; // 0-100, percentage
@@ -24,6 +26,10 @@ export interface ScannerSettings {
   autoFocusBeforeCapture: boolean;
   autoZoomOnStart: boolean;
   autoZoomLevel: 1 | 1.5 | 2 | 2.5 | 3;
+
+  // Lighting / white balance (best-effort; browser support varies)
+  whiteBalanceMode: WhiteBalanceMode;
+  whiteBalanceTemperatureK: number; // used when whiteBalanceMode === 'manual'
 
   // Batch processing
   batchScanSize: number; // 1-3, concurrent cards to process (max 3)
@@ -47,6 +53,9 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   autoFocusBeforeCapture: true,
   autoZoomOnStart: false,
   autoZoomLevel: 2,
+
+  whiteBalanceMode: "continuous",
+  whiteBalanceTemperatureK: 5000,
 
   batchScanSize: 3, // Default 3 concurrent workers
 };

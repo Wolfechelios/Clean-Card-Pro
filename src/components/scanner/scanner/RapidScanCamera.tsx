@@ -32,6 +32,7 @@ import {
   getVideoTrack,
   setFocusPoint,
   setTorch,
+  setWhiteBalance,
   type MediaSupport,
 } from "@/lib/mediaControls";
 import {
@@ -322,7 +323,27 @@ export default function RapidScanCamera() {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
       trackRef.current = getVideoTrack(stream);
-      setSupport(detectSupport(trackRef.current));
+      const sup = detectSupport(trackRef.current);
+      setSupport(sup);
+
+      // Lighting: White balance (best-effort, depends on browser/device)
+      try {
+        if (sup.whiteBalanceMode) {
+          if (settings.whiteBalanceMode === "manual" && sup.colorTemperature) {
+            await setWhiteBalance(trackRef.current, {
+              mode: "manual",
+              temperatureK: settings.whiteBalanceTemperatureK,
+            });
+          } else if (settings.whiteBalanceMode === "auto") {
+            await setWhiteBalance(trackRef.current, { mode: "auto" });
+          } else {
+            // "continuous" is usually the most stable option when supported
+            await setWhiteBalance(trackRef.current, { mode: "continuous" });
+          }
+        }
+      } catch {
+        // ignore
+      }
 
       // Optional: manual focus lock (best-effort; many browsers ignore this)
       if (settings.manualFocusLock) {
