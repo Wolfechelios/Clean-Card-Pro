@@ -35,6 +35,7 @@ import { SettingsSkeleton } from "@/components/ui/loading-skeletons";
 import { useScannerSettings } from "@/hooks/use-scanner-settings";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
+import { ImageQualitySettingsSection } from "@/components/settings/ImageQualitySettingsSection";
 
 export default function Settings() {
   const navigate = useNavigate();
@@ -424,6 +425,11 @@ export default function Settings() {
           <CardDescription>Configure card scanning behavior</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          <ImageQualitySettingsSection
+            settings={scannerSettings}
+            updateSettings={updateScannerSettings}
+          />
+
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <Label htmlFor="auto-confirm-toggle" className="text-sm font-medium">
