@@ -29,7 +29,11 @@ import { cn } from "@/lib/utils";
 import { insertCardDual } from "@/lib/localCards";
 import {
   detectSupport,
+  DEFAULT_MEDIA_SUPPORT,
   getVideoTrack,
+  getExposureCompCaps,
+  setExposureCompensation,
+  setExposureMode,
   setFocusPoint,
   setTorch,
   setWhiteBalance,
@@ -112,8 +116,13 @@ export default function RapidScanCamera() {
   const trackRef = useRef<MediaStreamTrack | null>(null);
   const startingCameraRef = useRef(false);
 
+  // referenced elsewhere (luma + low-light assist)
+  const lumaCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const lowLightRef = useRef<NodeJS.Timeout | null>(null);
+  const exposureCompRef = useRef<number>(0);
+
   const [cameraOn, setCameraOn] = useState(false);
-  const [support, setSupport] = useState<MediaSupport>({ torch: false, focus: false, zoom: false });
+  const [support, setSupport] = useState<MediaSupport>(() => DEFAULT_MEDIA_SUPPORT);
   const [torchOn, setTorchOn] = useState(false);
   const [statusLine, setStatusLine] = useState("Tap Start to begin");
   const [busyCapture, setBusyCapture] = useState(false);
@@ -322,7 +331,7 @@ export default function RapidScanCamera() {
       c.height = 48;
       lumaCanvasRef.current = c;
     }
-    const ctx = c.getContext("2d", { willReadFrequently: true } as any);
+    const ctx = c.getContext("2d", { willReadFrequently: true } as any) as CanvasRenderingContext2D | null;
     if (!ctx) return null;
 
     try {
@@ -647,7 +656,7 @@ export default function RapidScanCamera() {
   }, [cameraOn]);
 
   async function toggleTorch() {
-    if (!sup.torch) return;
+    if (!support.torch) return;
     const next = !torchOn;
     const ok = await setTorch(trackRef.current, next);
     if (ok) setTorchOn(next);
@@ -701,17 +710,15 @@ export default function RapidScanCamera() {
       const localUrl = trackObjectUrl(URL.createObjectURL(result.blob));
 
       setCards((prev) => {
-        const next = [
-          {
-            id,
-            preview: localUrl,
-            status: "queued",
-            priceFetching: true,
-            isInLibrary: false,
-            libraryQuantity: 0,
-          },
-          ...prev,
-        ];
+        const queuedCard: ScannedCard = {
+          id,
+          preview: localUrl,
+          status: "queued",
+          priceFetching: true,
+          isInLibrary: false,
+          libraryQuantity: 0,
+        };
+        const next = [queuedCard, ...prev];
 
         // Prevent memory blow-ups on long rapid-scan sessions (blob: URLs hold the full image in RAM).
         if (next.length > MAX_UI_CARDS) {
@@ -782,7 +789,7 @@ export default function RapidScanCamera() {
       if (!ctx) throw new Error("Canvas not available");
 
       // Best-effort focus nudge right before capture
-      if (settings.autoFocusAssist && sup.focus) {
+      if (settings.autoFocusAssist && support.focus) {
         try {
           await setFocusPoint(trackRef.current, 0.5, 0.5);
         } catch {
@@ -804,17 +811,15 @@ export default function RapidScanCamera() {
       // Local preview immediately
       const localUrl = trackObjectUrl(URL.createObjectURL(blob));
       setCards((prev) => {
-        const next = [
-          {
-            id,
-            preview: localUrl,
-            status: "queued",
-            priceFetching: true,
-            isInLibrary: false,
-            libraryQuantity: 0,
-          },
-          ...prev,
-        ];
+        const queuedCard: ScannedCard = {
+          id,
+          preview: localUrl,
+          status: "queued",
+          priceFetching: true,
+          isInLibrary: false,
+          libraryQuantity: 0,
+        };
+        const next = [queuedCard, ...prev];
 
         // Prevent memory blow-ups on long rapid-scan sessions (blob: URLs hold the full image in RAM).
         if (next.length > MAX_UI_CARDS) {
@@ -1184,8 +1189,8 @@ export default function RapidScanCamera() {
                     <Button
                       variant="outline"
                       onClick={toggleTorch}
-                      disabled={!cameraOn || !sup.torch}
-                      title={sup.torch ? "Toggle flash" : "Flash not supported"}
+                      disabled={!cameraOn || !support.torch}
+                      title={support.torch ? "Toggle flash" : "Flash not supported"}
                     >
                       {torchOn ? <FlashlightOff className="h-4 w-4" /> : <Flashlight className="h-4 w-4" />}
                     </Button>

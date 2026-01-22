@@ -5,10 +5,28 @@ import { cn } from "@/lib/utils";
 export function ScannedCardList({
   cards,
   onRemove,
+  // Compatibility props (ignored by this lightweight list, but keeps existing scanner code intact)
+  onCardUpdate,
+  onCardDelete,
+  scanMode,
+  onAddToLibrary,
+  onAddAllToLibrary,
+  onReorder,
 }: {
   cards: Array<{ id: string; preview: string; status: string; cardName?: string; value?: number | null }>;
-  onRemove: (id: string) => void;
+  onRemove?: (id: string) => void;
+  onCardUpdate?: (id: string, updates: any) => void;
+  onCardDelete?: (id: string) => void | Promise<void>;
+  scanMode?: boolean;
+  onAddToLibrary?: (id: string) => void | Promise<void>;
+  onAddAllToLibrary?: () => void | Promise<void>;
+  onReorder?: (orderedIds: string[]) => void;
 }) {
+  const handleRemove = (id: string) => {
+    if (onCardDelete) return void onCardDelete(id);
+    if (onRemove) return void onRemove(id);
+  };
+
   return (
     <div className="space-y-2">
       {cards.map((c) => (
@@ -24,7 +42,7 @@ export function ScannedCardList({
             <div className="text-xs text-muted-foreground">{c.value != null ? `$${c.value}` : c.status}</div>
           </div>
           <Badge variant="outline">{c.status}</Badge>
-          <Button size="sm" variant="ghost" onClick={() => onRemove(c.id)}>
+          <Button size="sm" variant="ghost" onClick={() => handleRemove(c.id)}>
             Remove
           </Button>
         </div>
