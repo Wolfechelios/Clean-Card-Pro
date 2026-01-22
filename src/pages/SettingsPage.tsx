@@ -554,6 +554,197 @@ export default function Settings() {
 
             <Separator />
 
+<<<<<<< Updated upstream
+=======
+            {/* Image Quality */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold">Image Quality</h3>
+
+              <div className="grid gap-2">
+                <Label className="text-sm font-medium">Capture quality mode</Label>
+                <select
+                  className="h-10 rounded-md border bg-background px-3 text-sm"
+                  value={scannerSettings.captureQualityMode}
+                  onChange={(e) => updateScannerSettings({ captureQualityMode: e.target.value as any })}
+                >
+                  <option value="RAPID">Rapid (fast processing)</option>
+                  <option value="GRADING">Grading (sharpest frame)</option>
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Rapid mode downsizes and encodes faster. Grading mode captures a short burst and keeps the sharpest frame.
+                </p>
+              </div>
+
+              {scannerSettings.captureQualityMode === "RAPID" && (
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-sm font-medium">Rapid max long edge: {scannerSettings.rapidMaxLongEdge}px</Label>
+                    <p className="text-xs text-muted-foreground mt-1 mb-3">
+                      Lower values process faster and reduce crashes in long sessions. Set to 0 to keep full resolution.
+                    </p>
+                    <Slider
+                      min={0}
+                      max={2200}
+                      step={100}
+                      value={[scannerSettings.rapidMaxLongEdge]}
+                      onValueChange={(v) => updateScannerSettings({ rapidMaxLongEdge: v[0] })}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label className="text-sm font-medium">Prefer WebP (smaller files)</Label>
+                      <p className="text-xs text-muted-foreground">Falls back to JPEG on unsupported devices</p>
+                    </div>
+                    <Switch
+                      checked={scannerSettings.rapidPreferWebp}
+                      onCheckedChange={(checked) => updateScannerSettings({ rapidPreferWebp: checked })}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {scannerSettings.captureQualityMode === "GRADING" && (
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-sm font-medium">Burst frames: {scannerSettings.gradingBurstFrames}</Label>
+                    <p className="text-xs text-muted-foreground mt-1 mb-3">
+                      Higher captures are sharper but slower. 5–9 is a good range.
+                    </p>
+                    <Slider
+                      min={1}
+                      max={12}
+                      step={1}
+                      value={[scannerSettings.gradingBurstFrames]}
+                      onValueChange={(v) => updateScannerSettings({ gradingBurstFrames: v[0] })}
+                    />
+                  </div>
+
+                  <div>
+                    <Label className="text-sm font-medium">Minimum sharpness: {scannerSettings.gradingMinSharpness}</Label>
+                    <p className="text-xs text-muted-foreground mt-1 mb-3">
+                      If the best frame is below this, the capture is rejected to avoid blurry grading photos.
+                    </p>
+                    <Slider
+                      min={0}
+                      max={60}
+                      step={1}
+                      value={[scannerSettings.gradingMinSharpness]}
+                      onValueChange={(v) => updateScannerSettings({ gradingMinSharpness: v[0] })}
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label className="text-sm font-medium">Grading output format</Label>
+                    <select
+                      className="h-10 rounded-md border bg-background px-3 text-sm"
+                      value={scannerSettings.gradingOutputFormat}
+                      onChange={(e) => updateScannerSettings({ gradingOutputFormat: e.target.value as any })}
+                    >
+                      <option value="jpeg">JPEG (high quality)</option>
+                      <option value="png">PNG (lossless, large)</option>
+                      <option value="webp">WebP (smaller)</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <Separator />
+
+            {/* Lighting */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold">Lighting</h3>
+
+              <div className="grid gap-2">
+                <Label className="text-sm font-medium">White balance</Label>
+                <p className="text-xs text-muted-foreground">
+                  Helps color/brightness match your environment. Support depends on device/browser.
+                </p>
+                <select
+                  className="h-10 rounded-md border bg-background px-3 text-sm"
+                  value={scannerSettings.whiteBalanceMode}
+                  onChange={(e) => updateScannerSettings({ whiteBalanceMode: e.target.value as any })}
+                >
+                  <option value="continuous">Auto (Continuous, recommended)</option>
+                  <option value="auto">Auto (Standard)</option>
+                  <option value="manual">Manual (temperature)</option>
+                </select>
+              </div>
+
+              {scannerSettings.whiteBalanceMode === "manual" && (
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">
+                    Temperature: {Math.round(scannerSettings.whiteBalanceTemperatureK)}K
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Lower = warmer (yellow). Higher = cooler (blue). Typical indoor is ~3000–4500K, daylight ~5000–6500K.
+                  </p>
+                  <Slider
+                    min={2500}
+                    max={7500}
+                    step={100}
+                    value={[scannerSettings.whiteBalanceTemperatureK]}
+                    onValueChange={(v) => updateScannerSettings({ whiteBalanceTemperatureK: v[0] })}
+                    className="w-full"
+                  />
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Warm</span>
+                    <span>Cool</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+
+              <div className="flex items-center justify-between mt-4">
+                <div className="space-y-0.5">
+                  <Label className="text-sm font-medium">Low light assist</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Nudges exposure (and optionally torch) to keep scans readable when lighting changes. Best-effort; support varies.
+                  </p>
+                </div>
+                <Switch
+                  checked={scannerSettings.lowLightAssistEnabled}
+                  onCheckedChange={(checked) => updateScannerSettings({ lowLightAssistEnabled: checked })}
+                />
+              </div>
+
+              {scannerSettings.lowLightAssistEnabled && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">
+                      Target brightness: {Math.round(scannerSettings.lowLightTargetBrightness)}%
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Higher targets push the camera brighter. If the image looks washed out, lower this.
+                    </p>
+                    <Slider
+                      min={25}
+                      max={80}
+                      step={1}
+                      value={[scannerSettings.lowLightTargetBrightness]}
+                      onValueChange={(v) => updateScannerSettings({ lowLightTargetBrightness: v[0] })}
+                      className="w-full"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label className="text-sm font-medium">Allow torch in very low light</Label>
+                      <p className="text-xs text-muted-foreground">Uses the flashlight if your device exposes it</p>
+                    </div>
+                    <Switch
+                      checked={scannerSettings.lowLightAllowTorch}
+                      onCheckedChange={(checked) => updateScannerSettings({ lowLightAllowTorch: checked })}
+                    />
+                  </div>
+                </div>
+              )}
+
+            <Separator />
+
+>>>>>>> Stashed changes
             {/* Batch Processing */}
             <div className="space-y-3">
               <h3 className="text-sm font-semibold">Batch Processing</h3>

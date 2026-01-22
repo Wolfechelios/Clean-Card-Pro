@@ -4,6 +4,15 @@ const SCANNER_SETTINGS_KEY = "card-scanner-settings";
 
 export type ScanMode = "SAVE" | "SCAN_ONLY";
 
+<<<<<<< Updated upstream
+=======
+// Image quality modes
+export type CaptureQualityMode = "RAPID" | "GRADING";
+export type GradingOutputFormat = "jpeg" | "png" | "webp";
+
+export type WhiteBalanceMode = "auto" | "continuous" | "manual";
+
+>>>>>>> Stashed changes
 export interface ScannerSettings {
   autoConfirmEnabled: boolean;
   autoConfirmThreshold: number; // 0-100, percentage
@@ -20,6 +29,19 @@ export interface ScannerSettings {
 
   // Batch processing
   batchScanSize: number; // 1-3, concurrent cards to process (max 3)
+
+  // Image quality & performance
+  captureQualityMode: CaptureQualityMode;
+  // RAPID mode settings
+  rapidMaxLongEdge: number; // resize to this long edge before enqueue (0 = no resize)
+  rapidJpegQuality: number; // 0-1
+  rapidPreferWebp: boolean;
+
+  // GRADING mode settings
+  gradingBurstFrames: number; // 1-12, capture burst and choose sharpest
+  gradingMinSharpness: number; // 0-100, reject if below
+  gradingOutputFormat: GradingOutputFormat;
+  gradingJpegQuality: number; // 0-1
 }
 
 const DEFAULT_SETTINGS: ScannerSettings = {
@@ -36,6 +58,16 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   fullscreenScanMode: false,
 
   batchScanSize: 3, // Default 3 concurrent workers
+
+  captureQualityMode: "RAPID",
+  rapidMaxLongEdge: 1600,
+  rapidJpegQuality: 0.88,
+  rapidPreferWebp: true,
+
+  gradingBurstFrames: 7,
+  gradingMinSharpness: 22,
+  gradingOutputFormat: "jpeg",
+  gradingJpegQuality: 0.98,
 };
 
 export function useScannerSettings() {
