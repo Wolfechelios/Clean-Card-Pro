@@ -555,7 +555,10 @@ export default function Settings() {
             <Separator />
 
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 =======
+=======
+>>>>>>> Stashed changes
             {/* Image Quality */}
             <div className="space-y-3">
               <h3 className="text-sm font-semibold">Image Quality</h3>

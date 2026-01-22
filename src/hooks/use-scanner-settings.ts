@@ -5,7 +5,10 @@ const SCANNER_SETTINGS_KEY = "card-scanner-settings";
 export type ScanMode = "SAVE" | "SCAN_ONLY";
 
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 =======
+=======
+>>>>>>> Stashed changes
 // Image quality modes
 export type CaptureQualityMode = "RAPID" | "GRADING";
 export type GradingOutputFormat = "jpeg" | "png" | "webp";

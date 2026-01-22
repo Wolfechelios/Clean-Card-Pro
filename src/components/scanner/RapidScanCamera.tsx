@@ -567,6 +567,9 @@ export default function RapidScanCamera() {
         gradingOutputFormat: settings.gradingOutputFormat,
         gradingJpegQuality: settings.gradingJpegQuality,
       });
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 
       const blob = pipeline.blob;
