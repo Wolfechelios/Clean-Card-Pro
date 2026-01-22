@@ -13,6 +13,16 @@ export type MediaSupport = {
   exposureMode: boolean;
 };
 
+export const DEFAULT_MEDIA_SUPPORT: MediaSupport = {
+  torch: false,
+  zoom: false,
+  focus: false,
+  whiteBalanceMode: false,
+  colorTemperature: false,
+  exposureCompensation: false,
+  exposureMode: false,
+};
+
 export function getVideoTrack(stream: MediaStream | null | undefined): MediaStreamTrack | null {
   if (!stream) return null;
   const tracks = stream.getVideoTracks();
@@ -32,23 +42,30 @@ export function detectSupport(track: MediaStreamTrack | null): MediaSupport {
       exposureMode: typeof caps.exposureMode !== "undefined",
     };
   } catch {
-    return { torch: false, zoom: false, focus: false, whiteBalanceMode: false, colorTemperature: false, exposureCompensation: false, exposureMode: false };
+    return DEFAULT_MEDIA_SUPPORT;
   }
 }
 
-export async function setTorch(track: MediaStreamTrack | null, enabled: boolean) {
+export async function setTorch(track: MediaStreamTrack | null, enabled: boolean): Promise<boolean> {
   if (!track?.applyConstraints) return;
   try {
     await track.applyConstraints({ advanced: [{ torch: enabled } as any] });
+    return true;
   } catch {
     // ignore
+    return false;
   }
 }
 
 // Tap-to-focus is not consistently exposed on the web. We keep this as a no-op
 // fallback to avoid crashes if a caller uses it.
-export async function setFocusPoint(_track: MediaStreamTrack | null, _x01: number, _y01: number) {
+export async function setFocusPoint(
+  _track: MediaStreamTrack | null,
+  _xOrPoint: number | { x: number; y: number },
+  _y01?: number
+): Promise<boolean> {
   // Some platforms support ImageCapture (not reliable). For now: no-op.
+  return false;
 }
 
 export async function setWhiteBalance(

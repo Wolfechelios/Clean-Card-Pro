@@ -2,6 +2,9 @@
 // Centralized capture pipeline for RAPID vs GRADING modes
 // Designed to reduce memory pressure and improve sharpness quality
 
+// NOTE: This file is defensive by design. Browser camera APIs vary a lot
+// (especially iOS Safari). This should never throw up into the UI.
+
 export type CaptureQualityMode = "rapid" | "grading";
 
 export interface RapidCaptureOptions {
@@ -36,17 +39,38 @@ function clamp(v: number, min: number, max: number) {
 }
 
 async function bitmapFromVideo(video: HTMLVideoElement): Promise<ImageBitmap> {
+  // createImageBitmap(video) is supported by most modern browsers.
+  // Wrap in try/catch to avoid crashing on edge Safari cases.
   return await createImageBitmap(video);
+}
+
+function hasOffscreenCanvas(): boolean {
+  return typeof (globalThis as any).OffscreenCanvas !== "undefined";
+}
+
+function get2dContext(canvas: any): CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null {
+  try {
+    return canvas.getContext("2d", { willReadFrequently: true } as any);
+  } catch {
+    return null;
+  }
 }
 
 function computeSharpness(bitmap: ImageBitmap): number {
   // Downscale for speed
   const size = 128;
-  const canvas = new OffscreenCanvas(size, size);
-  const ctx = canvas.getContext("2d")!;
+  const canvas: any = hasOffscreenCanvas() ? new (globalThis as any).OffscreenCanvas(size, size) : (() => {
+    const c = document.createElement("canvas");
+    c.width = size;
+    c.height = size;
+    return c;
+  })();
+
+  const ctx = get2dContext(canvas);
+  if (!ctx) return 0;
   ctx.drawImage(bitmap, 0, 0, size, size);
 
-  const img = ctx.getImageData(0, 0, size, size);
+  const img = (ctx as any).getImageData(0, 0, size, size) as ImageData;
   const d = img.data;
 
   let variance = 0;
@@ -91,8 +115,31 @@ async function encodeBitmap(
   format: "jpeg" | "png" | "webp",
   quality = 0.95
 ): Promise<Blob> {
-  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-  const ctx = canvas.getContext("2d")!;
+  if (hasOffscreenCanvas()) {
+    const canvas = new (globalThis as any).OffscreenCanvas(bitmap.width, bitmap.height);
+    const ctx = get2dContext(canvas);
+    if (!ctx) throw new Error("No canvas context");
+    ctx.drawImage(bitmap, 0, 0);
+
+    const type =
+      format === "png"
+        ? "image/png"
+        : format === "webp"
+        ? "image/webp"
+        : "image/jpeg";
+
+    return await canvas.convertToBlob({
+      type,
+      quality: format === "png" ? undefined : quality,
+    });
+  }
+
+  // HTMLCanvas fallback
+  const c = document.createElement("canvas");
+  c.width = bitmap.width;
+  c.height = bitmap.height;
+  const ctx = c.getContext("2d");
+  if (!ctx) throw new Error("No canvas context");
   ctx.drawImage(bitmap, 0, 0);
 
   const type =
@@ -102,9 +149,16 @@ async function encodeBitmap(
       ? "image/webp"
       : "image/jpeg";
 
-  return await canvas.convertToBlob({
-    type,
-    quality: format === "png" ? undefined : quality,
+  return await new Promise<Blob>((resolve, reject) => {
+    try {
+      c.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error("toBlob returned null"))),
+        type,
+        format === "png" ? undefined : quality
+      );
+    } catch (e) {
+      reject(e);
+    }
   });
 }
 
@@ -114,6 +168,12 @@ export async function captureFrame(
   video: HTMLVideoElement,
   settings: CaptureSettings
 ): Promise<CaptureResult | null> {
+  try {
+    if (!video || video.readyState < 2) return null;
+
+    // Some browsers briefly report 0x0 dimensions while warming up.
+    if (!video.videoWidth || !video.videoHeight) return null;
+
   if (settings.mode === "rapid") {
     const bitmap = await bitmapFromVideo(video);
 
@@ -123,15 +183,42 @@ export async function captureFrame(
       settings.rapid.maxLongEdge
     );
 
-    const canvas = new OffscreenCanvas(resized.width, resized.height);
-    const ctx = canvas.getContext("2d")!;
-    ctx.drawImage(bitmap, 0, 0, resized.width, resized.height);
+    let blob: Blob;
+    if (hasOffscreenCanvas()) {
+      const canvas = new (globalThis as any).OffscreenCanvas(resized.width, resized.height);
+      const ctx = get2dContext(canvas);
+      if (!ctx) {
+        bitmap.close();
+        return null;
+      }
+      ctx.drawImage(bitmap, 0, 0, resized.width, resized.height);
 
-    const format = settings.rapid.preferWebp ? "webp" : "jpeg";
-    const blob = await canvas.convertToBlob({
-      type: format === "webp" ? "image/webp" : "image/jpeg",
-      quality: 0.85,
-    });
+      const format = settings.rapid.preferWebp ? "webp" : "jpeg";
+      blob = await canvas.convertToBlob({
+        type: format === "webp" ? "image/webp" : "image/jpeg",
+        quality: 0.85,
+      });
+    } else {
+      const c = document.createElement("canvas");
+      c.width = resized.width;
+      c.height = resized.height;
+      const ctx = c.getContext("2d");
+      if (!ctx) {
+        bitmap.close();
+        return null;
+      }
+      ctx.drawImage(bitmap, 0, 0, resized.width, resized.height);
+
+      const format = settings.rapid.preferWebp ? "webp" : "jpeg";
+      const type = format === "webp" ? "image/webp" : "image/jpeg";
+      blob = await new Promise<Blob>((resolve, reject) => {
+        c.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error("toBlob returned null"))),
+          type,
+          0.85
+        );
+      });
+    }
 
     bitmap.close();
 
@@ -184,4 +271,7 @@ export async function captureFrame(
 
   bestBitmap.close();
   return result;
+  } catch {
+    return null;
+  }
 }
