@@ -568,6 +568,9 @@ export default function RapidScanCamera() {
         gradingJpegQuality: settings.gradingJpegQuality,
       });
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes

@@ -6,7 +6,10 @@ export type ScanMode = "SAVE" | "SCAN_ONLY";
 
 <<<<<<< Updated upstream
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 =======
+=======
+>>>>>>> Stashed changes
 =======
 >>>>>>> Stashed changes
 // Image quality modes
