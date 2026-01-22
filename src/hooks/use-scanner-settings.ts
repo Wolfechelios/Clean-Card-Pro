@@ -3,13 +3,15 @@ import { useState, useEffect, useCallback } from "react";
 const SCANNER_SETTINGS_KEY = "card-scanner-settings";
 
 export type ScanMode = "SAVE" | "SCAN_ONLY";
-
 export type WhiteBalanceMode = "auto" | "continuous" | "manual";
+
+/* NEW */
+export type CaptureQualityMode = "rapid" | "grading";
 
 export interface ScannerSettings {
   autoConfirmEnabled: boolean;
-  autoConfirmThreshold: number; // 0-100, percentage
-  scanMode: ScanMode; // NEW
+  autoConfirmThreshold: number;
+  scanMode: ScanMode;
 
   // Capture UX
   hapticsOnCapture: boolean;
@@ -21,29 +23,45 @@ export interface ScannerSettings {
   fullscreenScanMode: boolean;
 
   // Camera assist
-  autoFocusAssist: boolean; // periodic refocus helper
+  autoFocusAssist: boolean;
   autoFocusOnStart: boolean;
   autoFocusBeforeCapture: boolean;
   autoZoomOnStart: boolean;
   autoZoomLevel: 1 | 1.5 | 2 | 2.5 | 3;
 
-  // Lighting / white balance (best-effort; browser support varies)
+  // Lighting / white balance
   whiteBalanceMode: WhiteBalanceMode;
-  whiteBalanceTemperatureK: number; // used when whiteBalanceMode === 'manual'
+  whiteBalanceTemperatureK: number;
 
-  // Low light assist (best-effort exposure/torch nudges; browser support varies)
+  // Low light assist
   lowLightAssistEnabled: boolean;
-  lowLightTargetBrightness: number; // 0-100, higher = brighter target
-  lowLightAllowTorch: boolean; // if supported, can toggle torch in very low light
+  lowLightTargetBrightness: number;
+  lowLightAllowTorch: boolean;
 
   // Batch processing
-  batchScanSize: number; // 1-3, concurrent cards to process (max 3)
+  batchScanSize: number;
+
+  /* ===================== */
+  /* IMAGE QUALITY MODES   */
+  /* ===================== */
+
+  captureQualityMode: CaptureQualityMode;
+
+  // RAPID mode
+  rapidMaxLongEdge: number;      // px
+  rapidPreferWebp: boolean;
+
+  // GRADING mode
+  gradingBurstFrames: number;    // frames per capture
+  gradingMinSharpness: number;   // Laplacian variance threshold
+  gradingOutputFormat: "jpeg" | "png" | "webp";
+  gradingJpegQuality: number;    // 0.9 – 1.0
 }
 
 const DEFAULT_SETTINGS: ScannerSettings = {
   autoConfirmEnabled: true,
   autoConfirmThreshold: 75,
-  scanMode: "SAVE", // NEW default keeps old behavior
+  scanMode: "SAVE",
 
   hapticsOnCapture: true,
   flashOnCapture: true,
@@ -66,7 +84,19 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   lowLightTargetBrightness: 55,
   lowLightAllowTorch: false,
 
-  batchScanSize: 3, // Default 3 concurrent workers
+  batchScanSize: 3,
+
+  /* ===== NEW DEFAULTS ===== */
+
+  captureQualityMode: "rapid",
+
+  rapidMaxLongEdge: 1600,
+  rapidPreferWebp: true,
+
+  gradingBurstFrames: 7,
+  gradingMinSharpness: 25,
+  gradingOutputFormat: "jpeg",
+  gradingJpegQuality: 0.98,
 };
 
 export function useScannerSettings() {
@@ -77,6 +107,7 @@ export function useScannerSettings() {
       const stored = localStorage.getItem(SCANNER_SETTINGS_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
+        // Merge safely so older saves don’t break
         setSettings({ ...DEFAULT_SETTINGS, ...parsed });
       }
     } catch (error) {
@@ -84,17 +115,23 @@ export function useScannerSettings() {
     }
   }, []);
 
-  const updateSettings = useCallback((updates: Partial<ScannerSettings>) => {
-    setSettings((prev) => {
-      const newSettings = { ...prev, ...updates };
-      try {
-        localStorage.setItem(SCANNER_SETTINGS_KEY, JSON.stringify(newSettings));
-      } catch (error) {
-        console.error("Failed to save scanner settings:", error);
-      }
-      return newSettings;
-    });
-  }, []);
+  const updateSettings = useCallback(
+    (updates: Partial<ScannerSettings>) => {
+      setSettings((prev) => {
+        const newSettings = { ...prev, ...updates };
+        try {
+          localStorage.setItem(
+            SCANNER_SETTINGS_KEY,
+            JSON.stringify(newSettings)
+          );
+        } catch (error) {
+          console.error("Failed to save scanner settings:", error);
+        }
+        return newSettings;
+      });
+    },
+    []
+  );
 
   const resetSettings = useCallback(() => {
     setSettings(DEFAULT_SETTINGS);
@@ -112,7 +149,7 @@ export function useScannerSettings() {
   };
 }
 
-// Standalone function to get settings without hook (for use in other hooks)
+// Standalone getter (used outside React)
 export function getScannerSettings(): ScannerSettings {
   try {
     const stored = localStorage.getItem(SCANNER_SETTINGS_KEY);
