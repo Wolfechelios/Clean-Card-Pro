@@ -29,21 +29,16 @@ import { cn } from "@/lib/utils";
 import { insertCardDual } from "@/lib/localCards";
 import {
   detectSupport,
-  DEFAULT_MEDIA_SUPPORT,
   getVideoTrack,
-  getExposureCompCaps,
-  setExposureCompensation,
-  setExposureMode,
   setFocusPoint,
   setTorch,
-  setWhiteBalance,
   type MediaSupport,
 } from "@/lib/mediaControls";
 import {
   idbAdd,
   idbCount,
   idbDelete,
-  idbGetAllMeta,
+  idbGetAll,
   idbClear,
   type QueueItemMeta,
 } from "@/lib/idbQueue";
@@ -61,7 +56,6 @@ import { useVoiceCommand } from "@/hooks/use-voice-command";
 // TUNING
 // ─────────────────────────────────────────────────────────────────────────────
 
-const MAX_UI_CARDS = 120;
 const QUEUE_MAX = 500; // large buffer - uses IndexedDB (device storage)
 
 type ScannedCard = {
@@ -116,13 +110,8 @@ export default function RapidScanCamera() {
   const trackRef = useRef<MediaStreamTrack | null>(null);
   const startingCameraRef = useRef(false);
 
-  // referenced elsewhere (luma + low-light assist)
-  const lumaCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const lowLightRef = useRef<NodeJS.Timeout | null>(null);
-  const exposureCompRef = useRef<number>(0);
-
   const [cameraOn, setCameraOn] = useState(false);
-  const [support, setSupport] = useState<MediaSupport>(() => DEFAULT_MEDIA_SUPPORT);
+  const [support, setSupport] = useState<MediaSupport>({ torch: false, focus: false, zoom: false });
   const [torchOn, setTorchOn] = useState(false);
   const [statusLine, setStatusLine] = useState("Tap Start to begin");
   const [busyCapture, setBusyCapture] = useState(false);
@@ -134,9 +123,6 @@ export default function RapidScanCamera() {
   const [autoTimerActive, setAutoTimerActive] = useState(false);
   const autoTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [autoTimerCountdown, setAutoTimerCountdown] = useState(0);
-
-  // Auto-focus assist pulse
-  const autoFocusRef = useRef<NodeJS.Timeout | null>(null);
 
   const autoTimerSeconds = settings.autoTimerIntervalSeconds ?? 2;
 
@@ -193,40 +179,6 @@ export default function RapidScanCamera() {
 
   // UI list
   const [cards, setCards] = useState<ScannedCard[]>([]);
-
-  // Prevent memory leaks from unreleased object URLs (common cause of crashes on mobile browsers).
-  const objectUrlsRef = useRef<Set<string>>(new Set());
-
-  const trackObjectUrl = useCallback((url: string) => {
-    objectUrlsRef.current.add(url);
-    return url;
-  }, []);
-
-  const revokeObjectUrl = useCallback((url?: string | null) => {
-    if (!url) return;
-    if (objectUrlsRef.current.has(url)) {
-      try {
-        URL.revokeObjectURL(url);
-      } catch {
-        // ignore
-      }
-      objectUrlsRef.current.delete(url);
-    }
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      for (const url of objectUrlsRef.current) {
-        try {
-          URL.revokeObjectURL(url);
-        } catch {
-          // ignore
-        }
-      }
-      objectUrlsRef.current.clear();
-    };
-  }, []);
-  const cardsRef = useRef<ScannedCard[]>([]);
   const [overlay, setOverlay] = useState<LastOverlay | null>(null);
 
   // Global queue processor
@@ -245,32 +197,13 @@ export default function RapidScanCamera() {
   }, []);
 
   const refreshMeta = useCallback(async () => {
-    const all = await idbGetAllMeta();
-    setQueueMeta(all);
+    const all = await idbGetAll();
+    setQueueMeta(all.map(({ blob: _blob, ...rest }) => rest));
   }, []);
 
   useEffect(() => {
     refreshMeta();
-  }, [cards, refreshMeta, revokeObjectUrl]);
-
-  useEffect(() => {
-    cardsRef.current = cards;
-  }, [cards]);
-
-  // Cleanup object URLs on unmount to prevent leaks/crashes on long rapid-scan sessions
-  useEffect(() => {
-    return () => {
-      try {
-        (cardsRef.current || []).forEach((c) => {
-          if (c.preview) URL.revokeObjectURL(c.preview);
-        });
-      } catch {
-        // ignore
-      }
-    };
-    // Intentionally run only on unmount; we revoke as we remove items too.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refreshMeta]);
 
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -278,28 +211,12 @@ export default function RapidScanCamera() {
   // ───────────────────────────────────────────────────────────────────────────
 
   const updateCard = useCallback((id: string, patch: Partial<ScannedCard>) => {
-    setCards((prev) =>
-      prev.map((c) => {
-        if (c.id !== id) return c;
-        // If we got a remote imageUrl, swap preview off blob: URL to free memory.
-        const next = { ...c, ...patch } as ScannedCard;
-        const incomingUrl = (patch as any)?.imageUrl as string | undefined;
-        if (incomingUrl && next.preview && next.preview.startsWith("blob:")) {
-          try { URL.revokeObjectURL(next.preview); } catch {}
-          next.preview = incomingUrl;
-        }
-        return next;
-      })
-    );
+    setCards((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
   }, []);
 
   const removeCard = useCallback(async (id: string) => {
-    // revoke preview url to avoid leaking memory (this was a big crash source)
-    setCards((prev) => {
-      const found = prev.find((c) => c.id === id);
-      revokeObjectUrl(found?.preview);
-      return prev.filter((c) => c.id !== id);
-    });
+    // remove from list
+    setCards((prev) => prev.filter((c) => c.id !== id));
     // remove from queue if still exists
     try {
       await idbDelete(id);
@@ -307,7 +224,7 @@ export default function RapidScanCamera() {
       // ignore
     }
     await refreshMeta();
-  }, [refreshMeta, revokeObjectUrl]);
+  }, [refreshMeta]);
 
   // Total value of completed cards
   const totalValue = useMemo(() => {
@@ -317,42 +234,6 @@ export default function RapidScanCamera() {
   // ───────────────────────────────────────────────────────────────────────────
   // CAMERA
   // ───────────────────────────────────────────────────────────────────────────
-
-
-  const measureLuma01 = useCallback((): number | null => {
-    const v = videoRef.current;
-    if (!v || v.readyState < 2) return null;
-
-    // Create a tiny offscreen canvas once; downsample for speed.
-    let c = lumaCanvasRef.current;
-    if (!c) {
-      c = document.createElement("canvas");
-      c.width = 48;
-      c.height = 48;
-      lumaCanvasRef.current = c;
-    }
-    const ctx = c.getContext("2d", { willReadFrequently: true } as any) as CanvasRenderingContext2D | null;
-    if (!ctx) return null;
-
-    try {
-      ctx.drawImage(v, 0, 0, c.width, c.height);
-      const img = ctx.getImageData(0, 0, c.width, c.height).data;
-      let sum = 0;
-      // Sample every 4 pixels to keep it light.
-      for (let i = 0; i < img.length; i += 16) {
-        const r = img[i];
-        const g = img[i + 1];
-        const b = img[i + 2];
-        // perceived luminance
-        sum += 0.2126 * r + 0.7152 * g + 0.0722 * b;
-      }
-      const samples = img.length / 16;
-      const avg = sum / samples; // 0..255
-      return Math.max(0, Math.min(1, avg / 255));
-    } catch {
-      return null;
-    }
-  }, []);
 
   async function startCamera() {
     if (cameraOn || startingCameraRef.current) return;
@@ -368,27 +249,7 @@ export default function RapidScanCamera() {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
       trackRef.current = getVideoTrack(stream);
-      const sup = detectSupport(trackRef.current);
-      setSupport(sup);
-
-      // Lighting: White balance (best-effort, depends on browser/device)
-      try {
-        if (sup.whiteBalanceMode) {
-          if (settings.whiteBalanceMode === "manual" && sup.colorTemperature) {
-            await setWhiteBalance(trackRef.current, {
-              mode: "manual",
-              temperatureK: settings.whiteBalanceTemperatureK,
-            });
-          } else if (settings.whiteBalanceMode === "auto") {
-            await setWhiteBalance(trackRef.current, { mode: "auto" });
-          } else {
-            // "continuous" is usually the most stable option when supported
-            await setWhiteBalance(trackRef.current, { mode: "continuous" });
-          }
-        }
-      } catch {
-        // ignore
-      }
+      setSupport(detectSupport(trackRef.current));
 
       // Optional: manual focus lock (best-effort; many browsers ignore this)
       if (settings.manualFocusLock) {
@@ -450,93 +311,12 @@ export default function RapidScanCamera() {
 
       setCameraOn(true);
       setStatusLine("Camera live — tap Capture for each card");
-
-      // Auto-focus assist: periodically refocus near center to keep cards sharp
-      if (settings.autoFocusAssist && sup.focus) {
-        if (autoFocusRef.current) {
-          clearInterval(autoFocusRef.current);
-          autoFocusRef.current = null;
-        }
-        autoFocusRef.current = setInterval(() => {
-          const track = trackRef.current;
-          if (!track) return;
-          // Center focus point (0.5, 0.5)
-          void setFocusPoint(track, 0.5, 0.5);
-        }, 2500);
-      }
       
-
-      // Low light assist: sample frame brightness and nudge exposure/torch (best-effort)
-      if (settings.lowLightAssistEnabled) {
-        if (lowLightRef.current) {
-          clearInterval(lowLightRef.current);
-          lowLightRef.current = null;
-        }
-        // Set exposure mode to continuous if supported (more stable for moving light)
-        if (sup.exposureMode) {
-          void setExposureMode(trackRef.current, "continuous");
-        }
-        const caps = getExposureCompCaps(trackRef.current);
-        // initialize exposureCompRef from current settings if available
-        try {
-          const current: any = trackRef.current?.getSettings?.() ?? {};
-          if (typeof current.exposureCompensation === "number") {
-            exposureCompRef.current = current.exposureCompensation;
-          }
-        } catch {
-          // ignore
-        }
-        lowLightRef.current = setInterval(async () => {
-          const luma = measureLuma01();
-          if (luma == null) return;
-
-          const target = Math.max(0.2, Math.min(0.85, (settings.lowLightTargetBrightness ?? 55) / 100));
-          const deadband = 0.05;
-
-          // Torch behavior: only in very low light
-          if (settings.lowLightAllowTorch && sup.torch) {
-            if (luma < 0.22 && !torchOn) {
-              await setTorch(trackRef.current, true);
-              setTorchOn(true);
-            } else if (luma > 0.30 && torchOn) {
-              await setTorch(trackRef.current, false);
-              setTorchOn(false);
-            }
-          }
-
-          // Exposure compensation nudges
-          if (sup.exposureCompensation && caps) {
-            const step = caps.step;
-            let cur = exposureCompRef.current;
-            if (typeof cur !== "number") cur = 0;
-            let next = cur;
-            if (luma < target - deadband) next = Math.min(caps.max, cur + step);
-            if (luma > target + deadband) next = Math.max(caps.min, cur - step);
-            if (next !== cur) {
-              exposureCompRef.current = next;
-              await setExposureCompensation(trackRef.current, next);
-            }
-          }
-        }, 1500);
-      }
-
       // Signal scanner active to pause expensive renders elsewhere
       useGlobalProcessControl.getState().setScannerActive(true);
 
       // Zoom capabilities
       detectZoomCapabilities();
-
-
-      if (settings.autoZoomOnStart) {
-        // Give the track a moment to report caps before applying zoom (mobile Safari can be slow).
-        setTimeout(() => {
-          try {
-            setZoom(settings.autoZoomLevel ?? 2);
-          } catch {
-            // ignore
-          }
-        }, 200);
-      }
 
       // Workers start automatically once you enqueue
     } catch (err: any) {
@@ -548,14 +328,6 @@ export default function RapidScanCamera() {
   }
 
   async function stopCamera() {
-    if (lowLightRef.current) {
-      clearInterval(lowLightRef.current);
-      lowLightRef.current = null;
-    }
-    if (autoFocusRef.current) {
-      clearInterval(autoFocusRef.current);
-      autoFocusRef.current = null;
-    }
     // torch off (best-effort)
     if (torchOn) {
       await setTorch(trackRef.current, false);
@@ -707,29 +479,19 @@ export default function RapidScanCamera() {
       }
 
       const id = safeUUID();
-      const localUrl = trackObjectUrl(URL.createObjectURL(result.blob));
+      const localUrl = URL.createObjectURL(result.blob);
 
-      setCards((prev) => {
-        const queuedCard: ScannedCard = {
+      setCards((prev) => [
+        {
           id,
           preview: localUrl,
           status: "queued",
           priceFetching: true,
           isInLibrary: false,
           libraryQuantity: 0,
-        };
-        const next = [queuedCard, ...prev];
-
-        // Prevent memory blow-ups on long rapid-scan sessions (blob: URLs hold the full image in RAM).
-        if (next.length > MAX_UI_CARDS) {
-          const overflow = next.slice(MAX_UI_CARDS);
-          for (const c of overflow) {
-            revokeObjectUrl(c?.preview);
-          }
-          return next.slice(0, MAX_UI_CARDS);
-        }
-        return next;
-      });
+        },
+        ...prev,
+      ]);
 
       await idbAdd({
         id,
@@ -788,15 +550,6 @@ export default function RapidScanCamera() {
       const ctx = c.getContext("2d", { willReadFrequently: false });
       if (!ctx) throw new Error("Canvas not available");
 
-      // Best-effort focus nudge right before capture
-      if (settings.autoFocusAssist && support.focus) {
-        try {
-          await setFocusPoint(trackRef.current, 0.5, 0.5);
-        } catch {
-          // ignore
-        }
-      }
-
       // Draw current frame
       ctx.drawImage(v, 0, 0, w, h);
 
@@ -809,28 +562,18 @@ export default function RapidScanCamera() {
       const id = safeUUID();
 
       // Local preview immediately
-      const localUrl = trackObjectUrl(URL.createObjectURL(blob));
-      setCards((prev) => {
-        const queuedCard: ScannedCard = {
+      const localUrl = URL.createObjectURL(blob);
+      setCards((prev) => [
+        {
           id,
           preview: localUrl,
           status: "queued",
           priceFetching: true,
           isInLibrary: false,
           libraryQuantity: 0,
-        };
-        const next = [queuedCard, ...prev];
-
-        // Prevent memory blow-ups on long rapid-scan sessions (blob: URLs hold the full image in RAM).
-        if (next.length > MAX_UI_CARDS) {
-          const overflow = next.slice(MAX_UI_CARDS);
-          for (const c of overflow) {
-            revokeObjectUrl(c?.preview);
-          }
-          return next.slice(0, MAX_UI_CARDS);
-        }
-        return next;
-      });
+        },
+        ...prev,
+      ]);
 
       // Persist into queue
       await idbAdd({
@@ -912,37 +655,34 @@ export default function RapidScanCamera() {
     queueProcessor.start();
   }
 
-  // Sync UI state from processor completion events (concurrency-safe)
+  // Sync UI state from processor's last processed card
   useEffect(() => {
-    const events = queueProcessor._consumeProcessedEvents?.();
-    if (!events || events.length === 0) return;
+    if (!queueProcessor.lastProcessedCard) return;
 
-    for (const card of events) {
-      updateCard(card.id, {
-        status: "completed",
-        cardName: card.cardName,
-        cardSet: card.cardSet,
-        cardNumber: card.cardNumber,
-        rarity: card.rarity,
-        value: card.value,
-        imageUrl: card.imageUrl,
-        isInLibrary: card.isInLibrary,
-        libraryQuantity: card.libraryQuantity,
-        dbId: card.dbId,
-        priceFetching: false,
-      });
-    }
+    const card = queueProcessor.lastProcessedCard;
+    updateCard(card.id, {
+      status: "completed",
+      cardName: card.cardName,
+      cardSet: card.cardSet,
+      cardNumber: card.cardNumber,
+      rarity: card.rarity,
+      value: card.value,
+      imageUrl: card.imageUrl,
+      isInLibrary: card.isInLibrary,
+      libraryQuantity: card.libraryQuantity,
+      dbId: card.dbId,
+      priceFetching: false,
+    });
 
-    const last = events[events.length - 1];
     setOverlay({
-      label: last.cardName,
-      value: last.value,
-      isInLibrary: last.isInLibrary,
-      libraryQuantity: last.libraryQuantity,
+      label: card.cardName,
+      value: card.value,
+      isInLibrary: card.isInLibrary,
+      libraryQuantity: card.libraryQuantity,
     });
 
     refreshMeta();
-  }, [queueProcessor.processedEvents, updateCard, refreshMeta]);
+  }, [queueProcessor.lastProcessedCard, updateCard, refreshMeta]);
 
   // Sync processing state from global processor
   useEffect(() => {
@@ -1053,14 +793,18 @@ export default function RapidScanCamera() {
 
   const clearAll = useCallback(async () => {
     setCards((prev) => {
-      prev.forEach((p) => revokeObjectUrl(p.preview));
+      prev.forEach((p) => {
+        try {
+          URL.revokeObjectURL(p.preview);
+        } catch {}
+      });
       return [];
     });
     await idbClear();
     await refreshMeta();
     setOverlay(null);
     toast.success("Cleared");
-  }, [refreshMeta, revokeObjectUrl]);
+  }, [refreshMeta]);
 
   // ───────────────────────────────────────────────────────────────────────────
   // RENDER
@@ -1107,6 +851,7 @@ export default function RapidScanCamera() {
             />
             <canvas ref={canvasRef} className="hidden" />
 
+            {flashActive && <div className="capture-flash" />}
             {flashActive && <div className="capture-flash" />}
 
             {/* Pinch zoom indicator */}

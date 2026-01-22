@@ -1,185 +1,269 @@
 // src/lib/idbQueue.ts
-// IndexedDB-backed queue used by Rapid Scan.
-// Design goal: NEVER load all blobs into memory (that is how mobile Safari dies).
+// Minimal IndexedDB-backed persistent queue for Rapid Scan jobs.
 
-export type QueueItemStatus = "queued" | "processing" | "done" | "error";
+export type QueueStatus = "queued" | "processing" | "success" | "error"
 
-export type QueueItemMeta = {
-  id: string;
-  createdAt: number;
-  status: QueueItemStatus;
-  mime: string;
-  filename: string;
-  error?: string;
-};
+export type QueueItem = {
+  id: string
+  createdAt: number
+  processingStartedAt?: number // Track when processing started for stuck detection
+  status: QueueStatus
+  error?: string
 
-export type QueueItemWithBlob = QueueItemMeta & { blob: Blob };
+  // Stored image payload
+  blob: Blob
+  mime: string
+  filename: string
+}
 
-const DB_NAME = "card_scout_queue";
-const DB_VERSION = 2;
+export type QueueItemMeta = Omit<QueueItem, "blob">
 
-const STORE_META = "queue_meta";
-const STORE_BLOBS = "queue_blobs";
+const DB_NAME = "card_scout_pro"
+const DB_VERSION = 1
+const STORE = "rapid_scan_queue"
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    const req = indexedDB.open(DB_NAME, DB_VERSION)
 
     req.onupgradeneeded = () => {
-      const db = req.result;
+      const db = req.result
+      if (!db.objectStoreNames.contains(STORE)) {
+        const store = db.createObjectStore(STORE, { keyPath: "id" })
+        store.createIndex("status_createdAt", ["status", "createdAt"], { unique: false })
+        store.createIndex("createdAt", "createdAt", { unique: false })
+      }
+    }
 
-      // Meta store: small objects only
-      if (!db.objectStoreNames.contains(STORE_META)) {
-        const meta = db.createObjectStore(STORE_META, { keyPath: "id" });
-        meta.createIndex("by_status", "status", { unique: false });
-        meta.createIndex("by_createdAt", "createdAt", { unique: false });
-      } else {
-        const meta = req.transaction?.objectStore(STORE_META);
-        if (meta && !meta.indexNames.contains("by_status")) {
-          meta.createIndex("by_status", "status", { unique: false });
-        }
-        if (meta && !meta.indexNames.contains("by_createdAt")) {
-          meta.createIndex("by_createdAt", "createdAt", { unique: false });
-        }
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+function tx<T>(
+  db: IDBDatabase,
+  mode: IDBTransactionMode,
+  fn: (store: IDBObjectStore) => IDBRequest<T> | void
+): Promise<T | void> {
+  return new Promise((resolve, reject) => {
+    const t = db.transaction(STORE, mode)
+    const store = t.objectStore(STORE)
+
+    let request: IDBRequest<T> | undefined
+    try {
+      const maybeReq = fn(store)
+      if (maybeReq) request = maybeReq as IDBRequest<T>
+    } catch (e) {
+      reject(e)
+      return
+    }
+
+    t.oncomplete = () => resolve(request ? (request.result as any) : undefined)
+    t.onerror = () => reject(t.error)
+    t.onabort = () => reject(t.error)
+  })
+}
+
+export async function idbAdd(item: QueueItem): Promise<void> {
+  const db = await openDB()
+  await tx(db, "readwrite", (store) => store.put(item))
+  db.close()
+}
+
+export async function idbGet(id: string): Promise<QueueItem | null> {
+  const db = await openDB()
+  const res = (await tx(db, "readonly", (store) => store.get(id))) as QueueItem | undefined
+  db.close()
+  return res ?? null
+}
+
+export async function idbUpdateMeta(id: string, patch: Partial<QueueItemMeta>): Promise<void> {
+  const db = await openDB()
+  await tx(db, "readwrite", (store) => {
+    const req = store.get(id)
+    req.onsuccess = () => {
+      const current = req.result as QueueItem | undefined
+      if (!current) return
+      // Track when processing started for stuck detection
+      const next: QueueItem = { 
+        ...current, 
+        ...patch,
+        ...(patch.status === "processing" ? { processingStartedAt: Date.now() } : {})
+      }
+      store.put(next)
+    }
+  })
+  db.close()
+}
+
+export async function idbDelete(id: string): Promise<void> {
+  const db = await openDB()
+  await tx(db, "readwrite", (store) => store.delete(id))
+  db.close()
+}
+
+export async function idbListMeta(limit = 500): Promise<QueueItemMeta[]> {
+  const db = await openDB()
+  const items: QueueItemMeta[] = []
+
+  await tx(db, "readonly", (store) => {
+    const req = store.openCursor()
+    req.onsuccess = () => {
+      const cursor = req.result as IDBCursorWithValue | null
+      if (!cursor) return
+      const v = cursor.value as QueueItem
+      const { blob: _blob, ...meta } = v
+      items.push(meta)
+      if (items.length >= limit) return
+      cursor.continue()
+    }
+    return req as any
+  })
+
+  db.close()
+  return items.sort((a, b) => b.createdAt - a.createdAt)
+}
+
+/**
+ * Get the next queued item FIFO (oldest first).
+ * Also picks up stuck "processing" items older than 5s (orphaned from crashes/scaling).
+ * Returns full item (includes blob).
+ */
+export async function idbGetNextQueued(): Promise<QueueItem | null> {
+  const db = await openDB()
+  const STUCK_THRESHOLD_MS = 5_000 // 5 seconds - reduced for faster recovery
+
+  const next = await new Promise<QueueItem | null>((resolve, reject) => {
+    const t = db.transaction(STORE, "readonly")
+    const store = t.objectStore(STORE)
+    const idx = store.index("status_createdAt")
+
+    // First try "queued" items (oldest first)
+    const queuedRange = IDBKeyRange.bound(["queued", 0], ["queued", Number.MAX_SAFE_INTEGER])
+    const queuedReq = idx.openCursor(queuedRange, "next")
+
+    queuedReq.onsuccess = () => {
+      const cursor = queuedReq.result as IDBCursorWithValue | null
+      if (cursor) {
+        resolve(cursor.value as QueueItem)
+        return
       }
 
-      // Blob store: large binary objects only
-      if (!db.objectStoreNames.contains(STORE_BLOBS)) {
-        db.createObjectStore(STORE_BLOBS, { keyPath: "id" });
+      // No queued items - check for stuck "processing" items using processingStartedAt
+      const stuckCutoff = Date.now() - STUCK_THRESHOLD_MS
+      // Scan all processing items and check processingStartedAt
+      const processingRange = IDBKeyRange.bound(["processing", 0], ["processing", Number.MAX_SAFE_INTEGER])
+      const processingReq = idx.openCursor(processingRange, "next")
+
+      processingReq.onsuccess = () => {
+        const pCursor = processingReq.result as IDBCursorWithValue | null
+        if (pCursor) {
+          const item = pCursor.value as QueueItem
+          // Check if stuck based on processingStartedAt (or createdAt as fallback)
+          const startedAt = item.processingStartedAt || item.createdAt
+          if (startedAt < stuckCutoff) {
+            resolve(item)
+          } else {
+            // Not stuck yet, check next
+            pCursor.continue()
+          }
+        } else {
+          resolve(null)
+        }
       }
-    };
+      processingReq.onerror = () => reject(processingReq.error)
+    }
+    queuedReq.onerror = () => reject(queuedReq.error)
 
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+    t.oncomplete = () => {}
+    t.onerror = () => reject(t.error)
+    t.onabort = () => reject(t.error)
+  })
+
+  db.close()
+  return next
 }
 
-function txDone(tx: IDBTransaction) {
-  return new Promise<void>((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
-  });
-}
-
-export async function idbAdd(item: QueueItemWithBlob) {
-  const db = await openDB();
-  const tx = db.transaction([STORE_META, STORE_BLOBS], "readwrite");
-  tx.objectStore(STORE_META).put({
-    id: item.id,
-    createdAt: item.createdAt,
-    status: item.status,
-    mime: item.mime,
-    filename: item.filename,
-    error: item.error,
-  } satisfies QueueItemMeta);
-  tx.objectStore(STORE_BLOBS).put({ id: item.id, blob: item.blob });
-  await txDone(tx);
-  db.close();
-}
-
-export async function idbUpdateMeta(id: string, patch: Partial<QueueItemMeta>) {
-  const db = await openDB();
-  const tx = db.transaction([STORE_META], "readwrite");
-  const store = tx.objectStore(STORE_META);
-  const existing = await new Promise<QueueItemMeta | undefined>((resolve, reject) => {
-    const r = store.get(id);
-    r.onsuccess = () => resolve(r.result);
-    r.onerror = () => reject(r.error);
-  });
-
-  if (existing) {
-    store.put({ ...existing, ...patch, id } as QueueItemMeta);
-  }
-
-  await txDone(tx);
-  db.close();
-}
-
-export async function idbDelete(id: string) {
-  const db = await openDB();
-  const tx = db.transaction([STORE_META, STORE_BLOBS], "readwrite");
-  tx.objectStore(STORE_META).delete(id);
-  tx.objectStore(STORE_BLOBS).delete(id);
-  await txDone(tx);
-  db.close();
-}
-
-export async function idbClear() {
-  const db = await openDB();
-  const tx = db.transaction([STORE_META, STORE_BLOBS], "readwrite");
-  tx.objectStore(STORE_META).clear();
-  tx.objectStore(STORE_BLOBS).clear();
-  await txDone(tx);
-  db.close();
-}
-
-export async function idbCount() {
-  const db = await openDB();
-  const tx = db.transaction([STORE_META], "readonly");
-  const store = tx.objectStore(STORE_META);
+/**
+ * Count only items that are actually processable (queued or stuck processing)
+ */
+export async function idbCountQueued(): Promise<number> {
+  const db = await openDB()
+  const STUCK_THRESHOLD_MS = 5_000
+  const stuckCutoff = Date.now() - STUCK_THRESHOLD_MS
+  
   const count = await new Promise<number>((resolve, reject) => {
-    const r = store.count();
-    r.onsuccess = () => resolve(r.result || 0);
-    r.onerror = () => reject(r.error);
-  });
-  db.close();
-  return count;
+    const t = db.transaction(STORE, "readonly")
+    const store = t.objectStore(STORE)
+    const idx = store.index("status_createdAt")
+    let total = 0
+
+    // Count "queued" items
+    const queuedRange = IDBKeyRange.bound(["queued", 0], ["queued", Number.MAX_SAFE_INTEGER])
+    const queuedReq = idx.count(queuedRange)
+
+    queuedReq.onsuccess = () => {
+      total += queuedReq.result
+
+      // Count stuck "processing" items by scanning and checking processingStartedAt
+      const processingRange = IDBKeyRange.bound(["processing", 0], ["processing", Number.MAX_SAFE_INTEGER])
+      const processingReq = idx.openCursor(processingRange)
+      let stuckCount = 0
+
+      processingReq.onsuccess = () => {
+        const cursor = processingReq.result as IDBCursorWithValue | null
+        if (cursor) {
+          const item = cursor.value as QueueItem
+          const startedAt = item.processingStartedAt || item.createdAt
+          if (startedAt < stuckCutoff) {
+            stuckCount++
+          }
+          cursor.continue()
+        } else {
+          total += stuckCount
+          resolve(total)
+        }
+      }
+      processingReq.onerror = () => reject(processingReq.error)
+    }
+    queuedReq.onerror = () => reject(queuedReq.error)
+
+    t.oncomplete = () => {}
+    t.onerror = () => reject(t.error)
+  })
+
+  db.close()
+  return count
 }
 
-// Meta only (no blobs): safe to call frequently for UI.
-export async function idbGetAllMeta(): Promise<QueueItemMeta[]> {
-  const db = await openDB();
-  const tx = db.transaction([STORE_META], "readonly");
-  const store = tx.objectStore(STORE_META);
-  const all = await new Promise<QueueItemMeta[]>((resolve, reject) => {
-    const r = store.getAll();
-    r.onsuccess = () => resolve((r.result as QueueItemMeta[]) ?? []);
-    r.onerror = () => reject(r.error);
-  });
-  db.close();
-  return all;
+export async function idbCount(): Promise<number> {
+  const db = await openDB()
+  const n = (await tx(db, "readonly", (store) => store.count())) as number
+  db.close()
+  return n
 }
 
-// Fetch ONE next queued item (meta + blob) without dragging the whole queue into RAM.
-export async function idbTakeNextQueued(): Promise<QueueItemWithBlob | null> {
-  const db = await openDB();
-  const tx = db.transaction([STORE_META, STORE_BLOBS], "readwrite");
-  const metaStore = tx.objectStore(STORE_META);
-  const statusIdx = metaStore.index("by_status");
+export async function idbGetAll(): Promise<QueueItem[]> {
+  const db = await openDB()
+  const items: QueueItem[] = []
 
-  const meta = await new Promise<QueueItemMeta | null>((resolve, reject) => {
-    const r = statusIdx.openCursor(IDBKeyRange.only("queued"));
-    r.onsuccess = () => {
-      const cursor = r.result;
-      resolve(cursor ? (cursor.value as QueueItemMeta) : null);
-    };
-    r.onerror = () => reject(r.error);
-  });
+  await tx(db, "readonly", (store) => {
+    const req = store.openCursor()
+    req.onsuccess = () => {
+      const cursor = req.result as IDBCursorWithValue | null
+      if (!cursor) return
+      items.push(cursor.value as QueueItem)
+      cursor.continue()
+    }
+    return req as any
+  })
 
-  if (!meta) {
-    await txDone(tx);
-    db.close();
-    return null;
-  }
+  db.close()
+  return items.sort((a, b) => b.createdAt - a.createdAt)
+}
 
-  // mark processing immediately so multiple tabs don't double-pick
-  metaStore.put({ ...meta, status: "processing" } satisfies QueueItemMeta);
-
-  const blobRec = await new Promise<{ id: string; blob: Blob } | undefined>((resolve, reject) => {
-    const r = tx.objectStore(STORE_BLOBS).get(meta.id);
-    r.onsuccess = () => resolve(r.result as any);
-    r.onerror = () => reject(r.error);
-  });
-
-  await txDone(tx);
-  db.close();
-
-  if (!blobRec?.blob) {
-    // corruption or partial write
-    await idbUpdateMeta(meta.id, { status: "error", error: "Missing blob" });
-    return null;
-  }
-
-  return { ...meta, status: "processing", blob: blobRec.blob };
+export async function idbClear(): Promise<void> {
+  const db = await openDB()
+  await tx(db, "readwrite", (store) => store.clear())
+  db.close()
 }

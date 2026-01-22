@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useState } from "react"
 import { supabase } from "@/integrations/supabase/client"
 import { withRetry } from "@/lib/retry"
 
@@ -14,49 +14,45 @@ export type BatchJob = {
 export function useBatchScanner() {
   const [jobs, setJobs] = useState<BatchJob[]>([])
   const [running, setRunning] = useState(false)
-  const runningRef = useRef(false)
 
   function addFiles(files: File[]) {
-    if (!files?.length) return
-
-    const newJobs: BatchJob[] = files.map((file) => ({
+    if (!files || files.length === 0) return
+    const newJobs: BatchJob[] = files.map((f) => ({
       id: crypto.randomUUID(),
-      file,
-      fileName: file.name,
-      preview: URL.createObjectURL(file),
+      file: f,
+      fileName: f.name,
+      preview: URL.createObjectURL(f),
       status: "pending",
     }))
-
     setJobs((prev) => [...prev, ...newJobs])
   }
 
   async function start() {
-    if (runningRef.current) return
-    runningRef.current = true
+    if (running) return
     setRunning(true)
 
-    const queue = jobs.filter((j) => j.status === "pending")
+    for (let i = 0; i < jobs.length; i++) {
+      const job = jobs[i]
+      if (job.status !== "pending") continue
 
-    for (const job of queue) {
       updateJob(job.id, { status: "processing" })
 
       try {
         await scanOne(job)
         updateJob(job.id, { status: "completed" })
-        await sleep(800)
+        await sleep(700)
       } catch (err: any) {
         const msg = String(err?.message ?? err)
         updateJob(job.id, { status: "error", error: msg })
 
         if (/429|rate limit/i.test(msg)) {
-          await sleep(5000)
+          await sleep(4000)
         } else {
-          await sleep(1200)
+          await sleep(1000)
         }
       }
     }
 
-    runningRef.current = false
     setRunning(false)
   }
 
@@ -64,20 +60,14 @@ export function useBatchScanner() {
     const path = `cards/${job.id}.jpg`
 
     await withRetry(() =>
-      supabase.storage.from("card-images").upload(path, job.file, {
-        upsert: true,
-      })
+      supabase.storage.from("card-images").upload(path, job.file)
     )
 
     const signedUrl = await withRetry(async () => {
       const res = await supabase.storage
         .from("card-images")
         .createSignedUrl(path, 86400)
-
-      if (!res.data?.signedUrl) {
-        throw new Error("Failed to create signed URL")
-      }
-
+      if (!res.data?.signedUrl) throw new Error("Signed URL failed")
       return res.data.signedUrl
     })
 

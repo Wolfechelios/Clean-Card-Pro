@@ -1,7 +1,13 @@
-export function hapticTap(_ms = 25) {
+/**
+ * Minimal haptic helper.
+ * - Web: navigator.vibrate
+ * - Capacitor: will still work if platform supports vibrate.
+ */
+export function hapticTap(ms = 25) {
   try {
-    // Best-effort; browsers vary.
-    if (navigator.vibrate) navigator.vibrate(_ms);
+    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+      (navigator as any).vibrate(ms);
+    }
   } catch {
     // ignore
   }

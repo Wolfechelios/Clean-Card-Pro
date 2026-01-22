@@ -1,4 +1,24 @@
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  // next-themes is installed, but keep this minimal and non-invasive.
-  return <>{children}</>;
+import * as React from "react";
+import { ThemeProvider as NextThemesProvider } from "next-themes";
+
+type Props = {
+  children: React.ReactNode;
+};
+
+/**
+ * Global theme provider.
+ * - Uses Tailwind's `dark` class strategy.
+ * - Persists user's choice.
+ */
+export function ThemeProvider({ children }: Props) {
+  return (
+    <NextThemesProvider
+      attribute="class"
+      defaultTheme="dark"
+      enableSystem
+      disableTransitionOnChange
+    >
+      {children}
+    </NextThemesProvider>
+  );
 }

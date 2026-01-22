@@ -35,7 +35,6 @@ import { SettingsSkeleton } from "@/components/ui/loading-skeletons";
 import { useScannerSettings } from "@/hooks/use-scanner-settings";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { ImageQualitySettingsSection } from "@/components/settings/ImageQualitySettingsSection";
 
 export default function Settings() {
   const navigate = useNavigate();
@@ -425,11 +424,6 @@ export default function Settings() {
           <CardDescription>Configure card scanning behavior</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <ImageQualitySettingsSection
-            settings={scannerSettings}
-            updateSettings={updateScannerSettings}
-          />
-
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <Label htmlFor="auto-confirm-toggle" className="text-sm font-medium">
@@ -557,98 +551,6 @@ export default function Settings() {
                 onCheckedChange={(checked) => updateScannerSettings({ fullscreenScanMode: checked })}
               />
             </div>
-
-            <Separator />
-
-            {/* Lighting */}
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">Lighting</h3>
-
-              <div className="grid gap-2">
-                <Label className="text-sm font-medium">White balance</Label>
-                <p className="text-xs text-muted-foreground">
-                  Helps color/brightness match your environment. Support depends on device/browser.
-                </p>
-                <select
-                  className="h-10 rounded-md border bg-background px-3 text-sm"
-                  value={scannerSettings.whiteBalanceMode}
-                  onChange={(e) => updateScannerSettings({ whiteBalanceMode: e.target.value as any })}
-                >
-                  <option value="continuous">Auto (Continuous, recommended)</option>
-                  <option value="auto">Auto (Standard)</option>
-                  <option value="manual">Manual (temperature)</option>
-                </select>
-              </div>
-
-              {scannerSettings.whiteBalanceMode === "manual" && (
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">
-                    Temperature: {Math.round(scannerSettings.whiteBalanceTemperatureK)}K
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    Lower = warmer (yellow). Higher = cooler (blue). Typical indoor is ~3000–4500K, daylight ~5000–6500K.
-                  </p>
-                  <Slider
-                    min={2500}
-                    max={7500}
-                    step={100}
-                    value={[scannerSettings.whiteBalanceTemperatureK]}
-                    onValueChange={(v) => updateScannerSettings({ whiteBalanceTemperatureK: v[0] })}
-                    className="w-full"
-                  />
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>Warm</span>
-                    <span>Cool</span>
-                  </div>
-                </div>
-              )}
-            </div>
-
-
-              <div className="flex items-center justify-between mt-4">
-                <div className="space-y-0.5">
-                  <Label className="text-sm font-medium">Low light assist</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Nudges exposure (and optionally torch) to keep scans readable when lighting changes. Best-effort; support varies.
-                  </p>
-                </div>
-                <Switch
-                  checked={scannerSettings.lowLightAssistEnabled}
-                  onCheckedChange={(checked) => updateScannerSettings({ lowLightAssistEnabled: checked })}
-                />
-              </div>
-
-              {scannerSettings.lowLightAssistEnabled && (
-                <div className="space-y-3">
-                  <div className="space-y-2">
-                    <Label className="text-sm font-medium">
-                      Target brightness: {Math.round(scannerSettings.lowLightTargetBrightness)}%
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      Higher targets push the camera brighter. If the image looks washed out, lower this.
-                    </p>
-                    <Slider
-                      min={25}
-                      max={80}
-                      step={1}
-                      value={[scannerSettings.lowLightTargetBrightness]}
-                      onValueChange={(v) => updateScannerSettings({ lowLightTargetBrightness: v[0] })}
-                      className="w-full"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label className="text-sm font-medium">Allow torch in very low light</Label>
-                      <p className="text-xs text-muted-foreground">Uses the flashlight if your device exposes it</p>
-                    </div>
-                    <Switch
-                      checked={scannerSettings.lowLightAllowTorch}
-                      onCheckedChange={(checked) => updateScannerSettings({ lowLightAllowTorch: checked })}
-                    />
-                  </div>
-                </div>
-              )}
 
             <Separator />
 

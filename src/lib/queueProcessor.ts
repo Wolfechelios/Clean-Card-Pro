@@ -1,262 +1,465 @@
 // src/lib/queueProcessor.ts
-// Global Rapid Scan queue processor.
-//
-// Goals:
-// - Process ONE queued image at a time (stable on mobile).
-// - Pull blobs from IndexedDB one-by-one (no "load 20 blobs and die").
-// - Expose a small zustand hook so UI can observe status.
-//
-// NOTE: This processor is intentionally conservative. Reliability > speed.
+// Standalone, resilient queue processor for rapid scan jobs.
+// Runs independently of the RapidScanCamera component.
+// Auto-resumes on app start if there are queued items.
 
 import { create } from "zustand";
 import { supabase } from "@/integrations/supabase/client";
-import { identifyCardOnDevice } from "@/lib/onDeviceLLM";
-import { loadLocalFlags, DEFAULT_FLAGS } from "@/lib/featureFlags";
+import { withRetry } from "@/lib/retry";
+import { getScannerSettings } from "@/hooks/use-scanner-settings";
+import { logScannerError, logApiError } from "@/lib/crashAnalytics";
 import {
-  idbCount,
-  idbGetAllMeta,
-  idbTakeNextQueued,
+  idbGetNextQueued,
   idbUpdateMeta,
   idbDelete,
+  idbCount,
+  idbCountQueued,
+  idbGetAll,
+  type QueueItem,
   type QueueItemMeta,
 } from "@/lib/idbQueue";
 
-type ProcessedEvent = {
+// ─────────────────────────────────────────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ProcessedCard = {
   id: string;
   cardName: string;
-  cardSet?: string | null;
-  cardNumber?: string | null;
-  rarity?: string | null;
-  value?: number | null;
-  imageUrl?: string | null;
-  isInLibrary?: boolean;
-  libraryQuantity?: number;
+  cardSet?: string;
+  cardNumber?: string;
+  rarity?: string;
+  gameType?: string;
+  sportType?: string;
+  value: number | null;
+  imageUrl: string;
+  isInLibrary: boolean;
+  libraryQuantity: number;
   dbId?: string;
 };
 
-type QueueState = {
+export type ProcessorState = {
   isRunning: boolean;
+  isPaused: boolean;
   queueCount: number;
   processedCount: number;
   errorCount: number;
   currentItem: string | null;
-  processedEvents: number; // increment-only signal for useEffect
-  _events: ProcessedEvent[];
-  start: () => void;
-  stop: () => void;
-  refresh: () => Promise<void>;
-  _consumeProcessedEvents: () => ProcessedEvent[];
+  lastProcessedCard: ProcessedCard | null;
+  queueMeta: QueueItemMeta[];
 };
 
-const useQueueStore = create<QueueState>((set, get) => ({
+type ProcessorStore = ProcessorState & {
+  // Actions
+  start: () => void;
+  stop: () => void;
+  pause: () => void;
+  resume: () => void;
+  refreshQueue: () => Promise<void>;
+  // Internal setters
+  _setRunning: (v: boolean) => void;
+  _setPaused: (v: boolean) => void;
+  _setQueueCount: (v: number) => void;
+  _setProcessedCount: (v: number) => void;
+  _setErrorCount: (v: number) => void;
+  _setCurrentItem: (v: string | null) => void;
+  _setLastProcessedCard: (v: ProcessedCard | null) => void;
+  _setQueueMeta: (v: QueueItemMeta[]) => void;
+  _incrementProcessed: () => void;
+  _incrementError: () => void;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONFIG
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
+const JOB_DELAY_MS = 100; // Reduced for faster processing
+const POLL_INTERVAL_MS = 150; // Faster polling
+const WORKER_SCALE_INTERVAL_MS = 300; // Scale up faster
+const MAX_CONCURRENT_WORKERS = 3; // Hard cap at 3 workers
+
+function getMaxWorkerCount(): number {
+  const userSetting = getScannerSettings().batchScanSize || 3;
+  return Math.min(userSetting, MAX_CONCURRENT_WORKERS); // Never exceed 3
+}
+
+// Adaptive scaling: start with fewer workers and scale up based on queue size
+function getTargetWorkerCount(queueSize: number, maxWorkers: number): number {
+  // If nothing is queued, we want to wind down to 0 workers (processor should auto-stop)
+  if (queueSize <= 0) return 0;
+  // Scale workers: 1 worker per queue item, up to max
+  return Math.min(queueSize, maxWorkers);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ZUSTAND STORE
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   isRunning: false,
+  isPaused: false,
   queueCount: 0,
   processedCount: 0,
   errorCount: 0,
   currentItem: null,
-  processedEvents: 0,
-  _events: [],
+  lastProcessedCard: null,
+  queueMeta: [],
 
   start: () => {
     if (get().isRunning) return;
-    set({ isRunning: true });
-    void pump();
+    set({ isRunning: true, isPaused: false });
+    startWorkers();
   },
-  stop: () => set({ isRunning: false, currentItem: null }),
-  refresh: async () => {
-    const count = await idbCount();
-    set({ queueCount: count });
+
+  stop: () => {
+    set({ isRunning: false, isPaused: false });
+    // Reset worker count so next start works properly
+    workersActive = 0;
+    if (scalingInterval) {
+      clearInterval(scalingInterval);
+      scalingInterval = null;
+    }
   },
-  _consumeProcessedEvents: () => {
-    const events = get()._events;
-    if (events.length === 0) return [];
-    set({ _events: [] });
-    return events;
+
+  pause: () => {
+    set({ isPaused: true });
   },
+
+  resume: () => {
+    set({ isPaused: false });
+  },
+
+  refreshQueue: async () => {
+    const queuedCount = await idbCountQueued();
+    const all = await idbGetAll();
+    set({
+      queueCount: queuedCount,
+      queueMeta: all.map(({ blob: _blob, ...rest }) => rest),
+    });
+  },
+
+  _setRunning: (v) => set({ isRunning: v }),
+  _setPaused: (v) => set({ isPaused: v }),
+  _setQueueCount: (v) => set({ queueCount: v }),
+  _setProcessedCount: (v) => set({ processedCount: v }),
+  _setErrorCount: (v) => set({ errorCount: v }),
+  _setCurrentItem: (v) => set({ currentItem: v }),
+  _setLastProcessedCard: (v) => set({ lastProcessedCard: v }),
+  _setQueueMeta: (v) => set({ queueMeta: v }),
+  _incrementProcessed: () => set((s) => ({ processedCount: s.processedCount + 1 })),
+  _incrementError: () => set((s) => ({ errorCount: s.errorCount + 1 })),
 }));
 
-// Simple single-threaded pump loop.
-async function pump() {
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const state = useQueueStore.getState();
-    if (!state.isRunning) return;
-
-    // Update count occasionally.
-    try {
-      const count = await idbCount();
-      useQueueStore.setState({ queueCount: count });
-    } catch {
-      // ignore
-    }
-
-    const item = await idbTakeNextQueued();
-    if (!item) {
-      // Nothing queued; nap a bit.
-      await sleep(450);
-      continue;
-    }
-
-    useQueueStore.setState({ currentItem: item.id });
-
-    try {
-      const out = await processItem(item.id, item.blob);
-      await idbUpdateMeta(item.id, { status: "done" });
-
-      // Keep queue from growing forever.
-      // We can delete done items because UI keeps its own list + preview URLs.
-      await idbDelete(item.id);
-
-      useQueueStore.setState((s) => ({
-        processedCount: s.processedCount + 1,
-        currentItem: null,
-        processedEvents: s.processedEvents + 1,
-        _events: [out, ...s._events].slice(0, 50),
-      }));
-    } catch (err: any) {
-      console.error("Queue processing failed", err);
-      await idbUpdateMeta(item.id, { status: "error", error: err?.message ?? "Unknown error" });
-      useQueueStore.setState((s) => ({
-        errorCount: s.errorCount + 1,
-        currentItem: null,
-      }));
-
-      // Backoff after failure
-      await sleep(800);
-    }
-  }
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function uploadToStorage(id: string, blob: Blob): Promise<string> {
-  const filename = `rapid/${id}.jpg`;
-  const { data, error } = await supabase.storage
-    .from("card-images")
-    .upload(filename, blob, { upsert: true, contentType: blob.type || "image/jpeg" });
-  if (error) throw error;
-  const path = data?.path ?? filename;
-  const { data: pub } = supabase.storage.from("card-images").getPublicUrl(path);
-  return pub.publicUrl;
+function money(n: number | null | undefined) {
+  if (n == null || Number.isNaN(n)) return null;
+  return Math.round(n * 100) / 100;
 }
 
-async function checkLibrary(userId: string, cardName: string, cardSet?: string | null) {
-  const q = supabase
-    .from("cards")
-    .select("id, quantity")
-    .eq("user_id", userId)
-    .ilike("card_name", cardName);
-  if (cardSet) q.ilike("card_set", cardSet);
-  const { data, error } = await q.limit(1);
-  if (error) throw error;
-  const row = data?.[0];
-  return {
-    isInLibrary: !!row,
-    libraryQuantity: row?.quantity ?? 0,
-    dbId: row?.id as string | undefined,
-  };
+async function getUserId(): Promise<string | null> {
+  try {
+    const { data } = await supabase.auth.getUser();
+    return data.user?.id ?? null;
+  } catch {
+    return null;
+  }
 }
 
-async function processItem(id: string, blob: Blob): Promise<ProcessedEvent> {
-  // Must have user to check duplicates and to allow DB save later.
-  const { data: auth } = await supabase.auth.getUser();
-  const userId = auth.user?.id;
+// ─────────────────────────────────────────────────────────────────────────────
+// WORKER POOL
+// ─────────────────────────────────────────────────────────────────────────────
 
-  const flags = { ...DEFAULT_FLAGS, ...loadLocalFlags() };
+let workersActive = 0;
+let scalingInterval: ReturnType<typeof setInterval> | null = null;
 
-  // 1) Upload image and get URL (still required for storage/history)
-  const imageUrl = await uploadToStorage(id, blob);
+// When the backend rate-limits, pause all workers briefly to avoid marking jobs as permanent errors.
+let rateLimitUntil = 0;
+function isRateLimitError(e: unknown): boolean {
+  return /rate limit|429/i.test(String((e as any)?.message ?? e));
+}
 
-  // 2) Identify card
-  let cardName = "Unknown Card";
-  let cardSet: string | null = null;
-  let cardNumber: string | null = null;
-  let rarity: string | null = null;
-  let cardData: any = null;
-
-  if (flags.onDeviceLLM) {
-    try {
-      const local = await identifyCardOnDevice(blob);
-      if (local?.name) {
-        cardName = String(local.name);
-        cardSet = local.set ?? null;
-        cardNumber = local.number ?? null;
+function startWorkers() {
+  // Start with just 1 worker initially
+  // (workersActive can go negative if the app was stopped mid-loop; clamp it)
+  if (workersActive <= 0) {
+    workersActive = 1;
+    workerLoop(0);
+  }
+  
+  // Start adaptive scaling interval
+  if (!scalingInterval) {
+    scalingInterval = setInterval(async () => {
+      const store = useQueueProcessor.getState();
+      if (!store.isRunning) {
+        if (scalingInterval) {
+          clearInterval(scalingInterval);
+          scalingInterval = null;
+        }
+        return;
       }
-    } catch {
-      // fall through
+      
+      // Use idbCountQueued to count actually processable items
+      const queueSize = await idbCountQueued();
+      const maxWorkers = getMaxWorkerCount();
+      const targetWorkers = getTargetWorkerCount(queueSize, maxWorkers);
+      
+      // Scale up if needed
+      while (workersActive < targetWorkers && store.isRunning) {
+        const newWorkerId = workersActive;
+        workersActive++;
+        console.log(`[QueueProcessor] Scaling up: starting worker ${newWorkerId} (${workersActive}/${maxWorkers} active, queue: ${queueSize})`);
+        workerLoop(newWorkerId);
+      }
+    }, WORKER_SCALE_INTERVAL_MS);
+  }
+}
+
+async function workerLoop(workerId: number) {
+  const store = useQueueProcessor.getState;
+
+  while (store().isRunning) {
+    // Paused? Wait
+    if (store().isPaused) {
+      await sleep(POLL_INTERVAL_MS);
+      continue;
+    }
+
+    // Global backoff when upstream rate-limits
+    const now = Date.now();
+    if (rateLimitUntil > now) {
+      await sleep(Math.min(POLL_INTERVAL_MS, rateLimitUntil - now));
+      continue;
+    }
+
+    // Check if this worker should scale down (we have more workers than needed)
+    // Only scale down workers with ID > 0 to ensure at least one worker always runs
+    const queueSize = await idbCountQueued();
+    const maxWorkers = getMaxWorkerCount();
+    const targetWorkers = getTargetWorkerCount(queueSize, maxWorkers);
+    
+    if (workerId > 0 && workerId >= targetWorkers && workersActive > targetWorkers) {
+      console.log(`[QueueProcessor] Scaling down: stopping worker ${workerId} (target: ${targetWorkers}, active: ${workersActive})`);
+      break; // Exit this worker loop
+    }
+
+    const next = await idbGetNextQueued();
+    if (!next) {
+      // No processable work.
+      const queuedCount = await idbCountQueued();
+      const totalCount = await idbCount();
+      useQueueProcessor.getState()._setQueueCount(queuedCount);
+
+      // If there are no queued/stuck-processing items left, stop the processor.
+      // (There may still be "error" items in storage; those are not processable.)
+      if (queuedCount === 0) {
+        useQueueProcessor.getState()._setRunning(false);
+        break;
+      }
+
+      // Otherwise, wait a moment and poll again.
+      await sleep(totalCount === 0 ? POLL_INTERVAL_MS : 200);
+      continue;
+    }
+
+    try {
+      await processJob(next);
+      store()._incrementProcessed();
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      console.error(`[Worker ${workerId}] Job failed:`, e);
+
+      // Log to crash analytics
+      logScannerError(e instanceof Error ? e : new Error(msg), 'rapid', {
+        workerId,
+        jobId: next.id,
+        queueSize: await idbCountQueued(),
+      });
+
+      // If we're rate-limited, re-queue the job and pause all workers briefly.
+      if (isRateLimitError(e)) {
+        rateLimitUntil = Math.max(rateLimitUntil, Date.now() + 5000);
+        await idbUpdateMeta(next.id, { status: "queued", error: msg });
+      } else {
+        store()._incrementError();
+        // Mark as error in queue
+        await idbUpdateMeta(next.id, { status: "error", error: msg });
+      }
+    }
+
+    // Refresh queue meta
+    await store().refreshQueue();
+
+    // Small delay between jobs
+    await sleep(JOB_DELAY_MS);
+  }
+
+  workersActive = Math.max(0, workersActive - 1);
+  if (workersActive === 0) {
+    useQueueProcessor.getState()._setRunning(false);
+    if (scalingInterval) {
+      clearInterval(scalingInterval);
+      scalingInterval = null;
     }
   }
+}
 
-  if (!cardName || cardName === "Unknown Card") {
-    const { data: identify, error: idErr } = await supabase.functions.invoke("rapid-card-identify", {
-      body: { imageUrl },
-    });
-    if (idErr) throw new Error(idErr.message);
+async function processJob(item: QueueItem): Promise<void> {
+  const store = useQueueProcessor.getState();
+  store._setCurrentItem(item.id);
 
-    cardData = identify?.cardData?.primary || identify?.cardData || identify;
-    cardName = (cardData?.card_name || "Unknown Card").toString();
-    cardSet = (cardData?.card_set ?? null) as string | null;
-    cardNumber = (cardData?.card_number ?? null) as string | null;
-    rarity = (cardData?.rarity ?? null) as string | null;
-  }
+  // Mark processing
+  await idbUpdateMeta(item.id, { status: "processing" });
 
-  // 3) Pricing
-  let value: number | null = null;
+  // Upload to storage
+  const filePath = `cards/${item.id}.jpg`;
+  const file = new File([item.blob], item.filename, { type: item.mime });
+
+  await withRetry(async () => {
+    const res = await supabase.storage
+      .from("card-images")
+      .upload(filePath, file, { upsert: false });
+    if (res.error) throw new Error(res.error.message);
+    return res.data;
+  });
+
+  // Get signed URL
+  const imageUrl = await withRetry(async () => {
+    const res = await supabase.storage
+      .from("card-images")
+      .createSignedUrl(filePath, SIGNED_URL_TTL_SECONDS);
+    if (res.error) throw new Error(res.error.message);
+    if (!res.data?.signedUrl) throw new Error("Signed URL missing");
+    return res.data.signedUrl;
+  });
+
+  // Identify card
+  let identify: any;
   try {
-    const { data: prices, error: pErr } = await supabase.functions.invoke("fetch-card-prices", {
-      body: { cardName, cardSet, cardNumber, gameType: cardData?.game_type ?? null, sportType: cardData?.sport_type ?? null },
+    identify = await withRetry(
+      async () => {
+        const res = await supabase.functions.invoke("rapid-card-identify", {
+          body: { imageUrl },
+        });
+        if (res.error) throw new Error(res.error.message);
+        if (!res.data?.success) throw new Error(res.data?.error || "Identify failed");
+        return res.data.cardData as any;
+      },
+      {
+        retries: 2,
+        baseMs: 2000,
+        maxMs: 10000,
+        shouldRetry: (e) => /timeout|network|502|503|504/i.test(String(e?.message ?? e)),
+      }
+    );
+  } catch (e: any) {
+    logApiError(e instanceof Error ? e : new Error(String(e?.message ?? e)), 'rapid-card-identify', {
+      jobId: item.id,
     });
-    if (pErr) throw pErr;
-    value = (prices?.suggested ?? prices?.raw ?? null) as number | null;
-  } catch {
-    value = null;
+    throw e;
   }
 
-  // 4) Library check (best-effort)
+  const cardName: string = identify?.card_name || "Unknown Card";
+  const cardSet: string | null = identify?.card_set ?? null;
+  const cardNumber: string | null = identify?.card_number ?? null;
+  const rarity: string | null = identify?.rarity ?? null;
+  const gameType: string | null = identify?.game_type ?? null;
+  const sportType: string | null = identify?.sport_type ?? null;
+
+  // Fetch price
+  let rawPrice: number | null = null;
+  try {
+    const p = await supabase.functions.invoke("fetch-card-prices", {
+      body: { cardName, cardSet, cardNumber, gameType, sportType },
+    });
+    if (!p.error && p.data) {
+      rawPrice = money(p.data.raw ?? p.data.suggested ?? null);
+    }
+  } catch {
+    rawPrice = null;
+  }
+
+  // Check library ownership
+  const userId = await getUserId();
+  let ownedCount = 0;
   let isInLibrary = false;
-  let libraryQuantity = 0;
-  let dbId: string | undefined;
+  let existingId: string | undefined = undefined;
+
   if (userId) {
     try {
-      const dup = await checkLibrary(userId, cardName, cardSet);
-      isInLibrary = dup.isInLibrary;
-      libraryQuantity = dup.libraryQuantity;
-      dbId = dup.dbId;
+      const { count } = await supabase
+        .from("cards")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .ilike("card_name", cardName);
+
+      ownedCount = count || 0;
+      isInLibrary = ownedCount > 0;
+
+      if (isInLibrary) {
+        const { data } = await supabase
+          .from("cards")
+          .select("id")
+          .eq("user_id", userId)
+          .ilike("card_name", cardName)
+          .limit(1);
+        existingId = data?.[0]?.id;
+      }
     } catch {
-      // ignore
+      ownedCount = 0;
+      isInLibrary = false;
     }
   }
 
-  return {
-    id,
+  // Store processed result
+  const processedCard: ProcessedCard = {
+    id: item.id,
     cardName,
-    cardSet,
-    cardNumber,
-    rarity,
-    value,
+    cardSet: cardSet || undefined,
+    cardNumber: cardNumber || undefined,
+    rarity: rarity || undefined,
+    gameType: gameType || undefined,
+    sportType: sportType || undefined,
+    value: rawPrice,
     imageUrl,
     isInLibrary,
-    libraryQuantity,
-    dbId,
+    libraryQuantity: ownedCount,
+    dbId: existingId,
   };
+
+  store._setLastProcessedCard(processedCard);
+  store._setCurrentItem(null);
+
+  // Success - remove from queue
+  await idbDelete(item.id);
 }
 
-// Public API
-export function useQueueProcessor() {
-  return useQueueStore();
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTO-RESUME ON APP START
+// ─────────────────────────────────────────────────────────────────────────────
 
-export async function checkAndResumeQueue() {
-  // If there are queued items, start processing.
-  try {
-    const meta = await idbGetAllMeta();
-    const pending = meta.some((m) => m.status === "queued" || m.status === "processing");
-    if (pending) {
-      useQueueStore.getState().start();
-    }
-  } catch {
-    // ignore
+let autoResumeChecked = false;
+
+export async function checkAndResumeQueue(): Promise<void> {
+  if (autoResumeChecked) return;
+  autoResumeChecked = true;
+
+  const queuedCount = await idbCountQueued();
+  if (queuedCount > 0) {
+    console.log(`[QueueProcessor] Found ${queuedCount} queued items, auto-resuming...`);
+    useQueueProcessor.getState().start();
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EXPORTS FOR EXTERNAL USE
+// ─────────────────────────────────────────────────────────────────────────────
+
+export { idbAdd, idbCount, idbCountQueued, idbClear, idbGetAll, idbDelete } from "@/lib/idbQueue";
