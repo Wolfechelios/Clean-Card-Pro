@@ -9,9 +9,9 @@
 // NOTE: This processor is intentionally conservative. Reliability > speed.
 
 import { create } from "zustand";
-import { supabase } from "@/integrations/supabase/client";
-import { identifyCardOnDevice } from "@/lib/onDeviceLLM";
-import { loadLocalFlags, DEFAULT_FLAGS } from "@/lib/featureFlags";
+import { supabase } from "../integrations/supabase/client";
+import { identifyCardOnDevice } from "./onDeviceLLM";
+import { loadLocalFlags, DEFAULT_FLAGS } from "./featureFlags";
 import {
   idbCount,
   idbGetAllMeta,
@@ -19,7 +19,7 @@ import {
   idbUpdateMeta,
   idbDelete,
   type QueueItemMeta,
-} from "@/lib/idbQueue";
+} from "./idbQueue";
 
 type ProcessedEvent = {
   id: string;
