@@ -1,9 +1,8 @@
-
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -12,6 +11,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { installGlobalErrorHandlers } from "@/lib/crashAnalytics";
 import { checkAndResumeQueue } from "@/lib/queueProcessor";
+import { FeatureGate } from "@/components/FeatureGate";
 import { QueueStatusIndicator } from "@/components/scanner/QueueStatusIndicator";
 import { SplashScreen } from "@/components/SplashScreen";
 import { OfflineIndicator } from "@/components/OfflineIndicator";
@@ -40,17 +40,16 @@ const SellAssistPage = lazy(() => import("./pages/SellAssistPage"));
 const InstallPage = lazy(() => import("./pages/InstallPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
-const createQueryClient = () =>
-  new QueryClient({
-    defaultOptions: {
-      queries: {
-        staleTime: 30_000,
-        gcTime: 10 * 60_000,
-        refetchOnWindowFocus: false,
-        retry: 2,
-      },
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      gcTime: 10 * 60_000,
+      refetchOnWindowFocus: false,
+      retry: 2,
     },
-  });
+  },
+});
 
 function FullscreenLoader() {
   return (
@@ -60,9 +59,8 @@ function FullscreenLoader() {
   );
 }
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { session } = useAuth();
-  return session ? <AppLayout>{children}</AppLayout> : <Navigate to="/auth" replace />;
+function Authed({ children }: { children: React.ReactNode }) {
+  return <AppLayout>{children}</AppLayout>;
 }
 
 function AppRoutes() {
@@ -75,25 +73,25 @@ function AppRoutes() {
       <Routes>
         <Route path="/auth" element={<Auth />} />
         <Route path="/install" element={<InstallPage />} />
-        <Route path="/" element={<Navigate to={session ? "/dashboard" : "/auth"} replace />} />
+        <Route path="/" element={session ? <Navigate to="/dashboard" /> : <Navigate to="/auth" />} />
 
-        <Route path="/dashboard" element={<ProtectedRoute><NewDashboard /></ProtectedRoute>} />
-        <Route path="/scan" element={<ProtectedRoute><ScanPage /></ProtectedRoute>} />
-        <Route path="/collections" element={<ProtectedRoute><CollectionsPage /></ProtectedRoute>} />
-        <Route path="/binders" element={<ProtectedRoute><BindersPage /></ProtectedRoute>} />
-        <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
-        <Route path="/insights" element={<ProtectedRoute><InsightsPage /></ProtectedRoute>} />
-        <Route path="/performance" element={<ProtectedRoute><PerformancePage /></ProtectedRoute>} />
-        <Route path="/mobile-scan" element={<ProtectedRoute><MobileScanPage /></ProtectedRoute>} />
-        <Route path="/mobile-scan-redirect" element={<ProtectedRoute><MobileScanRedirect /></ProtectedRoute>} />
-        <Route path="/predictions" element={<ProtectedRoute><PredictionsPage /></ProtectedRoute>} />
-        <Route path="/graded-scan" element={<ProtectedRoute><GradedScanPage /></ProtectedRoute>} />
-        <Route path="/visual-search" element={<ProtectedRoute><VisualSearchPage /></ProtectedRoute>} />
-        <Route path="/card-price-hub" element={<ProtectedRoute><CardPriceHubPage /></ProtectedRoute>} />
-        <Route path="/image-backfill" element={<ProtectedRoute><ImageBackfillPage /></ProtectedRoute>} />
-        <Route path="/import-cleaner" element={<ProtectedRoute><ImportCleanerPage /></ProtectedRoute>} />
-        <Route path="/sell-assist" element={<ProtectedRoute><SellAssistPage /></ProtectedRoute>} />
-        <Route path="/help" element={<ProtectedRoute><HelpPage /></ProtectedRoute>} />
+        <Route path="/dashboard" element={session ? <Authed><NewDashboard /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/scan" element={session ? <Authed><ScanPage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/collections" element={session ? <Authed><CollectionsPage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/binders" element={session ? <Authed><FeatureGate flag="binders"><BindersPage /></FeatureGate></Authed> : <Navigate to="/auth" />} />
+        <Route path="/settings" element={session ? <Authed><SettingsPage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/insights" element={session ? <Authed><InsightsPage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/performance" element={session ? <Authed><PerformancePage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/mobile-scan" element={session ? <MobileScanPage /> : <Navigate to="/auth" />} />
+        <Route path="/mobile-scanner" element={session ? <MobileScanRedirect /> : <Navigate to="/auth" />} />
+        <Route path="/predictions" element={session ? <Authed><FeatureGate flag="predictions"><PredictionsPage /></FeatureGate></Authed> : <Navigate to="/auth" />} />
+        <Route path="/graded" element={session ? <Authed><FeatureGate flag="gradedScan"><GradedScanPage /></FeatureGate></Authed> : <Navigate to="/auth" />} />
+        <Route path="/visual-search" element={session ? <Authed><FeatureGate flag="visualSearch"><VisualSearchPage /></FeatureGate></Authed> : <Navigate to="/auth" />} />
+        <Route path="/price-hub" element={session ? <Authed><FeatureGate flag="priceHub"><CardPriceHubPage /></FeatureGate></Authed> : <Navigate to="/auth" />} />
+        <Route path="/sell-assist" element={session ? <Authed><FeatureGate flag="sellAssist"><SellAssistPage /></FeatureGate></Authed> : <Navigate to="/auth" />} />
+        <Route path="/image-backfill" element={session ? <Authed><FeatureGate flag="imageBackfill"><ImageBackfillPage /></FeatureGate></Authed> : <Navigate to="/auth" />} />
+        <Route path="/import-cleaner" element={session ? <Authed><FeatureGate flag="importCleaner"><ImportCleanerPage /></FeatureGate></Authed> : <Navigate to="/auth" />} />
+        <Route path="/help" element={session ? <Authed><HelpPage /></Authed> : <Navigate to="/auth" />} />
 
         <Route path="*" element={<NotFound />} />
       </Routes>
@@ -101,44 +99,61 @@ function AppRoutes() {
   );
 }
 
-export default function App() {
-  const [queryClient] = useState(createQueryClient);
-  const [showSplash, setShowSplash] = useState(true);
-  const { session } = useAuth();
-  const { showOnboarding } = usePWAOnboarding();
-
-  useEffect(() => {
-    const timeout = setTimeout(() => setShowSplash(false), 3000);
-    return () => clearTimeout(timeout);
-  }, []);
-
-  useEffect(() => {
-    if (!session) return;
-    installGlobalErrorHandlers();
-    checkAndResumeQueue();
-  }, [session]);
-
-  if (showSplash) {
-    return <SplashScreen onComplete={() => setShowSplash(false)} />;
-  }
+function PWAWrapper({ children }: { children: React.ReactNode }) {
+  const { shouldShowOnboarding, completeOnboarding, isStandalone } = usePWAOnboarding();
 
   return (
-    <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <ThemeProvider>
-          <TooltipProvider>
-            <HashRouter>
-              <OfflineIndicator />
-              <QueueStatusIndicator />
-              <PWAInstallBanner />
-              {showOnboarding && <PWAOnboarding />}
-              <AppRoutes />
-            </HashRouter>
-            <Toaster />
-            <Sonner />
-          </TooltipProvider>
-        </ThemeProvider>
-      </QueryClientProvider>
-    </ErrorBoundary>
+    <>
+      {shouldShowOnboarding && (
+        <PWAOnboarding 
+          onComplete={completeOnboarding} 
+          onSkip={completeOnboarding}
+        />
+      )}
+      {children}
+      {/* Show install banner only when not in standalone mode */}
+      {!isStandalone && <PWAInstallBanner />}
+    </>
   );
 }
+
+const App = () => {
+  const [showSplash, setShowSplash] = useState(() => {
+    // Only show splash when launched as PWA (standalone mode)
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as any).standalone === true ||
+      document.referrer.includes('android-app://');
+    return isStandalone;
+  });
+
+  // Install global error handlers and auto-resume queue on app start
+  useEffect(() => {
+    installGlobalErrorHandlers();
+    checkAndResumeQueue();
+  }, []);
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <TooltipProvider>
+          <ErrorBoundary>
+            {showSplash && <SplashScreen onComplete={() => setShowSplash(false)} />}
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <AuthProvider>
+                <PWAWrapper>
+                  <AppRoutes />
+                  <QueueStatusIndicator />
+                  <OfflineIndicator />
+                </PWAWrapper>
+              </AuthProvider>
+            </BrowserRouter>
+          </ErrorBoundary>
+        </TooltipProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
+  );
+};
+
+export default App;

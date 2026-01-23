@@ -554,14 +554,6 @@ export default function Settings() {
 
             <Separator />
 
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-=======
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
             {/* Image Quality */}
             <div className="space-y-3">
               <h3 className="text-sm font-semibold">Image Quality</h3>
@@ -750,7 +742,6 @@ export default function Settings() {
 
             <Separator />
 
->>>>>>> Stashed changes
             {/* Batch Processing */}
             <div className="space-y-3">
               <h3 className="text-sm font-semibold">Batch Processing</h3>
