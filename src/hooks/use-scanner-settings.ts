@@ -88,7 +88,9 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   captureQualityMode: "RAPID",
   rapidMaxLongEdge: 1600,
   rapidJpegQuality: 0.88,
-  rapidPreferWebp: true,
+  // WebP is great, but several downstream pipelines assume JPEG.
+  // Keep JPEG as the safe default; users can opt into WebP in Settings.
+  rapidPreferWebp: false,
 
   gradingBurstFrames: 7,
   gradingMinSharpness: 22,

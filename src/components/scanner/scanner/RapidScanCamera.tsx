@@ -395,10 +395,6 @@ export default function RapidScanCamera() {
 
       const v = videoRef.current;
       if (!v) {
-        setBusyCapture(false);
-        return;
-      }
-      if (!v) {
         startingCameraRef.current = false;
         return;
       }
@@ -771,6 +767,13 @@ export default function RapidScanCamera() {
       }
 
       const v = videoRef.current;
+      if (!v) {
+        setBusyCapture(false);
+        return;
+      }
+
+      // Best-effort focus nudge right before capture
+
       // Best-effort focus nudge right before capture
       if (settings.autoFocusAssist && sup.focus) {
         try {
@@ -934,6 +937,27 @@ export default function RapidScanCamera() {
 
     refreshMeta();
   }, [queueProcessor.processedEvents, updateCard, refreshMeta]);
+
+  // Sync UI state from processor failure events
+  useEffect(() => {
+    const failures = queueProcessor._consumeFailedEvents?.();
+    if (!failures || failures.length === 0) return;
+
+    for (const f of failures) {
+      updateCard(f.id, {
+        status: "error",
+        error: f.error,
+        priceFetching: false,
+      });
+    }
+
+    const last = failures[0];
+    setOverlay({ label: "Failed", value: null });
+    // Show the most recent error so the user isn't debugging blind.
+    toast.error(last?.error ?? "Scan failed");
+
+    refreshMeta();
+  }, [queueProcessor.failedEvents, updateCard, refreshMeta]);
 
   // Sync processing state from global processor
   useEffect(() => {

@@ -34,6 +34,11 @@ type ProcessedEvent = {
   dbId?: string;
 };
 
+type FailedEvent = {
+  id: string;
+  error: string;
+};
+
 type QueueState = {
   isRunning: boolean;
   queueCount: number;
@@ -41,11 +46,14 @@ type QueueState = {
   errorCount: number;
   currentItem: string | null;
   processedEvents: number; // increment-only signal for useEffect
+  failedEvents: number; // increment-only signal for useEffect
   _events: ProcessedEvent[];
+  _failures: FailedEvent[];
   start: () => void;
   stop: () => void;
   refresh: () => Promise<void>;
   _consumeProcessedEvents: () => ProcessedEvent[];
+  _consumeFailedEvents: () => FailedEvent[];
 };
 
 const useQueueStore = create<QueueState>((set, get) => ({
@@ -55,7 +63,9 @@ const useQueueStore = create<QueueState>((set, get) => ({
   errorCount: 0,
   currentItem: null,
   processedEvents: 0,
+  failedEvents: 0,
   _events: [],
+  _failures: [],
 
   start: () => {
     if (get().isRunning) return;
@@ -72,6 +82,12 @@ const useQueueStore = create<QueueState>((set, get) => ({
     if (events.length === 0) return [];
     set({ _events: [] });
     return events;
+  },
+  _consumeFailedEvents: () => {
+    const failures = get()._failures;
+    if (failures.length === 0) return [];
+    set({ _failures: [] });
+    return failures;
   },
 }));
 
@@ -115,10 +131,13 @@ async function pump() {
       }));
     } catch (err: any) {
       console.error("Queue processing failed", err);
-      await idbUpdateMeta(item.id, { status: "error", error: err?.message ?? "Unknown error" });
+      const msg = err?.message ?? "Unknown error";
+      await idbUpdateMeta(item.id, { status: "error", error: msg });
       useQueueStore.setState((s) => ({
         errorCount: s.errorCount + 1,
         currentItem: null,
+        failedEvents: s.failedEvents + 1,
+        _failures: [{ id: item.id, error: msg }, ...s._failures].slice(0, 50),
       }));
 
       // Backoff after failure
@@ -132,7 +151,11 @@ function sleep(ms: number) {
 }
 
 async function uploadToStorage(id: string, blob: Blob): Promise<string> {
-  const filename = `rapid/${id}.jpg`;
+  // Keep extension aligned with the actual mime.
+  // Mismatched extensions (eg, webp bytes saved as .jpg) can break downstream image decoders.
+  const mime = (blob.type || "image/jpeg").toLowerCase();
+  const ext = mime.includes("webp") ? "webp" : mime.includes("png") ? "png" : "jpg";
+  const filename = `rapid/${id}.${ext}`;
   const { data, error } = await supabase.storage
     .from("card-images")
     .upload(filename, blob, { upsert: true, contentType: blob.type || "image/jpeg" });
