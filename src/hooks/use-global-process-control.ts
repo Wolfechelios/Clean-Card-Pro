@@ -1,43 +1,61 @@
-import { create } from "zustand";
+import { create } from 'zustand';
 
-interface ProcessControlState {
-  scannerActive: boolean;
-  runningProcesses: Set<string>;
-  setScannerActive: (active: boolean) => void;
-  registerProcess: (id: string) => void;
-  unregisterProcess: (id: string) => void;
-  pauseAll: () => void;
-  resumeAll: () => void;
-  getState: () => ProcessControlState;
+interface ProcessInfo {
+  id: string;
+  name: string;
+  startedAt: Date;
 }
 
-export const useGlobalProcessControl = create<ProcessControlState>((set, get) => ({
+interface GlobalProcessControlState {
+  runningProcesses: ProcessInfo[];
+  stopSignal: number;
+  scannerActive: boolean;
+  registerProcess: (id: string, name: string) => void;
+  unregisterProcess: (id: string) => void;
+  stopAllProcesses: () => void;
+  isProcessRunning: (id: string) => boolean;
+  shouldStop: (processStartTime: number) => boolean;
+  setScannerActive: (active: boolean) => void;
+}
+
+export const useGlobalProcessControl = create<GlobalProcessControlState>((set, get) => ({
+  runningProcesses: [],
+  stopSignal: 0,
   scannerActive: false,
-  runningProcesses: new Set(),
   
-  setScannerActive: (active: boolean) => set({ scannerActive: active }),
-  
-  registerProcess: (id: string) =>
+  registerProcess: (id: string, name: string) => {
     set((state) => ({
-      runningProcesses: new Set([...state.runningProcesses, id]),
-    })),
-  
-  unregisterProcess: (id: string) =>
-    set((state) => {
-      const next = new Set(state.runningProcesses);
-      next.delete(id);
-      return { runningProcesses: next };
-    }),
-  
-  pauseAll: () => {
-    // Broadcast pause signal to all running processes
-    window.dispatchEvent(new CustomEvent("global-pause-processes"));
+      runningProcesses: [
+        ...state.runningProcesses.filter(p => p.id !== id),
+        { id, name, startedAt: new Date() }
+      ]
+    }));
   },
   
-  resumeAll: () => {
-    // Broadcast resume signal to all running processes
-    window.dispatchEvent(new CustomEvent("global-resume-processes"));
+  unregisterProcess: (id: string) => {
+    set((state) => ({
+      runningProcesses: state.runningProcesses.filter(p => p.id !== id)
+    }));
   },
   
-  getState: () => get(),
+  stopAllProcesses: () => {
+    set(() => ({
+      stopSignal: Date.now(),
+      runningProcesses: [],
+      scannerActive: false
+    }));
+  },
+  
+  isProcessRunning: (id: string) => {
+    return get().runningProcesses.some(p => p.id === id);
+  },
+  
+  shouldStop: (processStartTime: number) => {
+    const { stopSignal } = get();
+    return stopSignal > processStartTime;
+  },
+  
+  setScannerActive: (active: boolean) => {
+    set({ scannerActive: active });
+  }
 }));

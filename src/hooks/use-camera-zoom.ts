@@ -1,49 +1,153 @@
-import { useCallback, useMemo, useState } from "react";
+import { useState, useCallback, RefObject } from "react";
+import { toast } from "sonner";
 
-export function useCameraZoom({ streamRef }: { streamRef: React.RefObject<MediaStream | null> }) {
+interface UseCameraZoomOptions {
+  streamRef: RefObject<MediaStream | null>;
+  /**
+   * Digital zoom fallback ranges (used when hardware zoom isn't available)
+   */
+  minZoom?: number;
+  maxZoom?: number;
+  step?: number;
+}
+
+interface ZoomCapabilities {
+  /** Whether the UI should show zoom controls */
+  supported: boolean;
+  /** True when applying real camera zoom via track constraints */
+  hardware: boolean;
+  min: number;
+  max: number;
+  step: number;
+}
+
+/**
+ * Camera zoom helper.
+ * - Uses hardware zoom (track constraints) when available
+ * - Falls back to digital zoom (CSS scale + capture crop) when not
+ */
+export function useCameraZoom({
+  streamRef,
+  minZoom = 1,
+  maxZoom = 4,
+  step = 0.1,
+}: UseCameraZoomOptions) {
   const [zoomLevel, setZoomLevel] = useState(1);
+  const [zoomCapabilities, setZoomCapabilities] = useState<ZoomCapabilities>({
+    supported: true,
+    hardware: false,
+    min: minZoom,
+    max: maxZoom,
+    step,
+  });
 
-  const zoomCapabilities = useMemo(() => {
-    const track = streamRef.current?.getVideoTracks?.()?.[0];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const caps: any = track?.getCapabilities?.() ?? {};
-    const z = caps.zoom;
-    if (!z || typeof z.min !== "number" || typeof z.max !== "number") {
-      return { min: 1, max: 3, step: 0.1, supported: false };
+  const detectZoomCapabilities = useCallback(async () => {
+    if (!streamRef.current) return;
+
+    try {
+      const track = streamRef.current.getVideoTracks()[0];
+      if (!track) return;
+
+      const capabilities = track.getCapabilities?.() as any;
+      const settings = track.getSettings?.() as any;
+
+      if (capabilities?.zoom) {
+        // Hardware zoom supported
+        setZoomCapabilities({
+          supported: true,
+          hardware: true,
+          min: capabilities.zoom.min ?? minZoom,
+          max: capabilities.zoom.max ?? Math.max(maxZoom, 4),
+          step: capabilities.zoom.step ?? step,
+        });
+        if (typeof settings?.zoom === 'number') {
+          setZoomLevel(settings.zoom);
+        } else {
+          setZoomLevel(1);
+        }
+        console.log("Hardware zoom capabilities detected:", capabilities.zoom);
+      } else {
+        // Digital fallback (still "supported" from UX perspective)
+        setZoomCapabilities({
+          supported: true,
+          hardware: false,
+          min: minZoom,
+          max: maxZoom,
+          step,
+        });
+        setZoomLevel(1);
+        console.log("Hardware zoom not supported - using digital zoom fallback");
+      }
+    } catch (e) {
+      console.log("Error detecting zoom capabilities:", e);
+      // Still allow digital zoom fallback
+      setZoomCapabilities({
+        supported: true,
+        hardware: false,
+        min: minZoom,
+        max: maxZoom,
+        step,
+      });
     }
-    return { min: z.min, max: z.max, step: z.step ?? 0.1, supported: true };
-  }, [streamRef]);
-
-  const usingDigitalZoom = !zoomCapabilities.supported;
-
-  const detectZoomCapabilities = useCallback(() => {
-    // no-op: derived live
-  }, []);
+  }, [streamRef, minZoom, maxZoom, step]);
 
   const setZoom = useCallback(
-    async (z: number) => {
-      const clamped = Math.max(zoomCapabilities.min, Math.min(zoomCapabilities.max, z));
-      setZoomLevel(clamped);
-      const track = streamRef.current?.getVideoTracks?.()?.[0];
-      if (zoomCapabilities.supported && track?.applyConstraints) {
+    async (level: number) => {
+      if (!streamRef.current) return false;
+
+      const clampedLevel = Math.min(
+        Math.max(level, zoomCapabilities.min),
+        zoomCapabilities.max
+      );
+
+      // Hardware zoom
+      if (zoomCapabilities.hardware) {
         try {
-          await track.applyConstraints({ advanced: [{ zoom: clamped } as MediaTrackConstraintSet] });
-        } catch {
-          // ignore
+          const track = streamRef.current.getVideoTracks()[0];
+          if (!track) return false;
+
+          await track.applyConstraints({
+            advanced: [{ zoom: clampedLevel } as any],
+          });
+
+          setZoomLevel(clampedLevel);
+          return true;
+        } catch (e) {
+          console.error("Failed to set hardware zoom, falling back to digital:", e);
+          setZoomCapabilities((prev) => ({ ...prev, hardware: false }));
+          setZoomLevel(clampedLevel);
+          return true;
         }
       }
+
+      // Digital zoom
+      setZoomLevel(clampedLevel);
+      return true;
     },
     [streamRef, zoomCapabilities]
   );
 
-  const zoomIn = useCallback(() => setZoom(zoomLevel + zoomCapabilities.step), [setZoom, zoomLevel, zoomCapabilities.step]);
-  const zoomOut = useCallback(() => setZoom(zoomLevel - zoomCapabilities.step), [setZoom, zoomLevel, zoomCapabilities.step]);
-  const resetZoom = useCallback(() => setZoom(1), [setZoom]);
+  const zoomIn = useCallback(async () => {
+    const newLevel = Math.min(zoomLevel + zoomCapabilities.step, zoomCapabilities.max);
+    const success = await setZoom(newLevel);
+    if (success) toast.success(`Zoom: ${newLevel.toFixed(1)}x`);
+  }, [zoomLevel, zoomCapabilities, setZoom]);
+
+  const zoomOut = useCallback(async () => {
+    const newLevel = Math.max(zoomLevel - zoomCapabilities.step, zoomCapabilities.min);
+    const success = await setZoom(newLevel);
+    if (success) toast.success(`Zoom: ${newLevel.toFixed(1)}x`);
+  }, [zoomLevel, zoomCapabilities, setZoom]);
+
+  const resetZoom = useCallback(async () => {
+    const success = await setZoom(1);
+    if (success) toast.success("Zoom reset");
+  }, [setZoom]);
 
   return {
     zoomLevel,
     zoomCapabilities,
-    usingDigitalZoom,
+    usingDigitalZoom: !zoomCapabilities.hardware,
     detectZoomCapabilities,
     setZoom,
     zoomIn,

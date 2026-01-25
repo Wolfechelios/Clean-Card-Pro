@@ -1,8 +1,12 @@
-export function hapticTap(durationMs = 20) {
+/**
+ * Minimal haptic helper.
+ * - Web: navigator.vibrate
+ * - Capacitor: will still work if platform supports vibrate.
+ */
+export function hapticTap(ms = 25) {
   try {
     if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (navigator as any).vibrate?.(durationMs);
+      (navigator as any).vibrate(ms);
     }
   } catch {
     // ignore

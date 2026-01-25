@@ -1,107 +1,105 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-interface VoiceCommandOptions {
+type SpeechRecognitionLike = typeof window extends any
+  ? (any)
+  : any;
+
+type Options = {
   enabled: boolean;
   keyword: string;
   onMatch: () => void;
-}
+};
 
-interface VoiceCommandResult {
-  listening: boolean;
-  supported: boolean;
-}
-
-export function useVoiceCommand(opts: VoiceCommandOptions): VoiceCommandResult {
-  const [listening, setListening] = useState(false);
+/**
+ * Lightweight voice command listener (Web Speech API).
+ * Falls back silently when not supported.
+ */
+export function useVoiceCommand({ enabled, keyword, onMatch }: Options) {
   const [supported, setSupported] = useState(false);
-  const recognitionRef = useRef<any>(null);
+  const [listening, setListening] = useState(false);
+  const recogRef = useRef<any>(null);
+  const keywordRef = useRef(keyword);
+  const onMatchRef = useRef(onMatch);
 
-  // Check for browser support
   useEffect(() => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    setSupported(!!SpeechRecognition);
+    keywordRef.current = keyword;
+  }, [keyword]);
+
+  useEffect(() => {
+    onMatchRef.current = onMatch;
+  }, [onMatch]);
+
+  useEffect(() => {
+    const AnySpeech: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    setSupported(Boolean(AnySpeech));
   }, []);
 
-  const startListening = useCallback(() => {
-    if (!supported || !opts.enabled) return;
-
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
-
+  const stop = useCallback(() => {
     try {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = "en-US";
-
-      recognition.onstart = () => {
-        setListening(true);
-      };
-
-      recognition.onend = () => {
-        setListening(false);
-        // Auto-restart if still enabled
-        if (opts.enabled && recognitionRef.current === recognition) {
-          try {
-            recognition.start();
-          } catch {
-            // ignore
-          }
-        }
-      };
-
-      recognition.onerror = (event: any) => {
-        console.warn("Voice recognition error:", event.error);
-        setListening(false);
-      };
-
-      recognition.onresult = (event: any) => {
-        const results = event.results;
-        for (let i = event.resultIndex; i < results.length; i++) {
-          const transcript = results[i][0].transcript.toLowerCase().trim();
-          if (transcript.includes(opts.keyword.toLowerCase())) {
-            opts.onMatch();
-            break;
-          }
-        }
-      };
-
-      recognitionRef.current = recognition;
-      recognition.start();
-    } catch (e) {
-      console.warn("Failed to start voice recognition:", e);
-      setListening(false);
+      recogRef.current?.stop?.();
+    } catch {
+      // ignore
     }
-  }, [supported, opts.enabled, opts.keyword, opts.onMatch]);
-
-  const stopListening = useCallback(() => {
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch {
-        // ignore
-      }
-      recognitionRef.current = null;
-    }
+    recogRef.current = null;
     setListening(false);
   }, []);
 
-  useEffect(() => {
-    if (opts.enabled && supported) {
-      startListening();
-    } else {
-      stopListening();
-    }
+  const start = useCallback(() => {
+    const AnySpeech: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!AnySpeech) return;
 
-    return () => {
-      stopListening();
+    const r: SpeechRecognitionLike = new AnySpeech();
+    r.continuous = true;
+    r.interimResults = true;
+    r.lang = "en-US";
+
+    r.onresult = (event: any) => {
+      try {
+        const last = event.results?.[event.results.length - 1];
+        const transcript = (last?.[0]?.transcript || "").toString().trim().toLowerCase();
+        const key = (keywordRef.current || "snap").toLowerCase();
+        if (transcript.includes(key)) {
+          onMatchRef.current?.();
+        }
+      } catch {
+        // ignore
+      }
     };
-  }, [opts.enabled, supported, startListening, stopListening]);
 
-  return {
-    listening,
-    supported,
-  };
+    r.onerror = () => {
+      // Some browsers throw "not-allowed" if mic permission denied.
+      stop();
+    };
+
+    r.onend = () => {
+      // Auto-restart when enabled.
+      if (enabled) {
+        try {
+          r.start();
+        } catch {
+          stop();
+        }
+      } else {
+        stop();
+      }
+    };
+
+    recogRef.current = r;
+
+    try {
+      r.start();
+      setListening(true);
+    } catch {
+      stop();
+    }
+  }, [enabled, stop]);
+
+  useEffect(() => {
+    if (!supported) return;
+    if (enabled) start();
+    else stop();
+    return () => stop();
+  }, [enabled, start, stop, supported]);
+
+  return { supported, listening, start, stop };
 }
