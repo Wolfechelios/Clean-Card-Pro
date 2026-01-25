@@ -18,7 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { LogOut, Trash2, User, Lock, ImageOff, Clock, RefreshCw, Database, ScanLine, ImageIcon, Wand2, Cpu, Key, AlertTriangle } from "lucide-react";
+import { LogOut, Trash2, User, Lock, ImageOff, Clock, RefreshCw, Database, ScanLine, ImageIcon, Wand2, Cpu } from "lucide-react";
 
 import ServiceImportExport from "@/components/settings/ServiceImportExport";
 import DeviceStorageSettings from "@/components/settings/DeviceStorageSettings";
@@ -29,8 +29,6 @@ import { BulkCardReidentify } from "@/components/settings/BulkCardReidentify";
 import { BulkPSA10Update } from "@/components/pricing/BulkPSA10Update";
 import { BulkPriceRefresh } from "@/components/pricing/BulkPriceRefresh";
 import { QueueStressTest } from "@/components/settings/QueueStressTest";
-import { UserApiKeysManager } from "@/components/settings/UserApiKeysManager";
-import { CrashAnalyticsPanel } from "@/components/settings/CrashAnalyticsPanel";
 import { SettingsSkeleton } from "@/components/ui/loading-skeletons";
 import { useScannerSettings } from "@/hooks/use-scanner-settings";
 import { Slider } from "@/components/ui/slider";
@@ -411,9 +409,6 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      {/* User API Keys */}
-      <UserApiKeysManager />
-
       {/* Scanner Settings */}
       <Card className="bg-card border-border">
         <CardHeader>
@@ -773,9 +768,6 @@ export default function Settings() {
       </Card>
 
       {showStressTest && <QueueStressTest />}
-
-      {/* Crash Analytics */}
-      <CrashAnalyticsPanel />
 
       {/* Offline Storage */}
       <OfflineStoragePanel />

@@ -9,13 +9,12 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import AppLayout from "./components/layout/AppLayout";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
-import { installGlobalErrorHandlers } from "@/lib/crashAnalytics";
 import { checkAndResumeQueue } from "@/lib/queueProcessor";
 import { QueueStatusIndicator } from "@/components/scanner/QueueStatusIndicator";
-import { PremiumSplashScreen } from "@/components/pwa/PremiumSplashScreen";
+import { SplashScreen } from "@/components/SplashScreen";
 import { OfflineIndicator } from "@/components/OfflineIndicator";
 import { PWAOnboarding } from "@/components/pwa/PWAOnboarding";
-import { PremiumInstallPrompt } from "@/components/pwa/PremiumInstallPrompt";
+import { PWAInstallBanner } from "@/components/pwa/PWAInstallBanner";
 import { usePWAOnboarding } from "@/hooks/use-pwa-onboarding";
 
 const Auth = lazy(() => import("./pages/Auth"));
@@ -110,8 +109,8 @@ function PWAWrapper({ children }: { children: React.ReactNode }) {
         />
       )}
       {children}
-      {/* Show install prompt only when not in standalone mode */}
-      {!isStandalone && <PremiumInstallPrompt />}
+      {/* Show install banner only when not in standalone mode */}
+      {!isStandalone && <PWAInstallBanner />}
     </>
   );
 }
@@ -125,31 +124,30 @@ const App = () => {
     return isStandalone;
   });
 
-  // Install global error handlers and auto-resume queue on app start
+  // Auto-resume queue processing on app start
   useEffect(() => {
-    installGlobalErrorHandlers();
     checkAndResumeQueue();
   }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <TooltipProvider>
-          <ErrorBoundary>
-            {showSplash && <PremiumSplashScreen onComplete={() => setShowSplash(false)} />}
-            <Toaster />
-            <Sonner />
-            <BrowserRouter>
-              <AuthProvider>
+        <AuthProvider>
+          <TooltipProvider>
+            <ErrorBoundary>
+              {showSplash && <SplashScreen onComplete={() => setShowSplash(false)} />}
+              <Toaster />
+              <Sonner />
+              <BrowserRouter>
                 <PWAWrapper>
                   <AppRoutes />
                   <QueueStatusIndicator />
                   <OfflineIndicator />
                 </PWAWrapper>
-              </AuthProvider>
-            </BrowserRouter>
-          </ErrorBoundary>
-        </TooltipProvider>
+              </BrowserRouter>
+            </ErrorBoundary>
+          </TooltipProvider>
+        </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );
