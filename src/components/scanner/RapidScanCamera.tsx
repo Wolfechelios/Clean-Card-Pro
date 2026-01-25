@@ -10,7 +10,6 @@ import {
 interface RapidScanCameraProps {
   videoRef: React.RefObject<HTMLVideoElement>;
   startCamera: () => Promise<void>;
-  stopCamera: () => void;
   isCameraActive: boolean;
   onCapture: (image: ImageBitmap) => Promise<any>;
   scanModeLabel?: string;
@@ -21,7 +20,6 @@ type Status = "idle" | "detecting" | "stabilizing" | "processing";
 export default function RapidScanCamera({
   videoRef,
   startCamera,
-  stopCamera,
   isCameraActive,
   onCapture,
   scanModeLabel = "Save Mode",
@@ -33,14 +31,11 @@ export default function RapidScanCamera({
   const [status, setStatus] = useState<Status>("idle");
   const [sessionCount, setSessionCount] = useState(0);
 
-  // Ensure camera is running when entering Rapid Scan
+  // Ensure camera is running
   useEffect(() => {
     if (!isCameraActive) {
       startCamera();
     }
-    return () => {
-      // do not stop camera automatically; user controls that
-    };
   }, [isCameraActive, startCamera]);
 
   // Rapid scan loop
@@ -56,11 +51,16 @@ export default function RapidScanCamera({
         if (!videoRef.current) return;
         if (scanGate.isLocked()) return;
 
-        // This assumes your existing detection logic feeds stability elsewhere.
-        // For now, rapid scan assumes the card is present & stable.
-        const isStable = true;
+        // TEMP: treat presence of video as "detecting"
+        const detected = true;
 
-        const ready = stabilityGate.update(isStable);
+        if (!detected) {
+          setStatus("detecting");
+          stabilityGate.reset();
+          return;
+        }
+
+        const ready = stabilityGate.update(true);
         if (!ready) {
           setStatus("stabilizing");
           return;
@@ -88,16 +88,9 @@ export default function RapidScanCamera({
     return () => cancelAnimationFrame(rafId);
   }, [videoRef, isCameraActive, onCapture, scanGate, frameGuard, stabilityGate]);
 
+  // NOTE: NO <video> ELEMENT HERE
   return (
-    <div className="relative h-full w-full bg-black">
-      {/* Camera view comes from shared videoRef */}
-      <video
-        ref={videoRef}
-        className="absolute inset-0 h-full w-full object-cover"
-        playsInline
-        muted
-      />
-
+    <>
       {/* Mode Label */}
       <div className="absolute top-3 left-3 z-20 rounded bg-black/70 px-3 py-1 text-xs text-white">
         Rapid Scan · {scanModeLabel}
@@ -115,6 +108,6 @@ export default function RapidScanCamera({
         {status === "stabilizing" && "Hold steady"}
         {status === "processing" && "Processing"}
       </div>
-    </div>
+    </>
   );
 }
