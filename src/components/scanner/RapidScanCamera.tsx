@@ -7,67 +7,45 @@ import {
   destroyFrame,
 } from "@/lib/rapid-scan-core";
 
-type Status =
-  | "init"
-  | "detecting"
-  | "stabilizing"
-  | "processing";
-
 interface RapidScanCameraProps {
-  onCapture: (image: ImageBitmap) => Promise<void>;
+  videoRef: React.RefObject<HTMLVideoElement>;
+  startCamera: () => Promise<void>;
+  stopCamera: () => void;
+  isCameraActive: boolean;
+  onCapture: (image: ImageBitmap) => Promise<any>;
   scanModeLabel?: string;
 }
 
+type Status = "idle" | "detecting" | "stabilizing" | "processing";
+
 export default function RapidScanCamera({
+  videoRef,
+  startCamera,
+  stopCamera,
+  isCameraActive,
   onCapture,
   scanModeLabel = "Save Mode",
 }: RapidScanCameraProps) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-
   const scanGate = useRef(new RapidScanGate()).current;
   const frameGuard = useRef(new FrameLoopGuard()).current;
   const stabilityGate = useRef(new StabilityGate(900)).current;
 
-  const [status, setStatus] = useState<Status>("init");
+  const [status, setStatus] = useState<Status>("idle");
   const [sessionCount, setSessionCount] = useState(0);
-  const [hasCamera, setHasCamera] = useState(false);
 
-  // -------------------------------
-  // CAMERA SETUP
-  // -------------------------------
+  // Ensure camera is running when entering Rapid Scan
   useEffect(() => {
-    let stream: MediaStream | null = null;
-
-    async function startCamera() {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" },
-          audio: false,
-        });
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-          setHasCamera(true);
-          setStatus("detecting");
-        }
-      } catch (err) {
-        console.error("Camera error", err);
-      }
+    if (!isCameraActive) {
+      startCamera();
     }
-
-    startCamera();
-
     return () => {
-      stream?.getTracks().forEach((t) => t.stop());
+      // do not stop camera automatically; user controls that
     };
-  }, []);
+  }, [isCameraActive, startCamera]);
 
-  // -------------------------------
-  // RAPID SCAN LOOP
-  // -------------------------------
+  // Rapid scan loop
   useEffect(() => {
-    if (!hasCamera) return;
+    if (!videoRef.current || !isCameraActive) return;
 
     let rafId: number;
 
@@ -78,9 +56,8 @@ export default function RapidScanCamera({
         if (!videoRef.current) return;
         if (scanGate.isLocked()) return;
 
-        // VERY BASIC stability heuristic:
-        // we assume the card is stable if video is playing
-        // Replace this with your real detection flags if you have them
+        // This assumes your existing detection logic feeds stability elsewhere.
+        // For now, rapid scan assumes the card is present & stable.
         const isStable = true;
 
         const ready = stabilityGate.update(isStable);
@@ -109,14 +86,11 @@ export default function RapidScanCamera({
 
     rafId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafId);
-  }, [hasCamera, onCapture, scanGate, frameGuard, stabilityGate]);
+  }, [videoRef, isCameraActive, onCapture, scanGate, frameGuard, stabilityGate]);
 
-  // -------------------------------
-  // RENDER
-  // -------------------------------
   return (
-    <div className="relative h-full w-full bg-black overflow-hidden">
-      {/* CAMERA */}
+    <div className="relative h-full w-full bg-black">
+      {/* Camera view comes from shared videoRef */}
       <video
         ref={videoRef}
         className="absolute inset-0 h-full w-full object-cover"
@@ -124,19 +98,19 @@ export default function RapidScanCamera({
         muted
       />
 
-      {/* MODE LABEL */}
+      {/* Mode Label */}
       <div className="absolute top-3 left-3 z-20 rounded bg-black/70 px-3 py-1 text-xs text-white">
         Rapid Scan · {scanModeLabel}
       </div>
 
-      {/* SESSION COUNT */}
+      {/* Session Count */}
       <div className="absolute top-3 right-3 z-20 rounded bg-black/70 px-3 py-1 text-xs text-white">
         Session: {sessionCount}
       </div>
 
-      {/* STATUS */}
+      {/* Status */}
       <div className="absolute bottom-6 left-1/2 z-20 -translate-x-1/2 rounded bg-black/70 px-4 py-2 text-sm text-white">
-        {status === "init" && "Starting camera"}
+        {status === "idle" && "Starting"}
         {status === "detecting" && "Looking for card"}
         {status === "stabilizing" && "Hold steady"}
         {status === "processing" && "Processing"}
