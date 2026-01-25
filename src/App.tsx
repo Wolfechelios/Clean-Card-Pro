@@ -132,22 +132,22 @@ const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <AuthProvider>
-          <TooltipProvider>
-            <ErrorBoundary>
-              {showSplash && <SplashScreen onComplete={() => setShowSplash(false)} />}
-              <Toaster />
-              <Sonner />
-              <BrowserRouter>
+        <TooltipProvider>
+          <ErrorBoundary>
+            {showSplash && <SplashScreen onComplete={() => setShowSplash(false)} />}
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <AuthProvider>
                 <PWAWrapper>
                   <AppRoutes />
                   <QueueStatusIndicator />
                   <OfflineIndicator />
                 </PWAWrapper>
-              </BrowserRouter>
-            </ErrorBoundary>
-          </TooltipProvider>
-        </AuthProvider>
+              </AuthProvider>
+            </BrowserRouter>
+          </ErrorBoundary>
+        </TooltipProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

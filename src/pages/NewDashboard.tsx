@@ -534,116 +534,116 @@ export default function NewDashboard() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4 xs:space-y-5 sm:space-y-6 lg:space-y-8">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold mb-1">Dashboard</h1>
-          <p className="text-muted-foreground">Overview of your card collection</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="min-w-0">
+          <h1 className="text-xl xs:text-2xl sm:text-3xl font-bold mb-0.5 sm:mb-1 truncate">Dashboard</h1>
+          <p className="text-sm text-muted-foreground truncate">Overview of your card collection</p>
         </div>
-        <div className="flex gap-3">
-          <Button onClick={() => navigate("/scan")} className="shadow-glow" aria-label="Scan cards">
-            <Camera className="h-4 w-4 mr-2" aria-hidden="true" />
-            Scan Cards
+        <div className="flex gap-2 xs:gap-2.5 sm:gap-3 flex-wrap">
+          <Button onClick={() => navigate("/scan")} className="shadow-glow flex-1 xs:flex-none text-sm" size="sm" aria-label="Scan cards">
+            <Camera className="h-4 w-4 mr-1.5 xs:mr-2" aria-hidden="true" />
+            <span className="xs:inline">Scan</span>
           </Button>
-          <Button onClick={() => navigate("/binders")} variant="outline" aria-label="View binders">
-            <BookOpen className="h-4 w-4 mr-2" aria-hidden="true" />
-            Binders
+          <Button onClick={() => navigate("/binders")} variant="outline" size="sm" className="flex-1 xs:flex-none text-sm" aria-label="View binders">
+            <BookOpen className="h-4 w-4 mr-1.5 xs:mr-2" aria-hidden="true" />
+            <span className="xs:inline">Binders</span>
           </Button>
-          <Button onClick={fetchDashboardData} variant="outline" size="icon" disabled={isRefreshing} aria-label="Refresh dashboard">
+          <Button onClick={fetchDashboardData} variant="outline" size="icon-sm" disabled={isRefreshing} aria-label="Refresh dashboard" className="shrink-0">
             <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} aria-hidden="true" />
           </Button>
         </div>
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 xs:gap-3 sm:gap-4 lg:gap-5">
         <Card className="stat-card hover-lift">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Package className="h-4 w-4" />
-              Total Cards
+          <CardHeader className="pb-1.5 xs:pb-2 px-3 xs:px-4 pt-3 xs:pt-4">
+            <CardTitle className="text-xs xs:text-sm font-medium text-muted-foreground flex items-center gap-1.5 xs:gap-2">
+              <Package className="h-3.5 w-3.5 xs:h-4 xs:w-4 shrink-0" />
+              <span className="truncate">Total Cards</span>
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-gradient-primary">{stats.totalCards.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground mt-2">
-              <Zap className="inline h-3 w-3 mr-1 text-primary" />
-              {stats.recentScans} scanned today
+          <CardContent className="px-3 xs:px-4 pb-3 xs:pb-4">
+            <div className="text-xl xs:text-2xl sm:text-3xl font-bold text-gradient-primary">{stats.totalCards.toLocaleString()}</div>
+            <p className="text-2xs xs:text-xs text-muted-foreground mt-1 xs:mt-2 truncate">
+              <Zap className="inline h-2.5 w-2.5 xs:h-3 xs:w-3 mr-0.5 xs:mr-1 text-primary" />
+              {stats.recentScans} today
             </p>
           </CardContent>
         </Card>
 
         <Card className="stat-card hover-lift">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <DollarSign className="h-4 w-4" />
-              Total Value
+          <CardHeader className="pb-1.5 xs:pb-2 px-3 xs:px-4 pt-3 xs:pt-4">
+            <CardTitle className="text-xs xs:text-sm font-medium text-muted-foreground flex items-center gap-1.5 xs:gap-2">
+              <DollarSign className="h-3.5 w-3.5 xs:h-4 xs:w-4 shrink-0" />
+              <span className="truncate">Total Value</span>
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">${stats.totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-            <p className="text-xs text-muted-foreground mt-2">
-              ${stats.avgCardValue.toFixed(2)} avg per card
+          <CardContent className="px-3 xs:px-4 pb-3 xs:pb-4">
+            <div className="text-xl xs:text-2xl sm:text-3xl font-bold truncate">${stats.totalValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
+            <p className="text-2xs xs:text-xs text-muted-foreground mt-1 xs:mt-2 truncate">
+              ${stats.avgCardValue.toFixed(0)} avg
             </p>
           </CardContent>
         </Card>
 
         <Card className="stat-card hover-lift">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              {stats.valueChange >= 0 ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
-              Value Trend
+          <CardHeader className="pb-1.5 xs:pb-2 px-3 xs:px-4 pt-3 xs:pt-4">
+            <CardTitle className="text-xs xs:text-sm font-medium text-muted-foreground flex items-center gap-1.5 xs:gap-2">
+              {stats.valueChange >= 0 ? <TrendingUp className="h-3.5 w-3.5 xs:h-4 xs:w-4 shrink-0" /> : <TrendingDown className="h-3.5 w-3.5 xs:h-4 xs:w-4 shrink-0" />}
+              <span className="truncate">Trend</span>
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className={`text-3xl font-bold ${stats.valueChange >= 0 ? "text-success" : "text-destructive"}`}>
+          <CardContent className="px-3 xs:px-4 pb-3 xs:pb-4">
+            <div className={`text-xl xs:text-2xl sm:text-3xl font-bold ${stats.valueChange >= 0 ? "text-success" : "text-destructive"}`}>
               {stats.valueChange >= 0 ? "+" : ""}{stats.valueChange.toFixed(1)}%
             </div>
-            <p className="text-xs text-muted-foreground mt-2">vs last week</p>
+            <p className="text-2xs xs:text-xs text-muted-foreground mt-1 xs:mt-2">vs last week</p>
           </CardContent>
         </Card>
 
         <Card className="stat-card hover-lift">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Star className="h-4 w-4" />
-              Top Rarity
+          <CardHeader className="pb-1.5 xs:pb-2 px-3 xs:px-4 pt-3 xs:pt-4">
+            <CardTitle className="text-xs xs:text-sm font-medium text-muted-foreground flex items-center gap-1.5 xs:gap-2">
+              <Star className="h-3.5 w-3.5 xs:h-4 xs:w-4 shrink-0" />
+              <span className="truncate">Top Rarity</span>
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{stats.topRarity}</div>
-            <p className="text-xs text-muted-foreground mt-2">Most common in collection</p>
+          <CardContent className="px-3 xs:px-4 pb-3 xs:pb-4">
+            <div className="text-xl xs:text-2xl sm:text-3xl font-bold truncate">{stats.topRarity}</div>
+            <p className="text-2xs xs:text-xs text-muted-foreground mt-1 xs:mt-2 truncate">Most common</p>
           </CardContent>
         </Card>
       </div>
 
       {/* Collector Sale Value - What you could sell for today */}
       <Card className="relative overflow-hidden border-2 border-success/20 bg-gradient-to-br from-success/5 via-background to-accent/5">
-        <div className="absolute top-0 right-0 w-32 h-32 bg-success/10 rounded-full blur-3xl -mr-16 -mt-16" />
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-success/10 flex items-center justify-center">
-              <DollarSign className="h-5 w-5 text-success" />
+        <div className="absolute top-0 right-0 w-24 xs:w-32 h-24 xs:h-32 bg-success/10 rounded-full blur-3xl -mr-12 xs:-mr-16 -mt-12 xs:-mt-16" />
+        <CardHeader className="pb-2 px-3 xs:px-4 sm:px-6 pt-3 xs:pt-4 sm:pt-6">
+          <CardTitle className="flex items-center gap-2 xs:gap-3">
+            <div className="h-8 w-8 xs:h-10 xs:w-10 rounded-lg xs:rounded-xl bg-success/10 flex items-center justify-center shrink-0">
+              <DollarSign className="h-4 w-4 xs:h-5 xs:w-5 text-success" />
             </div>
-            <div>
-              <span className="text-lg font-semibold">Collector Sale Value</span>
-              <p className="text-xs text-muted-foreground font-normal">Realistic price selling to another collector today</p>
+            <div className="min-w-0">
+              <span className="text-sm xs:text-base sm:text-lg font-semibold block truncate">Collector Sale Value</span>
+              <p className="text-2xs xs:text-xs text-muted-foreground font-normal truncate">Realistic selling price today</p>
             </div>
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="flex items-end justify-between">
-            <div>
-              <div className="text-4xl font-bold text-success">
-                ${stats.collectorSaleValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        <CardContent className="px-3 xs:px-4 sm:px-6 pb-3 xs:pb-4 sm:pb-6">
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 sm:gap-4">
+            <div className="min-w-0">
+              <div className="text-2xl xs:text-3xl sm:text-4xl font-bold text-success truncate">
+                ${stats.collectorSaleValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
               </div>
-              <div className="flex items-center gap-4 mt-3">
-                <Badge variant="secondary" className="text-xs">
-                  {stats.cardsWithPrices} of {stats.totalCards} cards priced
+              <div className="flex flex-wrap items-center gap-2 xs:gap-3 sm:gap-4 mt-2 xs:mt-3">
+                <Badge variant="secondary" className="text-2xs xs:text-xs shrink-0">
+                  {stats.cardsWithPrices}/{stats.totalCards} priced
                 </Badge>
-                <span className="text-sm text-muted-foreground flex items-center gap-1">
-                  ~75% of market value
+                <span className="text-2xs xs:text-xs sm:text-sm text-muted-foreground">
+                  ~75% market
                 </span>
               </div>
             </div>
@@ -651,81 +651,80 @@ export default function NewDashboard() {
               variant="outline" 
               size="sm" 
               onClick={() => navigate("/collections")}
-              className="shrink-0"
+              className="shrink-0 w-full sm:w-auto text-sm"
             >
               View Collection
               <ArrowUpRight className="h-4 w-4 ml-1" />
             </Button>
           </div>
-          <div className="mt-4 p-3 rounded-lg bg-muted/50 flex items-start gap-2">
-            <Target className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-            <p className="text-xs text-muted-foreground">
-              Based on typical collector-to-collector sales (~75% of market). 
-              Actual value depends on card condition and buyer demand.
+          <div className="mt-3 xs:mt-4 p-2 xs:p-3 rounded-lg bg-muted/50 flex items-start gap-2">
+            <Target className="h-3.5 w-3.5 xs:h-4 xs:w-4 text-muted-foreground shrink-0 mt-0.5" />
+            <p className="text-2xs xs:text-xs text-muted-foreground leading-relaxed">
+              Based on collector-to-collector sales (~75% of market).
             </p>
           </div>
         </CardContent>
       </Card>
 
       {/* Scan Center Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 xs:gap-4 lg:gap-5">
         <Card className="hover-lift">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <div className="h-8 w-8 rounded-lg bg-success/10 flex items-center justify-center">
-                <ScanIcon className="h-4 w-4 text-success" />
+          <CardHeader className="pb-2 xs:pb-3 px-3 xs:px-4 pt-3 xs:pt-4">
+            <CardTitle className="flex items-center gap-2 text-sm xs:text-base">
+              <div className="h-7 w-7 xs:h-8 xs:w-8 rounded-lg bg-success/10 flex items-center justify-center shrink-0">
+                <ScanIcon className="h-3.5 w-3.5 xs:h-4 xs:w-4 text-success" />
               </div>
-              Quick Single Scan
+              <span className="truncate">Quick Scan</span>
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              Open the dedicated scan lab to drag in a single card and run full AI analysis.
+          <CardContent className="space-y-2 xs:space-y-3 px-3 xs:px-4 pb-3 xs:pb-4">
+            <p className="text-xs xs:text-sm text-muted-foreground leading-relaxed line-clamp-2">
+              Open scan lab for single card AI analysis.
             </p>
-            <Button size="sm" onClick={() => navigate("/scan")} className="w-full sm:w-auto">
-              <Camera className="h-4 w-4 mr-2" />
-              Open Scan Lab
+            <Button size="sm" onClick={() => navigate("/scan")} className="w-full text-sm">
+              <Camera className="h-4 w-4 mr-1.5 xs:mr-2" />
+              Scan Lab
             </Button>
           </CardContent>
         </Card>
 
         <Card className="hover-lift">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                <BookOpen className="h-4 w-4 text-primary" />
+          <CardHeader className="pb-2 xs:pb-3 px-3 xs:px-4 pt-3 xs:pt-4">
+            <CardTitle className="flex items-center gap-2 text-sm xs:text-base">
+              <div className="h-7 w-7 xs:h-8 xs:w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                <BookOpen className="h-3.5 w-3.5 xs:h-4 xs:w-4 text-primary" />
               </div>
-              Binder Page Scan
+              <span className="truncate">Binder Page</span>
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              Upload a full 9-pocket binder page for multi-card OCR processing.
+          <CardContent className="space-y-2 xs:space-y-3 px-3 xs:px-4 pb-3 xs:pb-4">
+            <p className="text-xs xs:text-sm text-muted-foreground leading-relaxed line-clamp-2">
+              Upload 9-pocket binder page for OCR.
             </p>
             <Input
               type="file"
               accept="image/*"
               disabled={binderUploading}
               onChange={handleBinderFileChange}
-              className="text-sm"
+              className="text-xs xs:text-sm"
             />
-            {binderUploading && <p className="text-xs text-primary animate-pulse">Uploading binder page…</p>}
-            {binderError && <p className="text-xs text-destructive">{binderError}</p>}
+            {binderUploading && <p className="text-2xs xs:text-xs text-primary animate-pulse">Uploading…</p>}
+            {binderError && <p className="text-2xs xs:text-xs text-destructive truncate">{binderError}</p>}
           </CardContent>
         </Card>
 
-        <Card className="hover-lift">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
-                <Activity className="h-4 w-4 text-accent" />
+        <Card className="hover-lift sm:col-span-2 lg:col-span-1">
+          <CardHeader className="pb-2 xs:pb-3 px-3 xs:px-4 pt-3 xs:pt-4">
+            <CardTitle className="flex items-center gap-2 text-sm xs:text-base">
+              <div className="h-7 w-7 xs:h-8 xs:w-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
+                <Activity className="h-3.5 w-3.5 xs:h-4 xs:w-4 text-accent" />
               </div>
-              Bulk Scan
+              <span className="truncate">Bulk Scan</span>
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              Select multiple card images to batch upload and run full analysis.
+          <CardContent className="space-y-2 xs:space-y-3 px-3 xs:px-4 pb-3 xs:pb-4">
+            <p className="text-xs xs:text-sm text-muted-foreground leading-relaxed line-clamp-2">
+              Batch upload multiple card images.
             </p>
             <Input
               type="file"
@@ -733,19 +732,19 @@ export default function NewDashboard() {
               multiple
               disabled={bulkUploading}
               onChange={handleBulkFilesChange}
-              className="text-sm"
+              className="text-xs xs:text-sm"
             />
             {(bulkUploading || bulkProgress > 0) && (
-              <div className="space-y-2">
-                <Progress value={bulkProgress} className="h-2" />
-                <p className="text-xs text-muted-foreground">{bulkProgress}% complete</p>
+              <div className="space-y-1.5">
+                <Progress value={bulkProgress} className="h-1.5 xs:h-2" />
+                <p className="text-2xs xs:text-xs text-muted-foreground">{bulkProgress}%</p>
               </div>
             )}
-            {bulkError && <p className="text-xs text-destructive">{bulkError}</p>}
+            {bulkError && <p className="text-2xs xs:text-xs text-destructive truncate">{bulkError}</p>}
             {bulkItems.length > 0 && (
-              <div className="max-h-24 overflow-auto rounded-lg bg-secondary/50 p-3 space-y-1.5">
+              <div className="max-h-20 xs:max-h-24 overflow-auto rounded-lg bg-secondary/50 p-2 xs:p-3 space-y-1">
                 {bulkItems.map((item, idx) => (
-                  <div key={idx} className="flex items-center justify-between text-xs">
+                  <div key={idx} className="flex items-center justify-between text-2xs xs:text-xs">
                     <span className="truncate max-w-[60%] text-muted-foreground">{item.imageUrl || `Item ${idx + 1}`}</span>
                     <span
                       className={
@@ -768,67 +767,68 @@ export default function NewDashboard() {
 
       {/* PSA 10 Viability Analysis Card */}
       <Card className="relative overflow-hidden border-2 border-amber-500/20 bg-gradient-to-br from-amber-500/5 via-background to-primary/5">
-        <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-3xl -mr-16 -mt-16" />
-        <CardHeader className="pb-2">
-          <CardTitle className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
-              <Gem className="h-5 w-5 text-amber-500" />
+        <div className="absolute top-0 right-0 w-20 xs:w-24 sm:w-32 h-20 xs:h-24 sm:h-32 bg-amber-500/10 rounded-full blur-3xl -mr-10 xs:-mr-12 sm:-mr-16 -mt-10 xs:-mt-12 sm:-mt-16" />
+        <CardHeader className="pb-2 px-3 xs:px-4 sm:px-6 pt-3 xs:pt-4 sm:pt-6">
+          <CardTitle className="flex items-center gap-2 xs:gap-3">
+            <div className="h-8 w-8 xs:h-9 xs:w-9 sm:h-10 sm:w-10 rounded-lg xs:rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0">
+              <Gem className="h-4 w-4 xs:h-4.5 xs:w-4.5 sm:h-5 sm:w-5 text-amber-500" />
             </div>
-            <div>
-              <span className="text-lg font-semibold">PSA 10 Viability Scanner</span>
-              <p className="text-xs text-muted-foreground font-normal">AI analyzes card photos to find gem mint candidates</p>
+            <div className="min-w-0">
+              <span className="text-sm xs:text-base sm:text-lg font-semibold block truncate">PSA 10 Viability Scanner</span>
+              <p className="text-2xs xs:text-xs text-muted-foreground font-normal truncate">AI finds gem mint candidates</p>
             </div>
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-between gap-4">
-            <div className="space-y-2">
-              <div className="flex items-center gap-4">
-                <Badge variant="secondary" className="text-xs">
-                  {allCards.filter(c => c.psa10_viable === true).length} viable cards found
+        <CardContent className="px-3 xs:px-4 sm:px-6 pb-3 xs:pb-4 sm:pb-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+            <div className="space-y-2 min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5 xs:gap-2">
+                <Badge variant="secondary" className="text-2xs xs:text-xs">
+                  {allCards.filter(c => c.psa10_viable === true).length} viable
                 </Badge>
-                <Badge variant="outline" className="text-xs">
-                  {allCards.filter(c => c.psa10_viable === null && c.image_url && !c.image_url.includes('placeholder')).length} awaiting analysis
+                <Badge variant="outline" className="text-2xs xs:text-xs">
+                  {allCards.filter(c => c.psa10_viable === null && c.image_url && !c.image_url.includes('placeholder')).length} pending
                 </Badge>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Scans card images for centering, corners, edges, and surface condition
+              <p className="text-2xs xs:text-xs text-muted-foreground line-clamp-2">
+                Scans for centering, corners, edges & surface
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => navigate("/collections?psa10viable=true")}
                 disabled={allCards.filter(c => c.psa10_viable === true).length === 0}
+                className="flex-1 sm:flex-none text-xs xs:text-sm"
               >
-                View Viable Cards
+                <span className="truncate">View Viable</span>
               </Button>
               <Button
                 size="sm"
                 onClick={handlePsa10Analysis}
                 disabled={psa10AnalysisRunning || allCards.filter(c => c.psa10_viable === null && c.image_url).length === 0}
-                className="bg-amber-500 hover:bg-amber-600 text-white"
+                className="bg-amber-500 hover:bg-amber-600 text-white flex-1 sm:flex-none text-xs xs:text-sm"
               >
                 {psa10AnalysisRunning ? (
                   <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Analyzing...
+                    <Loader2 className="h-3.5 w-3.5 xs:h-4 xs:w-4 mr-1.5 animate-spin" />
+                    <span className="truncate">Analyzing</span>
                   </>
                 ) : (
                   <>
-                    <Gem className="h-4 w-4 mr-2" />
-                    Analyze Cards
+                    <Gem className="h-3.5 w-3.5 xs:h-4 xs:w-4 mr-1.5" />
+                    <span className="truncate">Analyze</span>
                   </>
                 )}
               </Button>
             </div>
           </div>
           {psa10AnalysisRunning && (
-            <div className="mt-4 space-y-2">
-              <Progress value={(psa10AnalysisProgress.processed / psa10AnalysisProgress.total) * 100} className="h-2" />
-              <p className="text-xs text-muted-foreground">
-                Analyzed {psa10AnalysisProgress.processed} of {psa10AnalysisProgress.total} cards • Found {psa10AnalysisProgress.viable} viable
+            <div className="mt-3 xs:mt-4 space-y-1.5">
+              <Progress value={(psa10AnalysisProgress.processed / psa10AnalysisProgress.total) * 100} className="h-1.5 xs:h-2" />
+              <p className="text-2xs xs:text-xs text-muted-foreground">
+                {psa10AnalysisProgress.processed}/{psa10AnalysisProgress.total} • {psa10AnalysisProgress.viable} viable
               </p>
             </div>
           )}
@@ -837,30 +837,31 @@ export default function NewDashboard() {
 
       {/* Value Over Time Chart */}
       <Card className="hover-lift">
-        <CardHeader>
-          <CardTitle className="text-base">Value Over Time</CardTitle>
+        <CardHeader className="px-3 xs:px-4 sm:px-6 pt-3 xs:pt-4 sm:pt-6 pb-2">
+          <CardTitle className="text-sm xs:text-base">Value Over Time</CardTitle>
           {scannerActive && (
-            <p className="text-xs text-muted-foreground">Charts paused while scanning...</p>
+            <p className="text-2xs xs:text-xs text-muted-foreground">Charts paused while scanning...</p>
           )}
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-2 xs:px-3 sm:px-6 pb-3 xs:pb-4 sm:pb-6">
           {scannerActive ? (
-            <div className="flex items-center justify-center h-[260px] text-muted-foreground">
-              <Activity className="h-6 w-6 animate-pulse mr-2" />
-              Scanner active - charts paused
+            <div className="flex items-center justify-center h-40 xs:h-48 sm:h-64 text-muted-foreground text-sm">
+              <Activity className="h-5 w-5 xs:h-6 xs:w-6 animate-pulse mr-2" />
+              Scanner active - paused
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={260}>
+            <ResponsiveContainer width="100%" height={window.innerWidth < 475 ? 160 : window.innerWidth < 640 ? 200 : 260}>
               <LineChart data={valueOverTime}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.5} />
-                <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} />
-                <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} />
+                <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} />
+                <YAxis stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false} width={40} />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: "hsl(var(--popover))",
                     border: "1px solid hsl(var(--border))",
                     borderRadius: "8px",
                     boxShadow: "var(--shadow-lg)",
+                    fontSize: "12px",
                   }}
                   labelStyle={{ color: "hsl(var(--foreground))" }}
                 />
@@ -868,9 +869,9 @@ export default function NewDashboard() {
                   type="monotone" 
                   dataKey="value" 
                   stroke="hsl(173, 80%, 50%)" 
-                  strokeWidth={2.5}
-                  dot={{ fill: "hsl(173, 80%, 50%)", strokeWidth: 0, r: 4 }}
-                  activeDot={{ r: 6, fill: "hsl(173, 80%, 50%)", stroke: "hsl(var(--background))", strokeWidth: 2 }}
+                  strokeWidth={2}
+                  dot={{ fill: "hsl(173, 80%, 50%)", strokeWidth: 0, r: 3 }}
+                  activeDot={{ r: 5, fill: "hsl(173, 80%, 50%)", stroke: "hsl(var(--background))", strokeWidth: 2 }}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -880,79 +881,79 @@ export default function NewDashboard() {
 
       {/* AI Collection Advisor */}
       <Card className="hover-lift border-primary/20 bg-gradient-to-br from-primary/5 to-accent/5">
-        <CardHeader>
-          <CardTitle className="text-base flex items-center justify-between">
+        <CardHeader className="px-3 xs:px-4 sm:px-6 pt-3 xs:pt-4 sm:pt-6 pb-2">
+          <CardTitle className="text-sm xs:text-base flex flex-col xs:flex-row xs:items-center xs:justify-between gap-2 xs:gap-3">
             <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                <Sparkles className="h-4 w-4 text-primary" />
+              <div className="h-7 w-7 xs:h-8 xs:w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                <Sparkles className="h-3.5 w-3.5 xs:h-4 xs:w-4 text-primary" />
               </div>
-              <span>AI Collection Advisor</span>
+              <span className="truncate">AI Collection Advisor</span>
             </div>
             <Button 
               size="sm" 
               onClick={getAIAdvice} 
               disabled={aiAdviceLoading || allCards.length === 0}
-              className="gap-2"
+              className="gap-1.5 xs:gap-2 w-full xs:w-auto text-xs xs:text-sm"
             >
               {aiAdviceLoading ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Analyzing...
+                  <Loader2 className="h-3.5 w-3.5 xs:h-4 xs:w-4 animate-spin" />
+                  <span className="truncate">Analyzing...</span>
                 </>
               ) : (
                 <>
-                  <Target className="h-4 w-4" />
-                  Get AI Insights
+                  <Target className="h-3.5 w-3.5 xs:h-4 xs:w-4" />
+                  <span className="truncate">Get AI Insights</span>
                 </>
               )}
             </Button>
           </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Get AI-powered recommendations to increase your collection's value
+          <p className="text-2xs xs:text-xs sm:text-sm text-muted-foreground">
+            AI-powered recommendations to increase your collection's value
           </p>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-3 xs:px-4 sm:px-6 pb-3 xs:pb-4 sm:pb-6">
           {aiAdvice ? (
             <div className="prose prose-sm dark:prose-invert max-w-none">
-              <div className="bg-secondary/50 rounded-lg p-4 space-y-3 text-sm whitespace-pre-wrap">
+              <div className="bg-secondary/50 rounded-lg p-3 xs:p-4 space-y-2 xs:space-y-3 text-xs xs:text-sm whitespace-pre-wrap">
                 {aiAdvice}
               </div>
             </div>
           ) : (
-            <div className="text-center py-6 text-muted-foreground">
-              <Sparkles className="h-10 w-10 mx-auto mb-3 opacity-30" />
-              <p className="text-sm">Click "Get AI Insights" to receive personalized recommendations</p>
-              <p className="text-xs mt-1">Our AI will analyze your {stats.totalCards} cards and suggest moves to increase value</p>
+            <div className="text-center py-4 xs:py-6 text-muted-foreground">
+              <Sparkles className="h-8 w-8 xs:h-10 xs:w-10 mx-auto mb-2 xs:mb-3 opacity-30" />
+              <p className="text-xs xs:text-sm">Click "Get AI Insights" for personalized recommendations</p>
+              <p className="text-2xs xs:text-xs mt-1">Analyzing your {stats.totalCards} cards</p>
             </div>
           )}
         </CardContent>
       </Card>
 
       {/* Bottom Row - Top Cards and Recent Activity */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 xs:gap-4 lg:gap-5">
         <Card className="hover-lift">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <DollarSign className="h-4 w-4 text-success" />
-                Top Valuable Cards
+          <CardHeader className="pb-2 px-3 xs:px-4 sm:px-6 pt-3 xs:pt-4 sm:pt-6">
+            <CardTitle className="text-sm xs:text-base flex items-center justify-between">
+              <div className="flex items-center gap-1.5 xs:gap-2">
+                <DollarSign className="h-3.5 w-3.5 xs:h-4 xs:w-4 text-success shrink-0" />
+                <span className="truncate">Top Cards</span>
               </div>
-              <Badge variant="secondary" className="text-xs">{topCards.length} cards</Badge>
+              <Badge variant="secondary" className="text-2xs xs:text-xs shrink-0">{topCards.length}</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             {topCards.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground px-6">
-                <Package className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                <p className="text-sm">No cards yet. Start scanning!</p>
+              <div className="text-center py-6 xs:py-8 text-muted-foreground px-4 xs:px-6">
+                <Package className="h-8 w-8 xs:h-10 xs:w-10 mx-auto mb-2 xs:mb-3 opacity-30" />
+                <p className="text-xs xs:text-sm">No cards yet. Start scanning!</p>
               </div>
             ) : (
-              <ScrollArea className="h-[400px]">
-                <div className="space-y-1 px-6 pb-6">
+              <ScrollArea className="h-64 xs:h-80 sm:h-96">
+                <div className="space-y-1 px-3 xs:px-4 sm:px-6 pb-3 xs:pb-4 sm:pb-6">
                   {topCards.map((card, idx) => (
                     <button
                       key={card.id}
-                      className="flex items-center gap-3 p-2.5 rounded-lg bg-secondary/40 hover:bg-secondary/70 w-full text-left transition-all group"
+                      className="flex items-center gap-2 xs:gap-3 p-2 xs:p-2.5 rounded-lg bg-secondary/40 hover:bg-secondary/70 w-full text-left transition-all group"
                       onClick={() => {
                         setSelectedCard({
                           id: card.id,
@@ -975,18 +976,18 @@ export default function NewDashboard() {
                         <img
                           src={card.thumbnail_url || card.image_url}
                           alt={card.card_name}
-                          className="w-10 h-10 object-cover rounded-md border border-border/50"
+                          className="w-8 h-8 xs:w-10 xs:h-10 object-cover rounded-md border border-border/50"
                         />
-                        <span className="absolute -top-1 -left-1 h-4 w-4 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
+                        <span className="absolute -top-1 -left-1 h-3.5 w-3.5 xs:h-4 xs:w-4 rounded-full bg-primary text-primary-foreground text-[8px] xs:text-[10px] font-bold flex items-center justify-center">
                           {idx + 1}
                         </span>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate group-hover:text-primary transition-colors">{card.card_name}</p>
-                        <p className="text-xs text-muted-foreground truncate">{card.card_set}</p>
+                        <p className="font-medium text-xs xs:text-sm truncate group-hover:text-primary transition-colors">{card.card_name}</p>
+                        <p className="text-2xs xs:text-xs text-muted-foreground truncate">{card.card_set}</p>
                       </div>
                       <div className="text-right flex-shrink-0">
-                        <p className="font-bold text-success text-sm">${(card.current_price_raw || 0).toFixed(2)}</p>
+                        <p className="font-bold text-success text-xs xs:text-sm">${(card.current_price_raw || 0).toFixed(2)}</p>
                       </div>
                     </button>
                   ))}
@@ -997,28 +998,28 @@ export default function NewDashboard() {
         </Card>
 
         <Card className="hover-lift">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Activity className="h-4 w-4 text-primary" />
-                Recent Activity
+          <CardHeader className="pb-2 px-3 xs:px-4 sm:px-6 pt-3 xs:pt-4 sm:pt-6">
+            <CardTitle className="text-sm xs:text-base flex items-center justify-between">
+              <div className="flex items-center gap-1.5 xs:gap-2">
+                <Activity className="h-3.5 w-3.5 xs:h-4 xs:w-4 text-primary shrink-0" />
+                <span className="truncate">Recent Activity</span>
               </div>
-              <Badge variant="secondary" className="text-xs">{recentCards.length} cards</Badge>
+              <Badge variant="secondary" className="text-2xs xs:text-xs shrink-0">{recentCards.length}</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             {recentCards.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground px-6">
-                <Activity className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                <p className="text-sm">No recent activity</p>
+              <div className="text-center py-6 xs:py-8 text-muted-foreground px-4 xs:px-6">
+                <Activity className="h-8 w-8 xs:h-10 xs:w-10 mx-auto mb-2 xs:mb-3 opacity-30" />
+                <p className="text-xs xs:text-sm">No recent activity</p>
               </div>
             ) : (
-              <ScrollArea className="h-[400px]">
-                <div className="space-y-1 px-6 pb-6">
+              <ScrollArea className="h-64 xs:h-80 sm:h-96">
+                <div className="space-y-1 px-3 xs:px-4 sm:px-6 pb-3 xs:pb-4 sm:pb-6">
                   {recentCards.map((card) => (
                     <button
                       key={card.id}
-                      className="flex items-center gap-3 p-2.5 rounded-lg bg-secondary/40 hover:bg-secondary/70 w-full text-left transition-all group"
+                      className="flex items-center gap-2 xs:gap-3 p-2 xs:p-2.5 rounded-lg bg-secondary/40 hover:bg-secondary/70 w-full text-left transition-all group"
                       onClick={() => {
                         setSelectedCard({
                           id: card.id,
@@ -1040,14 +1041,14 @@ export default function NewDashboard() {
                       <img
                         src={card.thumbnail_url || card.image_url}
                         alt={card.card_name}
-                        className="w-10 h-10 object-cover rounded-md border border-border/50 flex-shrink-0"
+                        className="w-8 h-8 xs:w-10 xs:h-10 object-cover rounded-md border border-border/50 flex-shrink-0"
                       />
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate group-hover:text-primary transition-colors">{card.card_name}</p>
-                        <p className="text-xs text-muted-foreground">{new Date(card.created_at).toLocaleDateString()}</p>
+                        <p className="font-medium text-xs xs:text-sm truncate group-hover:text-primary transition-colors">{card.card_name}</p>
+                        <p className="text-2xs xs:text-xs text-muted-foreground">{new Date(card.created_at).toLocaleDateString()}</p>
                       </div>
                       <div className="text-right flex-shrink-0">
-                        <p className="font-medium text-sm">${(card.current_price_raw || 0).toFixed(2)}</p>
+                        <p className="font-medium text-xs xs:text-sm">${(card.current_price_raw || 0).toFixed(2)}</p>
                       </div>
                     </button>
                   ))}

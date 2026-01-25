@@ -1,11 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { getUserApiKey, API_KEY_NAMES } from "../_shared/getUserApiKey.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Uses user's own Gemini API key for unlimited scanning (no Lovable AI rate limits)
+// Uses user's own API keys when available, falls back to system keys
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -18,8 +20,35 @@ serve(async (req) => {
       throw new Error('imageUrl is required');
     }
 
-    // Prefer Lovable AI (always available), only use Gemini if key is valid
-    const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY');
+    // Get user ID from auth header for user-specific keys
+    const authHeader = req.headers.get('authorization');
+    let userId: string | null = null;
+    let supabaseClient: ReturnType<typeof createClient> | null = null;
+    
+    if (authHeader) {
+      supabaseClient = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+        { global: { headers: { Authorization: authHeader } } }
+      );
+      
+      const { data: { user } } = await supabaseClient.auth.getUser();
+      userId = user?.id ?? null;
+    }
+
+    // Try to get user-specific Gemini key, fall back to system key
+    let GEMINI_API_KEY: string | null = null;
+    if (userId && supabaseClient) {
+      GEMINI_API_KEY = await getUserApiKey(
+        supabaseClient,
+        userId,
+        API_KEY_NAMES.GEMINI,
+        'GEMINI_API_KEY'
+      );
+    } else {
+      GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? null;
+    }
+    
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     
     // Only use Gemini if key looks valid (not empty, not placeholder)

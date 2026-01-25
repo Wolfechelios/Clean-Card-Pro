@@ -33,7 +33,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
   useAutoSync();
 
   return (
-    <div className="min-h-screen min-h-[100dvh] flex w-full bg-background safe-top safe-bottom">
+    <div className="min-h-[100dvh] min-h-screen flex w-full bg-background safe-top safe-bottom">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-background focus:px-3 focus:py-2 focus:text-sm focus:shadow-lg"
@@ -50,11 +50,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
         <NavBar />
         <main
           id="main"
-          className="flex-1 p-4 sm:p-5 md:p-6 lg:p-8 overflow-auto touch-pan-y"
+          className="flex-1 px-2 py-3 xs:px-3 xs:py-4 sm:px-5 md:px-6 lg:px-8 overflow-y-auto overflow-x-hidden touch-pan-y"
           role="main"
         >
           <Suspense fallback={<PageLoader />}>
-            <div className="max-w-[1920px] mx-auto animate-fade-in-up">{children}</div>
+            <div className="max-w-[1920px] mx-auto animate-fade-in-up w-full pb-4">{children}</div>
           </Suspense>
         </main>
       </div>
