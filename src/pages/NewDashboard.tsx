@@ -3,10 +3,40 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Database } from "@/integrations/supabase/types";
-import { TrendingUp, TrendingDown, DollarSign, Package, Star, RefreshCw, Scan as ScanIcon, BookOpen, Camera, Activity, Zap, Sparkles, Loader2, ArrowUpRight, ArrowDownRight, Target, AlertTriangle, Gem } from "lucide-react";
+import {
+  TrendingUp,
+  TrendingDown,
+  DollarSign,
+  Package,
+  Star,
+  RefreshCw,
+  Scan as ScanIcon,
+  BookOpen,
+  Camera,
+  Activity,
+  Zap,
+  Sparkles,
+  Loader2,
+  ArrowUpRight,
+  ArrowDownRight,
+  Target,
+  AlertTriangle,
+  Gem,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
-import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import {
+  LineChart,
+  Line,
+  PieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { analyzeCardFull } from "@/lib/analyzeCardFull";
@@ -16,7 +46,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
+
 type CardType = Database["public"]["Tables"]["cards"]["Row"];
+
 interface DashboardStats {
   totalCards: number;
   totalValue: number;
@@ -27,25 +59,23 @@ interface DashboardStats {
   collectorSaleValue: number;
   cardsWithPrices: number;
 }
+
 interface ChartData {
   name: string;
   value: number;
   count?: number;
 }
+
 interface BulkScanResult {
   imageUrl: string;
   status: "pending" | "success" | "error";
   error?: string;
 }
+
 export default function NewDashboard() {
-  const {
-    userId,
-    loading: authLoading
-  } = useAuth();
+  const { userId, loading: authLoading } = useAuth();
   const navigate = useNavigate();
-  const {
-    scannerActive
-  } = useGlobalProcessControl();
+  const { scannerActive } = useGlobalProcessControl();
   const [stats, setStats] = useState<DashboardStats>({
     totalCards: 0,
     totalValue: 0,
@@ -54,7 +84,7 @@ export default function NewDashboard() {
     topRarity: "N/A",
     valueChange: 0,
     collectorSaleValue: 0,
-    cardsWithPrices: 0
+    cardsWithPrices: 0,
   });
   const [recentCards, setRecentCards] = useState<CardType[]>([]);
   const [rarityData, setRarityData] = useState<ChartData[]>([]);
@@ -66,6 +96,7 @@ export default function NewDashboard() {
   // Scan-center state
   const [binderUploading, setBinderUploading] = useState(false);
   const [binderError, setBinderError] = useState<string | null>(null);
+
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [bulkItems, setBulkItems] = useState<BulkScanResult[]>([]);
@@ -76,25 +107,23 @@ export default function NewDashboard() {
   const [aiAdvice, setAiAdvice] = useState<string | null>(null);
   const [aiAdviceLoading, setAiAdviceLoading] = useState(false);
   const [allCards, setAllCards] = useState<CardType[]>([]);
-
+  
   // PSA10 viability analysis state
   const [psa10AnalysisRunning, setPsa10AnalysisRunning] = useState(false);
-  const [psa10AnalysisProgress, setPsa10AnalysisProgress] = useState({
-    processed: 0,
-    total: 0,
-    viable: 0
-  });
+  const [psa10AnalysisProgress, setPsa10AnalysisProgress] = useState({ processed: 0, total: 0, viable: 0 });
   // Dashboard refresh throttling (prevents crashes during rapid scanning)
   const refreshTimerRef = useRef<number | null>(null);
   const refreshInFlightRef = useRef(false);
   const pendingRefreshRef = useRef(false);
   const scannerActiveRef = useRef(scannerActive);
+
   const triggerDashboardRefresh = useCallback(() => {
     // If scanning is active, postpone refresh until scanning stops
     if (scannerActiveRef.current) {
       pendingRefreshRef.current = true;
       return;
     }
+
     if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
 
     // Debounce realtime-driven refreshes (rapid scans can emit many updates per second)
@@ -108,6 +137,7 @@ export default function NewDashboard() {
       }
     }, 2000);
   }, [userId]);
+
   useEffect(() => {
     scannerActiveRef.current = scannerActive;
     if (!scannerActive && pendingRefreshRef.current) {
@@ -115,45 +145,61 @@ export default function NewDashboard() {
       triggerDashboardRefresh();
     }
   }, [scannerActive, triggerDashboardRefresh]);
+
   useEffect(() => {
     if (authLoading) return;
+
     triggerDashboardRefresh();
 
     // Real-time subscription for card changes (throttled)
-    const channel = supabase.channel("dashboard-cards-changes").on("postgres_changes", {
-      event: "*",
-      schema: "public",
-      table: "cards"
-    }, () => {
-      triggerDashboardRefresh();
-    }).subscribe();
+    const channel = supabase
+      .channel("dashboard-cards-changes")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "cards",
+        },
+        () => {
+          triggerDashboardRefresh();
+        }
+      )
+      .subscribe();
+
     return () => {
       if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
       supabase.removeChannel(channel);
     };
   }, [authLoading, userId, triggerDashboardRefresh]);
+
   const fetchDashboardData = async () => {
     if (!userId) {
       setIsInitialLoading(false);
       setIsRefreshing(false);
       return;
     }
+    
     setIsRefreshing(true);
+
     const allCards: CardType[] = [];
     const pageSize = 1000;
     let page = 0;
     let hasMore = true;
+
     while (hasMore) {
-      const {
-        data: cards,
-        error
-      } = await supabase.from("cards").select("*").eq("user_id", userId).order("created_at", {
-        ascending: false
-      }).range(page * pageSize, (page + 1) * pageSize - 1);
+      const { data: cards, error } = await supabase
+        .from("cards")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false })
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+
       if (error) {
         console.error("Error fetching cards:", error);
         break;
       }
+
       if (cards && cards.length > 0) {
         allCards.push(...cards);
         page++;
@@ -162,27 +208,43 @@ export default function NewDashboard() {
         hasMore = false;
       }
     }
+
     if (allCards.length > 0) {
       const cards = allCards;
       const totalValue = cards.reduce((sum, card) => sum + (card.current_price_raw || 0) * (card.quantity || 1), 0);
       const totalCards = cards.reduce((sum, card) => sum + (card.quantity || 1), 0);
       const avgValue = totalCards > 0 ? totalValue / totalCards : 0;
+
       const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const recentScans = cards.filter(c => new Date(c.created_at) > dayAgo).reduce((sum, card) => sum + (card.quantity || 1), 0);
-      const rarityCounts = cards.reduce((acc, card) => {
-        const rarity = card.rarity || "Unknown";
-        acc[rarity] = (acc[rarity] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>);
+      const recentScans = cards
+        .filter((c) => new Date(c.created_at) > dayAgo)
+        .reduce((sum, card) => sum + (card.quantity || 1), 0);
+
+      const rarityCounts = cards.reduce(
+        (acc, card) => {
+          const rarity = card.rarity || "Unknown";
+          acc[rarity] = (acc[rarity] || 0) + 1;
+          return acc;
+        },
+        {} as Record<string, number>,
+      );
       const topRarity = Object.entries(rarityCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "N/A";
+
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
-      const recentValue = cards.filter(c => new Date(c.created_at) > sevenDaysAgo).reduce((sum, card) => sum + (card.current_price_raw || 0) * (card.quantity || 1), 0);
-      const previousValue = cards.filter(c => {
-        const date = new Date(c.created_at);
-        return date > fourteenDaysAgo && date <= sevenDaysAgo;
-      }).reduce((sum, card) => sum + (card.current_price_raw || 0) * (card.quantity || 1), 0);
-      const valueChange = previousValue > 0 ? (recentValue - previousValue) / previousValue * 100 : 0;
+
+      const recentValue = cards
+        .filter((c) => new Date(c.created_at) > sevenDaysAgo)
+        .reduce((sum, card) => sum + (card.current_price_raw || 0) * (card.quantity || 1), 0);
+
+      const previousValue = cards
+        .filter((c) => {
+          const date = new Date(c.created_at);
+          return date > fourteenDaysAgo && date <= sevenDaysAgo;
+        })
+        .reduce((sum, card) => sum + (card.current_price_raw || 0) * (card.quantity || 1), 0);
+
+      const valueChange = previousValue > 0 ? ((recentValue - previousValue) / previousValue) * 100 : 0;
 
       // Calculate realistic collector sale value (what you could sell for today)
       // Raw cards: ~75% of market (collector margin), graded: closer to market
@@ -191,8 +253,9 @@ export default function NewDashboard() {
         const rawPrice = card.current_price_raw || 0;
         const qty = card.quantity || 1;
         // Collector-to-collector typically 70-80% of market for raw cards
-        return sum + rawPrice * 0.75 * qty;
+        return sum + (rawPrice * 0.75 * qty);
       }, 0);
+
       setStats({
         totalCards: totalCards,
         totalValue,
@@ -201,94 +264,103 @@ export default function NewDashboard() {
         topRarity,
         valueChange,
         collectorSaleValue,
-        cardsWithPrices: cardsWithPrices.length
+        cardsWithPrices: cardsWithPrices.length,
       });
+
       setAllCards(cards);
       setRecentCards(cards.slice(0, 200));
+
       const sorted = [...cards].sort((a, b) => (b.current_price_raw || 0) - (a.current_price_raw || 0));
       setTopCards(sorted.slice(0, 100));
+
       const rarityChartData = Object.entries(rarityCounts).map(([name, count]) => ({
         name,
         value: count,
-        count
+        count,
       }));
       setRarityData(rarityChartData);
-      const conditionCounts = cards.reduce((acc, card) => {
-        const condition = card.condition || "ungraded";
-        acc[condition] = (acc[condition] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>);
+
+      const conditionCounts = cards.reduce(
+        (acc, card) => {
+          const condition = card.condition || "ungraded";
+          acc[condition] = (acc[condition] || 0) + 1;
+          return acc;
+        },
+        {} as Record<string, number>,
+      );
       const conditionChartData = Object.entries(conditionCounts).map(([name, count]) => ({
         name,
         value: count,
-        count
+        count,
       }));
       setConditionData(conditionChartData);
+
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       const dailyValues: Record<string, number> = {};
-      cards.filter(c => new Date(c.created_at) > thirtyDaysAgo).forEach(card => {
-        const date = new Date(card.created_at).toLocaleDateString();
-        dailyValues[date] = (dailyValues[date] || 0) + (card.current_price_raw || 0) * (card.quantity || 1);
-      });
-      const valueTimeData = Object.entries(dailyValues).map(([name, value]) => ({
-        name,
-        value
-      })).sort((a, b) => new Date(a.name).getTime() - new Date(b.name).getTime()).slice(-7);
+
+      cards
+        .filter((c) => new Date(c.created_at) > thirtyDaysAgo)
+        .forEach((card) => {
+          const date = new Date(card.created_at).toLocaleDateString();
+          dailyValues[date] = (dailyValues[date] || 0) + (card.current_price_raw || 0) * (card.quantity || 1);
+        });
+
+      const valueTimeData = Object.entries(dailyValues)
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => new Date(a.name).getTime() - new Date(b.name).getTime())
+        .slice(-7);
+
       setValueOverTime(valueTimeData);
     }
     setIsInitialLoading(false);
     setIsRefreshing(false);
   };
+
   const COLORS = ["hsl(173, 80%, 50%)", "hsl(262, 83%, 58%)", "hsl(152, 76%, 43%)", "hsl(38, 92%, 50%)", "hsl(210, 80%, 55%)", "hsl(330, 80%, 55%)"];
+
   const getAIAdvice = async () => {
     if (allCards.length === 0) {
       toast.error("No cards in collection to analyze");
       return;
     }
+
     setAiAdviceLoading(true);
     setAiAdvice(null);
+
     try {
       // Prepare collection summary for AI
       const totalValue = allCards.reduce((sum, c) => sum + (c.current_price_raw || 0) * (c.quantity || 1), 0);
       const topValueCards = [...allCards].sort((a, b) => (b.current_price_raw || 0) - (a.current_price_raw || 0)).slice(0, 20);
       const lowValueCards = [...allCards].sort((a, b) => (a.current_price_raw || 0) - (b.current_price_raw || 0)).slice(0, 20);
+      
       const rarityCounts = allCards.reduce((acc, card) => {
         const r = card.rarity || "Unknown";
         acc[r] = (acc[r] || 0) + 1;
         return acc;
       }, {} as Record<string, number>);
+
       const setCounts = allCards.reduce((acc, card) => {
         const s = card.card_set || "Unknown";
         acc[s] = (acc[s] || 0) + 1;
         return acc;
       }, {} as Record<string, number>);
+
       const collectionSummary = {
         totalCards: allCards.length,
         totalValue: totalValue.toFixed(2),
         avgCardValue: (totalValue / allCards.length).toFixed(2),
-        topCards: topValueCards.map(c => ({
-          name: c.card_name,
-          set: c.card_set,
-          value: c.current_price_raw,
-          rarity: c.rarity
-        })),
-        lowValueCards: lowValueCards.filter(c => (c.current_price_raw || 0) < 5).map(c => ({
-          name: c.card_name,
-          set: c.card_set,
-          value: c.current_price_raw
-        })),
+        topCards: topValueCards.map(c => ({ name: c.card_name, set: c.card_set, value: c.current_price_raw, rarity: c.rarity })),
+        lowValueCards: lowValueCards.filter(c => (c.current_price_raw || 0) < 5).map(c => ({ name: c.card_name, set: c.card_set, value: c.current_price_raw })),
         rarityDistribution: rarityCounts,
-        topSets: Object.entries(setCounts).sort((a, b) => b[1] - a[1]).slice(0, 10)
+        topSets: Object.entries(setCounts).sort((a, b) => b[1] - a[1]).slice(0, 10),
       };
-      const {
-        data,
-        error
-      } = await supabase.functions.invoke("collection-advisor", {
-        body: {
-          collectionSummary
-        }
+
+      const { data, error } = await supabase.functions.invoke("collection-advisor", {
+        body: { collectionSummary }
       });
+
       if (error) throw error;
+      
       setAiAdvice(data.advice);
     } catch (err: any) {
       console.error("AI Advice error:", err);
@@ -297,25 +369,28 @@ export default function NewDashboard() {
       setAiAdviceLoading(false);
     }
   };
-  const handleBinderFileChange: React.ChangeEventHandler<HTMLInputElement> = async event => {
+
+  const handleBinderFileChange: React.ChangeEventHandler<HTMLInputElement> = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
+
     setBinderError(null);
     setBinderUploading(true);
+
     try {
       const ext = file.name.split(".").pop() ?? "jpg";
       const filePath = `binder/${crypto.randomUUID()}.${ext}`;
-      const {
-        error: uploadError
-      } = await supabase.storage.from("card-images").upload(filePath, file, {
+
+      const { error: uploadError } = await supabase.storage.from("card-images").upload(filePath, file, {
         cacheControl: "3600",
-        upsert: false
+        upsert: false,
       });
+
       if (uploadError) throw new Error(uploadError.message);
-      const {
-        data
-      } = supabase.storage.from("card-images").getPublicUrl(filePath);
+
+      const { data } = supabase.storage.from("card-images").getPublicUrl(filePath);
       const publicUrl = data.publicUrl;
+
       console.log("Binder page uploaded:", publicUrl);
     } catch (err: any) {
       setBinderError(err?.message ?? "Binder scan failed.");
@@ -323,55 +398,63 @@ export default function NewDashboard() {
       setBinderUploading(false);
     }
   };
-  const handleBulkFilesChange: React.ChangeEventHandler<HTMLInputElement> = async event => {
+
+  const handleBulkFilesChange: React.ChangeEventHandler<HTMLInputElement> = async (event) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
+
     setBulkError(null);
     setBulkItems([]);
     setBulkProgress(0);
     setBulkUploading(true);
+
     try {
       const initial: BulkScanResult[] = Array.from(files).map(() => ({
         imageUrl: "",
-        status: "pending"
+        status: "pending",
       }));
       setBulkItems(initial);
+
       const total = files.length;
       const updated: BulkScanResult[] = [];
       let completed = 0;
+
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         let item: BulkScanResult = {
           imageUrl: "",
-          status: "pending"
+          status: "pending",
         };
+
         try {
           const ext = file.name.split(".").pop() ?? "jpg";
           const filePath = `bulk/${crypto.randomUUID()}.${ext}`;
-          const {
-            error: uploadError
-          } = await supabase.storage.from("card-images").upload(filePath, file, {
+
+          const { error: uploadError } = await supabase.storage.from("card-images").upload(filePath, file, {
             cacheControl: "3600",
-            upsert: false
+            upsert: false,
           });
+
           if (uploadError) {
             throw new Error(uploadError.message);
           }
-          const {
-            data
-          } = supabase.storage.from("card-images").getPublicUrl(filePath);
+
+          const { data } = supabase.storage.from("card-images").getPublicUrl(filePath);
           const publicUrl = data.publicUrl;
           item.imageUrl = publicUrl;
+
           await analyzeCardFull(publicUrl);
+
           item.status = "success";
         } catch (err: any) {
           item.status = "error";
           item.error = err?.message ?? "Scan failed.";
         }
+
         updated.push(item);
         completed += 1;
         setBulkItems([...updated, ...initial.slice(i + 1)]);
-        setBulkProgress(Math.round(completed / total * 100));
+        setBulkProgress(Math.round((completed / total) * 100));
       }
     } catch (err: any) {
       setBulkError(err?.message ?? "Bulk scan failed.");
@@ -388,17 +471,18 @@ export default function NewDashboard() {
     }
 
     // Only analyze cards with images that haven't been analyzed yet
-    const cardsToAnalyze = allCards.filter(c => c.image_url && !c.image_url.includes('placeholder') && c.psa10_viable === null);
+    const cardsToAnalyze = allCards.filter(
+      c => c.image_url && !c.image_url.includes('placeholder') && c.psa10_viable === null
+    );
+
     if (cardsToAnalyze.length === 0) {
       toast.info("All cards have already been analyzed for PSA 10 viability");
       return;
     }
+
     setPsa10AnalysisRunning(true);
-    setPsa10AnalysisProgress({
-      processed: 0,
-      total: cardsToAnalyze.length,
-      viable: 0
-    });
+    setPsa10AnalysisProgress({ processed: 0, total: cardsToAnalyze.length, viable: 0 });
+
     let processed = 0;
     let viable = 0;
 
@@ -406,50 +490,51 @@ export default function NewDashboard() {
     const batchSize = 5;
     for (let i = 0; i < cardsToAnalyze.length; i += batchSize) {
       const batch = cardsToAnalyze.slice(i, i + batchSize);
-      const results = await Promise.allSettled(batch.map(async card => {
-        try {
-          const {
-            data,
-            error
-          } = await supabase.functions.invoke("analyze-psa10-viability", {
-            body: {
-              card_id: card.id
-            }
-          });
-          if (error) throw error;
-          return data;
-        } catch (err) {
-          console.error(`Failed to analyze card ${card.id}:`, err);
-          return null;
-        }
-      }));
+      
+      const results = await Promise.allSettled(
+        batch.map(async (card) => {
+          try {
+            const { data, error } = await supabase.functions.invoke("analyze-psa10-viability", {
+              body: { card_id: card.id }
+            });
+            
+            if (error) throw error;
+            return data;
+          } catch (err) {
+            console.error(`Failed to analyze card ${card.id}:`, err);
+            return null;
+          }
+        })
+      );
+
       for (const result of results) {
         processed++;
         if (result.status === 'fulfilled' && result.value?.psa10_viable) {
           viable++;
         }
       }
-      setPsa10AnalysisProgress({
-        processed,
-        total: cardsToAnalyze.length,
-        viable
-      });
+
+      setPsa10AnalysisProgress({ processed, total: cardsToAnalyze.length, viable });
 
       // Small delay between batches to avoid rate limits
       if (i + batchSize < cardsToAnalyze.length) {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
+
     setPsa10AnalysisRunning(false);
     toast.success(`Analysis complete! Found ${viable} PSA 10 viable cards out of ${processed} analyzed`);
-
+    
     // Refresh cards to show updated viability data
     triggerDashboardRefresh();
   };
+
   if (authLoading || isInitialLoading) {
     return <DashboardSkeleton />;
   }
-  return <div className="space-y-4 xs:space-y-5 sm:space-y-6 lg:space-y-8">
+
+  return (
+    <div className="space-y-4 xs:space-y-5 sm:space-y-6 lg:space-y-8">
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="min-w-0">
@@ -497,10 +582,7 @@ export default function NewDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent className="px-3 xs:px-4 pb-3 xs:pb-4">
-            <div className="text-xl xs:text-2xl sm:text-3xl font-bold truncate">${stats.totalValue.toLocaleString(undefined, {
-              minimumFractionDigits: 0,
-              maximumFractionDigits: 0
-            })}</div>
+            <div className="text-xl xs:text-2xl sm:text-3xl font-bold truncate">${stats.totalValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
             <p className="text-2xs xs:text-xs text-muted-foreground mt-1 xs:mt-2 truncate">
               ${stats.avgCardValue.toFixed(0)} avg
             </p>
@@ -530,8 +612,8 @@ export default function NewDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent className="px-3 xs:px-4 pb-3 xs:pb-4">
-            
-            
+            <div className="text-xl xs:text-2xl sm:text-3xl font-bold truncate">{stats.topRarity}</div>
+            <p className="text-2xs xs:text-xs text-muted-foreground mt-1 xs:mt-2 truncate">Most common</p>
           </CardContent>
         </Card>
       </div>
@@ -554,10 +636,7 @@ export default function NewDashboard() {
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 sm:gap-4">
             <div className="min-w-0">
               <div className="text-2xl xs:text-3xl sm:text-4xl font-bold text-success truncate">
-                ${stats.collectorSaleValue.toLocaleString(undefined, {
-                minimumFractionDigits: 0,
-                maximumFractionDigits: 0
-              })}
+                ${stats.collectorSaleValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
               </div>
               <div className="flex flex-wrap items-center gap-2 xs:gap-3 sm:gap-4 mt-2 xs:mt-3">
                 <Badge variant="secondary" className="text-2xs xs:text-xs shrink-0">
@@ -568,7 +647,12 @@ export default function NewDashboard() {
                 </span>
               </div>
             </div>
-            <Button variant="outline" size="sm" onClick={() => navigate("/collections")} className="shrink-0 w-full sm:w-auto text-sm">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => navigate("/collections")}
+              className="shrink-0 w-full sm:w-auto text-sm"
+            >
               View Collection
               <ArrowUpRight className="h-4 w-4 ml-1" />
             </Button>
@@ -617,7 +701,13 @@ export default function NewDashboard() {
             <p className="text-xs xs:text-sm text-muted-foreground leading-relaxed line-clamp-2">
               Upload 9-pocket binder page for OCR.
             </p>
-            <Input type="file" accept="image/*" disabled={binderUploading} onChange={handleBinderFileChange} className="text-xs xs:text-sm" />
+            <Input
+              type="file"
+              accept="image/*"
+              disabled={binderUploading}
+              onChange={handleBinderFileChange}
+              className="text-xs xs:text-sm"
+            />
             {binderUploading && <p className="text-2xs xs:text-xs text-primary animate-pulse">Uploading…</p>}
             {binderError && <p className="text-2xs xs:text-xs text-destructive truncate">{binderError}</p>}
           </CardContent>
@@ -636,20 +726,41 @@ export default function NewDashboard() {
             <p className="text-xs xs:text-sm text-muted-foreground leading-relaxed line-clamp-2">
               Batch upload multiple card images.
             </p>
-            <Input type="file" accept="image/*" multiple disabled={bulkUploading} onChange={handleBulkFilesChange} className="text-xs xs:text-sm" />
-            {(bulkUploading || bulkProgress > 0) && <div className="space-y-1.5">
+            <Input
+              type="file"
+              accept="image/*"
+              multiple
+              disabled={bulkUploading}
+              onChange={handleBulkFilesChange}
+              className="text-xs xs:text-sm"
+            />
+            {(bulkUploading || bulkProgress > 0) && (
+              <div className="space-y-1.5">
                 <Progress value={bulkProgress} className="h-1.5 xs:h-2" />
                 <p className="text-2xs xs:text-xs text-muted-foreground">{bulkProgress}%</p>
-              </div>}
+              </div>
+            )}
             {bulkError && <p className="text-2xs xs:text-xs text-destructive truncate">{bulkError}</p>}
-            {bulkItems.length > 0 && <div className="max-h-20 xs:max-h-24 overflow-auto rounded-lg bg-secondary/50 p-2 xs:p-3 space-y-1">
-                {bulkItems.map((item, idx) => <div key={idx} className="flex items-center justify-between text-2xs xs:text-xs">
+            {bulkItems.length > 0 && (
+              <div className="max-h-20 xs:max-h-24 overflow-auto rounded-lg bg-secondary/50 p-2 xs:p-3 space-y-1">
+                {bulkItems.map((item, idx) => (
+                  <div key={idx} className="flex items-center justify-between text-2xs xs:text-xs">
                     <span className="truncate max-w-[60%] text-muted-foreground">{item.imageUrl || `Item ${idx + 1}`}</span>
-                    <span className={item.status === "success" ? "text-success font-medium" : item.status === "error" ? "text-destructive font-medium" : "text-muted-foreground"}>
+                    <span
+                      className={
+                        item.status === "success"
+                          ? "text-success font-medium"
+                          : item.status === "error"
+                            ? "text-destructive font-medium"
+                            : "text-muted-foreground"
+                      }
+                    >
                       {item.status}
                     </span>
-                  </div>)}
-              </div>}
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -684,26 +795,43 @@ export default function NewDashboard() {
               </p>
             </div>
             <div className="flex items-center gap-2 w-full sm:w-auto">
-              <Button variant="outline" size="sm" onClick={() => navigate("/collections?psa10viable=true")} disabled={allCards.filter(c => c.psa10_viable === true).length === 0} className="flex-1 sm:flex-none text-xs xs:text-sm">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate("/collections?psa10viable=true")}
+                disabled={allCards.filter(c => c.psa10_viable === true).length === 0}
+                className="flex-1 sm:flex-none text-xs xs:text-sm"
+              >
                 <span className="truncate">View Viable</span>
               </Button>
-              <Button size="sm" onClick={handlePsa10Analysis} disabled={psa10AnalysisRunning || allCards.filter(c => c.psa10_viable === null && c.image_url).length === 0} className="bg-amber-500 hover:bg-amber-600 text-white flex-1 sm:flex-none text-xs xs:text-sm">
-                {psa10AnalysisRunning ? <>
+              <Button
+                size="sm"
+                onClick={handlePsa10Analysis}
+                disabled={psa10AnalysisRunning || allCards.filter(c => c.psa10_viable === null && c.image_url).length === 0}
+                className="bg-amber-500 hover:bg-amber-600 text-white flex-1 sm:flex-none text-xs xs:text-sm"
+              >
+                {psa10AnalysisRunning ? (
+                  <>
                     <Loader2 className="h-3.5 w-3.5 xs:h-4 xs:w-4 mr-1.5 animate-spin" />
                     <span className="truncate">Analyzing</span>
-                  </> : <>
+                  </>
+                ) : (
+                  <>
                     <Gem className="h-3.5 w-3.5 xs:h-4 xs:w-4 mr-1.5" />
                     <span className="truncate">Analyze</span>
-                  </>}
+                  </>
+                )}
               </Button>
             </div>
           </div>
-          {psa10AnalysisRunning && <div className="mt-3 xs:mt-4 space-y-1.5">
-              <Progress value={psa10AnalysisProgress.processed / psa10AnalysisProgress.total * 100} className="h-1.5 xs:h-2" />
+          {psa10AnalysisRunning && (
+            <div className="mt-3 xs:mt-4 space-y-1.5">
+              <Progress value={(psa10AnalysisProgress.processed / psa10AnalysisProgress.total) * 100} className="h-1.5 xs:h-2" />
               <p className="text-2xs xs:text-xs text-muted-foreground">
                 {psa10AnalysisProgress.processed}/{psa10AnalysisProgress.total} • {psa10AnalysisProgress.viable} viable
               </p>
-            </div>}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -711,38 +839,43 @@ export default function NewDashboard() {
       <Card className="hover-lift">
         <CardHeader className="px-3 xs:px-4 sm:px-6 pt-3 xs:pt-4 sm:pt-6 pb-2">
           <CardTitle className="text-sm xs:text-base">Value Over Time</CardTitle>
-          {scannerActive && <p className="text-2xs xs:text-xs text-muted-foreground">Charts paused while scanning...</p>}
+          {scannerActive && (
+            <p className="text-2xs xs:text-xs text-muted-foreground">Charts paused while scanning...</p>
+          )}
         </CardHeader>
         <CardContent className="px-2 xs:px-3 sm:px-6 pb-3 xs:pb-4 sm:pb-6">
-          {scannerActive ? <div className="flex items-center justify-center h-40 xs:h-48 sm:h-64 text-muted-foreground text-sm">
+          {scannerActive ? (
+            <div className="flex items-center justify-center h-40 xs:h-48 sm:h-64 text-muted-foreground text-sm">
               <Activity className="h-5 w-5 xs:h-6 xs:w-6 animate-pulse mr-2" />
               Scanner active - paused
-            </div> : <ResponsiveContainer width="100%" height={window.innerWidth < 475 ? 160 : window.innerWidth < 640 ? 200 : 260}>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={window.innerWidth < 475 ? 160 : window.innerWidth < 640 ? 200 : 260}>
               <LineChart data={valueOverTime}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.5} />
                 <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} />
                 <YAxis stroke="hsl(var(--muted-foreground))" fontSize={10} tickLine={false} axisLine={false} width={40} />
-                <Tooltip contentStyle={{
-              backgroundColor: "hsl(var(--popover))",
-              border: "1px solid hsl(var(--border))",
-              borderRadius: "8px",
-              boxShadow: "var(--shadow-lg)",
-              fontSize: "12px"
-            }} labelStyle={{
-              color: "hsl(var(--foreground))"
-            }} />
-                <Line type="monotone" dataKey="value" stroke="hsl(173, 80%, 50%)" strokeWidth={2} dot={{
-              fill: "hsl(173, 80%, 50%)",
-              strokeWidth: 0,
-              r: 3
-            }} activeDot={{
-              r: 5,
-              fill: "hsl(173, 80%, 50%)",
-              stroke: "hsl(var(--background))",
-              strokeWidth: 2
-            }} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "hsl(var(--popover))",
+                    border: "1px solid hsl(var(--border))",
+                    borderRadius: "8px",
+                    boxShadow: "var(--shadow-lg)",
+                    fontSize: "12px",
+                  }}
+                  labelStyle={{ color: "hsl(var(--foreground))" }}
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="value" 
+                  stroke="hsl(173, 80%, 50%)" 
+                  strokeWidth={2}
+                  dot={{ fill: "hsl(173, 80%, 50%)", strokeWidth: 0, r: 3 }}
+                  activeDot={{ r: 5, fill: "hsl(173, 80%, 50%)", stroke: "hsl(var(--background))", strokeWidth: 2 }}
+                />
               </LineChart>
-            </ResponsiveContainer>}
+            </ResponsiveContainer>
+          )}
         </CardContent>
       </Card>
 
@@ -756,14 +889,23 @@ export default function NewDashboard() {
               </div>
               <span className="truncate">AI Collection Advisor</span>
             </div>
-            <Button size="sm" onClick={getAIAdvice} disabled={aiAdviceLoading || allCards.length === 0} className="gap-1.5 xs:gap-2 w-full xs:w-auto text-xs xs:text-sm">
-              {aiAdviceLoading ? <>
+            <Button 
+              size="sm" 
+              onClick={getAIAdvice} 
+              disabled={aiAdviceLoading || allCards.length === 0}
+              className="gap-1.5 xs:gap-2 w-full xs:w-auto text-xs xs:text-sm"
+            >
+              {aiAdviceLoading ? (
+                <>
                   <Loader2 className="h-3.5 w-3.5 xs:h-4 xs:w-4 animate-spin" />
                   <span className="truncate">Analyzing...</span>
-                </> : <>
+                </>
+              ) : (
+                <>
                   <Target className="h-3.5 w-3.5 xs:h-4 xs:w-4" />
                   <span className="truncate">Get AI Insights</span>
-                </>}
+                </>
+              )}
             </Button>
           </CardTitle>
           <p className="text-2xs xs:text-xs sm:text-sm text-muted-foreground">
@@ -771,15 +913,19 @@ export default function NewDashboard() {
           </p>
         </CardHeader>
         <CardContent className="px-3 xs:px-4 sm:px-6 pb-3 xs:pb-4 sm:pb-6">
-          {aiAdvice ? <div className="prose prose-sm dark:prose-invert max-w-none">
+          {aiAdvice ? (
+            <div className="prose prose-sm dark:prose-invert max-w-none">
               <div className="bg-secondary/50 rounded-lg p-3 xs:p-4 space-y-2 xs:space-y-3 text-xs xs:text-sm whitespace-pre-wrap">
                 {aiAdvice}
               </div>
-            </div> : <div className="text-center py-4 xs:py-6 text-muted-foreground">
+            </div>
+          ) : (
+            <div className="text-center py-4 xs:py-6 text-muted-foreground">
               <Sparkles className="h-8 w-8 xs:h-10 xs:w-10 mx-auto mb-2 xs:mb-3 opacity-30" />
               <p className="text-xs xs:text-sm">Click "Get AI Insights" for personalized recommendations</p>
               <p className="text-2xs xs:text-xs mt-1">Analyzing your {stats.totalCards} cards</p>
-            </div>}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -796,30 +942,42 @@ export default function NewDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            {topCards.length === 0 ? <div className="text-center py-6 xs:py-8 text-muted-foreground px-4 xs:px-6">
+            {topCards.length === 0 ? (
+              <div className="text-center py-6 xs:py-8 text-muted-foreground px-4 xs:px-6">
                 <Package className="h-8 w-8 xs:h-10 xs:w-10 mx-auto mb-2 xs:mb-3 opacity-30" />
                 <p className="text-xs xs:text-sm">No cards yet. Start scanning!</p>
-              </div> : <ScrollArea className="h-64 xs:h-80 sm:h-96">
+              </div>
+            ) : (
+              <ScrollArea className="h-64 xs:h-80 sm:h-96">
                 <div className="space-y-1 px-3 xs:px-4 sm:px-6 pb-3 xs:pb-4 sm:pb-6">
-                  {topCards.map((card, idx) => <button key={card.id} className="flex items-center gap-2 xs:gap-3 p-2 xs:p-2.5 rounded-lg bg-secondary/40 hover:bg-secondary/70 w-full text-left transition-all group" onClick={() => {
-                setSelectedCard({
-                  id: card.id,
-                  card_name: card.card_name,
-                  card_set: card.card_set,
-                  card_number: card.card_number,
-                  rarity: card.rarity,
-                  image_url: card.image_url,
-                  thumbnail_url: card.thumbnail_url,
-                  current_price_raw: card.current_price_raw,
-                  collection_name: card.collection_name,
-                  condition: card.condition,
-                  game_type: card.game_type,
-                  sport_type: card.sport_type
-                });
-                setShowCardDetail(true);
-              }}>
+                  {topCards.map((card, idx) => (
+                    <button
+                      key={card.id}
+                      className="flex items-center gap-2 xs:gap-3 p-2 xs:p-2.5 rounded-lg bg-secondary/40 hover:bg-secondary/70 w-full text-left transition-all group"
+                      onClick={() => {
+                        setSelectedCard({
+                          id: card.id,
+                          card_name: card.card_name,
+                          card_set: card.card_set,
+                          card_number: card.card_number,
+                          rarity: card.rarity,
+                          image_url: card.image_url,
+                          thumbnail_url: card.thumbnail_url,
+                          current_price_raw: card.current_price_raw,
+                          collection_name: card.collection_name,
+                          condition: card.condition,
+                          game_type: card.game_type,
+                          sport_type: card.sport_type,
+                        });
+                        setShowCardDetail(true);
+                      }}
+                    >
                       <div className="relative flex-shrink-0">
-                        <img src={card.thumbnail_url || card.image_url} alt={card.card_name} className="w-8 h-8 xs:w-10 xs:h-10 object-cover rounded-md border border-border/50" />
+                        <img
+                          src={card.thumbnail_url || card.image_url}
+                          alt={card.card_name}
+                          className="w-8 h-8 xs:w-10 xs:h-10 object-cover rounded-md border border-border/50"
+                        />
                         <span className="absolute -top-1 -left-1 h-3.5 w-3.5 xs:h-4 xs:w-4 rounded-full bg-primary text-primary-foreground text-[8px] xs:text-[10px] font-bold flex items-center justify-center">
                           {idx + 1}
                         </span>
@@ -831,9 +989,11 @@ export default function NewDashboard() {
                       <div className="text-right flex-shrink-0">
                         <p className="font-bold text-success text-xs xs:text-sm">${(card.current_price_raw || 0).toFixed(2)}</p>
                       </div>
-                    </button>)}
+                    </button>
+                  ))}
                 </div>
-              </ScrollArea>}
+              </ScrollArea>
+            )}
           </CardContent>
         </Card>
 
@@ -848,29 +1008,41 @@ export default function NewDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            {recentCards.length === 0 ? <div className="text-center py-6 xs:py-8 text-muted-foreground px-4 xs:px-6">
+            {recentCards.length === 0 ? (
+              <div className="text-center py-6 xs:py-8 text-muted-foreground px-4 xs:px-6">
                 <Activity className="h-8 w-8 xs:h-10 xs:w-10 mx-auto mb-2 xs:mb-3 opacity-30" />
                 <p className="text-xs xs:text-sm">No recent activity</p>
-              </div> : <ScrollArea className="h-64 xs:h-80 sm:h-96">
+              </div>
+            ) : (
+              <ScrollArea className="h-64 xs:h-80 sm:h-96">
                 <div className="space-y-1 px-3 xs:px-4 sm:px-6 pb-3 xs:pb-4 sm:pb-6">
-                  {recentCards.map(card => <button key={card.id} className="flex items-center gap-2 xs:gap-3 p-2 xs:p-2.5 rounded-lg bg-secondary/40 hover:bg-secondary/70 w-full text-left transition-all group" onClick={() => {
-                setSelectedCard({
-                  id: card.id,
-                  card_name: card.card_name,
-                  card_set: card.card_set,
-                  card_number: card.card_number,
-                  rarity: card.rarity,
-                  image_url: card.image_url,
-                  thumbnail_url: card.thumbnail_url,
-                  current_price_raw: card.current_price_raw,
-                  collection_name: card.collection_name,
-                  condition: card.condition,
-                  game_type: card.game_type,
-                  sport_type: card.sport_type
-                });
-                setShowCardDetail(true);
-              }}>
-                      <img src={card.thumbnail_url || card.image_url} alt={card.card_name} className="w-8 h-8 xs:w-10 xs:h-10 object-cover rounded-md border border-border/50 flex-shrink-0" />
+                  {recentCards.map((card) => (
+                    <button
+                      key={card.id}
+                      className="flex items-center gap-2 xs:gap-3 p-2 xs:p-2.5 rounded-lg bg-secondary/40 hover:bg-secondary/70 w-full text-left transition-all group"
+                      onClick={() => {
+                        setSelectedCard({
+                          id: card.id,
+                          card_name: card.card_name,
+                          card_set: card.card_set,
+                          card_number: card.card_number,
+                          rarity: card.rarity,
+                          image_url: card.image_url,
+                          thumbnail_url: card.thumbnail_url,
+                          current_price_raw: card.current_price_raw,
+                          collection_name: card.collection_name,
+                          condition: card.condition,
+                          game_type: card.game_type,
+                          sport_type: card.sport_type,
+                        });
+                        setShowCardDetail(true);
+                      }}
+                    >
+                      <img
+                        src={card.thumbnail_url || card.image_url}
+                        alt={card.card_name}
+                        className="w-8 h-8 xs:w-10 xs:h-10 object-cover rounded-md border border-border/50 flex-shrink-0"
+                      />
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-xs xs:text-sm truncate group-hover:text-primary transition-colors">{card.card_name}</p>
                         <p className="text-2xs xs:text-xs text-muted-foreground">{new Date(card.created_at).toLocaleDateString()}</p>
@@ -878,28 +1050,31 @@ export default function NewDashboard() {
                       <div className="text-right flex-shrink-0">
                         <p className="font-medium text-xs xs:text-sm">${(card.current_price_raw || 0).toFixed(2)}</p>
                       </div>
-                    </button>)}
+                    </button>
+                  ))}
                 </div>
-              </ScrollArea>}
+              </ScrollArea>
+            )}
           </CardContent>
         </Card>
       </div>
 
       {/* Card Detail Modal */}
-      <CardDetailModal card={selectedCard} open={showCardDetail} onOpenChange={setShowCardDetail} onUpdate={updatedCard => {
-      setTopCards(topCards.map(c => c.id === updatedCard.id ? {
-        ...c,
-        ...updatedCard
-      } : c));
-      setRecentCards(recentCards.map(c => c.id === updatedCard.id ? {
-        ...c,
-        ...updatedCard
-      } : c));
-      setSelectedCard(updatedCard);
-    }} onDelete={cardId => {
-      setTopCards(topCards.filter(c => c.id !== cardId));
-      setRecentCards(recentCards.filter(c => c.id !== cardId));
-      fetchDashboardData();
-    }} />
-    </div>;
+      <CardDetailModal
+        card={selectedCard}
+        open={showCardDetail}
+        onOpenChange={setShowCardDetail}
+        onUpdate={(updatedCard) => {
+          setTopCards(topCards.map(c => c.id === updatedCard.id ? { ...c, ...updatedCard } : c));
+          setRecentCards(recentCards.map(c => c.id === updatedCard.id ? { ...c, ...updatedCard } : c));
+          setSelectedCard(updatedCard);
+        }}
+        onDelete={(cardId) => {
+          setTopCards(topCards.filter(c => c.id !== cardId));
+          setRecentCards(recentCards.filter(c => c.id !== cardId));
+          fetchDashboardData();
+        }}
+      />
+    </div>
+  );
 }
