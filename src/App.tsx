@@ -12,10 +12,10 @@ import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { installGlobalErrorHandlers } from "@/lib/crashAnalytics";
 import { checkAndResumeQueue } from "@/lib/queueProcessor";
 import { QueueStatusIndicator } from "@/components/scanner/QueueStatusIndicator";
-import { SplashScreen } from "@/components/SplashScreen";
+import { PremiumSplashScreen } from "@/components/pwa/PremiumSplashScreen";
 import { OfflineIndicator } from "@/components/OfflineIndicator";
 import { PWAOnboarding } from "@/components/pwa/PWAOnboarding";
-import { PWAInstallBanner } from "@/components/pwa/PWAInstallBanner";
+import { PremiumInstallPrompt } from "@/components/pwa/PremiumInstallPrompt";
 import { usePWAOnboarding } from "@/hooks/use-pwa-onboarding";
 
 const Auth = lazy(() => import("./pages/Auth"));
@@ -110,8 +110,8 @@ function PWAWrapper({ children }: { children: React.ReactNode }) {
         />
       )}
       {children}
-      {/* Show install banner only when not in standalone mode */}
-      {!isStandalone && <PWAInstallBanner />}
+      {/* Show install prompt only when not in standalone mode */}
+      {!isStandalone && <PremiumInstallPrompt />}
     </>
   );
 }
@@ -136,7 +136,7 @@ const App = () => {
       <ThemeProvider>
         <TooltipProvider>
           <ErrorBoundary>
-            {showSplash && <SplashScreen onComplete={() => setShowSplash(false)} />}
+            {showSplash && <PremiumSplashScreen onComplete={() => setShowSplash(false)} />}
             <Toaster />
             <Sonner />
             <BrowserRouter>
