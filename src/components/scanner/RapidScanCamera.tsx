@@ -11,7 +11,7 @@ interface RapidScanCameraProps {
   videoRef: React.RefObject<HTMLVideoElement>;
   startCamera: () => Promise<void>;
   isCameraActive: boolean;
-  onCapture: (image: ImageBitmap) => Promise<any>;
+  onCapture: (file: File) => Promise<any>;
   scanModeLabel?: string;
 }
 
@@ -51,15 +51,6 @@ export default function RapidScanCamera({
         if (!videoRef.current) return;
         if (scanGate.isLocked()) return;
 
-        // TEMP: treat presence of video as "detecting"
-        const detected = true;
-
-        if (!detected) {
-          setStatus("detecting");
-          stabilityGate.reset();
-          return;
-        }
-
         const ready = stabilityGate.update(true);
         if (!ready) {
           setStatus("stabilizing");
@@ -73,7 +64,11 @@ export default function RapidScanCamera({
         try {
           setStatus("processing");
           bitmap = await captureFrame(videoRef.current);
-          await onCapture(bitmap);
+
+          // ✅ CONVERT ImageBitmap → File (CRITICAL FIX)
+          const file = await imageBitmapToFile(bitmap);
+
+          await onCapture(file);
           setSessionCount((c) => c + 1);
         } finally {
           destroyFrame(bitmap);
@@ -88,20 +83,16 @@ export default function RapidScanCamera({
     return () => cancelAnimationFrame(rafId);
   }, [videoRef, isCameraActive, onCapture, scanGate, frameGuard, stabilityGate]);
 
-  // NOTE: NO <video> ELEMENT HERE
   return (
     <>
-      {/* Mode Label */}
       <div className="absolute top-3 left-3 z-20 rounded bg-black/70 px-3 py-1 text-xs text-white">
         Rapid Scan · {scanModeLabel}
       </div>
 
-      {/* Session Count */}
       <div className="absolute top-3 right-3 z-20 rounded bg-black/70 px-3 py-1 text-xs text-white">
         Session: {sessionCount}
       </div>
 
-      {/* Status */}
       <div className="absolute bottom-6 left-1/2 z-20 -translate-x-1/2 rounded bg-black/70 px-4 py-2 text-sm text-white">
         {status === "idle" && "Starting"}
         {status === "detecting" && "Looking for card"}
@@ -110,4 +101,26 @@ export default function RapidScanCamera({
       </div>
     </>
   );
+}
+
+/**
+ * Convert ImageBitmap into a File compatible with the rest of the app
+ */
+async function imageBitmapToFile(bitmap: ImageBitmap): Promise<File> {
+  const canvas = document.createElement("canvas");
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas unavailable");
+
+  ctx.drawImage(bitmap, 0, 0);
+
+  const blob: Blob = await new Promise((resolve) =>
+    canvas.toBlob((b) => resolve(b!), "image/jpeg", 0.92)
+  );
+
+  return new File([blob], `rapid-scan-${Date.now()}.jpg`, {
+    type: "image/jpeg",
+  });
 }
