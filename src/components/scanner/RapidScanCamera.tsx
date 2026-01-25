@@ -45,11 +45,9 @@ import {
 } from "@/lib/idbQueue";
 import { useQueueProcessor } from "@/lib/queueProcessor";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
-import { ZoomControls } from "./ZoomControls";
 import { ScannedCardList } from "./ScannedCardList";
 import { useNativeCamera } from "@/hooks/use-native-camera";
-import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
-import { getScannerSettings, useScannerSettings } from "@/hooks/use-scanner-settings";
+import { useScannerSettings } from "@/hooks/use-scanner-settings";
 import { hapticTap } from "@/lib/haptics";
 import { useVoiceCommand } from "@/hooks/use-voice-command";
 import { captureWithPipeline } from "@/lib/capturePipeline";
@@ -85,18 +83,9 @@ type LastOverlay = {
   libraryQuantity?: number;
 };
 
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 function safeUUID() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return "xxxx-xxxx-xxxx".replace(/x/g, () => ((Math.random() * 16) | 0).toString(16));
-}
-
-function money(n: number | null | undefined) {
-  if (n == null || Number.isNaN(n)) return null;
-  return Math.round(n * 100) / 100;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -163,7 +152,6 @@ export default function RapidScanCamera() {
     enabled: settings.voiceCaptureEnabled && (isNative || cameraOn),
     keyword: settings.voiceCaptureKeyword,
     onMatch: () => {
-      // Prevent double-triggers from interim results
       captureNow();
     },
   });
@@ -175,8 +163,6 @@ export default function RapidScanCamera() {
     usingDigitalZoom,
     detectZoomCapabilities,
     setZoom,
-    zoomIn,
-    zoomOut,
     resetZoom,
   } = useCameraZoom({ streamRef });
 
@@ -260,8 +246,6 @@ export default function RapidScanCamera() {
         // ignore
       }
     };
-    // Intentionally run only on unmount; we revoke as we remove items too.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
 
@@ -309,42 +293,6 @@ export default function RapidScanCamera() {
   // ───────────────────────────────────────────────────────────────────────────
   // CAMERA
   // ───────────────────────────────────────────────────────────────────────────
-
-
-  const measureLuma01 = useCallback((): number | null => {
-    const v = videoRef.current;
-    if (!v || v.readyState < 2) return null;
-
-    // Create a tiny offscreen canvas once; downsample for speed.
-    let c = lumaCanvasRef.current;
-    if (!c) {
-      c = document.createElement("canvas");
-      c.width = 48;
-      c.height = 48;
-      lumaCanvasRef.current = c;
-    }
-    const ctx = c.getContext("2d", { willReadFrequently: true } as any);
-    if (!ctx) return null;
-
-    try {
-      ctx.drawImage(v, 0, 0, c.width, c.height);
-      const img = ctx.getImageData(0, 0, c.width, c.height).data;
-      let sum = 0;
-      // Sample every 4 pixels to keep it light.
-      for (let i = 0; i < img.length; i += 16) {
-        const r = img[i];
-        const g = img[i + 1];
-        const b = img[i + 2];
-        // perceived luminance
-        sum += 0.2126 * r + 0.7152 * g + 0.0722 * b;
-      }
-      const samples = img.length / 16;
-      const avg = sum / samples; // 0..255
-      return Math.max(0, Math.min(1, avg / 255));
-    } catch {
-      return null;
-    }
-  }, []);
 
   async function startCamera() {
     if (cameraOn || startingCameraRef.current) return;
@@ -456,68 +404,9 @@ export default function RapidScanCamera() {
           void setFocusPoint(track, 0.5, 0.5);
         }, 2500);
       }
-      
-
-      // Low light assist: sample frame brightness and nudge exposure/torch (best-effort)
-      if (settings.lowLightAssistEnabled) {
-        if (lowLightRef.current) {
-          clearInterval(lowLightRef.current);
-          lowLightRef.current = null;
-        }
-        // Set exposure mode to continuous if supported (more stable for moving light)
-        if (sup.exposureMode) {
-          void setExposureMode(trackRef.current, "continuous");
-        }
-        const caps = getExposureCompCaps(trackRef.current);
-        // initialize exposureCompRef from current settings if available
-        try {
-          const current: any = trackRef.current?.getSettings?.() ?? {};
-          if (typeof current.exposureCompensation === "number") {
-            exposureCompRef.current = current.exposureCompensation;
-          }
-        } catch {
-          // ignore
-        }
-        lowLightRef.current = setInterval(async () => {
-          const luma = measureLuma01();
-          if (luma == null) return;
-
-          const target = Math.max(0.2, Math.min(0.85, (settings.lowLightTargetBrightness ?? 55) / 100));
-          const deadband = 0.05;
-
-          // Torch behavior: only in very low light
-          if (settings.lowLightAllowTorch && sup.torch) {
-            if (luma < 0.22 && !torchOn) {
-              await setTorch(trackRef.current, true);
-              setTorchOn(true);
-            } else if (luma > 0.30 && torchOn) {
-              await setTorch(trackRef.current, false);
-              setTorchOn(false);
-            }
-          }
-
-          // Exposure compensation nudges
-          if (sup.exposureCompensation && caps) {
-            const step = caps.step;
-            let cur = exposureCompRef.current;
-            if (typeof cur !== "number") cur = 0;
-            let next = cur;
-            if (luma < target - deadband) next = Math.min(caps.max, cur + step);
-            if (luma > target + deadband) next = Math.max(caps.min, cur - step);
-            if (next !== cur) {
-              exposureCompRef.current = next;
-              await setExposureCompensation(trackRef.current, next);
-            }
-          }
-        }, 1500);
-      }
-
-      // Signal scanner active to pause expensive renders elsewhere
-      useGlobalProcessControl.getState().setScannerActive(true);
 
       // Zoom capabilities
       detectZoomCapabilities();
-
 
       if (settings.autoZoomOnStart) {
         // Give the track a moment to report caps before applying zoom (mobile Safari can be slow).
@@ -540,10 +429,6 @@ export default function RapidScanCamera() {
   }
 
   async function stopCamera() {
-    if (lowLightRef.current) {
-      clearInterval(lowLightRef.current);
-      lowLightRef.current = null;
-    }
     if (autoFocusRef.current) {
       clearInterval(autoFocusRef.current);
       autoFocusRef.current = null;
@@ -559,9 +444,6 @@ export default function RapidScanCamera() {
     trackRef.current = null;
     setCameraOn(false);
     setStatusLine("Camera stopped");
-    
-    // Signal scanner inactive
-    useGlobalProcessControl.getState().setScannerActive(false);
   }
 
   // Pinch-to-zoom state
@@ -648,7 +530,7 @@ export default function RapidScanCamera() {
   }, [cameraOn]);
 
   async function toggleTorch() {
-    if (!sup.torch) return;
+    if (!support.torch) return;
     const next = !torchOn;
     const ok = await setTorch(trackRef.current, next);
     if (ok) setTorchOn(next);
@@ -702,11 +584,11 @@ export default function RapidScanCamera() {
       const localUrl = trackObjectUrl(URL.createObjectURL(result.blob));
 
       setCards((prev) => {
-        const next = [
+        const next: ScannedCard[] = [
           {
             id,
             preview: localUrl,
-            status: "queued",
+            status: "queued" as const,
             priceFetching: true,
             isInLibrary: false,
             libraryQuantity: 0,
@@ -773,9 +655,7 @@ export default function RapidScanCamera() {
       }
 
       // Best-effort focus nudge right before capture
-
-      // Best-effort focus nudge right before capture
-      if (settings.autoFocusAssist && sup.focus) {
+      if (settings.autoFocusAssist && support.focus) {
         try {
           await setFocusPoint(trackRef.current, 0.5, 0.5);
         } catch {
@@ -803,11 +683,11 @@ export default function RapidScanCamera() {
       // Local preview immediately
       const localUrl = trackObjectUrl(URL.createObjectURL(blob));
       setCards((prev) => {
-        const next = [
+        const next: ScannedCard[] = [
           {
             id,
             preview: localUrl,
-            status: "queued",
+            status: "queued" as const,
             priceFetching: true,
             isInLibrary: false,
             libraryQuantity: 0,
@@ -987,7 +867,7 @@ export default function RapidScanCamera() {
       try {
         updateCard(id, { priceFetching: true });
 
-        const inserted = await insertCardDual({
+        await insertCardDual({
           user_id: userId,
           card_name: c.cardName,
           card_set: c.cardSet ?? null,
@@ -999,7 +879,6 @@ export default function RapidScanCamera() {
         } as any);
 
         updateCard(id, {
-          dbId: inserted.id,
           isInLibrary: true,
           libraryQuantity: Math.max((c.libraryQuantity || 0) + 1, 1),
           priceFetching: false,
@@ -1034,7 +913,7 @@ export default function RapidScanCamera() {
       try {
         updateCard(c.id, { priceFetching: true });
 
-        const inserted = await insertCardDual({
+        await insertCardDual({
           user_id: userId,
           card_name: c.cardName!,
           card_set: c.cardSet ?? null,
@@ -1046,7 +925,6 @@ export default function RapidScanCamera() {
         } as any);
 
         updateCard(c.id, {
-          dbId: inserted.id,
           isInLibrary: true,
           libraryQuantity: Math.max((c.libraryQuantity || 0) + 1, 1),
           priceFetching: false,
@@ -1091,15 +969,15 @@ export default function RapidScanCamera() {
       <Card className="p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
-            <Badge variant="secondary">Rapid Scan</Badge>
+            <Badge className="bg-secondary text-secondary-foreground">Rapid Scan</Badge>
             <span className="text-sm text-muted-foreground">Manual capture • buffered processing</span>
           </div>
 
           <div className="flex items-center gap-2">
-            <Badge variant="outline" className="hidden sm:inline-flex">
+            <Badge className="border border-border hidden sm:inline-flex">
               Buffer: {queueMeta.filter((q) => q.status === "queued" || q.status === "processing").length}/{QUEUE_MAX}
             </Badge>
-            <Badge variant="outline">Total: ${totalValue.toFixed(2)}</Badge>
+            <Badge className="border border-border">Total: ${totalValue.toFixed(2)}</Badge>
           </div>
         </div>
 
@@ -1144,7 +1022,7 @@ export default function RapidScanCamera() {
                 <div className="bg-black/70 rounded-full px-3 py-1.5 flex items-center gap-2">
                   <span className="text-xs text-white font-medium">Voice</span>
                   <span className={cn("text-[10px]", voice.listening ? "text-emerald-300" : "text-white/60")}>
-                    {voice.supported ? (voice.listening ? "listening" : "idle") : "unsupported"}
+                    {voice.listening ? "listening" : "idle"}
                   </span>
                 </div>
               </div>
@@ -1204,8 +1082,8 @@ export default function RapidScanCamera() {
                     <Button
                       variant="outline"
                       onClick={toggleTorch}
-                      disabled={!cameraOn || !sup.torch}
-                      title={sup.torch ? "Toggle flash" : "Flash not supported"}
+                      disabled={!cameraOn || !support.torch}
+                      title={support.torch ? "Toggle flash" : "Flash not supported"}
                     >
                       {torchOn ? <FlashlightOff className="h-4 w-4" /> : <Flashlight className="h-4 w-4" />}
                     </Button>
@@ -1315,7 +1193,7 @@ export default function RapidScanCamera() {
       {/* Scanned list */}
       <ScannedCardList
         cards={cards}
-        onCardUpdate={(id, updates) => updateCard(id, updates as any)}
+        onCardUpdate={(id, updates) => updateCard(id, updates)}
         onCardDelete={(id) => removeCard(id)}
         scanMode={true}
         onAddToLibrary={(id) => handleAddToLibrary(id)}
@@ -1326,7 +1204,7 @@ export default function RapidScanCamera() {
             // Only reorder completed cards; keep non-completed at top
             const completed = prev.filter((c) => c.status === "completed");
             const rest = prev.filter((c) => c.status !== "completed");
-            const nextCompleted = orderedIds.map((id) => byId.get(id)).filter(Boolean) as any[];
+            const nextCompleted = orderedIds.map((id) => byId.get(id)).filter(Boolean) as ScannedCard[];
             // Fallback for any missing
             const missing = completed.filter((c) => !orderedIds.includes(c.id));
             return [...rest, ...nextCompleted, ...missing];
