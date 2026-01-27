@@ -693,6 +693,7 @@ export default function Collections() {
   if (isLoading) {
     return (
       <div className="space-y-6">
+      <AutopilotPanel cards={cards} />
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-10 w-full max-w-md" />
         <div className="grid gap-2 grid-cols-[repeat(auto-fill,minmax(140px,1fr))]">
@@ -706,6 +707,7 @@ export default function Collections() {
 
   return (
     <div className="space-y-6">
+      <AutopilotPanel cards={cards} />
       <div>
         <h1 className="text-3xl font-bold text-foreground">My Collections</h1>
         <p className="text-muted-foreground">Browse and manage your card collection</p>
