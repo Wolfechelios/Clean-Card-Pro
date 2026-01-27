@@ -56,7 +56,7 @@ import { useVoiceCommand } from "@/hooks/use-voice-command";
 // TUNING
 // ─────────────────────────────────────────────────────────────────────────────
 
-const QUEUE_MAX = 500; // large buffer - uses IndexedDB (device storage)
+const QUEUE_MAX = 250; // large buffer - uses IndexedDB (device storage)
 
 type ScannedCard = {
   id: string;
