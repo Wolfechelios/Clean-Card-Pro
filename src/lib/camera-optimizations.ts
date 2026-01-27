@@ -3,11 +3,52 @@
  * - 8K/4K resolution support
  * - Fast continuous autofocus
  * - Anti-glare image processing
+ * - GPU-first execution with fallback
+ * - Buffer reuse for memory efficiency
  */
+
+import { GPU_CONFIG } from "@/lib/performance/gpuConfig";
+import { MEMORY_CONFIG } from "@/lib/performance/memoryConfig";
+import { canProcessFrame, markFrameStart, markFrameEnd } from "@/lib/performance/pipelineGuards";
 
 export interface OptimizedCameraConstraints {
   video: MediaTrackConstraints;
   audio: false;
+}
+
+// Shared canvas/context for buffer reuse when MEMORY_CONFIG.reuseBuffers is true
+let sharedCanvas: HTMLCanvasElement | null = null;
+let sharedCtx: CanvasRenderingContext2D | null = null;
+
+function getReusableCanvas(width: number, height: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
+  if (MEMORY_CONFIG.reuseBuffers && sharedCanvas && sharedCtx) {
+    if (sharedCanvas.width !== width || sharedCanvas.height !== height) {
+      sharedCanvas.width = width;
+      sharedCanvas.height = height;
+    }
+    return { canvas: sharedCanvas, ctx: sharedCtx };
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+
+  // Use GPU-first rendering hints when available
+  const ctxOptions: CanvasRenderingContext2DSettings = {
+    alpha: false,
+    desynchronized: GPU_CONFIG.execution === "gpu-first",
+    willReadFrequently: false,
+  };
+
+  const ctx = canvas.getContext('2d', ctxOptions);
+  if (!ctx) throw new Error('Failed to get canvas context');
+
+  if (MEMORY_CONFIG.reuseBuffers) {
+    sharedCanvas = canvas;
+    sharedCtx = ctx;
+  }
+
+  return { canvas, ctx };
 }
 
 // Maximum resolution camera constraints with progressive fallback
@@ -203,7 +244,8 @@ export const enhanceForOCR = (
 };
 
 // Capture photo with maximum quality and anti-glare
-export const captureMaxQualityPhoto = (
+// Uses performance pipeline guards to limit in-flight frames
+export const captureMaxQualityPhoto = async (
   video: HTMLVideoElement,
   options: {
     applyAntiGlareFilter?: boolean;
@@ -212,7 +254,19 @@ export const captureMaxQualityPhoto = (
     targetAspectRatio?: number;
   } = {}
 ): Promise<Blob> => {
-  return new Promise((resolve, reject) => {
+  // Enforce max in-flight frames
+  const maxWaitMs = 2000;
+  const startWait = Date.now();
+  while (!canProcessFrame()) {
+    if (Date.now() - startWait > maxWaitMs) {
+      console.warn('[captureMaxQualityPhoto] Frame slot timeout, proceeding anyway');
+      break;
+    }
+    await new Promise(r => setTimeout(r, 16));
+  }
+  markFrameStart();
+
+  try {
     // Validate video is ready with valid dimensions
     if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
       console.error('Video not ready for capture:', {
@@ -221,8 +275,7 @@ export const captureMaxQualityPhoto = (
         height: video?.videoHeight,
         readyState: video?.readyState,
       });
-      reject(new Error('Video not ready for capture. Please wait for camera to initialize.'));
-      return;
+      throw new Error('Video not ready for capture. Please wait for camera to initialize.');
     }
 
     const {
@@ -232,8 +285,6 @@ export const captureMaxQualityPhoto = (
       targetAspectRatio,
     } = options;
 
-    const canvas = document.createElement('canvas');
-    
     // Use maximum available resolution
     let captureWidth = video.videoWidth;
     let captureHeight = video.videoHeight;
@@ -248,19 +299,11 @@ export const captureMaxQualityPhoto = (
       }
     }
     
-    canvas.width = captureWidth;
-    canvas.height = captureHeight;
+    // Get canvas with buffer reuse if enabled
+    const { canvas, ctx } = getReusableCanvas(captureWidth, captureHeight);
     
-    const ctx = canvas.getContext('2d', {
-      alpha: false,
-      desynchronized: true,
-      willReadFrequently: applyAntiGlareFilter || enhanceOCR,
-    });
-    
-    if (!ctx) {
-      reject(new Error('Failed to get canvas context'));
-      return;
-    }
+    // GPU-first: use desynchronized rendering for GPU acceleration
+    // This is already set in getReusableCanvas based on GPU_CONFIG
     
     // High-quality rendering
     ctx.imageSmoothingEnabled = true;
@@ -277,7 +320,7 @@ export const captureMaxQualityPhoto = (
       0, 0, captureWidth, captureHeight
     );
     
-    // Apply anti-glare filter
+    // Apply anti-glare filter (requires willReadFrequently)
     if (applyAntiGlareFilter) {
       applyAntiGlare(ctx, canvas, 0.25);
     }
@@ -288,18 +331,23 @@ export const captureMaxQualityPhoto = (
     }
     
     // Export as high-quality JPEG
-    canvas.toBlob(
-      (blob) => {
-        if (blob) {
-          resolve(blob);
-        } else {
-          reject(new Error('Failed to create blob'));
-        }
-      },
-      'image/jpeg',
-      quality
-    );
-  });
+    return new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error('Failed to create blob'));
+          }
+        },
+        'image/jpeg',
+        quality
+      );
+    });
+  } finally {
+    // Always release frame slot
+    markFrameEnd();
+  }
 };
 
 // Get camera stream with maximum settings
