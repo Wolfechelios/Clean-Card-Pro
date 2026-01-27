@@ -1,4 +1,3 @@
-import { guardedTask } from '@/lib/stability/taskGuard';
 import { useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { insertCardDual } from "@/lib/localCards";
@@ -69,7 +68,7 @@ export function useCardScanner({
   onScanComplete,
   skipDuplicateCheck = false,
 }: UseCardScannerOptions) {
-  const [file, setFile] = useState<File | null>(null));
+  const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
