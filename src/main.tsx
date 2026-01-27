@@ -2,6 +2,10 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
+import { enableSustainedPerformance } from "@/lib/performance/sustainedMode";
+
+// Enable sustained performance mode on Android (does nothing on web/iOS)
+enableSustainedPerformance();
 
 // Capture PWA install prompt as early as possible
 // This event fires ONLY when the browser determines the app is installable
