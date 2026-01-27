@@ -7,6 +7,8 @@ import { create } from "zustand";
 import { supabase } from "@/integrations/supabase/client";
 import { withRetry } from "@/lib/retry";
 import { getScannerSettings } from "@/hooks/use-scanner-settings";
+import { canProcessFrame, markFrameStart, markFrameEnd } from "@/lib/performance/pipelineGuards";
+import { MEMORY_CONFIG } from "@/lib/performance/memoryConfig";
 import {
   idbGetNextQueued,
   idbUpdateMeta,
@@ -304,11 +306,18 @@ async function workerLoop(workerId: number) {
 }
 
 async function processJob(item: QueueItem): Promise<void> {
+  // Enforce max in-flight frames from performance config
+  while (!canProcessFrame()) {
+    await sleep(50);
+  }
+  markFrameStart();
+
   const store = useQueueProcessor.getState();
   store._setCurrentItem(item.id);
 
-  // Mark processing
-  await idbUpdateMeta(item.id, { status: "processing" });
+  try {
+    // Mark processing
+    await idbUpdateMeta(item.id, { status: "processing" });
 
   // Upload to storage
   const filePath = `cards/${item.id}.jpg`;
@@ -423,6 +432,10 @@ async function processJob(item: QueueItem): Promise<void> {
 
   // Success - remove from queue
   await idbDelete(item.id);
+  } finally {
+    // Always release frame slot
+    markFrameEnd();
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
