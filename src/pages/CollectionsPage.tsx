@@ -35,6 +35,7 @@ import { CardThumbnail } from "@/components/collections/CardThumbnail";
 import { VirtualizedCardGrid } from "@/components/collections/VirtualizedCardGrid";
 import { CardDetailModal, CardData } from "@/components/cards/CardDetailModal";
 import { BulkImageSearch } from "@/components/collections/BulkImageSearch";
+import { AutopilotPanel } from "@/components/AutopilotPanel";
 
 interface CardItem {
   id: string;

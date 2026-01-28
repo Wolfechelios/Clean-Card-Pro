@@ -21,6 +21,7 @@ import { RemoteScanMobile } from "./scanner/RemoteScanMobile";
 import RapidScanCamera from "./scanner/RapidScanCamera";
 import { USBPhoneCameraScanner } from "./scanner/USBPhoneCameraScanner";
 import { DuplicateCardDialog } from "./scanner/DuplicateCardDialog";
+import { RecentScansBox } from "./scanner/RecentScansBox";
 
 interface ScannerProps {
   userId: string;
@@ -84,6 +85,9 @@ const Scanner = ({ userId }: ScannerProps) => {
 
   return (
     <div className="space-y-6">
+      {/* Recent Scans Box */}
+      <RecentScansBox />
+
       {/* Mode Toggle */}
       <div className="flex items-center justify-between gap-3 p-3 rounded-lg border bg-card">
         <div className="space-y-0.5">

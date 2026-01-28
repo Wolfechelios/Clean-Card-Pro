@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { analyzeCardFull } from "@/lib/analyzeCardFull";
 import { withRetry } from "@/lib/retry";
 import { getScannerSettings, type ScanMode } from "./use-scanner-settings";
+import { addRecentScan } from "@/lib/recentScans";
 
 export interface OCRResult {
   cardName: string;
@@ -344,6 +345,16 @@ export function useCardScanner({
             last_price_update: new Date().toISOString(),
           });
 
+          // Track in recent scans
+          addRecentScan({
+            id: crypto.randomUUID(),
+            card_name: identifiedCard.card_name,
+            card_set: identifiedCard.card_set,
+            image_url: imageUrl,
+            price: pricingData?.currentPriceRaw ?? null,
+          });
+          window.dispatchEvent(new CustomEvent("recent-scan-added"));
+
           toast.success(
             `Card auto-saved: ${identifiedCard.card_name} (${identifiedCard.confidence}% confidence)`
           );
@@ -419,6 +430,16 @@ export function useCardScanner({
         last_price_update: new Date().toISOString(),
       });
 
+      // Track in recent scans
+      addRecentScan({
+        id: crypto.randomUUID(),
+        card_name: editedCard.card_name,
+        card_set: editedCard.card_set,
+        image_url: pendingCard.imageUrl,
+        price: pendingCard.fallbackData?.currentPriceRaw ?? null,
+      });
+      window.dispatchEvent(new CustomEvent("recent-scan-added"));
+
       // Scan-only mode: "Add" is explicit user action, so we still save here—just don't auto-save.
       toast.success(
         pendingCard.scanMode === "SCAN_ONLY"
@@ -468,6 +489,16 @@ export function useCardScanner({
       });
 
       if (dbError) throw dbError;
+
+      // Track in recent scans
+      addRecentScan({
+        id: crypto.randomUUID(),
+        card_name: duplicateCard.identifiedCard.card_name,
+        card_set: duplicateCard.identifiedCard.card_set,
+        image_url: duplicateCard.imageUrl,
+        price: duplicateCard.fallbackData?.currentPriceRaw ?? null,
+      });
+      window.dispatchEvent(new CustomEvent("recent-scan-added"));
 
       toast.success("Duplicate card added to collection!");
       clearSelection();
