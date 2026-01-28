@@ -46,6 +46,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
+import { RecentScansBox } from "@/components/scanner/RecentScansBox";
 
 type CardType = Database["public"]["Tables"]["cards"]["Row"];
 
@@ -665,6 +666,9 @@ export default function NewDashboard() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Recent Scans */}
+      <RecentScansBox />
 
       {/* Scan Center Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 xs:gap-4 lg:gap-5">
