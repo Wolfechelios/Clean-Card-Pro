@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import splashLogo from "@/assets/splash-logo.jpg";
+import { Gem } from "lucide-react";
 
 interface SplashScreenProps {
   onComplete: () => void;
@@ -32,14 +32,12 @@ export function SplashScreen({ onComplete, minDisplayTime = 2500 }: SplashScreen
 
       {/* Logo container with animations */}
       <div className="relative z-10 flex flex-col items-center gap-8">
-        {/* Logo image with scale + rotate animation */}
+        {/* Logo icon with scale animation */}
         <div className="relative">
           <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-amber-400 via-orange-500 to-red-500 blur-xl opacity-60 animate-spin-slow" />
-          <img
-            src={splashLogo}
-            alt="CleanCards"
-            className="relative w-40 h-40 rounded-full object-cover border-4 border-amber-400/50 shadow-2xl shadow-amber-500/30 animate-splash-logo"
-          />
+          <div className="relative w-40 h-40 rounded-full bg-gradient-to-br from-amber-400 via-orange-500 to-red-500 flex items-center justify-center border-4 border-amber-400/50 shadow-2xl shadow-amber-500/30 animate-splash-logo">
+            <Gem className="w-20 h-20 text-white drop-shadow-lg" />
+          </div>
           {/* Ring animation */}
           <div className="absolute inset-0 rounded-full border-4 border-amber-400/40 animate-ping-slow" />
         </div>
