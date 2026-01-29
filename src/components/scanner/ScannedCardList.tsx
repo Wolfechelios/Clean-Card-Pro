@@ -33,8 +33,11 @@ interface ScannedCardListProps {
   onCardUpdate: (id: string, updates: Partial<ScannedCard>) => void;
   onCardDelete?: (id: string) => void;
   scanMode?: boolean;
+  removeMode?: boolean; // NEW: when true, show "Remove from Collection" for library cards
   onAddToLibrary?: (id: string) => void;
   onAddAllToLibrary?: () => void;
+  onRemoveFromLibrary?: (id: string, dbId: string) => void; // NEW
+  onRemoveAllFromLibrary?: () => void; // NEW
   onReorder?: (orderedIds: string[]) => void;
 }
 
@@ -63,8 +66,11 @@ export const ScannedCardList = ({
   onCardUpdate,
   onCardDelete,
   scanMode,
+  removeMode,
   onAddToLibrary,
   onAddAllToLibrary,
+  onRemoveFromLibrary,
+  onRemoveAllFromLibrary,
   onReorder,
 }: ScannedCardListProps) => {
   const [editingCard, setEditingCard] = useState<ScannedCard | null>(null);
@@ -78,12 +84,15 @@ export const ScannedCardList = ({
   const [isSaving, setIsSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [addingId, setAddingId] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
   const [isAddingAll, setIsAddingAll] = useState(false);
+  const [isRemovingAll, setIsRemovingAll] = useState(false);
 
   const completedCards = cards.filter((c) => c.status === "completed");
   const [dragId, setDragId] = useState<string | null>(null);
   const totalValue = completedCards.reduce((sum, c) => sum + (c.value || 0), 0);
   const newCardsCount = scanMode ? completedCards.filter((c) => !c.dbId).length : 0;
+  const libraryCardsCount = removeMode ? completedCards.filter((c) => c.isInLibrary && c.dbId).length : 0;
 
   const handleAddAll = async () => {
     if (!onAddAllToLibrary) return;
@@ -92,6 +101,26 @@ export const ScannedCardList = ({
       await onAddAllToLibrary();
     } finally {
       setIsAddingAll(false);
+    }
+  };
+
+  const handleRemoveAll = async () => {
+    if (!onRemoveAllFromLibrary) return;
+    setIsRemovingAll(true);
+    try {
+      await onRemoveAllFromLibrary();
+    } finally {
+      setIsRemovingAll(false);
+    }
+  };
+
+  const handleRemoveFromLibrary = async (card: ScannedCard) => {
+    if (!onRemoveFromLibrary || !card.dbId) return;
+    setRemovingId(card.id);
+    try {
+      await onRemoveFromLibrary(card.id, card.dbId);
+    } finally {
+      setRemovingId(null);
     }
   };
 
@@ -185,12 +214,14 @@ export const ScannedCardList = ({
 
   return (
     <>
-      <Card>
+      <Card className={removeMode ? "border-destructive/50" : ""}>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <CardTitle className="text-lg">Scanned Cards ({completedCards.length})</CardTitle>
-              {scanMode && newCardsCount > 0 && (
+              <CardTitle className="text-lg">
+                {removeMode ? "Cards to Remove" : "Scanned Cards"} ({completedCards.length})
+              </CardTitle>
+              {scanMode && !removeMode && newCardsCount > 0 && (
                 <Badge
                   variant="outline"
                   className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border-amber-300"
@@ -198,10 +229,15 @@ export const ScannedCardList = ({
                   {newCardsCount} New
                 </Badge>
               )}
+              {removeMode && libraryCardsCount > 0 && (
+                <Badge variant="destructive">
+                  {libraryCardsCount} in Library
+                </Badge>
+              )}
             </div>
             <div className="flex items-center gap-3">
               {/* Add All button */}
-              {scanMode && newCardsCount > 0 && onAddAllToLibrary && (
+              {scanMode && !removeMode && newCardsCount > 0 && onAddAllToLibrary && (
                 <Button
                   variant="default"
                   size="sm"
@@ -211,6 +247,18 @@ export const ScannedCardList = ({
                 >
                   {isAddingAll ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Plus className="h-4 w-4 mr-1" />}
                   Add All ({newCardsCount})
+                </Button>
+              )}
+              {/* Remove All button */}
+              {removeMode && libraryCardsCount > 0 && onRemoveAllFromLibrary && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleRemoveAll}
+                  disabled={isRemovingAll}
+                >
+                  {isRemovingAll ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1" />}
+                  Remove All ({libraryCardsCount})
                 </Button>
               )}
               <div className="flex items-center gap-1">
@@ -309,8 +357,29 @@ export const ScannedCardList = ({
               </div>
 
               <div className="flex items-center gap-1 shrink-0">
-                {/* Add to Library button for scan mode */}
-                {scanMode && !card.dbId && onAddToLibrary && (
+                {/* Remove from Library button for remove mode */}
+                {removeMode && card.isInLibrary && card.dbId && onRemoveFromLibrary && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => handleRemoveFromLibrary(card)}
+                    disabled={removingId === card.id || card.priceFetching}
+                    className="text-xs h-7 px-2 gap-1"
+                  >
+                    {removingId === card.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                    Remove
+                  </Button>
+                )}
+
+                {/* Not in library indicator for remove mode */}
+                {removeMode && !card.isInLibrary && (
+                  <Badge variant="secondary" className="text-[10px]">
+                    Not in Library
+                  </Badge>
+                )}
+
+                {/* Add to Library button for scan mode (not remove mode) */}
+                {scanMode && !removeMode && !card.dbId && onAddToLibrary && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -327,8 +396,8 @@ export const ScannedCardList = ({
                   </Button>
                 )}
 
-                {/* Already in library indicator */}
-                {scanMode && card.dbId && (
+                {/* Already in library indicator (not in remove mode) */}
+                {scanMode && !removeMode && card.dbId && (
                   <Badge
                     variant="secondary"
                     className="text-[10px] bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"

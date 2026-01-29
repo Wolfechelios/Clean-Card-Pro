@@ -38,7 +38,7 @@ import {
   idbAdd,
   idbCount,
   idbDelete,
-  idbGetAll,
+  idbListMetaFast,
   idbClear,
   type QueueItemMeta,
 } from "@/lib/idbQueue";
@@ -197,8 +197,9 @@ export default function RapidScanCamera() {
   }, []);
 
   const refreshMeta = useCallback(async () => {
-    const all = await idbGetAll();
-    setQueueMeta(all.map(({ blob: _blob, ...rest }) => rest));
+    // Use fast meta loading that doesn't load blobs - much faster for large queues
+    const all = await idbListMetaFast();
+    setQueueMeta(all);
   }, []);
 
   useEffect(() => {
@@ -788,6 +789,79 @@ export default function RapidScanCamera() {
   }, [cards, updateCard, userId]);
 
   // ───────────────────────────────────────────────────────────────────────────
+  // REMOVE FROM LIBRARY (for remove mode)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  const handleRemoveFromLibrary = useCallback(
+    async (id: string, dbId: string) => {
+      if (!userId) {
+        toast.error("Login required");
+        return;
+      }
+
+      try {
+        updateCard(id, { priceFetching: true });
+
+        const { error } = await supabase.from("cards").delete().eq("id", dbId);
+        if (error) throw error;
+
+        updateCard(id, {
+          dbId: undefined,
+          isInLibrary: false,
+          libraryQuantity: 0,
+          priceFetching: false,
+        });
+
+        toast.success("Removed from collection");
+      } catch (e: any) {
+        console.error(e);
+        updateCard(id, { priceFetching: false });
+        toast.error(e?.message ?? "Failed to remove");
+      }
+    },
+    [updateCard, userId]
+  );
+
+  const handleRemoveAllFromLibrary = useCallback(async () => {
+    if (!userId) {
+      toast.error("Login required");
+      return;
+    }
+
+    const libraryCards = cards.filter((c) => c.status === "completed" && c.isInLibrary && c.dbId);
+    if (libraryCards.length === 0) {
+      toast.info("No cards to remove");
+      return;
+    }
+
+    toast.loading(`Removing ${libraryCards.length} cards from collection...`, { id: "bulk-remove" });
+
+    let removed = 0;
+    for (const c of libraryCards) {
+      try {
+        updateCard(c.id, { priceFetching: true });
+
+        const { error } = await supabase.from("cards").delete().eq("id", c.dbId!);
+        if (error) throw error;
+
+        updateCard(c.id, {
+          dbId: undefined,
+          isInLibrary: false,
+          libraryQuantity: 0,
+          priceFetching: false,
+        });
+
+        removed++;
+      } catch (e: any) {
+        console.error(`Failed to remove ${c.cardName}:`, e);
+        updateCard(c.id, { priceFetching: false });
+      }
+    }
+
+    toast.success(`Removed ${removed} of ${libraryCards.length} cards`, { id: "bulk-remove" });
+  }, [cards, updateCard, userId]);
+
+  // ───────────────────────────────────────────────────────────────────────────
   // CLEAR
   // ───────────────────────────────────────────────────────────────────────────
 
@@ -817,11 +891,17 @@ export default function RapidScanCamera() {
         settings.fullscreenScanMode && "fixed inset-0 z-50 bg-background p-2 sm:p-4 overflow-auto"
       )}
     >
-      <Card className="p-4">
+      <Card className={cn("p-4", settings.scanMode === "REMOVE" && "border-destructive/50")}>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
-            <Badge variant="secondary">Rapid Scan</Badge>
-            <span className="text-sm text-muted-foreground">Manual capture • buffered processing</span>
+            <Badge variant={settings.scanMode === "REMOVE" ? "destructive" : "secondary"}>
+              {settings.scanMode === "REMOVE" ? "Remove Mode" : "Rapid Scan"}
+            </Badge>
+            <span className="text-sm text-muted-foreground">
+              {settings.scanMode === "REMOVE" 
+                ? "Scan cards to find and remove from collection" 
+                : "Manual capture • buffered processing"}
+            </span>
           </div>
 
           <div className="flex items-center gap-2">
@@ -1048,8 +1128,11 @@ export default function RapidScanCamera() {
         onCardUpdate={(id, updates) => updateCard(id, updates as any)}
         onCardDelete={(id) => removeCard(id)}
         scanMode={true}
+        removeMode={settings.scanMode === "REMOVE"}
         onAddToLibrary={(id) => handleAddToLibrary(id)}
         onAddAllToLibrary={handleAddAllToLibrary}
+        onRemoveFromLibrary={handleRemoveFromLibrary}
+        onRemoveAllFromLibrary={handleRemoveAllFromLibrary}
         onReorder={(orderedIds) => {
           setCards((prev) => {
             const byId = new Map(prev.map((c) => [c.id, c]));

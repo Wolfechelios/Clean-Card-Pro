@@ -15,7 +15,7 @@ import {
   idbDelete,
   idbCount,
   idbCountQueued,
-  idbGetAll,
+  idbListMetaFast,
   type QueueItem,
   type QueueItemMeta,
 } from "@/lib/idbQueue";
@@ -133,10 +133,11 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
 
   refreshQueue: async () => {
     const queuedCount = await idbCountQueued();
-    const all = await idbGetAll();
+    // Use fast meta loading that doesn't load blobs
+    const all = await idbListMetaFast();
     set({
       queueCount: queuedCount,
-      queueMeta: all.map(({ blob: _blob, ...rest }) => rest),
+      queueMeta: all,
     });
   },
 

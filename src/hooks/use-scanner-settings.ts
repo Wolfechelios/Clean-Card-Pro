@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 
 const SCANNER_SETTINGS_KEY = "card-scanner-settings";
 
-export type ScanMode = "SAVE" | "SCAN_ONLY";
+export type ScanMode = "SAVE" | "SCAN_ONLY" | "REMOVE";
 
 export interface ScannerSettings {
   autoConfirmEnabled: boolean;

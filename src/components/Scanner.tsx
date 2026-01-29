@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Camera, Smartphone, Usb } from "lucide-react";
+import { Camera, Smartphone, Usb, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 import { useCardScanner } from "@/hooks/use-card-scanner";
@@ -81,7 +81,18 @@ const Scanner = ({ userId }: ScannerProps) => {
   );
 
   const modeLabel =
-    settings.scanMode === "SAVE" ? "Save Mode (current behavior)" : "Scan & Price (non-destructive)";
+    settings.scanMode === "SAVE" 
+      ? "Save Mode — Scans are saved to your collection" 
+      : settings.scanMode === "REMOVE"
+      ? "Remove Mode — Scan cards to find and remove them"
+      : "Scan & Price — Preview only, nothing saved";
+
+  const cycleScanMode = () => {
+    const modes: Array<"SAVE" | "SCAN_ONLY" | "REMOVE"> = ["SAVE", "SCAN_ONLY", "REMOVE"];
+    const currentIndex = modes.indexOf(settings.scanMode);
+    const nextIndex = (currentIndex + 1) % modes.length;
+    updateSettings({ scanMode: modes[nextIndex] });
+  };
 
   return (
     <div className="space-y-6">
@@ -91,19 +102,24 @@ const Scanner = ({ userId }: ScannerProps) => {
       {/* Mode Toggle */}
       <div className="flex items-center justify-between gap-3 p-3 rounded-lg border bg-card">
         <div className="space-y-0.5">
-          <div className="text-sm font-semibold">Scan Mode</div>
+          <div className="flex items-center gap-2">
+            <div className="text-sm font-semibold">Scan Mode</div>
+            {settings.scanMode === "REMOVE" && (
+              <Trash2 className="h-4 w-4 text-destructive" />
+            )}
+          </div>
           <div className="text-xs text-muted-foreground">{modeLabel}</div>
         </div>
 
         <Button
-          variant={settings.scanMode === "SAVE" ? "default" : "secondary"}
-          onClick={() =>
-            updateSettings({
-              scanMode: settings.scanMode === "SAVE" ? "SCAN_ONLY" : "SAVE",
-            })
-          }
+          variant={settings.scanMode === "REMOVE" ? "destructive" : settings.scanMode === "SAVE" ? "default" : "secondary"}
+          onClick={cycleScanMode}
         >
-          {settings.scanMode === "SAVE" ? "Switch to Scan & Price" : "Switch to Save Mode"}
+          {settings.scanMode === "SAVE" 
+            ? "Switch to Scan & Price" 
+            : settings.scanMode === "SCAN_ONLY" 
+            ? "Switch to Remove Mode"
+            : "Switch to Save Mode"}
         </Button>
       </div>
 
