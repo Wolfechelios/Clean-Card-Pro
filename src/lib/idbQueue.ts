@@ -125,6 +125,50 @@ export async function idbListMeta(limit = 500): Promise<QueueItemMeta[]> {
 }
 
 /**
+ * Fast version of idbListMeta that only reads metadata, not blobs.
+ * This is much faster for UI updates as it doesn't load large image blobs.
+ */
+export async function idbListMetaFast(limit = 500): Promise<QueueItemMeta[]> {
+  const db = await openDB()
+  const items: QueueItemMeta[] = []
+
+  await new Promise<void>((resolve, reject) => {
+    const t = db.transaction(STORE, "readonly")
+    const store = t.objectStore(STORE)
+    const idx = store.index("createdAt")
+    
+    // Use cursor to iterate but only extract meta fields
+    const req = idx.openCursor(null, "prev") // newest first
+    
+    req.onsuccess = () => {
+      const cursor = req.result as IDBCursorWithValue | null
+      if (!cursor || items.length >= limit) {
+        resolve()
+        return
+      }
+      
+      const v = cursor.value as QueueItem
+      // Extract only meta fields, skip blob
+      items.push({
+        id: v.id,
+        createdAt: v.createdAt,
+        processingStartedAt: v.processingStartedAt,
+        status: v.status,
+        error: v.error,
+        mime: v.mime,
+        filename: v.filename,
+      })
+      cursor.continue()
+    }
+    req.onerror = () => reject(req.error)
+    t.onerror = () => reject(t.error)
+  })
+
+  db.close()
+  return items
+}
+
+/**
  * Get the next queued item FIFO (oldest first).
  * Also picks up stuck "processing" items older than 5s (orphaned from crashes/scaling).
  * Returns full item (includes blob).
