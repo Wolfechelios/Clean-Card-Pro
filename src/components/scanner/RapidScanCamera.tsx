@@ -318,7 +318,22 @@ export default function RapidScanCamera() {
 
       // Zoom capabilities
       detectZoomCapabilities();
+      // Zoom capabilities
+ 
 
+      // Ensure clean zoom state on start (no phantom 1.0×)
+      try {
+        resetZoom();
+      } catch {}
+
+      // Force autofocus on camera start
+      try {
+        await trackRef.current?.applyConstraints({
+          advanced: [{ focusMode: "continuous" } as any],
+        });
+      } catch {}
+
+      // Workers start automatically once you enqueue
       // Workers start automatically once you enqueue
     } catch (err: any) {
       setStatusLine(`Camera error: ${err?.message ?? err}`);
