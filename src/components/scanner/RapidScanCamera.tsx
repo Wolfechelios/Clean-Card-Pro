@@ -51,6 +51,22 @@ import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 import { getScannerSettings, useScannerSettings } from "@/hooks/use-scanner-settings";
 import { hapticTap } from "@/lib/haptics";
 import { useVoiceCommand } from "@/hooks/use-voice-command";
+import kachingSound from "@/assets/kaching.wav";
+
+// Ka-ching sound for $10+ cards
+let kachingAudio: HTMLAudioElement | null = null;
+function playKachingSound() {
+  try {
+    if (!kachingAudio) {
+      kachingAudio = new Audio(kachingSound);
+      kachingAudio.volume = 0.8;
+    }
+    kachingAudio.currentTime = 0;
+    kachingAudio.play().catch(() => {});
+  } catch {
+    // Ignore audio errors
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TUNING
@@ -689,6 +705,11 @@ export default function RapidScanCamera() {
       dbId: card.dbId,
       priceFetching: false,
     });
+
+    // Play ka-ching sound for cards worth $10+
+    if (typeof card.value === "number" && card.value >= 10) {
+      playKachingSound();
+    }
 
     setOverlay({
       label: card.cardName,
