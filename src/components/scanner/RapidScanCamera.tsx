@@ -941,6 +941,28 @@ export default function RapidScanCamera() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Mode toggle button */}
+            <Button
+              variant={settings.scanMode === "REMOVE" ? "destructive" : "outline"}
+              size="sm"
+              onClick={() => {
+                const nextMode = settings.scanMode === "REMOVE" ? "SAVE" : "REMOVE";
+                updateSettings({ scanMode: nextMode });
+                toast.info(nextMode === "REMOVE" ? "Remove Mode activated" : "Save Mode activated");
+              }}
+            >
+              {settings.scanMode === "REMOVE" ? (
+                <>
+                  <Trash2 className="h-3.5 w-3.5 mr-1" />
+                  Exit Remove
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-3.5 w-3.5 mr-1" />
+                  Remove Mode
+                </>
+              )}
+            </Button>
             <Badge variant="outline" className="hidden sm:inline-flex">
               Buffer: {queueMeta.filter((q) => q.status === "queued" || q.status === "processing").length}/{QUEUE_MAX}
             </Badge>
