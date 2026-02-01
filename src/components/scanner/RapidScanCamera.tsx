@@ -22,6 +22,8 @@ import {
   Trash2,
   Timer,
   TimerOff,
+  Save,
+  Eye,
 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -930,39 +932,70 @@ export default function RapidScanCamera() {
       <Card className={cn("p-4", settings.scanMode === "REMOVE" && "border-destructive/50")}>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
-            <Badge variant={settings.scanMode === "REMOVE" ? "destructive" : "secondary"}>
-              {settings.scanMode === "REMOVE" ? "Remove Mode" : "Rapid Scan"}
+            <Badge 
+              variant={
+                settings.scanMode === "REMOVE" 
+                  ? "destructive" 
+                  : settings.scanMode === "SAVE" 
+                  ? "default" 
+                  : "secondary"
+              }
+            >
+              {settings.scanMode === "REMOVE" 
+                ? "Remove Mode" 
+                : settings.scanMode === "SAVE" 
+                ? "Save Mode" 
+                : "Scan & Price"}
             </Badge>
             <span className="text-sm text-muted-foreground">
               {settings.scanMode === "REMOVE" 
                 ? "Scan cards to find and remove from collection" 
-                : "Manual capture • buffered processing"}
+                : settings.scanMode === "SAVE"
+                ? "Scans are saved to your collection"
+                : "Preview only, nothing saved"}
             </span>
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Mode toggle button */}
-            <Button
-              variant={settings.scanMode === "REMOVE" ? "destructive" : "outline"}
-              size="sm"
-              onClick={() => {
-                const nextMode = settings.scanMode === "REMOVE" ? "SAVE" : "REMOVE";
-                updateSettings({ scanMode: nextMode });
-                toast.info(nextMode === "REMOVE" ? "Remove Mode activated" : "Save Mode activated");
-              }}
-            >
-              {settings.scanMode === "REMOVE" ? (
-                <>
-                  <Trash2 className="h-3.5 w-3.5 mr-1" />
-                  Exit Remove
-                </>
-              ) : (
-                <>
-                  <Trash2 className="h-3.5 w-3.5 mr-1" />
-                  Remove Mode
-                </>
-              )}
-            </Button>
+            {/* 3-way mode toggle */}
+            <div className="flex rounded-md border overflow-hidden">
+              <Button
+                variant={settings.scanMode === "SAVE" ? "default" : "ghost"}
+                size="sm"
+                className="rounded-none border-0 px-2.5"
+                onClick={() => {
+                  updateSettings({ scanMode: "SAVE" });
+                  toast.info("Save Mode — cards added to collection");
+                }}
+              >
+                <Save className="h-3.5 w-3.5 sm:mr-1" />
+                <span className="hidden sm:inline">Save</span>
+              </Button>
+              <Button
+                variant={settings.scanMode === "SCAN_ONLY" ? "secondary" : "ghost"}
+                size="sm"
+                className="rounded-none border-0 border-x px-2.5"
+                onClick={() => {
+                  updateSettings({ scanMode: "SCAN_ONLY" });
+                  toast.info("Scan & Price — preview only");
+                }}
+              >
+                <Eye className="h-3.5 w-3.5 sm:mr-1" />
+                <span className="hidden sm:inline">Price</span>
+              </Button>
+              <Button
+                variant={settings.scanMode === "REMOVE" ? "destructive" : "ghost"}
+                size="sm"
+                className="rounded-none border-0 px-2.5"
+                onClick={() => {
+                  updateSettings({ scanMode: "REMOVE" });
+                  toast.info("Remove Mode — scan to delete cards");
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5 sm:mr-1" />
+                <span className="hidden sm:inline">Remove</span>
+              </Button>
+            </div>
             <Badge variant="outline" className="hidden sm:inline-flex">
               Buffer: {queueMeta.filter((q) => q.status === "queued" || q.status === "processing").length}/{QUEUE_MAX}
             </Badge>
