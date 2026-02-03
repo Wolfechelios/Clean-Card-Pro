@@ -551,6 +551,17 @@ export default function Settings() {
               />
             </div>
 
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-sm font-medium">Smart auto zoom-out</Label>
+                <p className="text-xs text-muted-foreground">Automatically zooms out when cards get too close (for stacking)</p>
+              </div>
+              <Switch
+                checked={scannerSettings.autoZoomEnabled}
+                onCheckedChange={(checked) => updateScannerSettings({ autoZoomEnabled: checked })}
+              />
+            </div>
+
             <Separator />
 
             {/* Batch Processing */}

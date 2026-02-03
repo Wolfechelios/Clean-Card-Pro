@@ -46,8 +46,10 @@ import {
 } from "@/lib/idbQueue";
 import { useQueueProcessor } from "@/lib/queueProcessor";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
+import { useClarityZoom } from "@/hooks/use-clarity-zoom";
 import { ZoomControls } from "./ZoomControls";
 import { ScannedCardList } from "./ScannedCardList";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useNativeCamera } from "@/hooks/use-native-camera";
 import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 import { getScannerSettings, useScannerSettings } from "@/hooks/use-scanner-settings";
@@ -120,6 +122,7 @@ function money(n: number | null | undefined) {
 
 export default function RapidScanCamera() {
   const { settings, updateSettings } = useScannerSettings();
+  const isMobile = useIsMobile();
 
   // Camera
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -189,8 +192,15 @@ export default function RapidScanCamera() {
     setZoom,
     zoomIn,
     zoomOut,
-    resetZoom,
   } = useCameraZoom({ streamRef });
+
+  // Smart auto zoom-out based on image clarity (for card stacking)
+  const clarityZoom = useClarityZoom({
+    zoomLevel,
+    minZoom: zoomCapabilities.min,
+    setZoom,
+    enabled: settings.autoZoomEnabled !== false, // enabled by default
+  });
 
   // Queue meta for debug/health
   const [queueMeta, setQueueMeta] = useState<QueueItemMeta[]>([]);
@@ -336,13 +346,9 @@ export default function RapidScanCamera() {
 
       // Zoom capabilities
       detectZoomCapabilities();
-      // Zoom capabilities
- 
 
-      // Ensure clean zoom state on start (no phantom 1.0×)
-      try {
-        resetZoom();
-      } catch {}
+      // Reset clarity zoom tracking on camera start
+      clarityZoom.reset();
 
       // Force autofocus on camera start
       try {
@@ -586,6 +592,11 @@ export default function RapidScanCamera() {
 
       // Draw current frame
       ctx.drawImage(v, 0, 0, w, h);
+
+      // Check clarity and auto zoom-out if needed (for card stacks)
+      if (settings.autoZoomEnabled) {
+        clarityZoom.analyzeAndAdjustZoom(v).catch(() => {});
+      }
 
       // Convert to high-quality JPEG
       const blob: Blob | null = await new Promise((resolve) =>
@@ -1003,13 +1014,19 @@ export default function RapidScanCamera() {
           </div>
         </div>
 
-        <div className="mt-4 grid gap-3 md:grid-cols-[1fr_320px]">
-          {/* Camera preview */}
+        <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_320px] landscape:grid-cols-[1fr_280px]">
+          {/* Camera preview - larger on mobile, supports landscape */}
           <div className="relative overflow-hidden rounded-xl border bg-black touch-none">
             <video
               ref={videoRef}
               className={cn(
-                "h-[360px] w-full object-cover cursor-crosshair",
+                // Mobile: use most of viewport height, desktop: fixed height
+                // Landscape: adapt to available space
+                "w-full object-cover cursor-crosshair",
+                "h-[55vh] min-h-[320px] max-h-[600px]",
+                "sm:h-[50vh] sm:min-h-[360px] sm:max-h-[500px]",
+                "md:h-[400px] md:min-h-0 md:max-h-none",
+                "landscape:h-[60vh] landscape:min-h-[240px] landscape:max-h-[400px]",
                 usingDigitalZoom && zoomLevel > 1 && "transition-transform duration-100"
               )}
               style={usingDigitalZoom && zoomLevel > 1 ? { transform: `scale(${zoomLevel})` } : undefined}
@@ -1170,7 +1187,7 @@ export default function RapidScanCamera() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={resetZoom}
+                    onClick={() => setZoom(1)}
                     className="w-full"
                   >
                     Reset Zoom ({zoomLevel.toFixed(1)}×)
