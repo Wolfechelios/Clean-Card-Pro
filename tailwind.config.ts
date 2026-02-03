@@ -140,6 +140,7 @@ export default {
       },
       screens: {
         'xs': '475px',
+        'landscape': { 'raw': '(orientation: landscape) and (max-height: 500px)' },
       },
     },
   },

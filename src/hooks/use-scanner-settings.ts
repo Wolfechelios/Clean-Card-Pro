@@ -18,6 +18,9 @@ export interface ScannerSettings {
   manualFocusLock: boolean;
   fullscreenScanMode: boolean;
 
+  // Smart zoom
+  autoZoomEnabled: boolean; // Auto zoom-out when cards get too close (blurry)
+
   // Batch processing
   batchScanSize: number; // 1-3, concurrent cards to process (max 3)
 }
@@ -34,6 +37,8 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   voiceCaptureKeyword: "snap",
   manualFocusLock: false,
   fullscreenScanMode: false,
+
+  autoZoomEnabled: true, // Auto zoom-out for card stacks
 
   batchScanSize: 3, // Default 3 concurrent workers
 };
