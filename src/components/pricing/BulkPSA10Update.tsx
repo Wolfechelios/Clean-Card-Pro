@@ -3,10 +3,11 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { RefreshCw, CheckCircle, XCircle, Loader2, Zap } from "lucide-react";
+import { RefreshCw, CheckCircle, XCircle, Loader2, Zap, ListPlus } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
+import { PSA10CardSelector } from "./PSA10CardSelector";
 
 interface PriceJob {
   id: string;
@@ -21,7 +22,9 @@ export function BulkPSA10Update() {
   const [isStarting, setIsStarting] = useState(false);
   const [currentJob, setCurrentJob] = useState<PriceJob | null>(null);
   const [polling, setPolling] = useState(false);
-  const [fastMode, setFastMode] = useState(true); // Default to fast estimation
+  const [fastMode, setFastMode] = useState(true);
+  const [selectorOpen, setSelectorOpen] = useState(false);
+  const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
 
   // Poll for job updates
   useEffect(() => {
@@ -44,17 +47,18 @@ export function BulkPSA10Update() {
           setPolling(false);
           if (data.status === "done") {
             toast.success(`Updated ${data.processed_count} card prices`);
+            setSelectedCardIds([]); // Clear selection after completion
           } else {
             toast.error(data.error || "Job failed");
           }
         }
       }
-    }, 1500); // Poll slightly faster
+    }, 1500);
 
     return () => clearInterval(interval);
   }, [currentJob]);
 
-  // Check for existing running job on mount, auto-expire stale jobs
+  // Check for existing running job on mount
   useEffect(() => {
     if (!userId) return;
 
@@ -69,12 +73,10 @@ export function BulkPSA10Update() {
         .single();
 
       if (data) {
-        // Auto-expire jobs older than 10 minutes
         const jobAge = Date.now() - new Date(data.created_at).getTime();
         const TEN_MINUTES = 10 * 60 * 1000;
         
         if (jobAge > TEN_MINUTES) {
-          // Mark stale job as failed
           await supabase
             .from("price_jobs")
             .update({ status: "failed", error: "Job timed out" })
@@ -89,20 +91,30 @@ export function BulkPSA10Update() {
     checkExistingJob();
   }, [userId]);
 
+  const handleCardsSelected = (cardIds: string[]) => {
+    setSelectedCardIds(cardIds);
+  };
+
   const handleStartJob = async () => {
     if (!userId) {
       toast.error("Please sign in to update prices");
       return;
     }
 
+    if (selectedCardIds.length === 0) {
+      toast.error("Please select cards to analyze first");
+      setSelectorOpen(true);
+      return;
+    }
+
     setIsStarting(true);
     try {
-      // Create the job
       const { data: job, error: jobError } = await supabase
         .from("price_jobs")
         .insert({
           user_id: userId,
-          status: "queued"
+          status: "queued",
+          requested_count: selectedCardIds.length
         })
         .select()
         .single();
@@ -111,11 +123,11 @@ export function BulkPSA10Update() {
 
       setCurrentJob(job as PriceJob);
 
-      // Start the job
       const { error: invokeError } = await supabase.functions.invoke("run-psa10-job", {
         body: { 
           job_id: job.id,
-          use_estimation: fastMode // Skip API calls if fast mode
+          use_estimation: fastMode,
+          card_ids: selectedCardIds // Pass selected card IDs
         }
       });
 
@@ -123,7 +135,10 @@ export function BulkPSA10Update() {
         console.error("Failed to start job:", invokeError);
         toast.error("Failed to start price update job");
       } else {
-        toast.success(fastMode ? "Fast price estimation started" : "Price lookup started");
+        toast.success(fastMode 
+          ? `Fast estimation started for ${selectedCardIds.length} cards` 
+          : `Price lookup started for ${selectedCardIds.length} cards`
+        );
       }
     } catch (error) {
       console.error("Failed to create job:", error);
@@ -145,26 +160,42 @@ export function BulkPSA10Update() {
         <div>
           <h4 className="text-sm font-medium text-foreground">PSA 10 Potential Value</h4>
           <p className="text-xs text-muted-foreground mt-1">
-            Estimate what your cards could be worth graded PSA 10
+            Select cards to estimate their PSA 10 value
           </p>
         </div>
-        <Button
-          onClick={handleStartJob}
-          disabled={isStarting || isRunning}
-          size="sm"
-        >
-          {isStarting ? (
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-          ) : isRunning ? (
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-          ) : fastMode ? (
-            <Zap className="h-4 w-4 mr-2" />
-          ) : (
-            <RefreshCw className="h-4 w-4 mr-2" />
-          )}
-          {isRunning ? "Running..." : fastMode ? "Fast Estimate" : "Web Lookup"}
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setSelectorOpen(true)}
+            disabled={isRunning}
+            size="sm"
+          >
+            <ListPlus className="h-4 w-4 mr-2" />
+            Load Cards
+          </Button>
+          <Button
+            onClick={handleStartJob}
+            disabled={isStarting || isRunning || selectedCardIds.length === 0}
+            size="sm"
+          >
+            {isStarting || isRunning ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : fastMode ? (
+              <Zap className="h-4 w-4 mr-2" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            {isRunning ? "Running..." : fastMode ? "Fast Estimate" : "Web Lookup"}
+          </Button>
+        </div>
       </div>
+
+      {/* Selected cards indicator */}
+      {selectedCardIds.length > 0 && !isRunning && (
+        <div className="text-sm text-primary font-medium">
+          {selectedCardIds.length} card{selectedCardIds.length !== 1 ? "s" : ""} selected
+        </div>
+      )}
 
       <div className="flex items-center gap-3 pt-2 border-t border-border">
         <Switch
@@ -216,6 +247,16 @@ export function BulkPSA10Update() {
             <p className="text-xs text-destructive">{currentJob.error}</p>
           )}
         </div>
+      )}
+
+      {/* Card selector dialog */}
+      {userId && (
+        <PSA10CardSelector
+          open={selectorOpen}
+          onOpenChange={setSelectorOpen}
+          userId={userId}
+          onCardsSelected={handleCardsSelected}
+        />
       )}
     </div>
   );
