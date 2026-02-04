@@ -1015,50 +1015,50 @@ export default function RapidScanCamera() {
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* 3-way mode toggle */}
-            <div className="flex rounded-md border overflow-hidden">
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* 3-way mode toggle - larger touch targets for mobile */}
+            <div className="flex rounded-lg border overflow-hidden">
               <Button
                 variant={settings.scanMode === "SAVE" ? "default" : "ghost"}
-                size="sm"
-                className="rounded-none border-0 px-2.5"
+                size="default"
+                className="rounded-none border-0 px-3 sm:px-4 h-11 sm:h-10"
                 onClick={() => {
                   updateSettings({ scanMode: "SAVE" });
                   toast.info("Save Mode — cards added to collection");
                 }}
               >
-                <Save className="h-3.5 w-3.5 sm:mr-1" />
+                <Save className="h-5 w-5 sm:h-4 sm:w-4 sm:mr-1.5" />
                 <span className="hidden sm:inline">Save</span>
               </Button>
               <Button
                 variant={settings.scanMode === "SCAN_ONLY" ? "secondary" : "ghost"}
-                size="sm"
-                className="rounded-none border-0 border-x px-2.5"
+                size="default"
+                className="rounded-none border-0 border-x px-3 sm:px-4 h-11 sm:h-10"
                 onClick={() => {
                   updateSettings({ scanMode: "SCAN_ONLY" });
                   toast.info("Scan & Price — preview only");
                 }}
               >
-                <Eye className="h-3.5 w-3.5 sm:mr-1" />
+                <Eye className="h-5 w-5 sm:h-4 sm:w-4 sm:mr-1.5" />
                 <span className="hidden sm:inline">Price</span>
               </Button>
               <Button
                 variant={settings.scanMode === "REMOVE" ? "destructive" : "ghost"}
-                size="sm"
-                className="rounded-none border-0 px-2.5"
+                size="default"
+                className="rounded-none border-0 px-3 sm:px-4 h-11 sm:h-10"
                 onClick={() => {
                   updateSettings({ scanMode: "REMOVE" });
                   toast.info("Remove Mode — scan to delete cards");
                 }}
               >
-                <Trash2 className="h-3.5 w-3.5 sm:mr-1" />
+                <Trash2 className="h-5 w-5 sm:h-4 sm:w-4 sm:mr-1.5" />
                 <span className="hidden sm:inline">Remove</span>
               </Button>
             </div>
-            <Badge variant="outline" className="hidden sm:inline-flex">
+            <Badge variant="outline" className="hidden sm:inline-flex text-sm py-1.5 px-3">
               Buffer: {queueMeta.filter((q) => q.status === "queued" || q.status === "processing").length}/{QUEUE_MAX}
             </Badge>
-            <Badge variant="outline">Total: ${totalValue.toFixed(2)}</Badge>
+            <Badge variant="outline" className="text-sm py-1.5 px-3">Total: ${totalValue.toFixed(2)}</Badge>
           </div>
         </div>
 
@@ -1161,28 +1161,29 @@ export default function RapidScanCamera() {
           </div>
 
           {/* Controls */}
-          <div className="space-y-3">
-            <div className="rounded-xl border p-3">
-              <div className="text-sm font-semibold mb-3">Camera</div>
+          <div className="space-y-4">
+            <div className="rounded-xl border p-4">
+              <div className="text-base font-semibold mb-4">Camera</div>
 
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
                   <Button
                     onClick={isNative ? captureWithNativeCamera : (cameraOn ? stopCamera : startCamera)}
                     variant={cameraOn ? "secondary" : "default"}
-                    className="w-full"
+                    size="lg"
+                    className="w-full h-14 text-base"
                   >
                     {isNative ? (
                       <>
-                        <Camera className="mr-2 h-4 w-4" /> Capture with Native Camera
+                        <Camera className="mr-2 h-6 w-6" /> Capture with Native Camera
                       </>
                     ) : cameraOn ? (
                       <>
-                        <CameraOff className="mr-2 h-4 w-4" /> Stop
+                        <CameraOff className="mr-2 h-6 w-6" /> Stop
                       </>
                     ) : (
                       <>
-                        <Camera className="mr-2 h-4 w-4" /> Start
+                        <Camera className="mr-2 h-6 w-6" /> Start
                       </>
                     )}
                   </Button>
@@ -1190,42 +1191,44 @@ export default function RapidScanCamera() {
                   {!isNative && (
                     <Button
                       variant="outline"
+                      size="lg"
+                      className="h-14 w-14"
                       onClick={toggleTorch}
                       disabled={!cameraOn || !support.torch}
                       title={support.torch ? "Toggle flash" : "Flash not supported"}
                     >
-                      {torchOn ? <FlashlightOff className="h-4 w-4" /> : <Flashlight className="h-4 w-4" />}
+                      {torchOn ? <FlashlightOff className="h-6 w-6" /> : <Flashlight className="h-6 w-6" />}
                     </Button>
                   )}
                 </div>
 
                 {!isNative && cameraOn && (
-                  <div className="flex gap-2">
+                  <div className="flex gap-3">
                     <Button
                       onClick={captureAndEnqueue}
                       disabled={!cameraOn || busyCapture || autoTimerActive}
                       size="lg"
-                      className="flex-1 h-16 text-lg font-bold"
+                      className="flex-1 h-20 text-xl font-bold"
                     >
-                      {busyCapture ? <Loader2 className="mr-2 h-6 w-6 animate-spin" /> : <Camera className="mr-2 h-6 w-6" />}
+                      {busyCapture ? <Loader2 className="mr-3 h-8 w-8 animate-spin" /> : <Camera className="mr-3 h-8 w-8" />}
                       CAPTURE
                     </Button>
                     <Button
                       onClick={autoTimerActive ? stopAutoTimer : startAutoTimer}
                       variant={autoTimerActive ? "destructive" : "secondary"}
                       size="lg"
-                      className="h-16 px-4"
-                    title={autoTimerActive ? "Stop auto-capture" : `Start auto-capture every ${autoTimerSeconds}s`}
+                      className="h-20 w-20"
+                      title={autoTimerActive ? "Stop auto-capture" : `Start auto-capture every ${autoTimerSeconds}s`}
                     >
                       {autoTimerActive ? (
                         <div className="flex flex-col items-center">
-                          <TimerOff className="h-5 w-5" />
-                          <span className="text-xs mt-0.5">{autoTimerCountdown}s</span>
+                          <TimerOff className="h-7 w-7" />
+                          <span className="text-sm mt-1 font-semibold">{autoTimerCountdown}s</span>
                         </div>
                       ) : (
                         <div className="flex flex-col items-center">
-                          <Timer className="h-5 w-5" />
-                          <span className="text-xs mt-0.5">{autoTimerSeconds}s</span>
+                          <Timer className="h-7 w-7" />
+                          <span className="text-sm mt-1 font-semibold">{autoTimerSeconds}s</span>
                         </div>
                       )}
                     </Button>
@@ -1233,7 +1236,7 @@ export default function RapidScanCamera() {
                     <Button
                       variant="outline"
                       size="lg"
-                      className="h-16 px-3"
+                      className="h-20 w-20"
                       disabled={autoTimerActive}
                       onClick={() => {
                         const current = settings.autoTimerIntervalSeconds;
@@ -1244,8 +1247,8 @@ export default function RapidScanCamera() {
                       title="Change auto-timer interval"
                     >
                       <div className="flex flex-col items-center">
-                        <span className="text-xs font-semibold">Interval</span>
-                        <span className="text-sm font-bold">{autoTimerSeconds}s</span>
+                        <span className="text-sm font-semibold">Interval</span>
+                        <span className="text-lg font-bold">{autoTimerSeconds}s</span>
                       </div>
                     </Button>
                   </div>
@@ -1255,16 +1258,16 @@ export default function RapidScanCamera() {
                 {!isNative && cameraOn && zoomLevel > 1 && (
                   <Button
                     variant="outline"
-                    size="sm"
+                    size="default"
                     onClick={() => setZoom(1)}
-                    className="w-full"
+                    className="w-full h-12 text-base"
                   >
                     Reset Zoom ({zoomLevel.toFixed(1)}×)
                   </Button>
                 )}
 
-                {/* Tiny clear button with double confirmation */}
-                <div className="pt-6 mt-6 border-t flex justify-end">
+                {/* Clear button with double confirmation */}
+                <div className="pt-4 mt-4 border-t flex justify-end">
                   <Button 
                     variant="ghost" 
                     size="sm"
@@ -1275,13 +1278,13 @@ export default function RapidScanCamera() {
                         }
                       }
                     }} 
-                    className="h-6 px-2 text-[10px] text-muted-foreground/50 hover:text-destructive"
+                    className="h-10 px-4 text-sm text-muted-foreground hover:text-destructive"
                   >
-                    <Trash2 className="h-3 w-3 mr-1" /> clear
+                    <Trash2 className="h-4 w-4 mr-2" /> Clear All
                   </Button>
                 </div>
 
-                <div className="text-xs text-muted-foreground">
+                <div className="text-sm text-muted-foreground mt-3">
                   {isNative 
                     ? "Tap capture to use your device's native camera for best quality." 
                     : "Tip: Tap the video to focus (if supported). Zoom in a bit for sharp text. Keep the card steady and fill the frame."}
@@ -1289,9 +1292,9 @@ export default function RapidScanCamera() {
               </div>
             </div>
 
-            <div className="rounded-xl border p-3">
-              <div className="text-sm font-semibold">Buffer status</div>
-              <div className="mt-1 text-xs text-muted-foreground">
+            <div className="rounded-xl border p-4">
+              <div className="text-base font-semibold">Buffer status</div>
+              <div className="mt-2 text-sm text-muted-foreground">
                 Queued: {queueMeta.filter((q) => q.status === "queued").length} • Processing: {queueMeta.filter((q) => q.status === "processing").length}
               </div>
             </div>
