@@ -1,17 +1,27 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { RefreshCw, Sparkles, CheckCircle2, AlertCircle } from "lucide-react";
 
 interface BulkRarityReanalyzeProps {
+  // This should represent "missing rarity" count (null/empty/Unknown)
   nullRarityCount: number;
   onComplete?: () => void;
 }
 
-export function BulkRarityReanalyze({ nullRarityCount, onComplete }: BulkRarityReanalyzeProps) {
+export function BulkRarityReanalyze({
+  nullRarityCount,
+  onComplete,
+}: BulkRarityReanalyzeProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [processed, setProcessed] = useState(0);
@@ -36,40 +46,52 @@ export function BulkRarityReanalyze({ nullRarityCount, onComplete }: BulkRarityR
 
     try {
       while (remaining > 0) {
-        const { data, error } = await supabase.functions.invoke('bulk-reanalyze-rarity', {
-          body: { batchSize, offset }
-        });
+        const { data, error } = await supabase.functions.invoke(
+          "bulk-reanalyze-rarity",
+          {
+            body: { batchSize, offset },
+          }
+        );
 
         if (error) {
-          console.error('Batch error:', error);
+          console.error("Batch error:", error);
           toast.error(`Error processing batch: ${error.message}`);
           break;
         }
 
-        if (!data.success) {
-          toast.error(data.error || 'Unknown error');
+        if (!data?.success) {
+          toast.error(data?.error || "Unknown error");
           break;
         }
 
-        totalProcessed += data.processed || 0;
-        totalUpdated += data.updated || 0;
-        remaining = data.remaining || 0;
-        
+        const batchProcessed = data.processed || 0;
+        const batchUpdated = data.updated || 0;
+
+        totalProcessed += batchProcessed;
+        totalUpdated += batchUpdated;
+        remaining = data.remaining ?? 0;
+
         setProcessed(totalProcessed);
         setUpdated(totalUpdated);
-        setProgress(Math.round(((nullRarityCount - remaining) / nullRarityCount) * 100));
 
-        if (data.processed === 0) break;
-        
-        // Small delay between batches to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // progress based on initial count
+        const done = Math.min(nullRarityCount, nullRarityCount - remaining);
+        setProgress(Math.round((done / nullRarityCount) * 100));
+
+        if (batchProcessed === 0) break;
+
+        // Next page
+        offset += batchProcessed;
+
+        // Small delay between batches
+        await new Promise((r) => setTimeout(r, 500));
       }
 
       toast.success(`Completed! Updated rarity for ${totalUpdated} cards`);
       onComplete?.();
-    } catch (error: any) {
-      console.error('Reanalyze error:', error);
-      toast.error(error.message || 'Error during reanalysis');
+    } catch (err: any) {
+      console.error("Reanalyze error:", err);
+      toast.error(err?.message || "Error during reanalysis");
     } finally {
       setIsProcessing(false);
     }
@@ -81,8 +103,9 @@ export function BulkRarityReanalyze({ nullRarityCount, onComplete }: BulkRarityR
         <CardHeader className="pb-3">
           <CardTitle className="text-sm flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4 text-success" />
-            All Cards Have Rarity
+            Rarity is complete
           </CardTitle>
+          <CardDescription>Nothing missing. Go cause problems elsewhere.</CardDescription>
         </CardHeader>
       </Card>
     );
@@ -92,35 +115,45 @@ export function BulkRarityReanalyze({ nullRarityCount, onComplete }: BulkRarityR
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="text-sm flex items-center gap-2">
-          <AlertCircle className="h-4 w-4 text-warning" />
-          Missing Rarity Data
+          <Sparkles className="h-4 w-4 text-primary" />
+          Fill Missing Rarity
         </CardTitle>
         <CardDescription>
-          {nullRarityCount.toLocaleString()} cards have unknown rarity
+          Updates only cards missing rarity (null / empty / Unknown).
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {isProcessing ? (
-          <div className="space-y-3">
-            <Progress value={progress} className="h-2" />
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>Processing... {processed} cards analyzed</span>
-              <span>{updated} updated</span>
-            </div>
+      <CardContent className="space-y-3">
+        <div className="flex items-center justify-between text-sm">
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <AlertCircle className="h-4 w-4" />
+            <span>{nullRarityCount} cards need rarity</span>
           </div>
-        ) : (
-          <Button 
-            onClick={handleReanalyze} 
-            className="w-full"
-            variant="outline"
-          >
-            <Sparkles className="h-4 w-4 mr-2" />
-            Re-analyze {nullRarityCount.toLocaleString()} Cards
-          </Button>
-        )}
-        <p className="text-xs text-muted-foreground">
-          Uses AI to detect rarity from card images. This may take a few minutes for large collections.
-        </p>
+          {isProcessing && (
+            <div className="text-muted-foreground">
+              Updated {updated} / Processed {processed}
+            </div>
+          )}
+        </div>
+
+        {isProcessing && <Progress value={progress} />}
+
+        <Button
+          onClick={handleReanalyze}
+          disabled={isProcessing}
+          className="w-full"
+        >
+          {isProcessing ? (
+            <>
+              <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              Processing…
+            </>
+          ) : (
+            <>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Run Missing Rarity Fix
+            </>
+          )}
+        </Button>
       </CardContent>
     </Card>
   );

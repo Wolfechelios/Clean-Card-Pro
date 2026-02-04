@@ -190,12 +190,14 @@ export default function Settings() {
       
       setUnknownCardCount(unknown || 0);
 
-      // Get null rarity cards count
-      const { count: nullRarity } = await supabase
-        .from("cards")
-        .select("*", { count: 'exact', head: true })
-        .eq("user_id", userId)
-        .is("rarity", null);
+      // Get missing rarity cards count (null / empty / Unknown)
+const { count: missingRarity } = await supabase
+  .from("cards")
+  .select("*", { count: "exact", head: true })
+  .eq("user_id", userId)
+  .or("rarity.is.null,rarity.eq.,rarity.eq.Unknown,rarity.eq.unknown");
+
+setNullRarityCount(missingRarity || 0);
       
       setNullRarityCount(nullRarity || 0);
     } catch (error) {
