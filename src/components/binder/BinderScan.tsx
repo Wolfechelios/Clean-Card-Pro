@@ -12,7 +12,7 @@ import { insertCardDual } from "@/lib/localCards";
 import { toast } from "sonner";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
 import { ZoomControls } from "@/components/scanner/ZoomControls";
-import { getMaxQualityStream, captureMaxQualityPhoto, applyFastAutofocus } from "@/lib/camera-optimizations";
+import { getMaxQualityStream, captureMaxQualityPhoto } from "@/lib/camera-optimizations";
 import { withRetry } from "@/lib/retry";
 
 interface BinderScanProps {
@@ -43,6 +43,24 @@ interface ProcessingCard {
   cardName?: string;
 }
 
+/**
+ * FIX: Do NOT rely on fetch(data:image/...) to convert data URLs to blobs.
+ * It fails on some mobile/webview environments.
+ * This is deterministic and works everywhere.
+ */
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [meta, b64] = dataUrl.split(",");
+  const mimeMatch = /data:(.*?);base64/i.exec(meta);
+  const mime = mimeMatch?.[1] ?? "image/jpeg";
+
+  const binary = atob(b64);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+
+  return new Blob([bytes], { type: mime });
+}
+
 // Use rapid-card-identify for faster OCR with retry logic for rate limits
 async function rapidCardIdentify(imageUrl: string) {
   return withRetry(
@@ -50,10 +68,10 @@ async function rapidCardIdentify(imageUrl: string) {
       const { data, error } = await supabase.functions.invoke('rapid-card-identify', {
         body: { imageUrl }
       });
-      
+
       if (error) throw error;
       if (!data?.success) throw new Error(data?.error || 'Card identification failed');
-      
+
       return {
         card_name: data.cardData?.card_name || data.cardName || 'Unknown Card',
         card_set: data.cardData?.card_set || data.setName || null,
@@ -87,7 +105,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [processingCards, setProcessingCards] = useState<ProcessingCard[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
-  
+
   const { zoomLevel, zoomCapabilities, detectZoomCapabilities, setZoom, zoomIn, zoomOut, resetZoom } = useCameraZoom({
     streamRef
   });
@@ -107,7 +125,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
   }, [isCameraActive, detectZoomCapabilities]);
 
   const updateProcessingCard = (index: number, updates: Partial<ProcessingCard>) => {
-    setProcessingCards(prev => prev.map(card => 
+    setProcessingCards(prev => prev.map(card =>
       card.index === index ? { ...card, ...updates } : card
     ));
   };
@@ -133,7 +151,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
       const img = new Image();
       objectUrl = URL.createObjectURL(imageFile);
       setPreviewImage(objectUrl);
-      
+
       await new Promise((resolve, reject) => {
         img.onload = resolve;
         img.onerror = reject;
@@ -169,19 +187,20 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
 
       // Process each card individually
       for (let i = 0; i < regions.length; i++) {
-        setProgress({ 
-          total: totalCards, 
-          processed: i, 
-          current: `Processing card ${i + 1} of ${totalCards}` 
+        setProgress({
+          total: totalCards,
+          processed: i,
+          current: `Processing card ${i + 1} of ${totalCards}`
         });
 
         try {
           const region = regions[i];
-          
+
           // Extract individual card image
           const cardImageData = extractCardImage(canvas, region);
-          const response = await fetch(cardImageData);
-          const blob = await response.blob();
+
+          // ✅ FIX HERE: replace fetch(dataUrl) with deterministic conversion
+          const blob = dataUrlToBlob(cardImageData);
 
           updateProcessingCard(i, { status: 'uploading' });
 
@@ -329,10 +348,10 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
       setScanResults(results);
       setShowResults(true);
       setProcessingCards([]);
-      
+
       const successCount = results.filter(r => r?.success).length;
       const failCount = results.filter(r => r && !r.success).length;
-      
+
       if (successCount > 0) {
         toast.success(
           `Successfully identified and added ${successCount} card${successCount !== 1 ? 's' : ''} to your collection!${
@@ -385,12 +404,12 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
     try {
       // Use maximum quality camera with fast autofocus
       const stream = await getMaxQualityStream('environment');
-      
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         streamRef.current = stream;
         setIsCameraActive(true);
-        
+
         // Log resolution
         const settings = stream.getVideoTracks()[0]?.getSettings?.();
         console.log(`Binder camera started: ${settings?.width}x${settings?.height}`);
@@ -410,11 +429,11 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
         enhanceOCR: true,
         quality: 0.98,
       });
-      
+
       // Play shutter sound
       const shutterSound = new Audio('/sounds/shutter.mp3');
       shutterSound.play().catch(() => {});
-      
+
       const file = new File([blob], "binder-scan.jpg", { type: "image/jpeg" });
       stopCamera();
       processBinderPage(file);
@@ -439,7 +458,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
   const renderGridOverlay = () => {
     const cellWidth = 100 / columns;
     const cellHeight = 100 / rows;
-    
+
     return (
       <div className="absolute inset-0 pointer-events-none">
         {/* Grid lines */}
@@ -457,7 +476,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
             style={{ top: `${(i + 1) * cellHeight}%` }}
           />
         ))}
-        
+
         {/* Corner markers for each cell */}
         {Array.from({ length: columns * rows }).map((_, i) => {
           const col = i % columns;
@@ -481,7 +500,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
             </div>
           );
         })}
-        
+
         {/* Layout indicator */}
         <div className="absolute top-2 left-2 bg-background/80 px-2 py-1 rounded text-xs font-medium">
           {layout} Layout
@@ -497,32 +516,32 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
         {/* Preview image with processing overlay */}
         <div className="relative">
           {previewImage && (
-            <img 
-              src={previewImage} 
-              alt="Binder page" 
+            <img
+              src={previewImage}
+              alt="Binder page"
               className="w-full rounded-lg border border-border opacity-50"
             />
           )}
-          
+
           {/* Processing cards grid overlay */}
-          <div 
+          <div
             className={`absolute inset-0 grid gap-1 p-1 ${
-              layout === "3x3" ? "grid-cols-3" : 
-              layout === "3x4" ? "grid-cols-3" : 
+              layout === "3x3" ? "grid-cols-3" :
+              layout === "3x4" ? "grid-cols-3" :
               "grid-cols-4"
             }`}
           >
             {processingCards.map((card) => (
-              <div 
-                key={card.index} 
+              <div
+                key={card.index}
                 className="relative aspect-[5/7] rounded overflow-hidden border-2 border-border bg-background/80"
               >
-                <img 
-                  src={card.imageUrl} 
+                <img
+                  src={card.imageUrl}
                   alt={`Card ${card.index + 1}`}
                   className="w-full h-full object-cover"
                 />
-                
+
                 {/* Status overlay */}
                 <div className={`absolute inset-0 flex flex-col items-center justify-center ${
                   card.status === 'complete' ? 'bg-green-500/20' :
@@ -536,7 +555,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
                   ) : (
                     <Loader2 className="h-5 w-5 animate-spin text-primary" />
                   )}
-                  
+
                   <span className="text-[10px] mt-1 font-medium text-center px-1">
                     {card.status === 'uploading' && 'Uploading...'}
                     {card.status === 'identifying' && 'Identifying...'}
@@ -550,7 +569,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
             ))}
           </div>
         </div>
-        
+
         {/* Progress bar */}
         <SlotProgress
           total={progress.total}
@@ -594,8 +613,8 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
             </div>
 
             <div className={`grid gap-3 ${
-              layout === "3x3" ? "grid-cols-3" : 
-              layout === "3x4" ? "grid-cols-3" : 
+              layout === "3x3" ? "grid-cols-3" :
+              layout === "3x4" ? "grid-cols-3" :
               "grid-cols-4"
             }`}>
               {scanResults.map((result, index) => (
@@ -682,7 +701,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
                     className="w-full"
                   />
                   {renderGridOverlay()}
-                  
+
                   {/* Zoom controls */}
                   {zoomCapabilities.supported && (
                     <ZoomControls
@@ -697,11 +716,11 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
                     />
                   )}
                 </div>
-                
+
                 <p className="text-xs text-muted-foreground text-center">
                   Align your binder page with the grid above
                 </p>
-                
+
                 <div className="flex gap-2">
                   <Button onClick={capturePhoto} className="flex-1">
                     <Camera className="h-4 w-4 mr-2" />
