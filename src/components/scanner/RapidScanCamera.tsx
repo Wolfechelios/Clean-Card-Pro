@@ -207,6 +207,8 @@ export default function RapidScanCamera() {
 
   // UI list
   const [cards, setCards] = useState<ScannedCard[]>([]);
+  const [showAllCards, setShowAllCards] = useState(false);
+  const CARD_LIST_RENDER_LIMIT = 30;
   const [overlay, setOverlay] = useState<LastOverlay | null>(null);
 
   // Global queue processor
@@ -230,8 +232,40 @@ export default function RapidScanCamera() {
     setQueueMeta(all);
   }, []);
 
+  // Throttled meta refresh: avoids hammering IndexedDB every capture/worker tick.
+  const lastMetaRefreshAtRef = useRef(0);
+  const metaRefreshTimerRef = useRef<number | null>(null);
+
+  const requestRefreshMeta = useCallback(() => {
+    const MIN_INTERVAL_MS = 900;
+    const now = Date.now();
+    const elapsed = now - lastMetaRefreshAtRef.current;
+
+    // Refresh immediately if enough time has passed.
+    if (elapsed >= MIN_INTERVAL_MS) {
+      lastMetaRefreshAtRef.current = now;
+      refreshMeta();
+      return;
+    }
+
+    // Otherwise, schedule a single refresh.
+    if (metaRefreshTimerRef.current != null) return;
+
+    metaRefreshTimerRef.current = window.setTimeout(() => {
+      metaRefreshTimerRef.current = null;
+      lastMetaRefreshAtRef.current = Date.now();
+      refreshMeta();
+    }, Math.max(0, MIN_INTERVAL_MS - elapsed));
+  }, [refreshMeta]);
+
   useEffect(() => {
     refreshMeta();
+    return () => {
+      if (metaRefreshTimerRef.current != null) {
+        window.clearTimeout(metaRefreshTimerRef.current);
+        metaRefreshTimerRef.current = null;
+      }
+    };
   }, [refreshMeta]);
 
 
@@ -244,8 +278,16 @@ export default function RapidScanCamera() {
   }, []);
 
   const removeCard = useCallback(async (id: string) => {
-    // remove from list
-    setCards((prev) => prev.filter((c) => c.id !== id));
+    // remove from list (and free any object URL preview)
+    setCards((prev) => {
+      const target = prev.find((c) => c.id === id);
+      if (target?.preview) {
+        try {
+          URL.revokeObjectURL(target.preview);
+        } catch {}
+      }
+      return prev.filter((c) => c.id !== id);
+    });
     // remove from queue if still exists
     try {
       await idbDelete(id);
@@ -545,7 +587,7 @@ export default function RapidScanCamera() {
       setStatusLine("Captured — processing in background");
       setOverlay({ label: "Captured…" });
 
-      await refreshMeta();
+      requestRefreshMeta();
       ensureWorkersRunning();
     } catch (e: any) {
       console.error(e);
@@ -633,7 +675,7 @@ export default function RapidScanCamera() {
       setStatusLine("Captured — processing in background");
       setOverlay({ label: "Captured…" });
 
-      await refreshMeta();
+      requestRefreshMeta();
       ensureWorkersRunning();
     } catch (e: any) {
       console.error(e);
@@ -731,8 +773,8 @@ export default function RapidScanCamera() {
       libraryQuantity: card.libraryQuantity,
     });
 
-    refreshMeta();
-  }, [queueProcessor.lastProcessedCard, updateCard, refreshMeta]);
+    requestRefreshMeta();
+  }, [queueProcessor.lastProcessedCard, updateCard, requestRefreshMeta]);
 
   // Sync processing state from global processor
   useEffect(() => {
@@ -1045,9 +1087,8 @@ export default function RapidScanCamera() {
             {/* Trading card alignment frame overlay */}
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
               <div 
-                className="border-2 border-dashed border-white/40 rounded-lg"
+                className="border-2 border-dashed border-white/40 rounded-lg relative"
                 style={{
-                  // 5:7 trading card aspect ratio
                   width: "min(85%, 340px)",
                   aspectRatio: "5/7",
                 }}
@@ -1253,8 +1294,23 @@ export default function RapidScanCamera() {
       </Card>
 
       {/* Scanned list */}
+      {cards.length > CARD_LIST_RENDER_LIMIT && (
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-xs text-muted-foreground">
+            Showing {showAllCards ? cards.length : Math.min(cards.length, CARD_LIST_RENDER_LIMIT)} of {cards.length}
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowAllCards((v) => !v)}
+          >
+            {showAllCards ? "Show less" : `Show all (${cards.length})`}
+          </Button>
+        </div>
+      )}
+
       <ScannedCardList
-        cards={cards}
+        cards={showAllCards ? cards : cards.slice(0, CARD_LIST_RENDER_LIMIT)}
         onCardUpdate={(id, updates) => updateCard(id, updates as any)}
         onCardDelete={(id) => removeCard(id)}
         scanMode={true}
