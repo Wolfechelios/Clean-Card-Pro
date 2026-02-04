@@ -1014,19 +1014,23 @@ export default function RapidScanCamera() {
           </div>
         </div>
 
-        <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_320px] landscape:grid-cols-[1fr_280px]">
-          {/* Camera preview - larger on mobile, supports landscape */}
-          <div className="relative overflow-hidden rounded-xl border bg-black touch-none">
+        <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_300px] landscape:grid-cols-[1fr_260px]">
+          {/* Camera preview - maximized for trading card scanning */}
+          <div className="relative overflow-hidden rounded-xl border-2 border-primary/30 bg-black touch-none shadow-lg">
             <video
               ref={videoRef}
               className={cn(
-                // Mobile: use most of viewport height, desktop: fixed height
-                // Landscape: adapt to available space
+                // Trading card optimized: fill most of viewport for easy framing
                 "w-full object-cover cursor-crosshair",
-                "h-[55vh] min-h-[320px] max-h-[600px]",
-                "sm:h-[50vh] sm:min-h-[360px] sm:max-h-[500px]",
-                "md:h-[400px] md:min-h-0 md:max-h-none",
-                "landscape:h-[60vh] landscape:min-h-[240px] landscape:max-h-[400px]",
+                // Mobile: very tall for easy card alignment (70-75% of viewport)
+                "h-[72vh] min-h-[450px] max-h-[800px]",
+                // Tablet: still large but bounded
+                "sm:h-[68vh] sm:min-h-[480px] sm:max-h-[720px]",
+                // Desktop: generous fixed height for precision
+                "md:h-[560px] md:min-h-0 md:max-h-none",
+                "lg:h-[600px]",
+                // Landscape: maximize horizontal space
+                "landscape:h-[75vh] landscape:min-h-[320px] landscape:max-h-[520px]",
                 usingDigitalZoom && zoomLevel > 1 && "transition-transform duration-100"
               )}
               style={usingDigitalZoom && zoomLevel > 1 ? { transform: `scale(${zoomLevel})` } : undefined}
@@ -1037,6 +1041,24 @@ export default function RapidScanCamera() {
               playsInline
               muted
             />
+            
+            {/* Trading card alignment frame overlay */}
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div 
+                className="border-2 border-dashed border-white/40 rounded-lg"
+                style={{
+                  // 5:7 trading card aspect ratio
+                  width: "min(85%, 340px)",
+                  aspectRatio: "5/7",
+                }}
+              >
+                {/* Corner markers for precise alignment */}
+                <div className="absolute -top-1 -left-1 w-6 h-6 border-t-2 border-l-2 border-white/70 rounded-tl" />
+                <div className="absolute -top-1 -right-1 w-6 h-6 border-t-2 border-r-2 border-white/70 rounded-tr" />
+                <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-2 border-l-2 border-white/70 rounded-bl" />
+                <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-2 border-r-2 border-white/70 rounded-br" />
+              </div>
+            </div>
             <canvas ref={canvasRef} className="hidden" />
 
             {flashActive && <div className="capture-flash" />}
