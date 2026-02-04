@@ -75,10 +75,11 @@ type ProcessorStore = ProcessorState & {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
-const JOB_DELAY_MS = 100; // Reduced for faster processing
-const POLL_INTERVAL_MS = 150; // Faster polling
-const WORKER_SCALE_INTERVAL_MS = 300; // Scale up faster
+const JOB_DELAY_MS = 50; // Minimal delay between jobs
+const POLL_INTERVAL_MS = 100; // Faster polling when idle
+const WORKER_SCALE_INTERVAL_MS = 500; // Scale check interval
 const MAX_CONCURRENT_WORKERS = 3; // Hard cap at 3 workers
+const QUEUE_REFRESH_INTERVAL_MS = 2000; // Only refresh UI queue every 2s
 
 function getMaxWorkerCount(): number {
   const userSetting = getScannerSettings().batchScanSize || 3;
@@ -87,10 +88,30 @@ function getMaxWorkerCount(): number {
 
 // Adaptive scaling: start with fewer workers and scale up based on queue size
 function getTargetWorkerCount(queueSize: number, maxWorkers: number): number {
-  // If nothing is queued, we want to wind down to 0 workers (processor should auto-stop)
   if (queueSize <= 0) return 0;
-  // Scale workers: 1 worker per queue item, up to max
   return Math.min(queueSize, maxWorkers);
+}
+
+// Throttled queue refresh tracking
+let lastQueueRefreshAt = 0;
+let pendingQueueRefresh: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleQueueRefresh() {
+  const now = Date.now();
+  if (now - lastQueueRefreshAt >= QUEUE_REFRESH_INTERVAL_MS) {
+    lastQueueRefreshAt = now;
+    useQueueProcessor.getState().refreshQueue();
+    return;
+  }
+  // Schedule if not already scheduled
+  if (!pendingQueueRefresh) {
+    const delay = QUEUE_REFRESH_INTERVAL_MS - (now - lastQueueRefreshAt);
+    pendingQueueRefresh = setTimeout(() => {
+      pendingQueueRefresh = null;
+      lastQueueRefreshAt = Date.now();
+      useQueueProcessor.getState().refreshQueue();
+    }, delay);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -224,8 +245,14 @@ function startWorkers() {
   }
 }
 
+// Cache for scaling decisions - avoid hitting IDB on every loop iteration
+let cachedQueueSize = 0;
+let lastScaleCheckAt = 0;
+const SCALE_CHECK_INTERVAL_MS = 500;
+
 async function workerLoop(workerId: number) {
   const store = useQueueProcessor.getState;
+  let consecutiveEmpty = 0;
 
   while (store().isRunning) {
     // Paused? Wait
@@ -241,35 +268,41 @@ async function workerLoop(workerId: number) {
       continue;
     }
 
-    // Check if this worker should scale down (we have more workers than needed)
-    // Only scale down workers with ID > 0 to ensure at least one worker always runs
-    const queueSize = await idbCountQueued();
-    const maxWorkers = getMaxWorkerCount();
-    const targetWorkers = getTargetWorkerCount(queueSize, maxWorkers);
-    
-    if (workerId > 0 && workerId >= targetWorkers && workersActive > targetWorkers) {
-      console.log(`[QueueProcessor] Scaling down: stopping worker ${workerId} (target: ${targetWorkers}, active: ${workersActive})`);
-      break; // Exit this worker loop
-    }
-
-    const next = await idbGetNextQueued();
-    if (!next) {
-      // No processable work.
-      const queuedCount = await idbCountQueued();
-      const totalCount = await idbCount();
-      useQueueProcessor.getState()._setQueueCount(queuedCount);
-
-      // If there are no queued/stuck-processing items left, stop the processor.
-      // (There may still be "error" items in storage; those are not processable.)
-      if (queuedCount === 0) {
-        useQueueProcessor.getState()._setRunning(false);
+    // Check scaling only periodically to avoid IDB hammering
+    if (workerId > 0 && now - lastScaleCheckAt > SCALE_CHECK_INTERVAL_MS) {
+      lastScaleCheckAt = now;
+      cachedQueueSize = await idbCountQueued();
+      const maxWorkers = getMaxWorkerCount();
+      const targetWorkers = getTargetWorkerCount(cachedQueueSize, maxWorkers);
+      
+      if (workerId >= targetWorkers && workersActive > targetWorkers) {
+        console.log(`[QueueProcessor] Scaling down: stopping worker ${workerId}`);
         break;
       }
+    }
 
-      // Otherwise, wait a moment and poll again.
-      await sleep(totalCount === 0 ? POLL_INTERVAL_MS : 200);
+    // Try to get next job - this is the main IDB read per iteration
+    const next = await idbGetNextQueued();
+    if (!next) {
+      consecutiveEmpty++;
+      
+      // Only do expensive count check after multiple empty polls
+      if (consecutiveEmpty >= 3) {
+        const queuedCount = await idbCountQueued();
+        store()._setQueueCount(queuedCount);
+        
+        if (queuedCount === 0) {
+          store()._setRunning(false);
+          break;
+        }
+        consecutiveEmpty = 0;
+      }
+      
+      await sleep(POLL_INTERVAL_MS);
       continue;
     }
+
+    consecutiveEmpty = 0;
 
     try {
       await processJob(next);
@@ -278,27 +311,25 @@ async function workerLoop(workerId: number) {
       const msg = String(e?.message ?? e);
       console.error(`[Worker ${workerId}] Job failed:`, e);
 
-      // If we're rate-limited, re-queue the job and pause all workers briefly.
       if (isRateLimitError(e)) {
         rateLimitUntil = Math.max(rateLimitUntil, Date.now() + 5000);
         await idbUpdateMeta(next.id, { status: "queued", error: msg });
       } else {
         store()._incrementError();
-        // Mark as error in queue
         await idbUpdateMeta(next.id, { status: "error", error: msg });
       }
     }
 
-    // Refresh queue meta
-    await store().refreshQueue();
+    // Throttled queue refresh for UI - don't block the worker
+    scheduleQueueRefresh();
 
-    // Small delay between jobs
+    // Minimal delay between jobs
     await sleep(JOB_DELAY_MS);
   }
 
   workersActive = Math.max(0, workersActive - 1);
   if (workersActive === 0) {
-    useQueueProcessor.getState()._setRunning(false);
+    store()._setRunning(false);
     if (scalingInterval) {
       clearInterval(scalingInterval);
       scalingInterval = null;
@@ -307,18 +338,11 @@ async function workerLoop(workerId: number) {
 }
 
 async function processJob(item: QueueItem): Promise<void> {
-  // Enforce max in-flight frames from performance config
-  while (!canProcessFrame()) {
-    await sleep(50);
-  }
-  markFrameStart();
-
   const store = useQueueProcessor.getState();
   store._setCurrentItem(item.id);
 
-  try {
-    // Mark processing
-    await idbUpdateMeta(item.id, { status: "processing" });
+  // Mark processing
+  await idbUpdateMeta(item.id, { status: "processing" });
 
   // Upload to storage
   const filePath = `cards/${item.id}.jpg`;
@@ -433,10 +457,6 @@ async function processJob(item: QueueItem): Promise<void> {
 
   // Success - remove from queue
   await idbDelete(item.id);
-  } finally {
-    // Always release frame slot
-    markFrameEnd();
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
