@@ -17,7 +17,7 @@ serve(async (req) => {
   }
 
   try {
-    const { job_id, limit, use_estimation } = await req.json();
+    const { job_id, limit, use_estimation, card_ids } = await req.json();
     
     if (!job_id) {
       return new Response(
@@ -27,7 +27,6 @@ serve(async (req) => {
     }
 
     const cardLimit = Math.min(limit || MAX_CARDS_PER_JOB, MAX_CARDS_PER_JOB);
-    // If use_estimation is true, skip API calls and just estimate prices
     const skipApi = use_estimation === true;
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -54,35 +53,47 @@ serve(async (req) => {
       .update({ status: "running", updated_at: new Date().toISOString() })
       .eq("id", job_id);
 
-    // Get cards that need updating
-    const twentyFourHoursAgo = new Date();
-    twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
+    let cards: { id: string }[] = [];
 
-    const { data: cards, error: cardsError } = await supabase
-      .from("cards")
-      .select("id")
-      .eq("user_id", job.user_id)
-      .or(`psa10_locked.is.null,psa10_locked.eq.false`)
-      .or(`psa10_updated_at.is.null,psa10_updated_at.lt.${twentyFourHoursAgo.toISOString()}`)
-      .limit(cardLimit);
+    // If card_ids provided, use those; otherwise query for cards needing update
+    if (card_ids && Array.isArray(card_ids) && card_ids.length > 0) {
+      // Use provided card IDs (limited to MAX_CARDS_PER_JOB)
+      const limitedIds = card_ids.slice(0, cardLimit);
+      cards = limitedIds.map((id: string) => ({ id }));
+      console.log(`Using ${cards.length} provided card IDs`);
+    } else {
+      // Fallback: get cards that need updating
+      const twentyFourHoursAgo = new Date();
+      twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
 
-    if (cardsError) {
-      await supabase
-        .from("price_jobs")
-        .update({ 
-          status: "failed", 
-          error: cardsError.message,
-          updated_at: new Date().toISOString() 
-        })
-        .eq("id", job_id);
-      
-      return new Response(
-        JSON.stringify({ error: cardsError.message }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      const { data: queriedCards, error: cardsError } = await supabase
+        .from("cards")
+        .select("id")
+        .eq("user_id", job.user_id)
+        .or(`psa10_locked.is.null,psa10_locked.eq.false`)
+        .or(`psa10_updated_at.is.null,psa10_updated_at.lt.${twentyFourHoursAgo.toISOString()}`)
+        .limit(cardLimit);
+
+      if (cardsError) {
+        await supabase
+          .from("price_jobs")
+          .update({ 
+            status: "failed", 
+            error: cardsError.message,
+            updated_at: new Date().toISOString() 
+          })
+          .eq("id", job_id);
+        
+        return new Response(
+          JSON.stringify({ error: cardsError.message }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
+      cards = queriedCards || [];
     }
 
-    const totalCards = cards?.length || 0;
+    const totalCards = cards.length;
     
     // Update requested count
     await supabase
