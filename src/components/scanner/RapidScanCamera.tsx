@@ -44,6 +44,7 @@ import {
   idbClear,
   type QueueItemMeta,
 } from "@/lib/idbQueue";
+import { compressImageForQueue } from "@/lib/imageCompressor";
 import { useQueueProcessor } from "@/lib/queueProcessor";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
 import { useClarityZoom } from "@/hooks/use-clarity-zoom";
@@ -575,12 +576,15 @@ export default function RapidScanCamera() {
         ...prev,
       ]);
 
+      // Compress image before storing to reduce memory pressure
+      const compressedBlob = await compressImageForQueue(result.blob);
+
       await idbAdd({
         id,
         createdAt: Date.now(),
         status: "queued",
-        blob: result.blob,
-        mime: result.blob.type || "image/jpeg",
+        blob: compressedBlob,
+        mime: compressedBlob.type || "image/jpeg",
         filename: "card.jpg",
       });
 
@@ -662,13 +666,15 @@ export default function RapidScanCamera() {
         ...prev,
       ]);
 
-      // Persist into queue
+      // Compress and persist into queue to reduce memory pressure
+      const compressedBlob = await compressImageForQueue(blob);
+      
       await idbAdd({
         id,
         createdAt: Date.now(),
         status: "queued",
-        blob,
-        mime: blob.type || "image/jpeg",
+        blob: compressedBlob,
+        mime: compressedBlob.type || "image/jpeg",
         filename: "card.jpg",
       });
 
