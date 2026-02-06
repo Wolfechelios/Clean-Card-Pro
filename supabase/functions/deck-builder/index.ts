@@ -162,13 +162,13 @@ IMPORTANT: Keep your response concise. Limit mainDeck to 20 cards max. Respond w
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
-        temperature: 0.7,
-        max_tokens: 4000,
+        temperature: 0.5,
+        max_tokens: 2500,
       }),
     });
 
