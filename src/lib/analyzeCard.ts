@@ -1,9 +1,12 @@
+// src/lib/analyzeCard.ts
+// Unified routing layer for text-based LLM analysis
+// For card identification from images, use hybridCardIdentify.ts instead
+
 import { callLocalLLM } from "./localLLM";
 import { callCloudLLM } from "./cloudLLM";
 import { isLocalLLMAvailable, isOnline } from "./inferenceMode";
 
-export async function analyzeCard(prompt: string) {
-
+export async function analyzeCard(prompt: string): Promise<string> {
   const localAvailable = await isLocalLLMAvailable();
   const online = isOnline();
 
@@ -16,12 +19,13 @@ export async function analyzeCard(prompt: string) {
   if (online) {
     try {
       return await callCloudLLM(prompt);
-    } catch {
+    } catch (cloudError) {
       // fallback to local if cloud fails
       if (localAvailable) {
+        console.warn("Cloud LLM failed, falling back to local:", cloudError);
         return await callLocalLLM(prompt);
       }
-      throw new Error("Both cloud and local failed");
+      throw new Error(`Cloud LLM failed and no local fallback available: ${cloudError instanceof Error ? cloudError.message : String(cloudError)}`);
     }
   }
 
@@ -30,5 +34,5 @@ export async function analyzeCard(prompt: string) {
     return await callLocalLLM(prompt);
   }
 
-  throw new Error("No inference engine available");
+  throw new Error("No inference engine available: offline and no local LLM running");
 }
