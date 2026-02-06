@@ -124,6 +124,10 @@ Focus on:
       "all": "Build a deck following standard TCG conventions for the cards available."
     };
 
+    // Limit collection to top cards by value to avoid token overflow
+    const sortedCards = collectionSummary.sort((a, b) => (b.price || 0) - (a.price || 0));
+    const limitedCards = sortedCards.slice(0, 50);
+
     const userPrompt = `Build a ${mode === "value" ? "maximum value" : "competitive battle"} deck from the following collection.
 
 **Game Type:** ${gameType}
@@ -131,40 +135,24 @@ Focus on:
 **Target Deck Size:** ${deckSize} cards
 **Use Collection Only:** ${useCollectionOnly ? "Yes - only use cards from the collection below" : "No - you can suggest cards to acquire"}
 
-**Collection (${collectionCards.length} unique cards, $${totalValue.toFixed(2)} total value):**
-${collectionSummary.slice(0, 100).map((c, i) => 
-  `${i+1}. ${c.name} (${c.set}${c.number ? ` #${c.number}` : ""}) - ${c.rarity} - $${c.price.toFixed(2)} raw${c.psa10Price ? `, $${c.psa10Price.toFixed(2)} PSA10` : ""} - Qty: ${c.qty}`
+**Collection (showing top ${limitedCards.length} of ${collectionCards.length} cards by value, $${totalValue.toFixed(2)} total):**
+${limitedCards.map((c, i) => 
+  `${i+1}. ${c.name} (${c.set}${c.number ? ` #${c.number}` : ""}) - ${c.rarity} - $${c.price.toFixed(2)} raw - Qty: ${c.qty}`
 ).join("\n")}
-${collectionSummary.length > 100 ? `\n... and ${collectionSummary.length - 100} more cards` : ""}
 
-You MUST respond with ONLY valid JSON (no markdown) in this exact format:
+IMPORTANT: Keep your response concise. Limit mainDeck to 20 cards max. Respond with ONLY valid JSON (no markdown):
 {
-  "deckName": "string - creative name for the deck",
-  "strategy": "string - 2-3 sentence deck strategy explanation",
-  "mainDeck": [
-    {
-      "cardName": "string",
-      "quantity": number,
-      "role": "string - role in deck (e.g., 'win condition', 'removal', 'draw power')",
-      "inCollection": boolean,
-      "estimatedPrice": number
-    }
-  ],
-  "extraDeck": [/* same format, for games that have extra deck */],
-  "sideDeck": [/* same format, optional suggestions */],
+  "deckName": "string",
+  "strategy": "string (1-2 sentences)",
+  "mainDeck": [{"cardName": "string", "quantity": number, "role": "string", "inCollection": true, "estimatedPrice": number}],
+  "extraDeck": [],
+  "sideDeck": [],
   "totalValue": number,
-  "valuePotential": "string - value appreciation analysis",
+  "valuePotential": "string (1 sentence)",
   "competitiveRating": "casual" | "locals" | "regional" | "meta",
-  "cardsToAcquire": [
-    {
-      "cardName": "string",
-      "reason": "string",
-      "estimatedPrice": number,
-      "priority": "must-have" | "recommended" | "optional"
-    }
-  ],
-  "synergies": ["string - key synergies in the deck"],
-  "weaknesses": ["string - deck weaknesses to be aware of"]
+  "cardsToAcquire": [{"cardName": "string", "reason": "string", "estimatedPrice": number, "priority": "must-have" | "recommended" | "optional"}],
+  "synergies": ["string"],
+  "weaknesses": ["string"]
 }`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -174,13 +162,13 @@ You MUST respond with ONLY valid JSON (no markdown) in this exact format:
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
-        temperature: 0.7,
-        max_tokens: 4000,
+        temperature: 0.5,
+        max_tokens: 2500,
       }),
     });
 
