@@ -2,6 +2,7 @@
 // Standalone, resilient queue processor for rapid scan jobs.
 // Runs independently of the RapidScanCamera component.
 // Auto-resumes on app start if there are queued items.
+// Now supports hybrid offline/cloud LLM routing.
 
 import { create } from "zustand";
 import { supabase } from "@/integrations/supabase/client";
@@ -9,6 +10,7 @@ import { withRetry } from "@/lib/retry";
 import { getScannerSettings } from "@/hooks/use-scanner-settings";
 import { canProcessFrame, markFrameStart, markFrameEnd } from "@/lib/performance/pipelineGuards";
 import { MEMORY_CONFIG } from "@/lib/performance/memoryConfig";
+import { hybridIdentifyCard, clearOfflineAttempt } from "@/lib/hybridCardIdentify";
 import {
   idbGetNextQueued,
   idbUpdateMeta,
@@ -366,23 +368,22 @@ async function processJob(item: QueueItem): Promise<void> {
     return res.data.signedUrl;
   });
 
-  // Identify card
-  const identify = await withRetry(
-    async () => {
-      const res = await supabase.functions.invoke("rapid-card-identify", {
-        body: { imageUrl },
-      });
-      if (res.error) throw new Error(res.error.message);
-      if (!res.data?.success) throw new Error(res.data?.error || "Identify failed");
-      return res.data.cardData as any;
-    },
-    {
-      retries: 2,
-      baseMs: 2000,
-      maxMs: 10000,
-      shouldRetry: (e) => /timeout|network|502|503|504/i.test(String(e?.message ?? e)),
+  // Identify card using hybrid routing (cloud or local LLM)
+  let identify: any;
+  try {
+    const result = await hybridIdentifyCard(imageUrl, {
+      cloudFunction: "rapid-card-identify",
+      skipOfflineGuard: false,
+    });
+    identify = result.cardData;
+    console.log(`[QueueProcessor] Card identified via ${result.source}:`, identify?.card_name);
+  } catch (e: any) {
+    // If offline mode max attempts reached, mark as error and don't requeue
+    if (e?.message?.includes("max attempts reached")) {
+      throw new Error("Offline: requires internet connection to identify this card");
     }
-  );
+    throw e;
+  }
 
   const cardName: string = identify?.card_name || "Unknown Card";
   const cardSet: string | null = identify?.card_set ?? null;

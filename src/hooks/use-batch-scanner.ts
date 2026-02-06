@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { supabase } from "@/integrations/supabase/client"
 import { withRetry } from "@/lib/retry"
+import { hybridIdentifyCard } from "@/lib/hybridCardIdentify"
 
 export type BatchJob = {
   id: string
@@ -9,6 +10,7 @@ export type BatchJob = {
   preview?: string
   status: "pending" | "processing" | "completed" | "error"
   error?: string
+  source?: "local" | "cloud" // Track which inference engine was used
 }
 
 export function useBatchScanner() {
@@ -38,8 +40,8 @@ export function useBatchScanner() {
       updateJob(job.id, { status: "processing" })
 
       try {
-        await scanOne(job)
-        updateJob(job.id, { status: "completed" })
+        const { source } = await scanOne(job)
+        updateJob(job.id, { status: "completed", source })
         await sleep(700)
       } catch (err: any) {
         const msg = String(err?.message ?? err)
@@ -56,7 +58,7 @@ export function useBatchScanner() {
     setRunning(false)
   }
 
-  async function scanOne(job: BatchJob) {
+  async function scanOne(job: BatchJob): Promise<{ source: "local" | "cloud" }> {
     const path = `cards/${job.id}.jpg`
 
     await withRetry(() =>
@@ -71,11 +73,13 @@ export function useBatchScanner() {
       return res.data.signedUrl
     })
 
-    await withRetry(() =>
-      supabase.functions.invoke("analyze-card-full", {
-        body: { imageUrl: signedUrl },
-      })
-    )
+    // Use hybrid routing for card identification
+    const result = await hybridIdentifyCard(signedUrl, {
+      cloudFunction: "analyze-card-full",
+      skipOfflineGuard: true, // Batch scanner handles its own retry logic
+    })
+
+    return { source: result.source }
   }
 
   function updateJob(id: string, patch: Partial<BatchJob>) {
