@@ -172,14 +172,19 @@ export default function DeckBuilderPage() {
             {/* Set Filter */}
             <div className="space-y-2">
               <Label>Set Filter (optional)</Label>
-              <Select value={setFilter} onValueChange={setSetFilter}>
+              <Select
+                value={setFilter === "" ? "__all_sets__" : setFilter}
+                onValueChange={(v) => setSetFilter(v === "__all_sets__" ? "" : v)}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="All sets" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Sets</SelectItem>
-                  {availableSets?.slice(0, 50).map(s => (
-                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  <SelectItem value="__all_sets__">All Sets</SelectItem>
+                  {availableSets?.slice(0, 50).map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
