@@ -203,8 +203,8 @@ export default function RapidScanCamera() {
     enabled: settings.autoZoomEnabled !== false, // enabled by default
   });
 
-  // Queue meta for debug/health
-  const [queueMeta, setQueueMeta] = useState<QueueItemMeta[]>([]);
+  // Queue meta from processor (single source of truth)
+  const queueMeta = queueProcessor.queueMeta;
 
   // UI list
   const [cards, setCards] = useState<ScannedCard[]>([]);
