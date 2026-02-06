@@ -203,17 +203,17 @@ export default function RapidScanCamera() {
     enabled: settings.autoZoomEnabled !== false, // enabled by default
   });
 
-  // Queue meta from processor (single source of truth)
-  const queueMeta = queueProcessor.queueMeta;
-
   // UI list
   const [cards, setCards] = useState<ScannedCard[]>([]);
   const [showAllCards, setShowAllCards] = useState(false);
   const CARD_LIST_RENDER_LIMIT = 30;
   const [overlay, setOverlay] = useState<LastOverlay | null>(null);
 
-  // Global queue processor
+  // Global queue processor - single source of truth for queue state
   const queueProcessor = useQueueProcessor();
+  
+  // Queue meta from processor (single source of truth - no local duplicate state)
+  const queueMeta = queueProcessor.queueMeta;
 
   // ───────────────────────────────────────────────────────────────────────────
   // INIT
@@ -227,11 +227,10 @@ export default function RapidScanCamera() {
       .catch(() => setUserId(null));
   }, []);
 
+  // Refresh queue metadata via the processor's method
   const refreshMeta = useCallback(async () => {
-    // Use fast meta loading that doesn't load blobs - much faster for large queues
-    const all = await idbListMetaFast();
-    setQueueMeta(all);
-  }, []);
+    await queueProcessor.refreshQueue();
+  }, [queueProcessor.refreshQueue]);
 
   // Throttled meta refresh: avoids hammering IndexedDB every capture/worker tick.
   const lastMetaRefreshAtRef = useRef(0);
