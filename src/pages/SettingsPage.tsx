@@ -198,8 +198,6 @@ const { count: missingRarity } = await supabase
   .or("rarity.is.null,rarity.eq.,rarity.eq.Unknown,rarity.eq.unknown");
 
 setNullRarityCount(missingRarity || 0);
-      
-      setNullRarityCount(nullRarity || 0);
     } catch (error) {
       console.error("Error loading collection stats:", error);
     }
