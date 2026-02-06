@@ -27,6 +27,31 @@ export function BulkRarityReanalyze({
   const [processed, setProcessed] = useState(0);
   const [updated, setUpdated] = useState(0);
 
+  const fetchMissingCardIds = async (): Promise<string[]> => {
+    const pageSize = 1000;
+    let from = 0;
+    const ids: string[] = [];
+
+    while (true) {
+      const { data, error } = await supabase
+        .from("cards")
+        .select("id")
+        .or("rarity.is.null,rarity.eq.,rarity.eq.Unknown,rarity.eq.unknown")
+        .order("id", { ascending: true })
+        .range(from, from + pageSize - 1);
+
+      if (error) throw error;
+
+      const batch = (data || []).map((row) => row.id as string);
+      ids.push(...batch);
+
+      if (batch.length < pageSize) break;
+      from += pageSize;
+    }
+
+    return ids;
+  };
+
   const handleReanalyze = async () => {
     if (nullRarityCount === 0) {
       toast.info("No cards with missing rarity to process");
@@ -38,18 +63,27 @@ export function BulkRarityReanalyze({
     setProcessed(0);
     setUpdated(0);
 
-    const batchSize = 10;
-    let offset = 0;
+    const batchSize = 12;
     let totalProcessed = 0;
     let totalUpdated = 0;
-    let remaining = nullRarityCount;
 
     try {
-      while (remaining > 0) {
+      const missingIds = await fetchMissingCardIds();
+
+      if (missingIds.length === 0) {
+        toast.info("No cards with missing rarity to process");
+        setIsProcessing(false);
+        onComplete?.();
+        return;
+      }
+
+      for (let i = 0; i < missingIds.length; i += batchSize) {
+        const cardIds = missingIds.slice(i, i + batchSize);
+
         const { data, error } = await supabase.functions.invoke(
           "bulk-reanalyze-rarity",
           {
-            body: { batchSize, offset },
+            body: { cardIds },
           }
         );
 
@@ -69,25 +103,28 @@ export function BulkRarityReanalyze({
 
         totalProcessed += batchProcessed;
         totalUpdated += batchUpdated;
-        remaining = data.remaining ?? 0;
 
         setProcessed(totalProcessed);
         setUpdated(totalUpdated);
 
-        // progress based on initial count
-        const done = Math.min(nullRarityCount, nullRarityCount - remaining);
-        setProgress(Math.round((done / nullRarityCount) * 100));
+        const attempted = Math.min(missingIds.length, i + cardIds.length);
+        setProgress(Math.round((attempted / missingIds.length) * 100));
 
-        if (batchProcessed === 0) break;
-
-        // Next page
-        offset += batchProcessed;
-
-        // Small delay between batches
-        await new Promise((r) => setTimeout(r, 500));
+        // Small delay between batches to avoid API burst limits
+        await new Promise((r) => setTimeout(r, 120));
       }
 
-      toast.success(`Completed! Updated rarity for ${totalUpdated} cards`);
+      setProgress(100);
+
+      const unresolved = Math.max(0, totalProcessed - totalUpdated);
+      if (unresolved > 0) {
+        toast.success(
+          `Completed. Updated ${totalUpdated} card(s). ${unresolved} still need manual review.`
+        );
+      } else {
+        toast.success(`Completed! Updated rarity for ${totalUpdated} cards`);
+      }
+
       onComplete?.();
     } catch (err: any) {
       console.error("Reanalyze error:", err);

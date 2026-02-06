@@ -14,11 +14,48 @@ type CardRow = {
   rarity: string | null;
 };
 
-function isMissingRarity(rarity: unknown) {
-  const r = String(rarity ?? "").trim();
-  if (!r) return true;
-  const low = r.toLowerCase();
-  return low === "unknown" || low === "null";
+const MISSING_RARITY_FILTER =
+  "rarity.is.null,rarity.eq.,rarity.eq.Unknown,rarity.eq.unknown,rarity.eq.NULL,rarity.eq.null";
+
+type RequestBody = {
+  batchSize?: number;
+  cardIds?: string[];
+};
+
+function toSafeCardIds(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .filter((id) => typeof id === "string" && id.trim().length > 0)
+    .map((id) => id.trim())
+    .slice(0, 200);
+}
+
+function parseRarity(content: string): string | null {
+  let parsed: any = null;
+
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    // Best effort: extract first JSON-like block
+    const match = content.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        parsed = JSON.parse(match[0]);
+      } catch {
+        return null;
+      }
+    } else {
+      return null;
+    }
+  }
+
+  const rarity = String(parsed?.rarity ?? "").trim();
+  if (!rarity) return null;
+
+  const low = rarity.toLowerCase();
+  if (low === "unknown" || low === "null") return null;
+
+  return rarity;
 }
 
 serve(async (req) => {
@@ -53,19 +90,29 @@ serve(async (req) => {
       });
     }
 
-    const { batchSize = 10, offset = 0 } = await req.json().catch(() => ({}));
+    const body: RequestBody = await req.json().catch(() => ({}));
+    const batchSize = Math.min(Math.max(Number(body.batchSize || 12), 1), 50);
+    const cardIds = toSafeCardIds(body.cardIds);
+
     console.log(
-      `Fetching cards with missing rarity for user ${user.id}, offset=${offset}, batchSize=${batchSize}`
+      `bulk-reanalyze-rarity user=${user.id} batchSize=${batchSize} cardIds=${cardIds.length}`
     );
 
-    // ✅ Only fetch cards that are actually missing rarity
-    // Covers: NULL, empty string, 'Unknown'/'unknown'
-    const { data: cards, error: fetchError, count } = await supabase
+    let query = supabase
       .from("cards")
       .select("id, image_url, card_name, rarity", { count: "exact" })
       .eq("user_id", user.id)
-      .or("rarity.is.null,rarity.eq.,rarity.eq.Unknown,rarity.eq.unknown")
-      .range(offset, offset + batchSize - 1);
+      .or(MISSING_RARITY_FILTER)
+      .order("created_at", { ascending: true, nullsFirst: true })
+      .order("id", { ascending: true });
+
+    if (cardIds.length > 0) {
+      query = query.in("id", cardIds);
+    } else {
+      query = query.limit(batchSize);
+    }
+
+    const { data: cards, error: fetchError } = await query;
 
     if (fetchError) {
       console.error("Fetch error:", fetchError);
@@ -87,38 +134,33 @@ serve(async (req) => {
       );
     }
 
-    console.log(
-      `Found ${cards.length} cards to process (missing rarity). Total missing: ${count ?? "?"}`
-    );
-
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    // --- AI rarity detect (same behavior you already had) ---
-    const results: { id: string; rarity: string | null; success: boolean }[] =
-      [];
+    const results: {
+      id: string;
+      rarity: string | null;
+      success: boolean;
+      reason?: string;
+    }[] = [];
 
     const processCard = async (card: CardRow) => {
       try {
         if (!card.image_url || !card.card_name) {
-          return { id: card.id, rarity: null, success: false };
+          return {
+            id: card.id,
+            rarity: null,
+            success: false,
+            reason: "missing_image_or_name",
+          };
         }
 
-        const prompt = `Identify the RARITY of this trading card. Return JSON only:
-{
-  "rarity": "REQUIRED - Common/Uncommon/Rare/Holo Rare/Ultra Rare/Secret Rare/Rookie Card/RC/Refractor/Prizm/Parallel/Base/Super Rare/Mythic Rare/etc",
-  "confidence": 0.0-1.0
-}
+        const prompt = `Identify the RARITY of this trading card. Return JSON only:\n{\n  "rarity": "REQUIRED - Common/Uncommon/Rare/Holo Rare/Ultra Rare/Secret Rare/Rookie Card/RC/Refractor/Prizm/Parallel/Base/Super Rare/Mythic Rare/etc",\n  "confidence": 0.0-1.0\n}\n\nRARITY RULES:\n- Pokemon: Circle=Common, Diamond=Uncommon, Star=Rare, Star H=Holo Rare, Rainbow/Full Art=Secret Rare\n- Yu-Gi-Oh: Check name color (silver=Rare, gold=Ultra Rare), holo pattern (Super/Secret/Ultimate/Ghost/Starlight)\n- Sports: Base, RC (Rookie Card), Refractor, Prizm, Mosaic, Parallel, Numbered, etc.\n\nCard Name: ${card.card_name}\nImage URL: ${card.image_url}`;
 
-RARITY RULES:
-- Pokemon: Circle=Common, Diamond=Uncommon, Star=Rare, Star H=Holo Rare, Rainbow/Full Art=Secret Rare
-- Yu-Gi-Oh: Check name color (silver=Rare, gold=Ultra Rare), holo pattern (Super/Secret/Ultimate/Ghost/Starlight)
-- Sports: Base, RC (Rookie Card), Refractor, Prizm, Mosaic, Parallel, Numbered, etc.
-
-Card Name: ${card.card_name}
-Image URL: ${card.image_url}`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 20000);
 
         const resp = await fetch("https://api.lovable.dev/v1/chat/completions", {
           method: "POST",
@@ -131,60 +173,60 @@ Image URL: ${card.image_url}`;
             messages: [{ role: "user", content: prompt }],
             temperature: 0.2,
           }),
-        });
+          signal: controller.signal,
+        }).finally(() => clearTimeout(timeout));
 
         if (!resp.ok) {
-          console.error("Lovable API error:", await resp.text());
-          return { id: card.id, rarity: null, success: false };
+          const apiError = await resp.text();
+          console.error("Lovable API error:", apiError);
+          return {
+            id: card.id,
+            rarity: null,
+            success: false,
+            reason: `api_error_${resp.status}`,
+          };
         }
 
         const json = await resp.json();
-        const content = json?.choices?.[0]?.message?.content ?? "";
+        const content = String(json?.choices?.[0]?.message?.content ?? "");
+        const rarity = parseRarity(content);
 
-        let parsed: any = null;
-        try {
-          parsed = JSON.parse(content);
-        } catch {
-          // best-effort: try to extract JSON block
-          const match = content.match(/\{[\s\S]*\}/);
-          if (match) {
-            try {
-              parsed = JSON.parse(match[0]);
-            } catch {}
-          }
+        if (!rarity) {
+          return { id: card.id, rarity: null, success: false, reason: "no_rarity" };
         }
 
-        const rarity = String(parsed?.rarity ?? "").trim();
-        if (!rarity || rarity.toLowerCase() === "unknown" || rarity.toLowerCase() === "null") {
-          return { id: card.id, rarity: null, success: false };
-        }
-
-        // ✅ Update only the card that needs it (and still belongs to this user)
         const { error: updateError } = await supabase
           .from("cards")
           .update({ rarity })
           .eq("id", card.id)
-          .eq("user_id", user.id);
+          .eq("user_id", user.id)
+          .or(MISSING_RARITY_FILTER);
 
         if (updateError) {
           console.error("Update error:", updateError);
-          return { id: card.id, rarity: null, success: false };
+          return {
+            id: card.id,
+            rarity: null,
+            success: false,
+            reason: "update_error",
+          };
         }
 
         return { id: card.id, rarity, success: true };
       } catch (e) {
         console.error("processCard error:", e);
-        return { id: card.id, rarity: null, success: false };
+        return { id: card.id, rarity: null, success: false, reason: "exception" };
       }
     };
 
-    // Concurrency limit
-    const CONCURRENCY = 3;
+    // Higher throughput without hammering API too hard
+    const CONCURRENCY = 4;
     let updated = 0;
 
     for (let i = 0; i < cards.length; i += CONCURRENCY) {
       const chunk = cards.slice(i, i + CONCURRENCY);
       const chunkResults = await Promise.all(chunk.map(processCard));
+
       for (const r of chunkResults) {
         results.push(r);
         if (r.success) updated++;
@@ -193,18 +235,19 @@ Image URL: ${card.image_url}`;
 
     const processed = cards.length;
 
-    // ✅ Correct remaining calculation
-    const remaining = Math.max(
-      0,
-      (count || 0) - (offset + processed)
-    );
+    // True remaining count after this batch completes
+    const { count: remainingCount } = await supabase
+      .from("cards")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .or(MISSING_RARITY_FILTER);
 
     return new Response(
       JSON.stringify({
         success: true,
         processed,
         updated,
-        remaining,
+        remaining: remainingCount ?? 0,
         results,
       }),
       {
