@@ -1,10 +1,13 @@
 // src/lib/paddleOCR.ts
 // PaddleOCR integration using @gutenye/ocr-browser (PP-OCRv4 model via ONNX Runtime)
+// Uses dynamic import to avoid bloating the main bundle
 
-import Ocr from "@gutenye/ocr-browser";
+type OcrModule = typeof import("@gutenye/ocr-browser");
+type OcrInstance = Awaited<ReturnType<OcrModule["default"]["create"]>>;
 
-let ocrInstance: Awaited<ReturnType<typeof Ocr.create>> | null = null;
+let ocrInstance: OcrInstance | null = null;
 let initPromise: Promise<void> | null = null;
+let OcrClass: OcrModule["default"] | null = null;
 
 // Model paths - these will be loaded from CDN
 const MODEL_BASE_URL = "https://cdn.jsdelivr.net/npm/@aspect0/ppocr-onnx-models@latest/";
@@ -32,7 +35,13 @@ async function initPaddleOCR(): Promise<void> {
     const startTime = performance.now();
     
     try {
-      ocrInstance = await Ocr.create({
+      // Dynamic import to avoid bundling into main chunk
+      if (!OcrClass) {
+        const module = await import("@gutenye/ocr-browser");
+        OcrClass = module.default;
+      }
+      
+      ocrInstance = await OcrClass.create({
         models: MODEL_CONFIG,
       });
       

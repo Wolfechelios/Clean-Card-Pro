@@ -10,6 +10,20 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Split heavy OCR/ML dependencies into separate chunks
+          "ocr-engine": ["@gutenye/ocr-browser"],
+          "onnx-runtime": ["onnxruntime-web"],
+          // Split other heavy libs
+          "charts": ["recharts"],
+          "three": ["three", "three-stdlib"],
+        },
+      },
+    },
+  },
   plugins: [
     react(),
     mode === "development" && componentTagger(),
@@ -63,8 +77,40 @@ export default defineConfig(({ mode }) => ({
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,jpg,jpeg,webp,woff,woff2}"],
-        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5MB
+        // Exclude large WASM files from precaching - they'll be loaded on demand
+        globIgnores: ["**/*.wasm"],
+        maximumFileSizeToCacheInBytes: 15 * 1024 * 1024, // 15MB for larger chunks
         runtimeCaching: [
+          {
+            // Cache WASM files at runtime
+            urlPattern: /\.wasm$/i,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "wasm-cache",
+              expiration: {
+                maxEntries: 10,
+                maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
+          },
+          {
+            // Cache ONNX model files
+            urlPattern: /\.onnx$/i,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "onnx-models-cache",
+              expiration: {
+                maxEntries: 10,
+                maxAgeSeconds: 60 * 60 * 24 * 30, // 30 days
+              },
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+            },
+          },
           {
             // Cache Supabase API calls
             urlPattern: /^https:\/\/.*\.supabase\.co\/rest\/.*/i,
