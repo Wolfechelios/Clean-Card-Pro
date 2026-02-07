@@ -32,7 +32,7 @@ export function useCameraZoom({
   maxZoom = 4,
   step = 0.1,
 }: UseCameraZoomOptions) {
-  const [zoomLevel, setZoomLevel] = useState(1);
+  const [zoomLevel, setZoomLevel] = useState(minZoom);
   const [zoomCapabilities, setZoomCapabilities] = useState<ZoomCapabilities>({
     supported: true,
     hardware: false,
@@ -52,19 +52,17 @@ export function useCameraZoom({
       const settings = track.getSettings?.() as any;
 
       if (capabilities?.zoom) {
-        // Hardware zoom supported
+        // Hardware zoom supported - start at minimum (no zoom)
+        const hwMin = capabilities.zoom.min ?? minZoom;
         setZoomCapabilities({
           supported: true,
           hardware: true,
-          min: capabilities.zoom.min ?? minZoom,
+          min: hwMin,
           max: capabilities.zoom.max ?? Math.max(maxZoom, 4),
           step: capabilities.zoom.step ?? step,
         });
-        if (typeof settings?.zoom === 'number') {
-          setZoomLevel(settings.zoom);
-        } else {
-          setZoomLevel(1);
-        }
+        // Start at hardware minimum (no zoom applied)
+        setZoomLevel(hwMin);
         console.log("Hardware zoom capabilities detected:", capabilities.zoom);
       } else {
         // Digital fallback (still "supported" from UX perspective)
@@ -75,7 +73,7 @@ export function useCameraZoom({
           max: maxZoom,
           step,
         });
-        setZoomLevel(1);
+        setZoomLevel(minZoom);
         console.log("Hardware zoom not supported - using digital zoom fallback");
       }
     } catch (e) {
