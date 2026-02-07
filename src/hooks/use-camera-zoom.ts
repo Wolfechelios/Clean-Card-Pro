@@ -32,7 +32,7 @@ export function useCameraZoom({
   maxZoom = 4,
   step = 0.1,
 }: UseCameraZoomOptions) {
-  const [zoomLevel, setZoomLevel] = useState(minZoom);
+  const [zoomLevel, setZoomLevel] = useState(0);
   const [zoomCapabilities, setZoomCapabilities] = useState<ZoomCapabilities>({
     supported: true,
     hardware: false,
