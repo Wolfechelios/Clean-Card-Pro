@@ -1,11 +1,13 @@
 // src/lib/hybridCardIdentify.ts
 // Unified hybrid routing layer for card identification
 // Supports offline Ollama and online cloud functions
+// Optional PaddleOCR preprocessing for enhanced accuracy
 
 import { supabase } from "@/integrations/supabase/client";
 import { isLocalLLMAvailable, isOnline } from "./inferenceMode";
 import { callLocalVisionLLM } from "./localLLM";
 import { withRetry } from "./retry";
+import { runPaddleOCR, isPaddleOCRReady } from "./paddleOCR";
 
 export interface IdentifiedCardData {
   card_name: string;
@@ -109,10 +111,11 @@ async function identifyWithLocalLLM(imageUrl: string): Promise<IdentifiedCardDat
 
 async function identifyWithCloud(
   imageUrl: string,
-  functionName: string = "rapid-card-identify"
+  functionName: string = "rapid-card-identify",
+  ocrText?: string
 ): Promise<IdentifiedCardData> {
   const { data, error } = await supabase.functions.invoke(functionName, {
-    body: { imageUrl },
+    body: { imageUrl, ocrText },
   });
 
   if (error) throw new Error(error.message);
@@ -136,6 +139,25 @@ async function identifyWithCloud(
 }
 
 /**
+ * Run PaddleOCR preprocessing on an image URL
+ * Returns extracted text or null if OCR fails/unavailable
+ */
+async function runPaddleOCRPreprocess(imageUrl: string): Promise<string | null> {
+  try {
+    console.log("[HybridIdentify] Running PaddleOCR preprocessing...");
+    const result = await runPaddleOCR(imageUrl);
+    if (result.text && result.text.trim().length > 0) {
+      console.log(`[HybridIdentify] PaddleOCR extracted ${result.lines.length} lines`);
+      return result.text;
+    }
+    return null;
+  } catch (e) {
+    console.warn("[HybridIdentify] PaddleOCR preprocessing failed:", e);
+    return null;
+  }
+}
+
+/**
  * Hybrid card identification with automatic routing
  * Priority:
  * 1. If offline AND local LLM available → use local
@@ -150,6 +172,7 @@ export async function hybridIdentifyCard(
     forceLocal?: boolean;
     forceCloud?: boolean;
     skipOfflineGuard?: boolean;
+    usePaddleOCR?: boolean; // Enable PaddleOCR preprocessing for enhanced accuracy
   } = {}
 ): Promise<HybridIdentifyResult> {
   const {
@@ -157,7 +180,14 @@ export async function hybridIdentifyCard(
     forceLocal = false,
     forceCloud = false,
     skipOfflineGuard = false,
+    usePaddleOCR = false,
   } = options;
+
+  // Optional PaddleOCR preprocessing
+  let ocrText: string | null = null;
+  if (usePaddleOCR) {
+    ocrText = await runPaddleOCRPreprocess(imageUrl);
+  }
 
   const localAvailable = await isLocalLLMAvailable();
   const online = isOnline();
@@ -171,7 +201,7 @@ export async function hybridIdentifyCard(
   // Force cloud mode
   if (forceCloud && online) {
     const cardData = await withRetry(
-      () => identifyWithCloud(imageUrl, cloudFunction),
+      () => identifyWithCloud(imageUrl, cloudFunction, ocrText || undefined),
       { retries: 2, baseMs: 1000, maxMs: 5000 }
     );
     return { success: true, cardData, source: "cloud" };
@@ -197,7 +227,7 @@ export async function hybridIdentifyCard(
   if (online) {
     try {
       const cardData = await withRetry(
-        () => identifyWithCloud(imageUrl, cloudFunction),
+        () => identifyWithCloud(imageUrl, cloudFunction, ocrText || undefined),
         { retries: 2, baseMs: 1000, maxMs: 5000 }
       );
       return { success: true, cardData, source: "cloud" };
