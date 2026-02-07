@@ -58,6 +58,8 @@ import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 import { getScannerSettings, useScannerSettings } from "@/hooks/use-scanner-settings";
 import { hapticTap } from "@/lib/haptics";
 import { useVoiceCommand } from "@/hooks/use-voice-command";
+import { useCameraDevices } from "@/hooks/use-camera-devices";
+import { CameraDeviceSelector } from "./CameraDeviceSelector";
 import kachingSound from "@/assets/kaching.wav";
 
 // Ka-ching sound for $10+ cards
@@ -127,6 +129,15 @@ export default function RapidScanCamera() {
   const { settings, updateSettings } = useScannerSettings();
   const isMobile = useIsMobile();
 
+  // Camera devices (for selecting different lenses/optics)
+  const {
+    devices: cameraDevices,
+    selectedDeviceId,
+    setSelectedDeviceId,
+    isLoading: devicesLoading,
+    refreshDevices,
+  } = useCameraDevices();
+
   // Camera
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -140,7 +151,6 @@ export default function RapidScanCamera() {
   const [torchDimmer, setTorchDimmer] = useState(100); // 100 = full brightness, 0 = max dimming overlay
   const [statusLine, setStatusLine] = useState("Tap Start to begin");
   const [busyCapture, setBusyCapture] = useState(false);
-
   // Capture UX
   const [flashActive, setFlashActive] = useState(false);
 
@@ -315,8 +325,20 @@ export default function RapidScanCamera() {
     startingCameraRef.current = true;
 
     try {
+      // Build video constraints - use specific device if selected, otherwise environment-facing
+      const videoConstraints: MediaTrackConstraints = {
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+      };
+      
+      if (selectedDeviceId) {
+        videoConstraints.deviceId = { exact: selectedDeviceId };
+      } else {
+        videoConstraints.facingMode = "environment";
+      }
+      
       const constraints: MediaStreamConstraints = {
-        video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
+        video: videoConstraints,
         audio: false,
       };
 
@@ -1176,6 +1198,28 @@ export default function RapidScanCamera() {
               <div className="text-base font-semibold mb-4">Camera</div>
 
               <div className="space-y-4">
+                {/* Camera/Optic selector */}
+                {!isNative && cameraDevices.length > 1 && (
+                  <div className="space-y-2">
+                    <label className="text-sm text-muted-foreground">Select Camera/Lens</label>
+                    <CameraDeviceSelector
+                      devices={cameraDevices}
+                      selectedDeviceId={selectedDeviceId}
+                      onDeviceChange={async (deviceId) => {
+                        setSelectedDeviceId(deviceId);
+                        // If camera is running, restart with new device
+                        if (cameraOn) {
+                          await stopCamera();
+                          // Small delay to ensure camera is fully stopped
+                          setTimeout(() => startCamera(), 100);
+                        }
+                      }}
+                      onRefresh={refreshDevices}
+                      isLoading={devicesLoading}
+                    />
+                  </div>
+                )}
+                
                 <div className="flex items-center gap-3">
                   <Button
                     onClick={isNative ? captureWithNativeCamera : (cameraOn ? stopCamera : startCamera)}
