@@ -181,6 +181,70 @@ export function useCardsNeedingReview() {
     return markAsReviewed(cardId, { ocr_confidence: 100 });
   }, [markAsReviewed]);
 
+  const deleteAllByFilter = useCallback(async (filter?: ReviewReason): Promise<{ deleted: number; success: boolean }> => {
+    if (!userId) return { deleted: 0, success: false };
+
+    try {
+      // First get the count before deleting
+      let countQuery = supabase
+        .from("cards")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId);
+
+      if (filter === "low_ocr_confidence") {
+        countQuery = countQuery.lt("ocr_confidence", OCR_CONFIDENCE_THRESHOLD);
+      } else if (filter === "missing_rarity") {
+        countQuery = countQuery.or("rarity.is.null,rarity.eq.,rarity.eq.Unknown,rarity.eq.unknown");
+      } else if (filter === "missing_name") {
+        countQuery = countQuery.or("card_name.is.null,card_name.eq.,card_name.eq.Unknown");
+      } else if (filter === "missing_set") {
+        countQuery = countQuery.or("card_set.is.null,card_set.eq.,card_set.eq.Unknown");
+      } else {
+        countQuery = countQuery.or(
+          `ocr_confidence.lt.${OCR_CONFIDENCE_THRESHOLD},rarity.is.null,rarity.eq.,rarity.eq.Unknown,card_name.is.null,card_name.eq.,card_name.eq.Unknown,card_set.is.null,card_set.eq.,card_set.eq.Unknown`
+        );
+      }
+
+      const { count } = await countQuery;
+      const deleteCount = count || 0;
+
+      // Now delete
+      let deleteQuery = supabase
+        .from("cards")
+        .delete()
+        .eq("user_id", userId);
+
+      if (filter === "low_ocr_confidence") {
+        deleteQuery = deleteQuery.lt("ocr_confidence", OCR_CONFIDENCE_THRESHOLD);
+      } else if (filter === "missing_rarity") {
+        deleteQuery = deleteQuery.or("rarity.is.null,rarity.eq.,rarity.eq.Unknown,rarity.eq.unknown");
+      } else if (filter === "missing_name") {
+        deleteQuery = deleteQuery.or("card_name.is.null,card_name.eq.,card_name.eq.Unknown");
+      } else if (filter === "missing_set") {
+        deleteQuery = deleteQuery.or("card_set.is.null,card_set.eq.,card_set.eq.Unknown");
+      } else {
+        deleteQuery = deleteQuery.or(
+          `ocr_confidence.lt.${OCR_CONFIDENCE_THRESHOLD},rarity.is.null,rarity.eq.,rarity.eq.Unknown,card_name.is.null,card_name.eq.,card_name.eq.Unknown,card_set.is.null,card_set.eq.,card_set.eq.Unknown`
+        );
+      }
+
+      const { error } = await deleteQuery;
+
+      if (error) throw error;
+
+      // Clear local state
+      setCards([]);
+      
+      // Refresh counts
+      fetchCounts();
+      
+      return { deleted: deleteCount, success: true };
+    } catch (err) {
+      console.error("Error deleting cards:", err);
+      return { deleted: 0, success: false };
+    }
+  }, [userId, fetchCounts]);
+
   return {
     cards,
     counts,
@@ -189,5 +253,6 @@ export function useCardsNeedingReview() {
     fetchCounts,
     markAsReviewed,
     dismissCard,
+    deleteAllByFilter,
   };
 }

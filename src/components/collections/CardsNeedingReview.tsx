@@ -6,6 +6,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { 
   AlertTriangle, 
   CheckCircle, 
@@ -15,7 +25,8 @@ import {
   Sparkles,
   X,
   ChevronRight,
-  ChevronLeft
+  ChevronLeft,
+  Trash2
 } from "lucide-react";
 import { useCardsNeedingReview, type ReviewReason, type CardNeedingReview } from "@/hooks/use-cards-needing-review";
 import { supabase } from "@/integrations/supabase/client";
@@ -38,12 +49,14 @@ const REASON_COLORS: Record<ReviewReason, string> = {
 };
 
 export function CardsNeedingReview() {
-  const { cards, counts, loading, fetchCards, fetchCounts, markAsReviewed, dismissCard } = useCardsNeedingReview();
+  const { cards, counts, loading, fetchCards, fetchCounts, markAsReviewed, dismissCard, deleteAllByFilter } = useCardsNeedingReview();
   const [activeTab, setActiveTab] = useState<ReviewReason | "all">("all");
   const [selectedCard, setSelectedCard] = useState<CardNeedingReview | null>(null);
   const [editValues, setEditValues] = useState({ card_name: "", card_set: "", rarity: "" });
   const [saving, setSaving] = useState(false);
   const [reanalyzing, setReanalyzing] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (activeTab === "all") {
@@ -149,6 +162,32 @@ export function CardsNeedingReview() {
     }
   };
 
+  const handleDeleteAll = async () => {
+    setDeleting(true);
+    const filter = activeTab === "all" ? undefined : activeTab;
+    const result = await deleteAllByFilter(filter);
+    
+    if (result.success) {
+      toast.success(`Deleted ${result.deleted} card(s)`);
+      setSelectedCard(null);
+    } else {
+      toast.error("Failed to delete cards");
+    }
+    
+    setDeleting(false);
+    setShowDeleteDialog(false);
+  };
+
+  const getDeleteCount = () => {
+    if (activeTab === "all") return counts.total;
+    return counts[activeTab] || 0;
+  };
+
+  const getDeleteLabel = () => {
+    if (activeTab === "all") return "all cards with issues";
+    return `all ${REASON_LABELS[activeTab].toLowerCase()} cards`;
+  };
+
   const currentIndex = selectedCard ? cards.findIndex((c) => c.id === selectedCard.id) : -1;
 
   return (
@@ -164,10 +203,21 @@ export function CardsNeedingReview() {
               {counts.total} cards with issues that need your attention
             </CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={fetchCounts}>
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={fetchCounts}>
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh
+            </Button>
+            <Button 
+              variant="destructive" 
+              size="sm" 
+              onClick={() => setShowDeleteDialog(true)}
+              disabled={getDeleteCount() === 0}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete All ({getDeleteCount()})
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -350,6 +400,39 @@ export function CardsNeedingReview() {
           </div>
         </Tabs>
       </CardContent>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {getDeleteCount()} cards?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete {getDeleteLabel()} from your collection. 
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteAll}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete {getDeleteCount()} cards
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
