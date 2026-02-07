@@ -3,7 +3,7 @@
 import highValueAlertSound from "@/assets/high-value-alert.mp3";
 
 const STORAGE_KEY = "recent_scans";
-const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 const VALUE_THRESHOLD = 20; // USD
 const JACKPOT_THRESHOLD = 50; // USD - plays special sound
 
@@ -43,8 +43,8 @@ export function getRecentScans(): RecentScan[] {
     const scans: RecentScan[] = JSON.parse(stored);
     const now = Date.now();
     
-    // Filter to only scans within 2 hours
-    return scans.filter(s => now - s.scanned_at < TWO_HOURS_MS);
+    // Filter to only scans within 24 hours
+    return scans.filter(s => now - s.scanned_at < TWENTY_FOUR_HOURS_MS);
   } catch {
     return [];
   }
