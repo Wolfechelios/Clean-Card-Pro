@@ -24,6 +24,7 @@ import ServiceImportExport from "@/components/settings/ServiceImportExport";
 import DeviceStorageSettings from "@/components/settings/DeviceStorageSettings";
 import { OfflineStoragePanel } from "@/components/settings/OfflineStoragePanel";
 import { BulkRarityReanalyze } from "@/components/collections/BulkRarityReanalyze";
+import { CardsNeedingReview } from "@/components/collections/CardsNeedingReview";
 import { BulkImageLookup } from "@/components/collections/BulkImageLookup";
 import { BulkCardReidentify } from "@/components/settings/BulkCardReidentify";
 import { BulkPSA10Update } from "@/components/pricing/BulkPSA10Update";
@@ -602,7 +603,12 @@ setNullRarityCount(missingRarity || 0);
           </CardTitle>
           <CardDescription>Manage your card collection ({totalCards} total cards)</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-6">
+          {/* Cards Needing Review - Priority fix queue */}
+          <CardsNeedingReview />
+
+          <Separator />
+
           <div className="grid gap-4">
             <div>
               <p className="text-sm text-muted-foreground mb-2">
