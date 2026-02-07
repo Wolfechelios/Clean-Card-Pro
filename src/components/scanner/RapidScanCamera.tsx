@@ -24,7 +24,9 @@ import {
   TimerOff,
   Save,
   Eye,
+  SunDim,
 } from "lucide-react";
+import { Slider } from "@/components/ui/slider";
 
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -135,6 +137,7 @@ export default function RapidScanCamera() {
   const [cameraOn, setCameraOn] = useState(false);
   const [support, setSupport] = useState<MediaSupport>({ torch: false, focus: false, zoom: false });
   const [torchOn, setTorchOn] = useState(false);
+  const [torchDimmer, setTorchDimmer] = useState(100); // 100 = full brightness, 0 = max dimming overlay
   const [statusLine, setStatusLine] = useState("Tap Start to begin");
   const [busyCapture, setBusyCapture] = useState(false);
 
@@ -1110,6 +1113,14 @@ export default function RapidScanCamera() {
             {flashActive && <div className="capture-flash" />}
             {flashActive && <div className="capture-flash" />}
 
+            {/* Torch dimmer overlay - reduces glare when scanning shiny cards */}
+            {torchOn && torchDimmer < 100 && (
+              <div 
+                className="pointer-events-none absolute inset-0 bg-black/80 transition-opacity duration-200"
+                style={{ opacity: (100 - torchDimmer) / 100 * 0.7 }}
+              />
+            )}
+
             {/* Pinch zoom indicator */}
             {cameraOn && zoomCapabilities.supported && (
               <div className="absolute top-3 right-3 z-10">
@@ -1188,16 +1199,33 @@ export default function RapidScanCamera() {
                   </Button>
 
                   {!isNative && (
-                    <Button
-                      variant="outline"
-                      size="lg"
-                      className="h-14 w-14"
-                      onClick={toggleTorch}
-                      disabled={!cameraOn || !support.torch}
-                      title={support.torch ? "Toggle flash" : "Flash not supported"}
-                    >
-                      {torchOn ? <FlashlightOff className="h-6 w-6" /> : <Flashlight className="h-6 w-6" />}
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="lg"
+                        className="h-14 w-14"
+                        onClick={toggleTorch}
+                        disabled={!cameraOn || !support.torch}
+                        title={support.torch ? "Toggle flash" : "Flash not supported"}
+                      >
+                        {torchOn ? <FlashlightOff className="h-6 w-6" /> : <Flashlight className="h-6 w-6" />}
+                      </Button>
+                      {/* Torch dimmer slider - reduces glare for shiny cards */}
+                      {torchOn && support.torch && (
+                        <div className="flex items-center gap-2 bg-muted/50 rounded-lg px-3 py-2 h-14">
+                          <SunDim className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <Slider
+                            value={[torchDimmer]}
+                            onValueChange={([v]) => setTorchDimmer(v)}
+                            min={20}
+                            max={100}
+                            step={5}
+                            className="w-20"
+                          />
+                          <span className="text-xs text-muted-foreground w-8">{torchDimmer}%</span>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
 

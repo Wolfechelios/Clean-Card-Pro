@@ -95,9 +95,6 @@ export default function NewDashboard() {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Scan-center state
-  const [binderUploading, setBinderUploading] = useState(false);
-  const [binderError, setBinderError] = useState<string | null>(null);
-
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [bulkItems, setBulkItems] = useState<BulkScanResult[]>([]);
@@ -368,35 +365,6 @@ export default function NewDashboard() {
       toast.error("Failed to get AI advice: " + (err.message || "Unknown error"));
     } finally {
       setAiAdviceLoading(false);
-    }
-  };
-
-  const handleBinderFileChange: React.ChangeEventHandler<HTMLInputElement> = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    setBinderError(null);
-    setBinderUploading(true);
-
-    try {
-      const ext = file.name.split(".").pop() ?? "jpg";
-      const filePath = `binder/${crypto.randomUUID()}.${ext}`;
-
-      const { error: uploadError } = await supabase.storage.from("card-images").upload(filePath, file, {
-        cacheControl: "3600",
-        upsert: false,
-      });
-
-      if (uploadError) throw new Error(uploadError.message);
-
-      const { data } = supabase.storage.from("card-images").getPublicUrl(filePath);
-      const publicUrl = data.publicUrl;
-
-      console.log("Binder page uploaded:", publicUrl);
-    } catch (err: any) {
-      setBinderError(err?.message ?? "Binder scan failed.");
-    } finally {
-      setBinderUploading(false);
     }
   };
 
@@ -671,7 +639,7 @@ export default function NewDashboard() {
       <RecentScansBox />
 
       {/* Scan Center Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 xs:gap-4 lg:gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 xs:gap-4 lg:gap-5">
         <Card className="hover-lift">
           <CardHeader className="pb-2 xs:pb-3 px-3 xs:px-4 pt-3 xs:pt-4">
             <CardTitle className="flex items-center gap-2 text-sm xs:text-base">
@@ -693,31 +661,6 @@ export default function NewDashboard() {
         </Card>
 
         <Card className="hover-lift">
-          <CardHeader className="pb-2 xs:pb-3 px-3 xs:px-4 pt-3 xs:pt-4">
-            <CardTitle className="flex items-center gap-2 text-sm xs:text-base">
-              <div className="h-7 w-7 xs:h-8 xs:w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                <BookOpen className="h-3.5 w-3.5 xs:h-4 xs:w-4 text-primary" />
-              </div>
-              <span className="truncate">Binder Page</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 xs:space-y-3 px-3 xs:px-4 pb-3 xs:pb-4">
-            <p className="text-xs xs:text-sm text-muted-foreground leading-relaxed line-clamp-2">
-              Upload 9-pocket binder page for OCR.
-            </p>
-            <Input
-              type="file"
-              accept="image/*"
-              disabled={binderUploading}
-              onChange={handleBinderFileChange}
-              className="text-xs xs:text-sm"
-            />
-            {binderUploading && <p className="text-2xs xs:text-xs text-primary animate-pulse">Uploading…</p>}
-            {binderError && <p className="text-2xs xs:text-xs text-destructive truncate">{binderError}</p>}
-          </CardContent>
-        </Card>
-
-        <Card className="hover-lift sm:col-span-2 lg:col-span-1">
           <CardHeader className="pb-2 xs:pb-3 px-3 xs:px-4 pt-3 xs:pt-4">
             <CardTitle className="flex items-center gap-2 text-sm xs:text-base">
               <div className="h-7 w-7 xs:h-8 xs:w-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
