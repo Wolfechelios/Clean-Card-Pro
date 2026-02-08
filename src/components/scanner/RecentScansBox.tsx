@@ -49,7 +49,7 @@ export function RecentScansBox() {
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium flex items-center gap-2">
           <Clock className="h-4 w-4 text-muted-foreground" />
-          Recent Scans (Last 2 Hours)
+          Recent Scans (Last 24 Hours)
           <Badge variant="secondary" className="ml-auto">
             {stats.totalScans}
           </Badge>
@@ -113,7 +113,10 @@ export function RecentScansBox() {
                   {scan.card_name}
                 </div>
                 <div className="text-muted-foreground truncate text-[10px]">
-                  {scan.card_set || "Unknown Set"}
+                  {scan.player_name && <span>{scan.player_name}</span>}
+                  {scan.player_name && scan.card_number && <span> • </span>}
+                  {scan.card_number && <span>#{scan.card_number}</span>}
+                  {!scan.player_name && !scan.card_number && scan.card_set && <span>{scan.card_set}</span>}
                 </div>
               </div>
               <div className="text-right shrink-0">

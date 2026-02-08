@@ -350,8 +350,11 @@ export function useCardScanner({
             id: crypto.randomUUID(),
             card_name: identifiedCard.card_name,
             card_set: identifiedCard.card_set,
+            card_number: identifiedCard.card_number ?? null,
+            player_name: identifiedCard.sport_type ? identifiedCard.card_name : null,
             image_url: imageUrl,
             price: pricingData?.currentPriceRaw ?? null,
+            confidence: identifiedCard.confidence ? identifiedCard.confidence / 100 : null,
           });
           window.dispatchEvent(new CustomEvent("recent-scan-added"));
 
@@ -435,8 +438,11 @@ export function useCardScanner({
         id: crypto.randomUUID(),
         card_name: editedCard.card_name,
         card_set: editedCard.card_set,
+        card_number: editedCard.card_number ?? null,
+        player_name: editedCard.sport_type ? editedCard.card_name : null,
         image_url: pendingCard.imageUrl,
         price: pendingCard.fallbackData?.currentPriceRaw ?? null,
+        confidence: editedCard.confidence ? editedCard.confidence / 100 : null,
       });
       window.dispatchEvent(new CustomEvent("recent-scan-added"));
 
@@ -495,8 +501,11 @@ export function useCardScanner({
         id: crypto.randomUUID(),
         card_name: duplicateCard.identifiedCard.card_name,
         card_set: duplicateCard.identifiedCard.card_set,
+        card_number: duplicateCard.identifiedCard.card_number ?? null,
+        player_name: duplicateCard.identifiedCard.sport_type ? duplicateCard.identifiedCard.card_name : null,
         image_url: duplicateCard.imageUrl,
         price: duplicateCard.fallbackData?.currentPriceRaw ?? null,
+        confidence: duplicateCard.identifiedCard.confidence ? duplicateCard.identifiedCard.confidence / 100 : null,
       });
       window.dispatchEvent(new CustomEvent("recent-scan-added"));
 
