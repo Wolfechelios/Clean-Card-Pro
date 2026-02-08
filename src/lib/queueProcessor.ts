@@ -11,6 +11,7 @@ import { getScannerSettings } from "@/hooks/use-scanner-settings";
 import { canProcessFrame, markFrameStart, markFrameEnd } from "@/lib/performance/pipelineGuards";
 import { MEMORY_CONFIG } from "@/lib/performance/memoryConfig";
 import { hybridIdentifyCard, clearOfflineAttempt } from "@/lib/hybridCardIdentify";
+import { addRecentScan } from "@/lib/recentScans";
 import {
   idbGetNextQueued,
   idbUpdateMeta,
@@ -391,6 +392,16 @@ async function processJob(item: QueueItem): Promise<void> {
   const rarity: string | null = identify?.rarity ?? null;
   const gameType: string | null = identify?.game_type ?? null;
   const sportType: string | null = identify?.sport_type ?? null;
+  const confidence: number = identify?.confidence ?? 0;
+
+  // Filter out unreadable/blurry cards - don't process further if confidence too low
+  const MIN_CONFIDENCE = 0.3; // 30% minimum
+  if (cardName === "Unknown Card" || confidence < MIN_CONFIDENCE) {
+    console.log(`[QueueProcessor] Discarding unreadable card (confidence: ${(confidence * 100).toFixed(0)}%, name: ${cardName})`);
+    await idbDelete(item.id);
+    store._setCurrentItem(null);
+    return;
+  }
 
   // Fetch price
   let rawPrice: number | null = null;
@@ -455,6 +466,19 @@ async function processJob(item: QueueItem): Promise<void> {
 
   store._setLastProcessedCard(processedCard);
   store._setCurrentItem(null);
+
+  // Track in recent scans - will auto-filter if still doesn't meet criteria
+  addRecentScan({
+    id: item.id,
+    card_name: cardName,
+    card_set: cardSet,
+    card_number: cardNumber,
+    player_name: sportType ? cardName : null,
+    image_url: imageUrl,
+    price: rawPrice,
+    confidence,
+  });
+  window.dispatchEvent(new CustomEvent("recent-scan-added"));
 
   // Success - remove from queue
   await idbDelete(item.id);
