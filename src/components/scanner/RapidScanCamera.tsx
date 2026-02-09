@@ -91,7 +91,10 @@ type ScannedCard = {
   cardName?: string;
   cardSet?: string;
   cardNumber?: string;
+  playerName?: string;
   rarity?: string;
+  gameType?: string;
+  sportType?: string;
   value?: number | null;
   error?: string;
   dbId?: string;
@@ -227,7 +230,10 @@ export default function RapidScanCamera() {
       cardName: s.card_name,
       cardSet: s.card_set ?? undefined,
       cardNumber: s.card_number ?? undefined,
+      playerName: s.player_name ?? undefined,
       rarity: s.rarity ?? undefined,
+      gameType: s.gameType ?? undefined,
+      sportType: s.sportType ?? undefined,
       value: s.price,
       dbId: s.dbId ?? undefined,
       isInLibrary: s.isInLibrary ?? false,
@@ -802,7 +808,10 @@ export default function RapidScanCamera() {
       cardName: card.cardName,
       cardSet: card.cardSet,
       cardNumber: card.cardNumber,
+      playerName: card.sportType ? card.cardName : undefined,
       rarity: card.rarity,
+      gameType: card.gameType,
+      sportType: card.sportType,
       value: card.value,
       imageUrl: card.imageUrl,
       isInLibrary: card.isInLibrary,

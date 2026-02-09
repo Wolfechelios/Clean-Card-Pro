@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Edit2, DollarSign, Hash, Layers, Sparkles, Trash2, Loader2, Library, Plus, List, Copy, Check } from "lucide-react";
+import { Edit2, DollarSign, Hash, Sparkles, Trash2, Loader2, Library, Plus, List, Copy, Check, User, Gamepad2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -18,7 +18,10 @@ interface ScannedCard {
   cardName?: string;
   cardSet?: string;
   cardNumber?: string;
+  playerName?: string;
   rarity?: string;
+  gameType?: string;
+  sportType?: string;
   value?: number | null;
   error?: string;
   dbId?: string;
@@ -59,8 +62,8 @@ const RARITY_OPTIONS = [
 ];
 
 // ✅ Preview sizing (change these if you want even bigger/smaller)
-const LIST_THUMB_CLASS = "w-16 h-24 object-cover rounded"; // was w-12 h-16
-const EDIT_PREVIEW_CLASS = "w-40 h-56 object-cover rounded-lg border"; // was w-24 h-32
+const LIST_THUMB_CLASS = "w-14 h-20 object-cover rounded-md border border-border/50";
+const EDIT_PREVIEW_CLASS = "w-40 h-56 object-cover rounded-lg border";
 
 export const ScannedCardList = ({
   cards,
@@ -122,8 +125,9 @@ export const ScannedCardList = ({
     const cardsToList = selectedCards.length > 0 ? selectedCards : completedCards;
     const lines = cardsToList.map((c, i) => {
       const parts = [`${i + 1}. ${c.cardName || "Unknown"}`];
+      if (c.playerName && c.playerName !== c.cardName) parts.push(`(${c.playerName})`);
       if (c.cardNumber) parts.push(`#${c.cardNumber}`);
-      if (c.cardSet) parts.push(`[${c.cardSet}]`);
+      if (c.rarity) parts.push(`[${c.rarity}]`);
       if (c.value != null && c.value > 0) parts.push(`- $${c.value.toFixed(2)}`);
       return parts.join(" ");
     });
@@ -371,135 +375,138 @@ export const ScannedCardList = ({
                 checked={selectedIds.has(card.id)}
                 onCheckedChange={() => toggleSelect(card.id)}
                 aria-label={`Select ${card.cardName || "card"}`}
-                className="shrink-0"
+                className="shrink-0 mt-1"
               />
-              {/* Card image with quantity badge */}
+
+              {/* Card image with badges */}
               <div className="relative shrink-0">
                 <img
                   src={card.preview}
                   alt={card.cardName || "Scanned card"}
                   className={LIST_THUMB_CLASS}
                 />
-
-                {/* Library quantity badge */}
                 {card.libraryQuantity !== undefined && card.libraryQuantity > 0 && (
-                  <div className="absolute -top-1 -right-1 bg-blue-600 text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1">
+                  <div className="absolute -top-1.5 -right-1.5 bg-primary text-primary-foreground text-[9px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 shadow-sm">
                     ×{card.libraryQuantity}
                   </div>
                 )}
-
-                {/* New card indicator */}
                 {scanMode && !card.dbId && card.libraryQuantity === 0 && (
-                  <div className="absolute -top-1 -right-1 bg-amber-500 text-white text-[8px] font-bold rounded px-1">
+                  <div className="absolute -top-1 -left-1 bg-accent text-accent-foreground text-[8px] font-bold rounded px-1 shadow-sm">
                     NEW
                   </div>
                 )}
               </div>
 
-              <div className="flex-1 min-w-0 space-y-1">
-                <p className="font-medium text-sm truncate">{card.cardName || "Unknown Card"}</p>
+              {/* Card info — two-row layout for max info density */}
+              <div className="flex-1 min-w-0">
+                {/* Row 1: Name + Price */}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-sm truncate text-foreground">
+                      {card.cardName || "Unknown Card"}
+                    </p>
+                    {/* Player name (sports cards) */}
+                    {card.playerName && card.playerName !== card.cardName && (
+                      <p className="text-xs text-muted-foreground truncate flex items-center gap-1">
+                        <User className="h-3 w-3 shrink-0" />
+                        {card.playerName}
+                      </p>
+                    )}
+                  </div>
+                  <div className="text-right shrink-0">
+                    {card.priceFetching ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    ) : card.value != null && card.value > 0 ? (
+                      <p className={`font-bold text-base ${card.value >= 20 ? "text-primary" : "text-success"}`}>
+                        ${card.value.toFixed(2)}
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-muted-foreground">—</p>
+                    )}
+                  </div>
+                </div>
 
-                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  {card.cardSet && (
-                    <span className="flex items-center gap-1">
-                      <Layers className="h-3 w-3" />
-                      {card.cardSet}
-                    </span>
-                  )}
+                {/* Row 2: Metadata chips */}
+                <div className="flex flex-wrap items-center gap-1.5 mt-1">
                   {card.cardNumber && (
-                    <span className="flex items-center gap-1">
-                      <Hash className="h-3 w-3" />
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 font-mono">
+                      <Hash className="h-2.5 w-2.5 mr-0.5" />
                       {card.cardNumber}
-                    </span>
+                    </Badge>
+                  )}
+                  {card.rarity && (
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5">
+                      <Sparkles className="h-2.5 w-2.5 mr-0.5" />
+                      {card.rarity}
+                    </Badge>
+                  )}
+                  {card.gameType && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 text-muted-foreground">
+                      <Gamepad2 className="h-2.5 w-2.5 mr-0.5" />
+                      {card.gameType}
+                    </Badge>
                   )}
                 </div>
 
-                {card.rarity && (
-                  <Badge variant="secondary" className="text-[10px]">
-                    <Sparkles className="h-2.5 w-2.5 mr-1" />
-                    {card.rarity}
-                  </Badge>
-                )}
-              </div>
-
-              <div className="text-right">
-                {card.priceFetching ? (
-                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  </span>
-                ) : card.value != null && card.value > 0 ? (
-                  <p className="font-bold text-green-600">${card.value.toFixed(2)}</p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">No price</p>
-                )}
-              </div>
-
-              <div className="flex items-center gap-1 shrink-0">
-                {/* Remove from Library button for remove mode */}
-                {removeMode && card.isInLibrary && card.dbId && onRemoveFromLibrary && (
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => handleRemoveFromLibrary(card)}
-                    disabled={removingId === card.id || card.priceFetching}
-                    className="text-xs h-7 px-2 gap-1"
-                  >
-                    {removingId === card.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-                    Remove
-                  </Button>
-                )}
-
-                {/* Not in library indicator for remove mode */}
-                {removeMode && !card.isInLibrary && (
-                  <Badge variant="secondary" className="text-[10px]">
-                    Not in Library
-                  </Badge>
-                )}
-
-                {/* Add to Library button for scan mode (not remove mode) */}
-                {scanMode && !removeMode && !card.dbId && onAddToLibrary && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setAddingId(card.id);
-                      onAddToLibrary(card.id);
-                      setTimeout(() => setAddingId(null), 2000);
-                    }}
-                    disabled={addingId === card.id || card.priceFetching}
-                    className="text-xs h-7 px-2 gap-1 border-amber-400 text-amber-700 hover:bg-amber-50 dark:border-amber-600 dark:text-amber-300"
-                  >
-                    {addingId === card.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
-                    Add
-                  </Button>
-                )}
-
-                {/* Already in library indicator (not in remove mode) */}
-                {scanMode && !removeMode && card.dbId && (
-                  <Badge
-                    variant="secondary"
-                    className="text-[10px] bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
-                  >
-                    <Library className="h-2.5 w-2.5 mr-1" />
-                    Added
-                  </Badge>
-                )}
-
-                <Button variant="ghost" size="icon" onClick={() => openEditDialog(card)}>
-                  <Edit2 className="h-4 w-4" />
-                </Button>
-
-                {onCardDelete && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleDelete(card)}
-                    disabled={deletingId === card.id}
-                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                  >
-                    {deletingId === card.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                  </Button>
-                )}
+                {/* Row 3: Actions */}
+                <div className="flex items-center gap-1 mt-1.5">
+                  {/* Remove from Library button for remove mode */}
+                  {removeMode && card.isInLibrary && card.dbId && onRemoveFromLibrary && (
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => handleRemoveFromLibrary(card)}
+                      disabled={removingId === card.id || card.priceFetching}
+                      className="text-xs h-6 px-2 gap-1"
+                    >
+                      {removingId === card.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                      Remove
+                    </Button>
+                  )}
+                  {removeMode && !card.isInLibrary && (
+                    <Badge variant="secondary" className="text-[10px] h-5">
+                      Not in Library
+                    </Badge>
+                  )}
+                  {scanMode && !removeMode && !card.dbId && onAddToLibrary && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setAddingId(card.id);
+                        onAddToLibrary(card.id);
+                        setTimeout(() => setAddingId(null), 2000);
+                      }}
+                      disabled={addingId === card.id || card.priceFetching}
+                      className="text-xs h-6 px-2 gap-1 border-accent text-accent-foreground"
+                    >
+                      {addingId === card.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                      Add
+                    </Button>
+                  )}
+                  {scanMode && !removeMode && card.dbId && (
+                    <Badge variant="secondary" className="text-[10px] h-5 bg-success/15 text-success border-success/30">
+                      <Library className="h-2.5 w-2.5 mr-0.5" />
+                      Saved
+                    </Badge>
+                  )}
+                  <div className="ml-auto flex items-center gap-0.5">
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditDialog(card)}>
+                      <Edit2 className="h-3.5 w-3.5" />
+                    </Button>
+                    {onCardDelete && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => handleDelete(card)}
+                        disabled={deletingId === card.id}
+                      >
+                        {deletingId === card.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      </Button>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           ))}
