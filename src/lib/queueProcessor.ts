@@ -477,6 +477,12 @@ async function processJob(item: QueueItem): Promise<void> {
     image_url: imageUrl,
     price: rawPrice,
     confidence,
+    rarity,
+    gameType,
+    sportType,
+    dbId: existingId ?? null,
+    isInLibrary,
+    libraryQuantity: ownedCount,
   });
   window.dispatchEvent(new CustomEvent("recent-scan-added"));
 

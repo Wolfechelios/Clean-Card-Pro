@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Edit2, DollarSign, Hash, Layers, Sparkles, Trash2, Loader2, Library, Plus } from "lucide-react";
+import { Edit2, DollarSign, Hash, Layers, Sparkles, Trash2, Loader2, Library, Plus, List, Copy, Check } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -87,12 +88,62 @@ export const ScannedCardList = ({
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [isAddingAll, setIsAddingAll] = useState(false);
   const [isRemovingAll, setIsRemovingAll] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showListDialog, setShowListDialog] = useState(false);
+  const [listCopied, setListCopied] = useState(false);
 
   const completedCards = cards.filter((c) => c.status === "completed");
   const [dragId, setDragId] = useState<string | null>(null);
   const totalValue = completedCards.reduce((sum, c) => sum + (c.value || 0), 0);
   const newCardsCount = scanMode ? completedCards.filter((c) => !c.dbId).length : 0;
   const libraryCardsCount = removeMode ? completedCards.filter((c) => c.isInLibrary && c.dbId).length : 0;
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAll = useCallback(() => {
+    if (selectedIds.size === completedCards.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(completedCards.map(c => c.id)));
+    }
+  }, [selectedIds.size, completedCards]);
+
+  const selectedCards = completedCards.filter(c => selectedIds.has(c.id));
+  const selectedValue = selectedCards.reduce((sum, c) => sum + (c.value || 0), 0);
+
+  const generateListText = useCallback(() => {
+    const cardsToList = selectedCards.length > 0 ? selectedCards : completedCards;
+    const lines = cardsToList.map((c, i) => {
+      const parts = [`${i + 1}. ${c.cardName || "Unknown"}`];
+      if (c.cardNumber) parts.push(`#${c.cardNumber}`);
+      if (c.cardSet) parts.push(`[${c.cardSet}]`);
+      if (c.value != null && c.value > 0) parts.push(`- $${c.value.toFixed(2)}`);
+      return parts.join(" ");
+    });
+    const total = cardsToList.reduce((sum, c) => sum + (c.value || 0), 0);
+    lines.push("");
+    lines.push(`Total: ${cardsToList.length} cards — $${total.toFixed(2)}`);
+    return lines.join("\n");
+  }, [selectedCards, completedCards]);
+
+  const copyList = useCallback(async () => {
+    const text = generateListText();
+    try {
+      await navigator.clipboard.writeText(text);
+      setListCopied(true);
+      toast.success("List copied to clipboard");
+      setTimeout(() => setListCopied(false), 2000);
+    } catch {
+      toast.error("Failed to copy");
+    }
+  }, [generateListText]);
 
   const handleAddAll = async () => {
     if (!onAddAllToLibrary) return;
@@ -216,11 +267,21 @@ export const ScannedCardList = ({
     <>
       <Card className={removeMode ? "border-destructive/50" : ""}>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
+              <Checkbox
+                checked={selectedIds.size === completedCards.length && completedCards.length > 0}
+                onCheckedChange={toggleSelectAll}
+                aria-label="Select all cards"
+              />
               <CardTitle className="text-lg">
                 {removeMode ? "Cards to Remove" : "Scanned Cards"} ({completedCards.length})
               </CardTitle>
+              {selectedIds.size > 0 && (
+                <Badge variant="secondary" className="text-xs">
+                  {selectedIds.size} selected
+                </Badge>
+              )}
               {scanMode && !removeMode && newCardsCount > 0 && (
                 <Badge
                   variant="outline"
@@ -235,7 +296,17 @@ export const ScannedCardList = ({
                 </Badge>
               )}
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              {/* Create List button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowListDialog(true)}
+                className="gap-1"
+              >
+                <List className="h-4 w-4" />
+                {selectedIds.size > 0 ? `List (${selectedIds.size})` : "List All"}
+              </Button>
               {/* Add All button */}
               {scanMode && !removeMode && newCardsCount > 0 && onAddAllToLibrary && (
                 <Button
@@ -295,6 +366,13 @@ export const ScannedCardList = ({
                 scanMode && !card.dbId ? "border-amber-400 dark:border-amber-600" : ""
               }`}
             >
+              {/* Selection checkbox */}
+              <Checkbox
+                checked={selectedIds.has(card.id)}
+                onCheckedChange={() => toggleSelect(card.id)}
+                aria-label={`Select ${card.cardName || "card"}`}
+                className="shrink-0"
+              />
               {/* Card image with quantity badge */}
               <div className="relative shrink-0">
                 <img
@@ -427,6 +505,38 @@ export const ScannedCardList = ({
           ))}
         </CardContent>
       </Card>
+
+      {/* Create List Dialog */}
+      <Dialog open={showListDialog} onOpenChange={setShowListDialog}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <List className="h-5 w-5" />
+              Card Listing ({selectedIds.size > 0 ? `${selectedIds.size} selected` : `${completedCards.length} total`})
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-sm text-muted-foreground">
+              <span>{selectedIds.size > 0 ? selectedIds.size : completedCards.length} cards</span>
+              <span className="font-semibold text-foreground">
+                Total: ${(selectedIds.size > 0 ? selectedValue : totalValue).toFixed(2)}
+              </span>
+            </div>
+            <div className="bg-muted rounded-lg p-3 max-h-64 overflow-y-auto">
+              <pre className="text-xs whitespace-pre-wrap font-mono">{generateListText()}</pre>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowListDialog(false)}>
+              Close
+            </Button>
+            <Button onClick={copyList} className="gap-1">
+              {listCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              {listCopied ? "Copied!" : "Copy to Clipboard"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!editingCard} onOpenChange={(open) => !open && setEditingCard(null)}>
         {/* widened from sm:max-w-md */}

@@ -36,6 +36,13 @@ export interface RecentScan {
   confidence: number | null;
   scanned_at: number; // timestamp
   isHighValue: boolean;
+  // Extended fields for persistence
+  rarity?: string | null;
+  gameType?: string | null;
+  sportType?: string | null;
+  dbId?: string | null;
+  isInLibrary?: boolean;
+  libraryQuantity?: number;
 }
 
 export function getRecentScans(): RecentScan[] {
@@ -116,6 +123,22 @@ export function getHighValueScans(): Array<RecentScan & { positionBehind: number
 export function clearExpiredScans(): void {
   const valid = getRecentScans();
   localStorage.setItem(STORAGE_KEY, JSON.stringify(valid));
+}
+
+export function clearAllRecentScans(): void {
+  localStorage.removeItem(STORAGE_KEY);
+}
+
+export function removeRecentScan(id: string): void {
+  const scans = getRecentScans();
+  const filtered = scans.filter(s => s.id !== id);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+}
+
+export function updateRecentScan(id: string, patch: Partial<RecentScan>): void {
+  const scans = getRecentScans();
+  const updated = scans.map(s => s.id === id ? { ...s, ...patch } : s);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 }
 
 export function getRecentScanStats() {
