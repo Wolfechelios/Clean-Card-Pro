@@ -48,6 +48,7 @@ import {
 } from "@/lib/idbQueue";
 import { compressImageForQueue } from "@/lib/imageCompressor";
 import { useQueueProcessor } from "@/lib/queueProcessor";
+import { getRecentScans, clearAllRecentScans, removeRecentScan, updateRecentScan } from "@/lib/recentScans";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
 import { useClarityZoom } from "@/hooks/use-clarity-zoom";
 import { ZoomControls } from "./ZoomControls";
@@ -216,8 +217,25 @@ export default function RapidScanCamera() {
     enabled: settings.autoZoomEnabled !== false, // enabled by default
   });
 
-  // UI list
-  const [cards, setCards] = useState<ScannedCard[]>([]);
+  // UI list - hydrate from persistent recentScans on mount
+  const [cards, setCards] = useState<ScannedCard[]>(() => {
+    const stored = getRecentScans();
+    return stored.map(s => ({
+      id: s.id,
+      preview: s.image_url,
+      status: "completed" as const,
+      cardName: s.card_name,
+      cardSet: s.card_set ?? undefined,
+      cardNumber: s.card_number ?? undefined,
+      rarity: s.rarity ?? undefined,
+      value: s.price,
+      dbId: s.dbId ?? undefined,
+      isInLibrary: s.isInLibrary ?? false,
+      libraryQuantity: s.libraryQuantity ?? 0,
+      imageUrl: s.image_url,
+      priceFetching: false,
+    }));
+  });
   const [showAllCards, setShowAllCards] = useState(false);
   const CARD_LIST_RENDER_LIMIT = 30;
   const [overlay, setOverlay] = useState<LastOverlay | null>(null);
@@ -301,6 +319,8 @@ export default function RapidScanCamera() {
       }
       return prev.filter((c) => c.id !== id);
     });
+    // remove from persistent recent scans
+    removeRecentScan(id);
     // remove from queue if still exists
     try {
       await idbDelete(id);
@@ -851,6 +871,8 @@ export default function RapidScanCamera() {
           libraryQuantity: Math.max((c.libraryQuantity || 0) + 1, 1),
           priceFetching: false,
         });
+        // Sync to persistent recent scans
+        updateRecentScan(id, { dbId: inserted.id, isInLibrary: true, libraryQuantity: Math.max((c.libraryQuantity || 0) + 1, 1) });
 
         toast.success("Saved to library");
       } catch (e: any) {
@@ -995,6 +1017,7 @@ export default function RapidScanCamera() {
       });
       return [];
     });
+    clearAllRecentScans();
     await idbClear();
     await refreshMeta();
     setOverlay(null);
