@@ -9,17 +9,29 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.95.3",
+    "@vitejs/plugin-react-swc": "^4.2.3",
+    "lovable-tagger": "^1.1.13",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.22.3",
+    "tailwindcss-animate": "^1.0.7",
+    "vite-plugin-pwa": "^1.2.0",
     "zustand": "^4.5.2"
   },
   "devDependencies": {
+<<<<<<< HEAD
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.16",
     "postcss": "^8.4.31",
     "tailwindcss": "^3.4.1",
     "tailwindcss-animate": "^1.0.7",
+=======
+    "@vitejs/plugin-react": "^4.0.0",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.31",
+    "tailwindcss": "^3.4.1",
+>>>>>>> 33deb8fe31db4bc01c376e9667a43626847e50bb
     "vite": "^5.0.0"
   }
 }
