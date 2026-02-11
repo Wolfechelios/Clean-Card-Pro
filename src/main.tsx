@@ -1,14 +1,40 @@
+import React from "react";
+import { createRoot } from "react-dom/client";
+import App from "./App.tsx";
+import "./index.css";
+import { enableSustainedPerformance } from "@/lib/performance/sustainedMode";
 
-import React from 'react'
-import ReactDOM from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
-import App from './App'
-import './index.css'
+// Enable sustained performance mode on Android (does nothing on web/iOS)
+enableSustainedPerformance();
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+// Capture PWA install prompt as early as possible
+// This event fires ONLY when the browser determines the app is installable
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  console.log("[PWA] Install prompt captured");
+  (window as any).__pwaInstallPrompt = e;
+  // Dispatch custom event so components can react
+  window.dispatchEvent(new CustomEvent("pwa-install-available"));
+});
+
+// Track when app is installed
+window.addEventListener("appinstalled", () => {
+  console.log("[PWA] App installed successfully");
+  (window as any).__pwaInstallPrompt = null;
+  window.dispatchEvent(new CustomEvent("pwa-installed"));
+});
+
+// Register service worker updates
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.ready.then((registration) => {
+    registration.addEventListener("updatefound", () => {
+      console.log("[PWA] New service worker available");
+    });
+  });
+}
+
+createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
+    <App />
   </React.StrictMode>
-)
+);
