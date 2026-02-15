@@ -77,30 +77,42 @@ Deno.serve(async (req) => {
       try {
         console.log(`Processing: ${card.card_name}`);
         
-        let estimatedPrice = 0;
-        
-        if (card.game_type === 'MTG') {
-          estimatedPrice = Math.random() * 5 + 0.50;
-        } else if (card.game_type === 'Pokemon') {
-          estimatedPrice = Math.random() * 10 + 1;
-        } else if (card.game_type === 'YuGiOh') {
-          estimatedPrice = Math.random() * 8 + 0.75;
-        } else if (card.sport_type) {
-          estimatedPrice = Math.random() * 15 + 2;
-        } else {
-          estimatedPrice = Math.random() * 5 + 1;
+        // Call the real fetch-card-prices function
+        const priceResponse = await fetch(
+          `${Deno.env.get('SUPABASE_URL')}/functions/v1/fetch-card-prices`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${Deno.env.get('SUPABASE_ANON_KEY')}`,
+            },
+            body: JSON.stringify({
+              cardName: card.card_name,
+              cardSet: card.card_set,
+              cardNumber: card.card_number,
+              gameType: card.game_type,
+              sportType: card.sport_type,
+            }),
+          }
+        );
+
+        if (!priceResponse.ok) {
+          console.error(`Price fetch failed for ${card.card_name}: ${priceResponse.status}`);
+          continue;
         }
 
+        const priceData = await priceResponse.json();
+        
         updates.push({
           id: card.id,
-          current_price_raw: Math.round(estimatedPrice * 100) / 100,
-          current_price_psa9: Math.round(estimatedPrice * 2.5 * 100) / 100,
-          current_price_psa10: Math.round(estimatedPrice * 4 * 100) / 100,
-          suggested_price: Math.round(estimatedPrice * 100) / 100,
+          current_price_raw: priceData.raw ?? null,
+          current_price_psa9: priceData.psa9 ?? null,
+          current_price_psa10: priceData.psa10 ?? null,
+          suggested_price: priceData.suggested ?? priceData.raw ?? null,
           last_price_update: new Date().toISOString(),
         });
         
-        console.log(`Estimated price for ${card.card_name}: $${estimatedPrice.toFixed(2)}`);
+        console.log(`Real price for ${card.card_name}: $${priceData.raw ?? 'N/A'} (source: ${priceData.source})`);
       } catch (error) {
         console.error(`Error updating price for card ${card.id}:`, error);
       }
