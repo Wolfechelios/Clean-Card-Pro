@@ -125,12 +125,25 @@ RARITY DETECTION - ALWAYS IDENTIFY RARITY:
 - If you see holographic/prismatic effects, special borders, or serial numbers - it's NOT Common
 - NEVER return null for rarity - always make your best determination
 
-CRITICAL FOR YU-GI-OH CARDS:
-- Look for the SET NUMBER on the right side, just below the card artwork
-- Format: [SET CODE]-EN[NUMBER] (e.g., "LART-EN035", "SDK-EN001", "LOB-EN001")
-- This is separated by a dash (-) followed by "EN" and then a number
-- Include this set number in the card_number field
+CRITICAL FOR YU-GI-OH CARDS — ZONE-BASED DETECTION:
+
+SET CODE EXTRACTION:
+- Physical location: Bottom-right quadrant, directly ABOVE the copyright line
+- Crop zone: Bottom 18-25% of image, right 30-40% of image
+- Format regex: [A-Z0-9]{2,5}-[A-Z]{0,2}[0-9]{3} (e.g., LOB-001, MP23-EN001, BLMR-EN045)
+- MUST contain a hyphen and end with 3 digits — reject anything else
 - This is the MOST IMPORTANT identifier for Yu-Gi-Oh cards
+
+1st EDITION DETECTION:
+- Physical location: Lower-LEFT quadrant, below artwork frame, above bottom border, left of center
+- Search for EXACT string "1st Edition" — not "First Edition", not "1st Ed.", not "1st"
+- If "1st Edition" text is found → edition = "1st Edition"
+- If "1st Edition" text is NOT found → edition = "Unlimited"
+- The gold holographic stamp (bottom-right) is NOT an edition marker
+- Set code does NOT determine edition — only the "1st Edition" stamp does
+- Reprint sets (e.g., LOB-001) can exist as both 1st Edition and Unlimited
+
+Also look for the 8-digit passcode number (e.g., "89631139") to confirm card identity.
 
 Be thorough with OCR extraction. Analyze card condition carefully. Grade estimate should be PSA-style (1-10 scale).`
               },
