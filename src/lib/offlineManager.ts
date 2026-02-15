@@ -242,22 +242,35 @@ export async function processPendingSync(): Promise<{ success: number; failed: n
 export async function syncFromServer(userId: string): Promise<number> {
   if (!isOnline) throw new Error("Cannot sync while offline");
 
-  const { data, error } = await supabase
-    .from("cards")
-    .select("*")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false });
+  // Fetch all cards in batches of 1000 (Supabase default limit)
+  let allCards: any[] = [];
+  let from = 0;
+  const batchSize = 1000;
 
-  if (error) throw error;
+  while (true) {
+    const { data, error } = await supabase
+      .from("cards")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .range(from, from + batchSize - 1);
+
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+
+    allCards = allCards.concat(data);
+    if (data.length < batchSize) break;
+    from += batchSize;
+  }
 
   // Clear and repopulate cache
   await cardsStore.clear();
-  if (data) {
-    await cacheCards(data);
+  if (allCards.length > 0) {
+    await cacheCards(allCards);
   }
 
   await metaStore.setItem("lastSyncAt", Date.now());
-  return data?.length ?? 0;
+  return allCards.length;
 }
 
 // ============= Storage Stats =============
