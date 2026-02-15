@@ -82,9 +82,13 @@ serve(async (req) => {
 - Condition hints from the image
 - For Magic: The Gathering, detect Alpha vs Beta vs Unlimited by analyzing corner curvature and border characteristics
 
-CRITICAL FOR YU-GI-OH CARDS — ZONE-BASED DETECTION:
-- SET CODE: Bottom-right quadrant, directly ABOVE copyright line. Crop zone: bottom 18-25%, right 30-40%. Format: [A-Z0-9]{2,5}-[A-Z]{0,2}[0-9]{3} (e.g., LOB-001, MP23-EN001). MUST have hyphen + 3 trailing digits.
-- 1st EDITION: Lower-LEFT quadrant, below artwork frame. Search for EXACT string "1st Edition" only. If found → edition = "1st Edition". If absent → edition = "Unlimited". Gold holo stamp is NOT edition. Set code does NOT determine edition.
+CRITICAL FOR YU-GI-OH CARDS — ROI-BASED DETECTION (NO GUESSING):
+STEP 1 — REGIONS OF INTEREST:
+A. Set Code Region: Crop bottom 18-25% vertically, isolate rightmost 30-40% horizontally. Small text directly ABOVE copyright line, right-aligned.
+B. Edition Region: Crop bottom 35-50% vertically, isolate leftmost 30-40% horizontally. Below artwork frame, left-aligned.
+STEP 2 — SET CODE: Strict regex \\b[A-Z0-9]{2,5}-[A-Z]{0,2}[0-9]{3}\\b. MUST have hyphen + 3 trailing digits. First valid match only. No match → "Not Detected".
+STEP 3 — EDITION: Search Edition Region for exact case-sensitive string "1st Edition". Not "First Edition", not "1st Ed", not "1st". Found → "1st Edition". Not found → "Unlimited". Gold holo stamp is NOT edition. Set code does NOT determine edition.
+STEP 4 — IGNORE: Card name (top), attribute icon, ATK/DEF (large font), serial inside artwork, holo stamp.
 
 Return ONLY a JSON object with these exact keys: cardName, cardSet, cardNumber, rarity, edition, sportType, gameType, condition, notes`
           },

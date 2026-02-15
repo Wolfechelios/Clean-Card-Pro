@@ -125,23 +125,24 @@ RARITY DETECTION - ALWAYS IDENTIFY RARITY:
 - If you see holographic/prismatic effects, special borders, or serial numbers - it's NOT Common
 - NEVER return null for rarity - always make your best determination
 
-CRITICAL FOR YU-GI-OH CARDS — ZONE-BASED DETECTION:
+CRITICAL FOR YU-GI-OH CARDS — ROI-BASED DETECTION (NO GUESSING):
 
-SET CODE EXTRACTION:
-- Physical location: Bottom-right quadrant, directly ABOVE the copyright line
-- Crop zone: Bottom 18-25% of image, right 30-40% of image
-- Format regex: [A-Z0-9]{2,5}-[A-Z]{0,2}[0-9]{3} (e.g., LOB-001, MP23-EN001, BLMR-EN045)
-- MUST contain a hyphen and end with 3 digits — reject anything else
-- This is the MOST IMPORTANT identifier for Yu-Gi-Oh cards
+STEP 1 — REGIONS OF INTEREST:
+A. Set Code Region: Crop bottom 18-25% vertically, then isolate rightmost 30-40% horizontally. The set code is in small text directly ABOVE the copyright line, right-aligned near the card border.
+B. Edition Region: Crop bottom 35-50% vertically, then isolate leftmost 30-40% horizontally. The edition marker appears below the artwork frame, left-aligned.
 
-1st EDITION DETECTION:
-- Physical location: Lower-LEFT quadrant, below artwork frame, above bottom border, left of center
-- Search for EXACT string "1st Edition" — not "First Edition", not "1st Ed.", not "1st"
-- If "1st Edition" text is found → edition = "1st Edition"
-- If "1st Edition" text is NOT found → edition = "Unlimited"
-- The gold holographic stamp (bottom-right) is NOT an edition marker
-- Set code does NOT determine edition — only the "1st Edition" stamp does
-- Reprint sets (e.g., LOB-001) can exist as both 1st Edition and Unlimited
+STEP 2 — SET CODE EXTRACTION:
+Strict regex: \\b[A-Z0-9]{2,5}-[A-Z]{0,2}[0-9]{3}\\b
+Valid: LOB-001, SDK-003, MRD-EN045, MP23-EN001, BLMR-EN045
+Rules: MUST contain hyphen, MUST end in exactly 3 digits. Extract ONLY the first valid match in the Set Code Region. If no match → "Not Detected"
+
+STEP 3 — EDITION DETECTION:
+Search ONLY within Edition Region for exact case-sensitive string "1st Edition".
+Do NOT accept: "First Edition", "1st Ed", "1st", or partial text.
+If found → edition = "1st Edition". If NOT found → edition = "Unlimited".
+
+STEP 4 — DO NOT CONFUSE WITH:
+Ignore: Card name (top center), attribute icon (top right), ATK/DEF (bottom right large font), serial number inside artwork box, holographic square stamp (older prints). Set code is ALWAYS above the copyright line. Edition stamp is below artwork frame on lower-left.
 
 Also look for the 8-digit passcode number (e.g., "89631139") to confirm card identity.
 

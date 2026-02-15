@@ -44,24 +44,26 @@ serve(async (req) => {
 
 Analyze this trading card image and provide the most likely card identification along with up to 2 alternative possibilities if you're not completely certain.
 
-CRITICAL FOR YU-GI-OH CARDS — ZONE-BASED DETECTION (NO GUESSING):
+CRITICAL FOR YU-GI-OH CARDS — ROI-BASED DETECTION (NO GUESSING):
 
-SET CODE EXTRACTION:
-- Physical location: Bottom-right quadrant, directly ABOVE the copyright line
-- Crop zone: Bottom 18-25% of image, right 30-40% of image
-- Format regex: [A-Z0-9]{2,5}-[A-Z]{0,2}[0-9]{3} (e.g., LOB-001, MP23-EN001, BLMR-EN045, SDK-003)
-- MUST contain a hyphen and end with 3 digits — reject anything that doesn't match
-- This is the MOST IMPORTANT identifier for Yu-Gi-Oh cards
-- Also look for the 8-digit passcode number (e.g., "89631139") to confirm identity
+STEP 1 — REGIONS OF INTEREST:
+A. Set Code Region: Crop bottom 18-25% of image vertically, then isolate rightmost 30-40% horizontally. Set code is in small text directly ABOVE copyright line, right-aligned near card border.
+B. Edition Region: Crop bottom 35-50% of image vertically, then isolate leftmost 30-40% horizontally. Edition marker appears below artwork frame, left-aligned.
 
-1st EDITION DETECTION:
-- Physical location: Lower-LEFT quadrant, below artwork frame, above bottom border, left of center
-- Search for EXACT string "1st Edition" — not "First Edition", not "1st Ed.", not "1st"
-- If "1st Edition" text is found → edition = "1st Edition"
-- If "1st Edition" text is NOT found → edition = "Unlimited"
-- The gold holographic stamp (bottom-right) is NOT an edition marker — ignore it
-- Set code does NOT determine edition — only the "1st Edition" stamp does
-- Reprint sets (e.g., LOB-001) can exist as both 1st Edition and Unlimited
+STEP 2 — SET CODE EXTRACTION:
+Strict regex: \\b[A-Z0-9]{2,5}-[A-Z]{0,2}[0-9]{3}\\b
+Valid: LOB-001, SDK-003, MRD-EN045, MP23-EN001, BLMR-EN045
+Rules: MUST contain hyphen, MUST end in exactly 3 digits. Ignore non-matching text. Extract ONLY first valid match. No match → "Not Detected".
+
+STEP 3 — EDITION DETECTION:
+Search ONLY within Edition Region for exact case-sensitive string "1st Edition".
+Do NOT accept: "First Edition", "1st Ed", "1st", or partial text.
+If found → edition = "1st Edition". If NOT found → edition = "Unlimited".
+
+STEP 4 — DO NOT CONFUSE WITH:
+Ignore: Card name (top center), attribute icon (top right), ATK/DEF (bottom right large font), serial number inside artwork box, holographic square stamp (older prints). Set Code is ALWAYS above copyright line. Edition stamp is below artwork frame on lower-left.
+
+Also look for the 8-digit passcode number (e.g., "89631139") to confirm identity.
 
 Return JSON in this exact format:
 
@@ -69,9 +71,9 @@ Return JSON in this exact format:
   "primary": {
     "card_name": "exact card name",
     "card_set": "set name",
-    "card_number": "set number (e.g., LART-EN035) for Yu-Gi-Oh",
+    "card_number": "set code from ROI extraction (e.g., LART-EN035)",
     "rarity": "rarity level",
-    "edition": "1st Edition or Unlimited — determined ONLY by presence of exact '1st Edition' text stamp",
+    "edition": "1st Edition or Unlimited — determined ONLY by exact '1st Edition' text in Edition Region",
     "game_type": "Pokemon/MTG/YuGiOh/etc or null for sports",
     "sport_type": "Baseball/Basketball/Football/etc or null for games",
     "year": "year of release",
