@@ -30,9 +30,9 @@ export function useAutoSync() {
           await syncFromServer(userId);
           localStorage.setItem("cleancards_last_sync", now.toString());
 
-          // Preload top 50 card images in background
+          // Preload top 10000 card images in background
           const cards = await getAllCachedCards();
-          preloadCardImages(cards.slice(0, 50)).catch(console.error);
+          preloadCardImages(cards.slice(0, 10000)).catch(console.error);
         }
       } catch (error) {
         console.error("[AutoSync] Error:", error);
