@@ -44,13 +44,24 @@ serve(async (req) => {
 
 Analyze this trading card image and provide the most likely card identification along with up to 2 alternative possibilities if you're not completely certain.
 
-CRITICAL FOR YU-GI-OH CARDS:
-- Look for the SET NUMBER on the right side, just below the card artwork
-- Format: [SET CODE]-EN[NUMBER] (e.g., "LART-EN035", "SDK-EN001", "LOB-EN001")
-- This is typically separated by a dash (-) followed by "EN" and then a number
-- This set number is the MOST RELIABLE identifier for Yu-Gi-Oh cards
-- Also look for the 8-digit passcode number (e.g., "89631139") which can help confirm identity
-- Use the set number as the PRIMARY identification method
+CRITICAL FOR YU-GI-OH CARDS — ZONE-BASED DETECTION (NO GUESSING):
+
+SET CODE EXTRACTION:
+- Physical location: Bottom-right quadrant, directly ABOVE the copyright line
+- Crop zone: Bottom 18-25% of image, right 30-40% of image
+- Format regex: [A-Z0-9]{2,5}-[A-Z]{0,2}[0-9]{3} (e.g., LOB-001, MP23-EN001, BLMR-EN045, SDK-003)
+- MUST contain a hyphen and end with 3 digits — reject anything that doesn't match
+- This is the MOST IMPORTANT identifier for Yu-Gi-Oh cards
+- Also look for the 8-digit passcode number (e.g., "89631139") to confirm identity
+
+1st EDITION DETECTION:
+- Physical location: Lower-LEFT quadrant, below artwork frame, above bottom border, left of center
+- Search for EXACT string "1st Edition" — not "First Edition", not "1st Ed.", not "1st"
+- If "1st Edition" text is found → edition = "1st Edition"
+- If "1st Edition" text is NOT found → edition = "Unlimited"
+- The gold holographic stamp (bottom-right) is NOT an edition marker — ignore it
+- Set code does NOT determine edition — only the "1st Edition" stamp does
+- Reprint sets (e.g., LOB-001) can exist as both 1st Edition and Unlimited
 
 Return JSON in this exact format:
 
@@ -60,7 +71,7 @@ Return JSON in this exact format:
     "card_set": "set name",
     "card_number": "set number (e.g., LART-EN035) for Yu-Gi-Oh",
     "rarity": "rarity level",
-    "edition": "edition (e.g., 1st Edition, Unlimited, etc.)",
+    "edition": "1st Edition or Unlimited — determined ONLY by presence of exact '1st Edition' text stamp",
     "game_type": "Pokemon/MTG/YuGiOh/etc or null for sports",
     "sport_type": "Baseball/Basketball/Football/etc or null for games",
     "year": "year of release",
@@ -80,7 +91,7 @@ Return JSON in this exact format:
 
 ${ocrText ? `OCR text extracted: ${ocrText}` : ''}
 
-Only include alternatives array if confidence is below 0.95. If completely certain, return empty alternatives array. For Yu-Gi-Oh cards, ALWAYS look for the set number in [CODE]-EN[NUMBER] format on the right side below the artwork.`;
+Only include alternatives array if confidence is below 0.95. If completely certain, return empty alternatives array.`;
 
     const messages = [
       {

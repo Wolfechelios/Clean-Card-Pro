@@ -82,6 +82,10 @@ serve(async (req) => {
 - Condition hints from the image
 - For Magic: The Gathering, detect Alpha vs Beta vs Unlimited by analyzing corner curvature and border characteristics
 
+CRITICAL FOR YU-GI-OH CARDS — ZONE-BASED DETECTION:
+- SET CODE: Bottom-right quadrant, directly ABOVE copyright line. Crop zone: bottom 18-25%, right 30-40%. Format: [A-Z0-9]{2,5}-[A-Z]{0,2}[0-9]{3} (e.g., LOB-001, MP23-EN001). MUST have hyphen + 3 trailing digits.
+- 1st EDITION: Lower-LEFT quadrant, below artwork frame. Search for EXACT string "1st Edition" only. If found → edition = "1st Edition". If absent → edition = "Unlimited". Gold holo stamp is NOT edition. Set code does NOT determine edition.
+
 Return ONLY a JSON object with these exact keys: cardName, cardSet, cardNumber, rarity, edition, sportType, gameType, condition, notes`
           },
           {
