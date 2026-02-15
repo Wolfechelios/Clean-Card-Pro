@@ -68,7 +68,7 @@ Deno.serve(async (req) => {
     const searchQuery = `${cardName} ${cardSet || ""} ${cardNumber || ""}`.trim();
     const sources: string[] = [];
     
-    // Determine which primary source to use based on card type
+    // Determine card type
     const isTCG = gameType && ["pokemon", "yugioh", "yu-gi-oh", "mtg", "magic"].some(
       type => gameType.toLowerCase().includes(type)
     );
@@ -76,66 +76,95 @@ Deno.serve(async (req) => {
       sportType.toLowerCase()
     );
 
-    // Fetch eBay separately (always as reference)
+    // eBay always as reference
     const ebayPromise = fetchEbayPrices(searchQuery);
     
-    // Fetch TCGPlayer for TCG cards
+    // TCGPlayer is now PRIMARY for all TCG cards
     const tcgPlayerPromise = isTCG 
-      ? fetchTCGPlayerPrices(cardName, cardSet, gameType)
-      : Promise.resolve({ lastSold: null, low: null, mid: null, high: null, market: null, url: null });
+      ? fetchTCGPlayerPrices(cardName, cardSet, cardNumber, gameType)
+      : Promise.resolve({ lastSold: null, low: null, mid: null, high: null, market: null, url: null } as TCGPlayerPrices);
     
-    // Fetch primary source based on card type
-    let primaryPromise: Promise<PriceData>;
+    // Secondary sources
+    let secondaryPromise: Promise<PriceData>;
     if (isSportsCard) {
-      primaryPromise = fetchSportsCardProPrices(searchQuery);
+      secondaryPromise = fetchSportsCardProPrices(searchQuery);
       sources.push("SportsCardPro");
     } else if (isTCG) {
-      primaryPromise = fetchPriceChartingPrices(cardName, cardSet, gameType);
-      sources.push("PriceCharting");
+      secondaryPromise = fetchPriceChartingPrices(cardName, cardSet, gameType);
+      // PriceCharting is now secondary for TCG
     } else {
-      // Fallback: try both and use whichever returns data
       const [scp, pc] = await Promise.all([
         fetchSportsCardProPrices(searchQuery),
         fetchPriceChartingPrices(cardName, cardSet, gameType)
       ]);
-      primaryPromise = Promise.resolve(scp.raw ? scp : pc);
+      secondaryPromise = Promise.resolve(scp.raw ? scp : pc);
       sources.push(scp.raw ? "SportsCardPro" : pc.raw ? "PriceCharting" : "None");
     }
 
-    const [primaryPrices, ebayPrices, tcgPlayerPrices] = await Promise.all([
-      primaryPromise, 
+    const [secondaryPrices, ebayPrices, tcgPlayerPrices] = await Promise.all([
+      secondaryPromise, 
       ebayPromise,
       tcgPlayerPromise
     ]);
 
-    // Add TCGPlayer to sources if we got data
-    if (tcgPlayerPrices.lastSold || tcgPlayerPrices.market) {
-      sources.push("TCGPlayer");
+    // For TCG cards: TCGPlayer is primary, use its market/lastSold as the raw price
+    let primaryRaw: number | null = null;
+    let primarySource = "";
+
+    if (isTCG && (tcgPlayerPrices.market || tcgPlayerPrices.lastSold)) {
+      // TCGPlayer is primary — use market price (or lastSold) as the raw value
+      primaryRaw = tcgPlayerPrices.market ?? tcgPlayerPrices.lastSold;
+      primarySource = "TCGPlayer";
+      sources.unshift("TCGPlayer");
+      
+      // Add PriceCharting as secondary if it returned data
+      if (secondaryPrices.raw) {
+        sources.push("PriceCharting");
+      }
+    } else if (isTCG) {
+      // TCGPlayer failed, fall back to PriceCharting
+      primaryRaw = secondaryPrices.raw;
+      primarySource = "PriceCharting (fallback)";
+      sources.push("PriceCharting");
+    } else {
+      primaryRaw = secondaryPrices.raw;
     }
 
-    // Use primary source for main prices, eBay as separate reference
+    // Build result
     const result: PricingResult = {
-      // Highest raw values (with 30% markup) from SportsCardPro or PriceCharting
-      raw: primaryPrices.raw,
-      psa9: primaryPrices.psa9,
-      psa10: primaryPrices.psa10,
-      cgc9: primaryPrices.cgc9,
-      cgc10: primaryPrices.cgc10,
-      suggested: primaryPrices.suggested ?? primaryPrices.raw,
-      // Original median values (before highest raw adjustment)
-      medianRaw: primaryPrices.medianRaw,
-      medianPsa9: primaryPrices.medianPsa9,
-      medianPsa10: primaryPrices.medianPsa10,
-      medianCgc9: primaryPrices.medianCgc9,
-      medianCgc10: primaryPrices.medianCgc10,
-      // eBay as separate reference
+      // If TCGPlayer is primary for TCG cards, derive graded estimates from TCGPlayer market price
+      raw: isTCG && primarySource === "TCGPlayer" 
+        ? primaryRaw 
+        : secondaryPrices.raw,
+      psa9: isTCG && primarySource === "TCGPlayer" && primaryRaw
+        ? (secondaryPrices.psa9 ?? parseFloat((primaryRaw * 2.5).toFixed(2)))
+        : secondaryPrices.psa9,
+      psa10: isTCG && primarySource === "TCGPlayer" && primaryRaw
+        ? (secondaryPrices.psa10 ?? parseFloat((primaryRaw * 4).toFixed(2)))
+        : secondaryPrices.psa10,
+      cgc9: isTCG && primarySource === "TCGPlayer" && primaryRaw
+        ? (secondaryPrices.cgc9 ?? parseFloat((primaryRaw * 2.2).toFixed(2)))
+        : secondaryPrices.cgc9,
+      cgc10: isTCG && primarySource === "TCGPlayer" && primaryRaw
+        ? (secondaryPrices.cgc10 ?? parseFloat((primaryRaw * 3.5).toFixed(2)))
+        : secondaryPrices.cgc10,
+      suggested: primaryRaw ?? secondaryPrices.suggested ?? secondaryPrices.raw,
+      // Median values
+      medianRaw: isTCG && primarySource === "TCGPlayer"
+        ? tcgPlayerPrices.market ?? tcgPlayerPrices.lastSold
+        : secondaryPrices.medianRaw,
+      medianPsa9: secondaryPrices.medianPsa9,
+      medianPsa10: secondaryPrices.medianPsa10,
+      medianCgc9: secondaryPrices.medianCgc9,
+      medianCgc10: secondaryPrices.medianCgc10,
+      // eBay reference
       ebayRaw: ebayPrices.raw,
       ebayPsa9: ebayPrices.psa9,
       ebayPsa10: ebayPrices.psa10,
       ebayCgc9: ebayPrices.cgc9,
       ebayCgc10: ebayPrices.cgc10,
       ebayUrl: ebayPrices.ebayUrl ?? null,
-      // TCGPlayer prices
+      // TCGPlayer prices (always populated for TCG)
       tcgPlayerPrice: tcgPlayerPrices.lastSold,
       tcgPlayerLow: tcgPlayerPrices.low,
       tcgPlayerMid: tcgPlayerPrices.mid,
@@ -145,7 +174,7 @@ Deno.serve(async (req) => {
       source: sources.join(" + ") + (sources.length > 0 ? " (eBay ref)" : "")
     };
 
-    // Fallback to eBay if primary source has no data
+    // Fallback to eBay if no primary or secondary data
     if (result.raw === null && ebayPrices.raw !== null) {
       result.raw = ebayPrices.raw;
       result.psa9 = ebayPrices.psa9;
@@ -350,40 +379,58 @@ async function fetchPriceChartingPrices(cardName: string, cardSet: string | null
   }
 }
 
-async function fetchTCGPlayerPrices(cardName: string, cardSet: string | null, gameType: string | null): Promise<TCGPlayerPrices> {
+async function fetchTCGPlayerPrices(cardName: string, cardSet: string | null, cardNumber: string | null, gameType: string | null): Promise<TCGPlayerPrices> {
   try {
-    // Determine TCGPlayer category based on game type
+    // Build a precise search query for TCGPlayer
     let category = "pokemon";
     if (gameType) {
       const gt = gameType.toLowerCase();
       if (gt.includes("yugioh") || gt.includes("yu-gi-oh")) category = "yugioh";
-      else if (gt.includes("mtg") || gt.includes("magic")) category = "magic";
+      else if (gt.includes("mtg") || gt.includes("magic")) category = "magic-the-gathering";
       else if (gt.includes("pokemon")) category = "pokemon";
     }
 
-    const searchQuery = `${cardName} ${cardSet || ""}`.trim();
+    // Try product-specific search first for better accuracy
+    const searchParts = [cardName];
+    if (cardSet) searchParts.push(cardSet);
+    if (cardNumber) searchParts.push(cardNumber);
+    const searchQuery = searchParts.join(" ").trim();
     const encodedQuery = encodeURIComponent(searchQuery);
-    const tcgPlayerUrl = `https://www.tcgplayer.com/search/all/product?q=${encodedQuery}&view=grid`;
+    
+    // Use TCGPlayer search with category filter for precision
+    const tcgPlayerUrl = `https://www.tcgplayer.com/search/${category}/product?q=${encodedQuery}&view=grid`;
     
     console.log("Fetching TCGPlayer prices from:", tcgPlayerUrl);
     
     const response = await fetch(tcgPlayerUrl, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
       },
     });
 
     if (!response.ok) {
       console.error("TCGPlayer fetch failed:", response.status);
-      return { lastSold: null, low: null, mid: null, high: null, market: null, url: tcgPlayerUrl };
+      // Try fallback: all-category search
+      return await fetchTCGPlayerFallback(cardName, cardSet, tcgPlayerUrl);
     }
 
     const html = await response.text();
+    console.log("TCGPlayer HTML length:", html.length);
     
-    // Extract prices from TCGPlayer HTML
+    // Extract prices from TCGPlayer HTML using multiple strategies
     const prices = extractTCGPlayerPrices(html);
+    
+    // If no prices found from HTML, try the API-style endpoint
+    if (!prices.market && !prices.lastSold && !prices.low) {
+      console.log("No prices from HTML, trying TCGPlayer API search...");
+      return await fetchTCGPlayerAPI(cardName, cardSet, cardNumber, category, tcgPlayerUrl);
+    }
     
     return {
       lastSold: prices.lastSold,
@@ -396,6 +443,124 @@ async function fetchTCGPlayerPrices(cardName: string, cardSet: string | null, ga
   } catch (error) {
     console.error("Error fetching TCGPlayer prices:", error);
     return { lastSold: null, low: null, mid: null, high: null, market: null, url: null };
+  }
+}
+
+async function fetchTCGPlayerAPI(cardName: string, cardSet: string | null, cardNumber: string | null, category: string, fallbackUrl: string): Promise<TCGPlayerPrices> {
+  try {
+    // TCGPlayer has an internal search API that returns JSON
+    const searchParts = [cardName];
+    if (cardSet) searchParts.push(cardSet);
+    if (cardNumber) searchParts.push(cardNumber);
+    const q = searchParts.join(" ").trim();
+
+    const apiUrl = `https://mp-search-api.tcgplayer.com/v1/search/request?q=${encodeURIComponent(q)}&isList=false`;
+    
+    console.log("Trying TCGPlayer search API:", apiUrl);
+    
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Origin": "https://www.tcgplayer.com",
+        "Referer": "https://www.tcgplayer.com/",
+      },
+      body: JSON.stringify({
+        algorithm: "",
+        from: 0,
+        size: 5,
+        filters: {
+          term: { productLineName: [category === "magic-the-gathering" ? "magic" : category] },
+          range: {},
+          match: {},
+        },
+        listingSearch: {
+          filters: { term: {}, range: {}, match: {} },
+          context: { cart: {} },
+        },
+        context: { cart: {}, shippingCountry: "US" },
+        settings: {},
+        sort: {},
+      }),
+    });
+
+    if (!response.ok) {
+      console.error("TCGPlayer API failed:", response.status);
+      return { lastSold: null, low: null, mid: null, high: null, market: null, url: fallbackUrl };
+    }
+
+    const data = await response.json();
+    console.log("TCGPlayer API response keys:", Object.keys(data));
+    
+    // Parse API response for pricing data
+    const results = data?.results?.[0]?.results || [];
+    if (results.length === 0) {
+      return { lastSold: null, low: null, mid: null, high: null, market: null, url: fallbackUrl };
+    }
+
+    // Find best matching result
+    const first = results[0];
+    const marketPrice = first?.marketPrice ?? first?.lowestPrice ?? null;
+    const lowPrice = first?.lowestPrice ?? first?.lowestListingPrice ?? null;
+    
+    // Apply 30% markup
+    const markup = 1.30;
+    const applyMarkup = (val: number | null) => val ? parseFloat((val * markup).toFixed(2)) : null;
+
+    const productUrl = first?.productId 
+      ? `https://www.tcgplayer.com/product/${first.productId}` 
+      : fallbackUrl;
+
+    return {
+      lastSold: applyMarkup(marketPrice),
+      low: applyMarkup(lowPrice),
+      mid: applyMarkup(first?.midPrice ?? null),
+      high: applyMarkup(first?.highPrice ?? null),
+      market: applyMarkup(marketPrice),
+      url: productUrl,
+    };
+  } catch (error) {
+    console.error("TCGPlayer API error:", error);
+    return { lastSold: null, low: null, mid: null, high: null, market: null, url: fallbackUrl };
+  }
+}
+
+async function fetchTCGPlayerFallback(cardName: string, cardSet: string | null, originalUrl: string): Promise<TCGPlayerPrices> {
+  try {
+    // Fallback: broader search without category filter
+    const searchQuery = `${cardName} ${cardSet || ""}`.trim();
+    const encodedQuery = encodeURIComponent(searchQuery);
+    const url = `https://www.tcgplayer.com/search/all/product?q=${encodedQuery}&view=grid`;
+    
+    console.log("TCGPlayer fallback search:", url);
+    
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+      },
+    });
+
+    if (!response.ok) {
+      return { lastSold: null, low: null, mid: null, high: null, market: null, url: originalUrl };
+    }
+
+    const html = await response.text();
+    const prices = extractTCGPlayerPrices(html);
+    
+    return {
+      lastSold: prices.lastSold,
+      low: prices.low,
+      mid: prices.mid,
+      high: prices.high,
+      market: prices.market,
+      url: url,
+    };
+  } catch (error) {
+    console.error("TCGPlayer fallback error:", error);
+    return { lastSold: null, low: null, mid: null, high: null, market: null, url: originalUrl };
   }
 }
 
@@ -412,49 +577,104 @@ function extractTCGPlayerPrices(html: string): {
   let high: number | null = null;
   let market: number | null = null;
 
-  // TCGPlayer market price patterns
+  // Strategy 1: JSON-LD structured data (most reliable)
+  const jsonLdMatch = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi);
+  if (jsonLdMatch) {
+    for (const block of jsonLdMatch) {
+      try {
+        const jsonStr = block.replace(/<\/?script[^>]*>/gi, "");
+        const jsonData = JSON.parse(jsonStr);
+        if (jsonData?.offers?.price) {
+          const price = parseFloat(jsonData.offers.price);
+          if (price > 0) {
+            market = price;
+            lastSold = price;
+          }
+        }
+        if (jsonData?.offers?.lowPrice) {
+          low = parseFloat(jsonData.offers.lowPrice);
+        }
+        if (jsonData?.offers?.highPrice) {
+          high = parseFloat(jsonData.offers.highPrice);
+        }
+      } catch { /* ignore parse errors */ }
+    }
+  }
+
+  // Strategy 2: __NEXT_DATA__ JSON (TCGPlayer uses Next.js)
+  const nextDataMatch = html.match(/<script[^>]*id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i);
+  if (nextDataMatch) {
+    try {
+      const nextData = JSON.parse(nextDataMatch[1]);
+      const props = nextData?.props?.pageProps;
+      if (props?.product) {
+        const product = props.product;
+        market = market ?? product.marketPrice ?? null;
+        low = low ?? product.lowestPrice ?? product.lowPrice ?? null;
+        mid = mid ?? product.midPrice ?? null;
+        high = high ?? product.highPrice ?? null;
+        lastSold = lastSold ?? market;
+      }
+      // Search results page
+      if (props?.results) {
+        const firstResult = props.results[0];
+        if (firstResult) {
+          market = market ?? firstResult.marketPrice ?? null;
+          low = low ?? firstResult.lowestPrice ?? null;
+          lastSold = lastSold ?? market;
+        }
+      }
+    } catch { /* ignore parse errors */ }
+  }
+
+  // Strategy 3: data attributes and meta tags
+  const metaPriceMatch = html.match(/content="([0-9.]+)"[^>]*property="product:price:amount"/i)
+    || html.match(/property="product:price:amount"[^>]*content="([0-9.]+)"/i);
+  if (metaPriceMatch && !market) {
+    market = parseFloat(metaPriceMatch[1]);
+    lastSold = lastSold ?? market;
+  }
+
+  // Strategy 4: Regex patterns for visible text
   const marketMatch = html.match(/market\s*(?:price)?[:\s]*\$([0-9,]+\.?\d*)/i) 
     || html.match(/"marketPrice"[:\s]*([0-9.]+)/i)
     || html.match(/data-market-price="([0-9.]+)"/i);
   
-  // Low price patterns
-  const lowMatch = html.match(/low[:\s]*\$([0-9,]+\.?\d*)/i)
+  const lowMatch = html.match(/(?:low|lowest)\s*(?:price)?[:\s]*\$([0-9,]+\.?\d*)/i)
     || html.match(/"lowPrice"[:\s]*([0-9.]+)/i)
-    || html.match(/data-low-price="([0-9.]+)"/i);
+    || html.match(/"lowestPrice"[:\s]*([0-9.]+)/i);
   
-  // Mid price patterns
-  const midMatch = html.match(/mid[:\s]*\$([0-9,]+\.?\d*)/i)
+  const midMatch = html.match(/mid\s*(?:price)?[:\s]*\$([0-9,]+\.?\d*)/i)
     || html.match(/"midPrice"[:\s]*([0-9.]+)/i);
   
-  // High price patterns
-  const highMatch = html.match(/high[:\s]*\$([0-9,]+\.?\d*)/i)
+  const highMatch = html.match(/high\s*(?:price)?[:\s]*\$([0-9,]+\.?\d*)/i)
     || html.match(/"highPrice"[:\s]*([0-9.]+)/i);
   
-  // Last sold / recent sales patterns
   const lastSoldMatch = html.match(/last\s*sold[:\s]*\$([0-9,]+\.?\d*)/i)
     || html.match(/sold\s*for[:\s]*\$([0-9,]+\.?\d*)/i)
     || html.match(/"lastSoldPrice"[:\s]*([0-9.]+)/i);
 
-  // Also try to find prices in product cards
-  const priceCardMatch = html.match(/listing-item__price[^>]*>\s*\$([0-9,]+\.?\d*)/i);
+  // Listing price from product cards
+  const priceCardMatch = html.match(/listing-item__price[^>]*>\s*\$([0-9,]+\.?\d*)/i)
+    || html.match(/product-card__market-price[^>]*>\s*\$([0-9,]+\.?\d*)/i)
+    || html.match(/search-result__market-price[^>]*>\s*\$([0-9,]+\.?\d*)/i);
   
-  if (marketMatch) market = parseFloat(marketMatch[1].replace(/,/g, ""));
-  if (lowMatch) low = parseFloat(lowMatch[1].replace(/,/g, ""));
-  if (midMatch) mid = parseFloat(midMatch[1].replace(/,/g, ""));
-  if (highMatch) high = parseFloat(highMatch[1].replace(/,/g, ""));
-  if (lastSoldMatch) lastSold = parseFloat(lastSoldMatch[1].replace(/,/g, ""));
+  if (marketMatch && !market) market = parseFloat(marketMatch[1].replace(/,/g, ""));
+  if (lowMatch && !low) low = parseFloat(lowMatch[1].replace(/,/g, ""));
+  if (midMatch && !mid) mid = parseFloat(midMatch[1].replace(/,/g, ""));
+  if (highMatch && !high) high = parseFloat(highMatch[1].replace(/,/g, ""));
+  if (lastSoldMatch && !lastSold) lastSold = parseFloat(lastSoldMatch[1].replace(/,/g, ""));
   
-  // If no last sold, use market price as fallback
-  if (!lastSold && market) lastSold = market;
-  
-  // If we found a price card but no other prices, use it
   if (priceCardMatch && !market && !low) {
     const cardPrice = parseFloat(priceCardMatch[1].replace(/,/g, ""));
     if (cardPrice > 0) {
-      market = cardPrice;
-      lastSold = cardPrice;
+      market = market ?? cardPrice;
+      lastSold = lastSold ?? cardPrice;
     }
   }
+
+  // If no last sold, use market price as fallback
+  if (!lastSold && market) lastSold = market;
   
   // Apply 30% markup to all TCGPlayer prices
   const markup = 1.30;
