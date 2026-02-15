@@ -4,6 +4,7 @@ import { Trash2, ImagePlus, Loader2, ImageOff, AlertCircle } from "lucide-react"
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { getLocalImageUrl } from "@/lib/offlineManager";
 import { GradedPriceChip } from "@/components/pricing/GradedPriceChip";
 import { TCGPlayerPriceChip } from "@/components/pricing/TCGPlayerPriceChip";
 
@@ -60,6 +61,18 @@ export function CardThumbnail({
       setImageError(false);
     }
   }, [thumbnailUrl, imageUrl]);
+
+  // Try local device cache for the image
+  useEffect(() => {
+    let cancelled = false;
+    getLocalImageUrl(id, currentImageUrl).then((localUrl) => {
+      if (!cancelled && localUrl) {
+        setCurrentImageUrl(localUrl);
+        setImageError(false);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [id]);
 
   const isPlaceholderUrl = !currentImageUrl || currentImageUrl.length === 0 || currentImageUrl.includes("placehold");
   const showImage = Boolean(currentImageUrl && currentImageUrl.length > 0 && !isPlaceholderUrl);

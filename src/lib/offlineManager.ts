@@ -339,20 +339,27 @@ export async function clearAllCache(): Promise<void> {
 // ============= Preload Images =============
 
 export async function preloadCardImages(cards: any[], concurrency = 3): Promise<void> {
-  const queue = cards.filter((c) => c.image_url).map((c) => c.image_url);
+  const queue = cards.filter((c) => c.image_url).map((c) => ({
+    id: c.id,
+    url: c.image_url,
+  }));
 
-  const fetchWithCache = async (url: string) => {
-    const cached = await getCachedImage(url);
-    if (cached) return;
+  const fetchWithCache = async (item: { id: string; url: string }) => {
+    // Check by card ID first (preferred key), then by URL
+    const cachedById = await getCachedImage(`card:${item.id}`);
+    if (cachedById) return;
+    const cachedByUrl = await getCachedImage(item.url);
+    if (cachedByUrl) return;
 
     try {
-      const response = await fetch(url);
+      const response = await fetch(item.url);
       if (response.ok) {
         const blob = await response.blob();
-        await cacheImage(url, blob);
+        // Store by card ID for stable lookups even if URL changes
+        await cacheImage(`card:${item.id}`, blob);
       }
     } catch (error) {
-      console.warn("Failed to cache image:", url);
+      console.warn("Failed to cache image:", item.url);
     }
   };
 
@@ -361,4 +368,61 @@ export async function preloadCardImages(cards: any[], concurrency = 3): Promise<
     const batch = queue.slice(i, i + concurrency);
     await Promise.all(batch.map(fetchWithCache));
   }
+}
+
+// ============= Save All Images to Device =============
+
+export async function saveAllImagesToDevice(
+  userId: string,
+  onProgress?: (done: number, total: number) => void,
+  concurrency = 3
+): Promise<{ saved: number; failed: number }> {
+  const cards = await getAllCachedCards();
+  const withImages = cards.filter((c) => c.image_url && !c.image_url.includes("placehold"));
+  let saved = 0;
+  let failed = 0;
+
+  for (let i = 0; i < withImages.length; i += concurrency) {
+    const batch = withImages.slice(i, i + concurrency);
+    await Promise.all(
+      batch.map(async (card) => {
+        const key = `card:${card.id}`;
+        const existing = await getCachedImage(key);
+        if (existing) {
+          saved++;
+          onProgress?.(saved + failed, withImages.length);
+          return;
+        }
+        try {
+          const response = await fetch(card.image_url);
+          if (response.ok) {
+            const blob = await response.blob();
+            await cacheImage(key, blob);
+            saved++;
+          } else {
+            failed++;
+          }
+        } catch {
+          failed++;
+        }
+        onProgress?.(saved + failed, withImages.length);
+      })
+    );
+  }
+
+  return { saved, failed };
+}
+
+export async function getLocalImageUrl(cardId: string, remoteUrl?: string): Promise<string | null> {
+  // Try card ID-based cache first
+  const byId = await getCachedImageUrl(`card:${cardId}`);
+  if (byId) return byId;
+
+  // Fall back to URL-based cache
+  if (remoteUrl) {
+    const byUrl = await getCachedImageUrl(remoteUrl);
+    if (byUrl) return byUrl;
+  }
+
+  return null;
 }

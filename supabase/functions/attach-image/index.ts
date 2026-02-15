@@ -67,16 +67,12 @@ async function downloadAndUploadImage(
     throw new Error(`Upload failed: ${uploadError.message}`);
   }
 
-  // Get signed URL (valid for 1 year)
-  const { data: signedData, error: signedError } = await supabase.storage
+  // Get public URL (bucket is now public)
+  const { data: publicData } = supabase.storage
     .from('card-images')
-    .createSignedUrl(filePath, 60 * 60 * 24 * 365);
+    .getPublicUrl(filePath);
 
-  if (signedError) {
-    throw new Error(`Failed to create signed URL: ${signedError.message}`);
-  }
-
-  return signedData.signedUrl;
+  return publicData.publicUrl;
 }
 
 serve(async (req) => {
