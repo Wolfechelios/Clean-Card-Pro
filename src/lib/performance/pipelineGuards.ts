@@ -1,7 +1,8 @@
+import { getDeviceTier } from "@/lib/performance/deviceTier";
 
 let inFlight = 0;
 export function canProcessFrame() {
-  return inFlight < 2;
+  return inFlight < getDeviceTier().maxInFlightFrames;
 }
 export function markFrameStart() {
   inFlight++;
