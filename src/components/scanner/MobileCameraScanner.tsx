@@ -15,6 +15,7 @@ import {
   applyFastAutofocus,
   triggerFastFocus 
 } from "@/lib/camera-optimizations";
+import { WhiteBalanceControl } from "./WhiteBalanceControl";
 
 interface MobileCameraScannerProps {
   userId: string;
@@ -463,6 +464,9 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
                 onReset={resetZoom}
                 variant="overlay"
               />
+              
+              {/* White Balance */}
+              <WhiteBalanceControl streamRef={streamRef} variant="overlay" />
             </>
           )}
         </div>

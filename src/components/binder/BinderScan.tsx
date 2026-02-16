@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
 import { ZoomControls } from "@/components/scanner/ZoomControls";
 import { getMaxQualityStream, captureMaxQualityPhoto } from "@/lib/camera-optimizations";
+import { WhiteBalanceControl } from "@/components/scanner/WhiteBalanceControl";
 import { withRetry } from "@/lib/retry";
 
 interface BinderScanProps {
@@ -715,6 +716,9 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
                       onReset={resetZoom}
                     />
                   )}
+
+                  {/* White Balance */}
+                  <WhiteBalanceControl streamRef={streamRef} variant="overlay" />
                 </div>
 
                 <p className="text-xs text-muted-foreground text-center">

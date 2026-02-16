@@ -61,6 +61,7 @@ import { hapticTap } from "@/lib/haptics";
 import { useVoiceCommand } from "@/hooks/use-voice-command";
 import { useCameraDevices } from "@/hooks/use-camera-devices";
 import { CameraDeviceSelector } from "./CameraDeviceSelector";
+import { WhiteBalanceControl } from "./WhiteBalanceControl";
 import kachingSound from "@/assets/kaching.wav";
 
 // Ka-ching sound for $10+ cards
@@ -1304,6 +1305,11 @@ export default function RapidScanCamera() {
                     </div>
                   )}
                 </div>
+
+                {/* White Balance */}
+                {!isNative && cameraOn && (
+                  <WhiteBalanceControl streamRef={streamRef} variant="panel" />
+                )}
 
                 {!isNative && cameraOn && (
                   <div className="flex gap-3">
