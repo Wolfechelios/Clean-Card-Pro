@@ -64,3 +64,58 @@ export async function setFocusPoint(
 function clamp01(n: number) {
   return Math.max(0, Math.min(1, n))
 }
+
+// ─── White Balance ──────────────────────────────────────────────────────────
+
+export type WhiteBalanceSupport = {
+  supported: boolean
+  modes: string[] // e.g. ["continuous", "manual"]
+  temperatureRange: { min: number; max: number; step: number } | null
+}
+
+export function detectWhiteBalanceSupport(track: MediaStreamTrack | null): WhiteBalanceSupport {
+  if (!track) return { supported: false, modes: [], temperatureRange: null }
+
+  const caps: any = track.getCapabilities?.() ?? {}
+  const modes: string[] = caps.whiteBalanceMode ?? []
+  const supported = modes.length > 0
+
+  let temperatureRange: WhiteBalanceSupport["temperatureRange"] = null
+  if (caps.colorTemperature) {
+    temperatureRange = {
+      min: caps.colorTemperature.min ?? 2500,
+      max: caps.colorTemperature.max ?? 10000,
+      step: caps.colorTemperature.step ?? 100,
+    }
+  }
+
+  return { supported, modes, temperatureRange }
+}
+
+export async function setWhiteBalanceMode(
+  track: MediaStreamTrack | null,
+  mode: string
+): Promise<boolean> {
+  if (!track?.applyConstraints) return false
+  try {
+    await track.applyConstraints({ advanced: [{ whiteBalanceMode: mode }] } as any)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function setColorTemperature(
+  track: MediaStreamTrack | null,
+  kelvin: number
+): Promise<boolean> {
+  if (!track?.applyConstraints) return false
+  try {
+    await track.applyConstraints({
+      advanced: [{ whiteBalanceMode: "manual", colorTemperature: kelvin }],
+    } as any)
+    return true
+  } catch {
+    return false
+  }
+}
