@@ -78,15 +78,19 @@ type ProcessorStore = ProcessorState & {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
-const JOB_DELAY_MS = 50; // Minimal delay between jobs
-const POLL_INTERVAL_MS = 100; // Faster polling when idle
 const WORKER_SCALE_INTERVAL_MS = 500; // Scale check interval
-const MAX_CONCURRENT_WORKERS = 3; // Hard cap at 3 workers
 const QUEUE_REFRESH_INTERVAL_MS = 2000; // Only refresh UI queue every 2s
 
+// Dynamic config from device tier
+import { getDeviceTier } from "@/lib/performance/deviceTier";
+
+function getJobDelayMs(): number { return getDeviceTier().jobDelayMs; }
+function getPollIntervalMs(): number { return getDeviceTier().pollIntervalMs; }
+
 function getMaxWorkerCount(): number {
-  const userSetting = getScannerSettings().batchScanSize || 3;
-  return Math.min(userSetting, MAX_CONCURRENT_WORKERS); // Never exceed 3
+  const tier = getDeviceTier();
+  const userSetting = getScannerSettings().batchScanSize || tier.maxWorkers;
+  return Math.min(userSetting, tier.maxWorkers);
 }
 
 // Adaptive scaling: start with fewer workers and scale up based on queue size
@@ -260,14 +264,14 @@ async function workerLoop(workerId: number) {
   while (store().isRunning) {
     // Paused? Wait
     if (store().isPaused) {
-      await sleep(POLL_INTERVAL_MS);
+      await sleep(getPollIntervalMs());
       continue;
     }
 
     // Global backoff when upstream rate-limits
     const now = Date.now();
     if (rateLimitUntil > now) {
-      await sleep(Math.min(POLL_INTERVAL_MS, rateLimitUntil - now));
+      await sleep(Math.min(getPollIntervalMs(), rateLimitUntil - now));
       continue;
     }
 
@@ -301,7 +305,7 @@ async function workerLoop(workerId: number) {
         consecutiveEmpty = 0;
       }
       
-      await sleep(POLL_INTERVAL_MS);
+      await sleep(getPollIntervalMs());
       continue;
     }
 
@@ -327,7 +331,7 @@ async function workerLoop(workerId: number) {
     scheduleQueueRefresh();
 
     // Minimal delay between jobs
-    await sleep(JOB_DELAY_MS);
+    await sleep(getJobDelayMs());
   }
 
   workersActive = Math.max(0, workersActive - 1);

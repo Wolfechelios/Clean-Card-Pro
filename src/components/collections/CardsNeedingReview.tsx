@@ -236,8 +236,9 @@ export function CardsNeedingReview() {
       }
 
       setBulkSearchProgress({ done: i + 1, total: cards.length, updated });
-      // Small delay to avoid rate limiting
-      await new Promise((r) => setTimeout(r, 400));
+      // Device-aware delay to avoid rate limiting
+      const { bulkApiDelayMs } = await import("@/lib/performance/deviceTier").then(m => m.getDeviceTier());
+      await new Promise((r) => setTimeout(r, bulkApiDelayMs));
     }
 
     setBulkSearching(false);
