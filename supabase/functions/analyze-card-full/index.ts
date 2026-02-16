@@ -58,7 +58,7 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     const body: RequestBody = await req.json();
-    const { image_url } = body;
+    let image_url = body.image_url;
 
     if (!image_url) {
       return new Response(
@@ -68,6 +68,16 @@ serve(async (req: Request): Promise<Response> => {
           headers: { ...corsHeaders, "Content-Type": "application/json" } 
         }
       );
+    }
+
+    // Convert expired signed URLs to public URLs (card-images bucket is public)
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
+    if (image_url.includes("/storage/v1/object/sign/")) {
+      const match = image_url.match(/\/storage\/v1\/object\/sign\/([^?]+)/);
+      if (match) {
+        image_url = `${SUPABASE_URL}/storage/v1/object/public/${match[1]}`;
+        console.log(`Converted signed URL to public: ${image_url}`);
+      }
     }
 
     console.log(`Analyzing card image: ${image_url}`);
