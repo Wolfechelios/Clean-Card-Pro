@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -60,6 +61,8 @@ export function CardsNeedingReview() {
   const [deleting, setDeleting] = useState(false);
   const [searching, setSearching] = useState(false);
   const [searchMatches, setSearchMatches] = useState<any[]>([]);
+  const [bulkSearching, setBulkSearching] = useState(false);
+  const [bulkSearchProgress, setBulkSearchProgress] = useState({ done: 0, total: 0, updated: 0 });
 
   useEffect(() => {
     if (activeTab === "all") {
@@ -198,6 +201,55 @@ export function CardsNeedingReview() {
     toast.success(`Selected: ${match.card_name}`);
   };
 
+  const handleBulkSearchSet = async () => {
+    if (cards.length === 0) return;
+    setBulkSearching(true);
+    setBulkSearchProgress({ done: 0, total: cards.length, updated: 0 });
+    let updated = 0;
+
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i];
+      if (!card.card_name || card.card_name === "Unknown Card") {
+        setBulkSearchProgress((p) => ({ ...p, done: i + 1 }));
+        continue;
+      }
+
+      try {
+        const { data, error } = await supabase.functions.invoke("search-card-details", {
+          body: { card_name: card.card_name, game_type: "yugioh" },
+        });
+
+        if (!error && data?.matches?.length > 0) {
+          const best = data.matches[0];
+          const updates: Record<string, any> = {};
+          if (best.card_set && (!card.card_set || card.card_set === "")) updates.card_set = best.card_set;
+          if (best.card_number) updates.card_number = best.card_number;
+          if (best.rarity && (!card.rarity || card.rarity === "")) updates.rarity = best.rarity;
+
+          if (Object.keys(updates).length > 0) {
+            await supabase.from("cards").update(updates).eq("id", card.id);
+            updated++;
+          }
+        }
+      } catch (err) {
+        console.error("Bulk search error for card:", card.id, err);
+      }
+
+      setBulkSearchProgress({ done: i + 1, total: cards.length, updated });
+      // Small delay to avoid rate limiting
+      await new Promise((r) => setTimeout(r, 400));
+    }
+
+    setBulkSearching(false);
+    toast.success(`Bulk search complete: ${updated} cards updated out of ${cards.length}`);
+    // Refresh the list
+    if (activeTab === "all") {
+      fetchCards();
+    } else {
+      fetchCards(activeTab);
+    }
+  };
+
   const navigateCard = (direction: "prev" | "next") => {
     if (!selectedCard) return;
     const currentIndex = cards.findIndex((c) => c.id === selectedCard.id);
@@ -249,10 +301,25 @@ export function CardsNeedingReview() {
               {counts.total} cards with issues that need your attention
             </CardDescription>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Button variant="outline" size="sm" onClick={fetchCounts}>
               <RefreshCw className="h-4 w-4 mr-2" />
               Refresh
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleBulkSearchSet}
+              disabled={bulkSearching || cards.length === 0}
+            >
+              {bulkSearching ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Search className="h-4 w-4 mr-2" />
+              )}
+              {bulkSearching
+                ? `Searching ${bulkSearchProgress.done}/${bulkSearchProgress.total}...`
+                : `Bulk Search Set (${cards.length})`}
             </Button>
             <Button 
               variant="destructive" 
@@ -285,6 +352,16 @@ export function CardsNeedingReview() {
               Low Conf ({counts.low_ocr_confidence})
             </TabsTrigger>
           </TabsList>
+
+          {bulkSearching && (
+            <div className="mb-4 p-3 border rounded-lg bg-muted/30 space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span>Bulk searching sets...</span>
+                <span>{bulkSearchProgress.done}/{bulkSearchProgress.total} • {bulkSearchProgress.updated} updated</span>
+              </div>
+              <Progress value={bulkSearchProgress.total > 0 ? (bulkSearchProgress.done / bulkSearchProgress.total) * 100 : 0} className="h-2" />
+            </div>
+          )}
 
           <div className="grid md:grid-cols-2 gap-4">
             {/* Card List */}
