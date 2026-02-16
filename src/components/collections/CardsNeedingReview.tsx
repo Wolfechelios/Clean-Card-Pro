@@ -138,18 +138,39 @@ export function CardsNeedingReview() {
 
     try {
       const { data, error } = await supabase.functions.invoke("analyze-card-full", {
-        body: { imageUrl: selectedCard.image_url },
+        body: { image_url: selectedCard.image_url },
       });
 
       if (error) throw error;
 
-      if (data?.card) {
+      const details = data?.card_details;
+      if (details) {
         setEditValues({
-          card_name: data.card.card_name || editValues.card_name,
-          card_set: data.card.card_set || editValues.card_set,
-          rarity: data.card.rarity || editValues.rarity,
+          card_name: details.card_name || editValues.card_name,
+          card_set: details.set || editValues.card_set,
+          rarity: details.rarity || editValues.rarity,
         });
-        toast.success("Re-analysis complete - review the results");
+
+        // Also persist additional fields directly if available
+        const dbUpdates: Record<string, any> = {};
+        if (details.card_number) dbUpdates.card_number = details.card_number;
+        if (details.game_type) dbUpdates.game_type = details.game_type;
+        if (data?.condition_estimate?.raw_grade_estimate) {
+          const g = data.condition_estimate.raw_grade_estimate;
+          dbUpdates.condition = `PSA ${g.min}-${g.max}`;
+        }
+        if (data?.vision?.ocr_text) {
+          dbUpdates.ocr_raw_text = data.vision.ocr_text;
+          dbUpdates.ocr_confidence = Math.round((data.condition_estimate?.raw_grade_estimate?.confidence ?? 0.8) * 100);
+        }
+
+        if (Object.keys(dbUpdates).length > 0) {
+          await supabase.from("cards").update(dbUpdates).eq("id", selectedCard.id);
+        }
+
+        toast.success("Re-analysis complete — review the updated fields");
+      } else {
+        toast.warning("AI returned no card details — try a clearer image");
       }
     } catch (err) {
       console.error("Re-analyze error:", err);
