@@ -26,7 +26,8 @@ import {
   X,
   ChevronRight,
   ChevronLeft,
-  Trash2
+  Trash2,
+  Search
 } from "lucide-react";
 import { useCardsNeedingReview, type ReviewReason, type CardNeedingReview } from "@/hooks/use-cards-needing-review";
 import { supabase } from "@/integrations/supabase/client";
@@ -57,6 +58,8 @@ export function CardsNeedingReview() {
   const [reanalyzing, setReanalyzing] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [searchMatches, setSearchMatches] = useState<any[]>([]);
 
   useEffect(() => {
     if (activeTab === "all") {
@@ -73,6 +76,7 @@ export function CardsNeedingReview() {
         card_set: selectedCard.card_set || "",
         rarity: selectedCard.rarity || "",
       });
+      setSearchMatches([]);
     }
   }, [selectedCard]);
 
@@ -150,6 +154,48 @@ export function CardsNeedingReview() {
     } finally {
       setReanalyzing(false);
     }
+  };
+
+  const handleSearchSetNumber = async () => {
+    if (!selectedCard || !editValues.card_name) return;
+    setSearching(true);
+    setSearchMatches([]);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("search-card-details", {
+        body: { card_name: editValues.card_name, game_type: "yugioh" },
+      });
+
+      if (error) throw error;
+
+      if (data?.matches?.length > 0) {
+        setSearchMatches(data.matches);
+        // Auto-fill first match
+        const best = data.matches[0];
+        setEditValues((v) => ({
+          ...v,
+          card_set: best.card_set || v.card_set,
+          rarity: best.rarity || v.rarity,
+        }));
+        toast.success(`Found ${data.matches.length} match(es) on TCGPlayer`);
+      } else {
+        toast.info("No matches found on TCGPlayer");
+      }
+    } catch (err) {
+      console.error("Search error:", err);
+      toast.error("Failed to search TCGPlayer");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleSelectMatch = (match: any) => {
+    setEditValues({
+      card_name: match.card_name || editValues.card_name,
+      card_set: match.card_set || "",
+      rarity: match.rarity || "",
+    });
+    toast.success(`Selected: ${match.card_name}`);
   };
 
   const navigateCard = (direction: "prev" | "next") => {
@@ -371,6 +417,42 @@ export function CardsNeedingReview() {
                         placeholder="Enter rarity"
                       />
                     </div>
+
+                    {/* TCGPlayer Search */}
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="w-full"
+                      onClick={handleSearchSetNumber}
+                      disabled={searching || !editValues.card_name}
+                    >
+                      {searching ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Search className="h-4 w-4 mr-2" />
+                      )}
+                      Search TCGPlayer for Set / Number
+                    </Button>
+
+                    {searchMatches.length > 0 && (
+                      <div className="border rounded-lg divide-y max-h-40 overflow-y-auto">
+                        {searchMatches.map((m: any, i: number) => (
+                          <button
+                            key={i}
+                            className="w-full p-2 text-left hover:bg-muted/50 transition-colors text-xs"
+                            onClick={() => handleSelectMatch(m)}
+                          >
+                            <div className="font-medium truncate">{m.card_name}</div>
+                            <div className="text-muted-foreground flex gap-2">
+                              {m.card_set && <span>{m.card_set}</span>}
+                              {m.card_number && <span>#{m.card_number}</span>}
+                              {m.rarity && <Badge variant="outline" className="text-[10px] h-4">{m.rarity}</Badge>}
+                              {m.market_price && <span className="text-primary">${m.market_price}</span>}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex flex-col gap-2">
