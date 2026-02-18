@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Camera, Loader2, SwitchCamera, AlertCircle, ImagePlus } from "lucide-react";
+import { Camera, Loader2, AlertCircle, ImagePlus } from "lucide-react";
 import { toast } from "sonner";
 import { useCameraDevices } from "@/hooks/use-camera-devices";
 import { CameraDeviceSelector } from "./CameraDeviceSelector";
@@ -275,10 +275,6 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
     }
   };
 
-  const toggleCamera = () => {
-    const newFacing = cameraFacing === 'environment' ? 'user' : 'environment';
-    startCamera(newFacing);
-  };
 
   const handleDeviceChange = (deviceId: string) => {
     setSelectedDeviceId(deviceId);
@@ -410,13 +406,13 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
           />
         )}
         
-        <div className="relative aspect-[3/4] bg-black rounded-lg overflow-hidden">
+        <div className="relative w-full bg-black rounded-lg overflow-hidden" style={{ aspectRatio: "3/4", maxHeight: "70vh" }}>
           <video
             ref={videoRef}
             autoPlay
             playsInline
             muted
-            className="w-full h-full object-cover"
+            className="w-full h-full object-contain"
           />
           
           {isInitializing && (
@@ -443,15 +439,6 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
           
           {cameraReady && (
             <>
-              <Button
-                onClick={toggleCamera}
-                variant="secondary"
-                size="icon"
-                className="absolute top-4 right-4 rounded-full bg-black/70 hover:bg-black/80"
-              >
-                <SwitchCamera className="h-5 w-5 text-white" />
-              </Button>
-              
               {/* Zoom Controls */}
               <ZoomControls
                 zoomLevel={zoomLevel}
