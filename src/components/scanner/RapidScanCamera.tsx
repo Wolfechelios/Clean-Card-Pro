@@ -1176,8 +1176,8 @@ export default function RapidScanCamera() {
               />
             )}
 
-            {/* Pinch zoom indicator */}
-            {cameraOn && zoomCapabilities.supported && (
+            {/* Pinch zoom indicator - only show when zoomed */}
+            {cameraOn && zoomCapabilities.supported && zoomLevel > 1 && (
               <div className="absolute top-3 right-3 z-10">
                 <div className="bg-black/70 rounded-full px-3 py-1.5 flex items-center gap-2">
                   <span className="text-xs text-white font-medium">
