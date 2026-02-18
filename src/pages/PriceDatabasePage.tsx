@@ -10,7 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Database, Trash2, CheckCircle2, XCircle, BarChart3, FileSpreadsheet, AlertCircle } from "lucide-react";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Upload, Database, Trash2, CheckCircle2, BarChart3, FileSpreadsheet, AlertCircle, Pencil, GitMerge, Eye } from "lucide-react";
 import {
   parseXLSXFile,
   importParsedSets,
@@ -18,12 +19,14 @@ import {
   type ParsedSet,
   type SetCompletion,
 } from "@/lib/priceChartingImport";
+import { SetEditDialog } from "@/components/price-db/SetEditDialog";
+import { MergeSetsDialog } from "@/components/price-db/MergeSetsDialog";
+import { SetCardsList } from "@/components/price-db/SetCardsList";
 
 export default function PriceDatabasePage() {
   const { session, loading } = useAuth();
   if (loading) return null;
   if (!session) return <Navigate to="/auth" />;
-
   return <PriceDBContent userId={session.user.id} />;
 }
 
@@ -44,6 +47,9 @@ function PriceDBContent({ userId }: { userId: string }) {
   const [pendingSets, setPendingSets] = useState<ParsedSet[]>([]);
   const [completion, setCompletion] = useState<SetCompletion | null>(null);
   const [loadingCompletion, setLoadingCompletion] = useState(false);
+  const [editSet, setEditSet] = useState<SetRow | null>(null);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [viewingSet, setViewingSet] = useState<SetRow | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchSets = useCallback(async () => {
@@ -60,10 +66,8 @@ function PriceDBContent({ userId }: { userId: string }) {
   const handleFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-
     setProgressMsg("Parsing files...");
     const allSets: ParsedSet[] = [];
-
     for (const file of Array.from(files)) {
       try {
         const buffer = await file.arrayBuffer();
@@ -74,13 +78,11 @@ function PriceDBContent({ userId }: { userId: string }) {
         toast.error(`Failed to parse ${file.name}`);
       }
     }
-
     if (allSets.length === 0) {
       toast.error("No valid data found in files");
       setProgressMsg("");
       return;
     }
-
     setPendingSets(allSets);
     setProgressMsg("");
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -91,12 +93,10 @@ function PriceDBContent({ userId }: { userId: string }) {
     setImporting(true);
     setProgress(0);
     setProgressMsg("Importing...");
-
     try {
       const result = await importParsedSets(userId, pendingSets, (done, total) => {
         setProgress(Math.round((done / total) * 100));
       });
-
       toast.success(`Imported ${result.cardsImported} cards across ${result.setsImported} new sets${result.setsUpdated ? `, updated ${result.setsUpdated} sets` : ""}`);
       setPendingSets([]);
       fetchSets();
@@ -118,6 +118,23 @@ function PriceDBContent({ userId }: { userId: string }) {
       toast.success("Set deleted");
       fetchSets();
       if (completion?.set_id === setId) setCompletion(null);
+      if (viewingSet?.id === setId) setViewingSet(null);
+    }
+  };
+
+  const deleteAllSets = async () => {
+    // Delete all cards first, then sets
+    const setIds = sets.map((s) => s.id);
+    if (setIds.length === 0) return;
+    await supabase.from("pc_cards").delete().in("set_id", setIds);
+    const { error } = await supabase.from("pc_sets").delete().eq("user_id", userId);
+    if (error) {
+      toast.error("Failed to delete all sets");
+    } else {
+      toast.success("All sets deleted");
+      fetchSets();
+      setCompletion(null);
+      setViewingSet(null);
     }
   };
 
@@ -128,6 +145,20 @@ function PriceDBContent({ userId }: { userId: string }) {
     setLoadingCompletion(false);
   };
 
+  // If viewing a set's cards, show that view
+  if (viewingSet) {
+    return (
+      <div className="space-y-6 max-w-6xl mx-auto">
+        <SetCardsList
+          set={viewingSet}
+          allSets={sets}
+          onBack={() => setViewingSet(null)}
+          onRefresh={fetchSets}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       <div>
@@ -135,7 +166,7 @@ function PriceDBContent({ userId }: { userId: string }) {
         <p className="text-sm text-muted-foreground">Import PriceCharting XLSX files for instant offline pricing &amp; set completion tracking</p>
       </div>
 
-      <Tabs defaultValue="import">
+      <Tabs defaultValue="sets">
         <TabsList>
           <TabsTrigger value="import">Import</TabsTrigger>
           <TabsTrigger value="sets">My Sets ({sets.length})</TabsTrigger>
@@ -171,7 +202,6 @@ function PriceDBContent({ userId }: { userId: string }) {
                 Select XLSX Files
               </Button>
 
-              {/* Preview pending import */}
               {pendingSets.length > 0 && !importing && (
                 <div className="space-y-3">
                   <h4 className="font-semibold text-sm">Detected {pendingSets.length} set(s):</h4>
@@ -208,6 +238,31 @@ function PriceDBContent({ userId }: { userId: string }) {
 
         {/* ── Sets Tab ───────────────────────── */}
         <TabsContent value="sets" className="space-y-4">
+          {sets.length > 0 && (
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setMergeOpen(true)} disabled={sets.length < 2}>
+                <GitMerge className="h-4 w-4 mr-1" /> Merge Sets
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" size="sm">
+                    <Trash2 className="h-4 w-4 mr-1" /> Delete All
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete all {sets.length} sets?</AlertDialogTitle>
+                    <AlertDialogDescription>All imported sets and their cards will be permanently removed.</AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={deleteAllSets}>Delete All</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          )}
+
           {sets.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center text-muted-foreground">
@@ -236,12 +291,32 @@ function PriceDBContent({ userId }: { userId: string }) {
                         <TableCell className="text-xs uppercase">{s.game}</TableCell>
                         <TableCell className="text-right">{s.total_cards}</TableCell>
                         <TableCell className="text-right space-x-1">
-                          <Button size="sm" variant="ghost" onClick={() => viewCompletion(s.id)}>
+                          <Button size="sm" variant="ghost" onClick={() => setViewingSet(s)} title="View cards">
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => viewCompletion(s.id)} title="Set tracker">
                             <BarChart3 className="h-4 w-4" />
                           </Button>
-                          <Button size="sm" variant="ghost" className="text-destructive" onClick={() => deleteSet(s.id)}>
-                            <Trash2 className="h-4 w-4" />
+                          <Button size="sm" variant="ghost" onClick={() => setEditSet(s)} title="Edit set">
+                            <Pencil className="h-4 w-4" />
                           </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button size="sm" variant="ghost" className="text-destructive" title="Delete set">
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete "{s.set_name}"?</AlertDialogTitle>
+                                <AlertDialogDescription>This will delete the set and all {s.total_cards} cards permanently.</AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => deleteSet(s.id)}>Delete</AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -313,6 +388,23 @@ function PriceDBContent({ userId }: { userId: string }) {
           </TabsContent>
         )}
       </Tabs>
+
+      {/* Dialogs */}
+      {editSet && (
+        <SetEditDialog
+          open={!!editSet}
+          onOpenChange={(open) => !open && setEditSet(null)}
+          set={editSet}
+          onSaved={fetchSets}
+        />
+      )}
+
+      <MergeSetsDialog
+        open={mergeOpen}
+        onOpenChange={setMergeOpen}
+        sets={sets}
+        onMerged={fetchSets}
+      />
     </div>
   );
 }
