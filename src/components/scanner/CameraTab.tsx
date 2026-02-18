@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Camera, SwitchCamera, X } from "lucide-react";
+import { Camera, X } from "lucide-react";
 import { ZoomControls } from "./ZoomControls";
 
 interface CameraTabProps {
@@ -67,15 +67,6 @@ export function CameraTab({
                 aria-label="Camera preview"
               />
               
-              <Button 
-                onClick={onToggle} 
-                variant="secondary" 
-                size="icon"
-                className="absolute top-4 right-4 z-10 rounded-full bg-black/70 hover:bg-black/80"
-                aria-label="Switch camera"
-              >
-                <SwitchCamera className="h-5 w-5 text-white" />
-              </Button>
               
               {/* Card frame overlay */}
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none" aria-hidden="true">

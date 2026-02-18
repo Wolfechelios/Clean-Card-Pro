@@ -1126,16 +1126,16 @@ export default function RapidScanCamera() {
               ref={videoRef}
               className={cn(
                 // Trading card optimized: fill most of viewport for easy framing
-                "w-full object-cover cursor-crosshair",
-                // Mobile: very tall for easy card alignment (70-75% of viewport)
-                "h-[72vh] min-h-[450px] max-h-[800px]",
+              "w-full object-contain cursor-crosshair",
+                // Mobile: tall but capped to prevent stretching on ultra-tall phones
+                "h-[65vh] min-h-[400px] max-h-[700px]",
                 // Tablet: still large but bounded
-                "sm:h-[68vh] sm:min-h-[480px] sm:max-h-[720px]",
+                "sm:h-[60vh] sm:min-h-[420px] sm:max-h-[650px]",
                 // Desktop: generous fixed height for precision
                 "md:h-[560px] md:min-h-0 md:max-h-none",
                 "lg:h-[600px]",
                 // Landscape: maximize horizontal space
-                "landscape:h-[75vh] landscape:min-h-[320px] landscape:max-h-[520px]",
+                "landscape:h-[70vh] landscape:min-h-[300px] landscape:max-h-[500px]",
                 usingDigitalZoom && zoomLevel > 1 && "transition-transform duration-100"
               )}
               style={usingDigitalZoom && zoomLevel > 1 ? { transform: `scale(${zoomLevel})` } : undefined}
