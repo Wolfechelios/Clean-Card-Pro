@@ -1363,17 +1363,6 @@ export default function RapidScanCamera() {
                   </div>
                 )}
 
-                {/* Zoom reset button - pinch controls are now on video */}
-                {!isNative && cameraOn && zoomLevel > 1 && (
-                  <Button
-                    variant="outline"
-                    size="default"
-                    onClick={() => setZoom(1)}
-                    className="w-full h-12 text-base"
-                  >
-                    Reset Zoom ({zoomLevel.toFixed(1)}×)
-                  </Button>
-                )}
 
                 {/* Clear button with double confirmation */}
                 <div className="pt-4 mt-4 border-t flex justify-end">
