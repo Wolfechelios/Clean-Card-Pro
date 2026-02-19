@@ -1,6 +1,6 @@
 {
-  "name": "CleanCards - Trading Card Manager",
-  "short_name": "CleanCards",
+  "name": "Clean Cards - Trading Card Manager",
+  "short_name": "Clean Cards",
   "description": "AI-powered trading card scanner and collection manager. Scan, identify, and price your cards instantly.",
   "theme_color": "#000000",
   "background_color": "#000000",
@@ -8,7 +8,7 @@
   "orientation": "portrait-primary",
   "scope": "/",
   "start_url": "/?source=pwa",
-  "id": "cleancards-pwa",
+  "id": "clean-cards-pwa",
   "lang": "en",
   "dir": "ltr",
   "categories": ["utilities", "lifestyle", "entertainment"],
@@ -39,7 +39,7 @@
       "sizes": "512x512",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "CleanCards Home"
+      "label": "Clean Cards Home"
     }
   ],
   "shortcuts": [
