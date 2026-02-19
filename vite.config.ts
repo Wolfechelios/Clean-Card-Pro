@@ -172,7 +172,8 @@ export default defineConfig(({ mode }) => ({
         ],
       },
       devOptions: {
-        enabled: false, // Don't enable SW in dev
+        enabled: true,
+        type: "module",
       },
     }),
   ].filter(Boolean),
