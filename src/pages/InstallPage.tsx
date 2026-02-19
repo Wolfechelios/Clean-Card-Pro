@@ -119,7 +119,7 @@ export default function InstallPage() {
             Already Installed!
           </h1>
           <p className="text-muted-foreground mb-6">
-            CleanCards is installed on your device. Open it from your home screen for the best experience.
+            Clean Cards is installed on your device. Open it from your home screen for the best experience.
           </p>
           <Button onClick={() => window.location.href = "/"} className="w-full max-w-xs">
             Open App
@@ -148,7 +148,7 @@ export default function InstallPage() {
           >
             <img
               src="/pwa-192x192.png"
-              alt="CleanCards"
+              alt="Clean Cards"
               className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl shadow-2xl mx-auto"
             />
           </motion.div>
@@ -160,7 +160,7 @@ export default function InstallPage() {
             transition={{ delay: 0.15 }}
             className="text-2xl sm:text-3xl font-bold text-foreground mb-2"
           >
-            Install CleanCards
+            Install Clean Cards
           </motion.h1>
 
           {/* Subtitle */}

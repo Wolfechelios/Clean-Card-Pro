@@ -31,8 +31,8 @@ export default defineConfig(({ mode }) => ({
       registerType: "autoUpdate",
       includeAssets: ["favicon.ico", "favicon.svg", "robots.txt", "sounds/*"],
       manifest: {
-        name: "CleanCards - Card Collection Manager",
-        short_name: "CleanCards",
+        name: "Clean Cards - Card Collection Manager",
+        short_name: "Clean Cards",
         description: "AI-powered trading card scanner and collection manager",
         theme_color: "#000000",
         background_color: "#000000",
