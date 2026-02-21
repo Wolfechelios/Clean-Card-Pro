@@ -282,6 +282,48 @@ export const enhanceForOCR = (
   ctx.putImageData(imageData, 0, 0);
 };
 
+// Auto white balance correction for captured images
+// Applies gray-world assumption to neutralize color casts
+export const applyAutoColorBalance = (
+  ctx: CanvasRenderingContext2D,
+  canvas: HTMLCanvasElement,
+  strength: number = 0.6
+): void => {
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  const pixelCount = data.length / 4;
+
+  // Calculate average R, G, B across the entire image
+  let totalR = 0, totalG = 0, totalB = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    totalR += data[i];
+    totalG += data[i + 1];
+    totalB += data[i + 2];
+  }
+
+  const avgR = totalR / pixelCount;
+  const avgG = totalG / pixelCount;
+  const avgB = totalB / pixelCount;
+
+  // Gray-world: the average of all channels should be equal
+  const avgGray = (avgR + avgG + avgB) / 3;
+
+  // Avoid division by zero
+  if (avgR === 0 || avgG === 0 || avgB === 0) return;
+
+  const scaleR = 1 + (avgGray / avgR - 1) * strength;
+  const scaleG = 1 + (avgGray / avgG - 1) * strength;
+  const scaleB = 1 + (avgGray / avgB - 1) * strength;
+
+  for (let i = 0; i < data.length; i += 4) {
+    data[i]     = Math.min(255, Math.max(0, Math.round(data[i] * scaleR)));
+    data[i + 1] = Math.min(255, Math.max(0, Math.round(data[i + 1] * scaleG)));
+    data[i + 2] = Math.min(255, Math.max(0, Math.round(data[i + 2] * scaleB)));
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+};
+
 // Capture photo with maximum quality and anti-glare
 // Uses performance pipeline guards to limit in-flight frames
 export const captureMaxQualityPhoto = async (
