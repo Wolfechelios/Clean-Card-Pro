@@ -290,8 +290,8 @@ export function USBBulkImport() {
                   />
                   {/* Status overlay */}
                   {photo.status === "queued" && (
-                    <div className="absolute inset-0 bg-green-500/20 flex items-center justify-center">
-                      <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    <div className="absolute inset-0 bg-primary/20 flex items-center justify-center">
+                      <CheckCircle2 className="h-4 w-4 text-primary" />
                     </div>
                   )}
                   {photo.status === "error" && (
