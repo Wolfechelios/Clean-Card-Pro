@@ -8,6 +8,9 @@ import { isLocalLLMAvailable, isOnline } from "./inferenceMode";
 import { callLocalVisionLLM } from "./localLLM";
 import { withRetry } from "./retry";
 import { runPaddleOCR, isPaddleOCRReady } from "./paddleOCR";
+import { getScannerSettings } from "@/hooks/use-scanner-settings";
+import { checkGpuServerAvailable } from "@/lib/gpuOffload/gpuAvailability";
+import { gpuIdentifyByImageUrl } from "@/lib/gpuOffload/gpuHttpClient";
 
 export interface IdentifiedCardData {
   card_name: string;
@@ -26,7 +29,7 @@ export interface IdentifiedCardData {
 export interface HybridIdentifyResult {
   success: boolean;
   cardData: IdentifiedCardData;
-  source: "local" | "cloud";
+  source: "local" | "cloud" | "gpu";
   error?: string;
 }
 
@@ -138,6 +141,26 @@ async function identifyWithCloud(
   };
 }
 
+async function identifyWithGpuServer(imageUrl: string): Promise<IdentifiedCardData> {
+  const result = await gpuIdentifyByImageUrl(imageUrl, { wantPricing: false });
+  if (!result?.success) {
+    throw new Error(result?.error || "GPU server identification failed");
+  }
+  return {
+    card_name: result.cardData.card_name || "Unknown Card",
+    card_set: result.cardData.card_set || null,
+    card_number: result.cardData.card_number || null,
+    rarity: result.cardData.rarity || null,
+    edition: result.cardData.edition || null,
+    game_type: result.cardData.game_type || null,
+    sport_type: result.cardData.sport_type || null,
+    year: result.cardData.year || null,
+    manufacturer: result.cardData.manufacturer || null,
+    confidence: result.cardData.confidence || 80,
+    description: result.cardData.description,
+  };
+}
+
 /**
  * Run PaddleOCR preprocessing on an image URL
  * Returns extracted text or null if OCR fails/unavailable
@@ -171,6 +194,7 @@ export async function hybridIdentifyCard(
     cloudFunction?: string;
     forceLocal?: boolean;
     forceCloud?: boolean;
+    forceGpu?: boolean;
     skipOfflineGuard?: boolean;
     usePaddleOCR?: boolean; // Enable PaddleOCR preprocessing for enhanced accuracy
   } = {}
@@ -179,6 +203,7 @@ export async function hybridIdentifyCard(
     cloudFunction = "rapid-card-identify",
     forceLocal = false,
     forceCloud = false,
+    forceGpu = false,
     skipOfflineGuard = false,
     usePaddleOCR = false,
   } = options;
@@ -191,6 +216,27 @@ export async function hybridIdentifyCard(
 
   const localAvailable = await isLocalLLMAvailable();
   const online = isOnline();
+
+  const scanner = getScannerSettings() as any;
+  const gpuEnabled = scanner.gpuOffloadEnabled === true && scanner.gpuPreferForQueue !== false;
+
+  const gpuAvailable = (forceGpu || gpuEnabled) ? (await checkGpuServerAvailable()).ok : false;
+
+  // Force GPU mode
+  if (forceGpu && gpuAvailable) {
+    const cardData = await identifyWithGpuServer(imageUrl);
+    return { success: true, cardData, source: "gpu" };
+  }
+
+  // Priority 0: GPU server (if enabled)
+  if (gpuEnabled && gpuAvailable) {
+    try {
+      const cardData = await identifyWithGpuServer(imageUrl);
+      return { success: true, cardData, source: "gpu" };
+    } catch (e) {
+      console.warn("GPU server identification failed, falling back:", e);
+    }
+  }
 
   // Force local mode
   if (forceLocal && localAvailable) {

@@ -64,6 +64,8 @@ import { useCameraDevices } from "@/hooks/use-camera-devices";
 import { CameraDeviceSelector } from "./CameraDeviceSelector";
 import { WhiteBalanceControl } from "./WhiteBalanceControl";
 import kachingSound from "@/assets/kaching.wav";
+import { useGpuOffloadStream } from "@/hooks/use-gpu-offload-stream";
+import { makeVideoFrameEncoder } from "@/lib/gpuOffload/frameEncoder";
 
 // Ka-ching sound for $10+ cards
 let kachingAudio: HTMLAudioElement | null = null;
@@ -134,6 +136,12 @@ function money(n: number | null | undefined) {
 export default function RapidScanCamera() {
   const { settings, updateSettings } = useScannerSettings();
   const isMobile = useIsMobile();
+
+  // Local Accelerator (Mac/PC) live overlay
+  const gpu = useGpuOffloadStream({ autoConnect: false });
+  const frameEncoderRef = useRef<ReturnType<typeof makeVideoFrameEncoder> | null>(null);
+  const streamRafRef = useRef<number | null>(null);
+  const lastEncodeAtRef = useRef(0);
 
   // Camera devices (for selecting different lenses/optics)
   const {
@@ -247,6 +255,60 @@ export default function RapidScanCamera() {
   const [showAllCards, setShowAllCards] = useState(false);
   const CARD_LIST_RENDER_LIMIT = 30;
   const [overlay, setOverlay] = useState<LastOverlay | null>(null);
+
+  // Initialize frame encoder once (browser-only)
+  useEffect(() => {
+    try {
+      frameEncoderRef.current = makeVideoFrameEncoder();
+    } catch {
+      frameEncoderRef.current = null;
+    }
+  }, []);
+
+  // Auto connect/disconnect based on settings + camera state
+  useEffect(() => {
+    const shouldUse = cameraOn && settings.gpuOffloadEnabled && settings.gpuPreferForLive;
+    if (shouldUse) gpu.connect();
+    else gpu.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraOn, settings.gpuOffloadEnabled, settings.gpuPreferForLive]);
+
+  // Streaming loop (throttled) for live preview overlay
+  useEffect(() => {
+    const shouldStream =
+      cameraOn &&
+      settings.gpuOffloadEnabled &&
+      settings.gpuPreferForLive &&
+      gpu.status === "connected";
+
+    if (!shouldStream) {
+      if (streamRafRef.current) cancelAnimationFrame(streamRafRef.current);
+      streamRafRef.current = null;
+      return;
+    }
+
+    const v = videoRef.current;
+    if (!v) return;
+
+    const encoder = frameEncoderRef.current ?? (frameEncoderRef.current = makeVideoFrameEncoder());
+    const minGap = 1000 / Math.max(2, Math.min(30, settings.gpuStreamMaxFps || 12));
+
+    const tick = () => {
+      const now = Date.now();
+      if (now - lastEncodeAtRef.current >= minGap) {
+        lastEncodeAtRef.current = now;
+        const jpeg = encoder(v);
+        if (jpeg) gpu.sendFrame(jpeg);
+      }
+      streamRafRef.current = requestAnimationFrame(tick);
+    };
+
+    streamRafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (streamRafRef.current) cancelAnimationFrame(streamRafRef.current);
+      streamRafRef.current = null;
+    };
+  }, [cameraOn, gpu.status, settings.gpuOffloadEnabled, settings.gpuPreferForLive, settings.gpuStreamMaxFps]);
 
   // Global queue processor - single source of truth for queue state
   const queueProcessor = useQueueProcessor();
@@ -1197,6 +1259,49 @@ export default function RapidScanCamera() {
                   </span>
                   {usingDigitalZoom && (
                     <span className="text-[10px] text-white/60">digital</span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Local Accelerator status */}
+            {settings.gpuOffloadEnabled && settings.gpuPreferForLive && (
+              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10">
+                <div className="bg-black/70 rounded-lg px-3 py-2 min-w-[240px]">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={cn(
+                          "h-2 w-2 rounded-full",
+                          gpu.status === "connected" && "bg-emerald-400",
+                          gpu.status === "connecting" && "bg-yellow-400",
+                          (gpu.status === "disconnected" || gpu.status === "error") && "bg-red-400"
+                        )}
+                      />
+                      <span className="text-[10px] text-white/90 font-semibold">BOOST</span>
+                      <span className="text-[10px] text-white/70">{gpu.status}</span>
+                    </div>
+                    <div className="text-[10px] text-white/70">
+                      {gpu.perf.rttMs != null ? `${Math.round(gpu.perf.rttMs)}ms` : "—"}
+                    </div>
+                  </div>
+
+                  <div className="mt-1 flex items-center justify-between text-[10px] text-white/70">
+                    <span>out {gpu.perf.fpsOut}fps • in {gpu.perf.fpsIn}fps</span>
+                    <span>dropped {gpu.perf.dropped}</span>
+                  </div>
+
+                  {gpu.lastResult?.card?.name && (
+                    <div className="mt-1">
+                      <div className="truncate text-[11px] text-white font-medium">
+                        {gpu.lastResult.card.name}
+                      </div>
+                      <div className="text-[10px] text-white/80">
+                        {gpu.lastResult.card.value != null ? `$${Number(gpu.lastResult.card.value).toFixed(2)}` : ""}
+                        {gpu.lastResult.card.rarity ? ` • ${gpu.lastResult.card.rarity}` : ""}
+                        {typeof gpu.lastResult.card.confidence === "number" ? ` • ${Math.round(gpu.lastResult.card.confidence * 100)}%` : ""}
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>

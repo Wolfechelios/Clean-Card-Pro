@@ -23,6 +23,15 @@ export interface ScannerSettings {
 
   // Batch processing
   batchScanSize: number; // 1-3, concurrent cards to process (max 3)
+
+  // Local Accelerator (Mac/PC) — optional, superset feature
+  gpuOffloadEnabled: boolean;
+  gpuServerBaseUrl: string; // e.g. http://192.168.1.5:8000 or 192.168.1.5:8000
+  gpuPreferForQueue: boolean; // use GPU server for queued job processing
+  gpuPreferForLive: boolean; // use GPU server for live preview overlay
+  gpuStreamMaxFps: number; // 2-30
+  gpuStreamTargetWidth: number; // 320-1280
+  gpuStreamJpegQuality: number; // 0.35-0.95
 }
 
 const DEFAULT_SETTINGS: ScannerSettings = {
@@ -41,6 +50,14 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   autoZoomEnabled: true, // Auto zoom-out for card stacks
 
   batchScanSize: 3, // Default 3 concurrent workers
+
+  gpuOffloadEnabled: false,
+  gpuServerBaseUrl: "",
+  gpuPreferForQueue: true,
+  gpuPreferForLive: true,
+  gpuStreamMaxFps: 12,
+  gpuStreamTargetWidth: 720,
+  gpuStreamJpegQuality: 0.65,
 };
 
 export function useScannerSettings() {

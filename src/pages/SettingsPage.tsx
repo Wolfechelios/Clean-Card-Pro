@@ -590,6 +590,124 @@ setNullRarityCount(missingRarity || 0);
                 </div>
               </div>
             </div>
+
+            <Separator />
+
+            {/* Local Accelerator (Mac/PC) */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <Cpu className="h-4 w-4" />
+                Local Accelerator (Mac/PC)
+              </h3>
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label className="text-sm font-medium">Enable Local Accelerator</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Offload OCR/identify/pricing to a Mac/PC on your network for faster scanning.
+                  </p>
+                </div>
+                <Switch
+                  checked={scannerSettings.gpuOffloadEnabled}
+                  onCheckedChange={(checked) => updateScannerSettings({ gpuOffloadEnabled: checked })}
+                />
+              </div>
+
+              {scannerSettings.gpuOffloadEnabled && (
+                <div className="space-y-4 pt-2 border-t border-border">
+                  <div className="grid gap-2">
+                    <Label className="text-sm font-medium">Server Base URL</Label>
+                    <Input
+                      value={scannerSettings.gpuServerBaseUrl}
+                      onChange={(e) => updateScannerSettings({ gpuServerBaseUrl: e.target.value })}
+                      placeholder="192.168.1.5:8000"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Example: <span className="font-mono">192.168.1.5:8000</span> or <span className="font-mono">http://192.168.1.5:8000</span>
+                    </p>
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <Label className="text-sm font-medium">Use for queue processing</Label>
+                        <p className="text-xs text-muted-foreground">Rapid Scan queue will prefer the local server.</p>
+                      </div>
+                      <Switch
+                        checked={scannerSettings.gpuPreferForQueue}
+                        onCheckedChange={(checked) => updateScannerSettings({ gpuPreferForQueue: checked })}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <Label className="text-sm font-medium">Use for live preview</Label>
+                        <p className="text-xs text-muted-foreground">Shows live overlay while aiming the camera.</p>
+                      </div>
+                      <Switch
+                        checked={scannerSettings.gpuPreferForLive}
+                        onCheckedChange={(checked) => updateScannerSettings({ gpuPreferForLive: checked })}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label className="text-sm font-medium">
+                      Live Stream FPS: {scannerSettings.gpuStreamMaxFps}
+                    </Label>
+                    <Slider
+                      min={2}
+                      max={30}
+                      step={1}
+                      value={[scannerSettings.gpuStreamMaxFps]}
+                      onValueChange={(value) => updateScannerSettings({ gpuStreamMaxFps: value[0] })}
+                    />
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>2</span>
+                      <span>30</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label className="text-sm font-medium">
+                      Stream Width: {scannerSettings.gpuStreamTargetWidth}px
+                    </Label>
+                    <Slider
+                      min={320}
+                      max={1280}
+                      step={80}
+                      value={[scannerSettings.gpuStreamTargetWidth]}
+                      onValueChange={(value) => updateScannerSettings({ gpuStreamTargetWidth: value[0] })}
+                    />
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>320</span>
+                      <span>1280</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <Label className="text-sm font-medium">
+                      JPEG Quality: {scannerSettings.gpuStreamJpegQuality}
+                    </Label>
+                    <Slider
+                      min={0.35}
+                      max={0.95}
+                      step={0.05}
+                      value={[scannerSettings.gpuStreamJpegQuality]}
+                      onValueChange={(value) => updateScannerSettings({ gpuStreamJpegQuality: Number(value[0].toFixed(2)) })}
+                    />
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>0.35</span>
+                      <span>0.95</span>
+                    </div>
+                  </div>
+
+                  <div className="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
+                    Tip: For Android over USB, run <span className="font-mono">adb reverse tcp:8000 tcp:8000</span> and set base URL to <span className="font-mono">127.0.0.1:8000</span>.
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
