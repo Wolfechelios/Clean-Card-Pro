@@ -110,7 +110,7 @@ export function USBBulkImport() {
     for (const photo of pending) {
       try {
         // Compress for queue storage
-        const compressed = await imageCompressor(photo.file);
+        const compressed = await compressImageForQueue(photo.file);
         const blob = compressed instanceof Blob ? compressed : photo.file;
 
         await idbAdd({
