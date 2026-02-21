@@ -337,7 +337,7 @@ export function USBBulkImport() {
         )}
 
         {/* Active queue status */}
-        {(queueSize > 0 || processedCount > 0) && (
+        {(queueCount > 0 || processedCount > 0) && (
           <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
             <div className="flex items-center justify-between text-sm">
               <span className="font-medium flex items-center gap-2">
@@ -346,20 +346,20 @@ export function USBBulkImport() {
                 ) : (
                   <Pause className="h-4 w-4 text-muted-foreground" />
                 )}
-                Queue: {queueSize} remaining · {processedCount} done
+                Queue: {queueCount} remaining · {processedCount} done
               </span>
-              {!isRunning && queueSize > 0 && (
+              {!isRunning && queueCount > 0 && (
                 <Button variant="outline" size="sm" onClick={start}>
                   <Play className="mr-1 h-3 w-3" />
                   Resume
                 </Button>
               )}
             </div>
-            {queueSize > 0 && (
+            {queueCount > 0 && (
               <Progress
                 value={
-                  processedCount + queueSize > 0
-                    ? (processedCount / (processedCount + queueSize)) * 100
+                  processedCount + queueCount > 0
+                    ? (processedCount / (processedCount + queueCount)) * 100
                     : 0
                 }
               />
