@@ -39,7 +39,7 @@ export function USBBulkImport() {
   const folderInputRef = useRef<HTMLInputElement>(null);
 
   const tier = getDeviceTier();
-  const { queueSize, processedCount, isRunning, start } = useQueueProcessor();
+  const { queueCount, processedCount, isRunning, start } = useQueueProcessor();
 
   const addFiles = useCallback((files: File[]) => {
     const imageFiles = files.filter((f) => f.type.startsWith("image/"));
