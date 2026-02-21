@@ -444,12 +444,17 @@ export default function RapidScanCamera() {
       // Reset clarity zoom tracking on camera start
       clarityZoom.reset();
 
-      // Force autofocus on camera start
+      // Apply macro focus + color balancing optimizations
       try {
-        await trackRef.current?.applyConstraints({
-          advanced: [{ focusMode: "continuous" } as any],
-        });
-      } catch {}
+        await applyFastAutofocus(stream, true); // enableMacro = true
+      } catch {
+        // Fallback: basic continuous autofocus
+        try {
+          await trackRef.current?.applyConstraints({
+            advanced: [{ focusMode: "continuous" } as any],
+          });
+        } catch {}
+      }
 
       // Workers start automatically once you enqueue
       // Workers start automatically once you enqueue
