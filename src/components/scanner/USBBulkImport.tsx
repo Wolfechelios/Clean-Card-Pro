@@ -243,7 +243,7 @@ export function USBBulkImport() {
               <Badge variant="outline">{pendingCount} pending</Badge>
             )}
             {queuedCount > 0 && (
-              <Badge variant="secondary" className="bg-green-500/10 text-green-600">
+              <Badge variant="secondary" className="bg-primary/10 text-primary">
                 <CheckCircle2 className="mr-1 h-3 w-3" />
                 {queuedCount} queued
               </Badge>
