@@ -115,23 +115,27 @@ export const getMaxCameraConstraints = (facingMode: 'environment' | 'user' = 'en
   ];
 };
 
-// Apply fast continuous autofocus
-export const applyFastAutofocus = async (stream: MediaStream): Promise<void> => {
+// Apply fast continuous autofocus with macro support
+export const applyFastAutofocus = async (stream: MediaStream, enableMacro: boolean = true): Promise<void> => {
   try {
     const track = stream.getVideoTracks()[0];
     if (!track) return;
 
     const capabilities = track.getCapabilities?.() as any;
     
-    // Apply continuous autofocus with fast tracking
+    // Apply continuous autofocus with close-range (macro) focus
     if (capabilities?.focusMode?.includes('continuous')) {
-      await track.applyConstraints({
-        advanced: [
-          { focusMode: 'continuous' } as any,
-          // Try to set focus distance to close range for cards
-          ...(capabilities.focusDistance ? [{ focusDistance: capabilities.focusDistance.min } as any] : []),
-        ]
-      });
+      const focusAdvanced: any[] = [{ focusMode: 'continuous' }];
+      
+      // Set focus distance to minimum for macro/close-up card scanning
+      if (enableMacro && capabilities.focusDistance) {
+        const minDist = capabilities.focusDistance.min;
+        // Use the closest focus distance the hardware supports
+        focusAdvanced.push({ focusDistance: minDist });
+        console.log(`Macro focus enabled: min distance ${minDist}`);
+      }
+      
+      await track.applyConstraints({ advanced: focusAdvanced });
       console.log('Fast continuous autofocus enabled');
     }
 
@@ -142,11 +146,46 @@ export const applyFastAutofocus = async (stream: MediaStream): Promise<void> => 
       });
     }
 
-    // Enable auto exposure
+    // Enable auto exposure for proper brightness
     if (capabilities?.exposureMode?.includes('continuous')) {
       await track.applyConstraints({
         advanced: [{ exposureMode: 'continuous' } as any]
       });
+    }
+
+    // Set exposure compensation to slight positive for well-lit card detail
+    if (capabilities?.exposureCompensation) {
+      const maxComp = capabilities.exposureCompensation.max || 2;
+      const step = capabilities.exposureCompensation.step || 0.1;
+      // Slight overexposure (+0.3 to +0.5 EV) helps card text legibility
+      const targetComp = Math.min(0.5, maxComp);
+      const snapped = Math.round(targetComp / step) * step;
+      try {
+        await track.applyConstraints({
+          advanced: [{ exposureCompensation: snapped } as any]
+        });
+        console.log(`Exposure compensation set to +${snapped} EV`);
+      } catch { /* best effort */ }
+    }
+
+    // Enable color temperature optimization if available
+    if (capabilities?.colorTemperature && capabilities?.whiteBalanceMode?.includes('manual')) {
+      // 5500K is daylight-neutral, ideal for accurate card color reproduction
+      const min = capabilities.colorTemperature.min || 2500;
+      const max = capabilities.colorTemperature.max || 10000;
+      const target = Math.min(Math.max(5500, min), max);
+      try {
+        await track.applyConstraints({
+          advanced: [
+            { whiteBalanceMode: 'manual' } as any,
+            { colorTemperature: target } as any,
+          ]
+        });
+        console.log(`Color temperature set to ${target}K for neutral card colors`);
+      } catch {
+        // Fall back to continuous white balance (already applied above)
+        console.log('Manual color temperature not available, using continuous WB');
+      }
     }
 
   } catch (e) {
