@@ -231,7 +231,10 @@ const Scanner = ({ userId }: ScannerProps) => {
               onCancel={handleCancelCard}
             />
           ) : (
-            <USBPhoneCameraScanner onImageCaptured={handleUSBCapture} />
+            <div className="space-y-6">
+              <USBBulkImport />
+              <USBPhoneCameraScanner onImageCaptured={handleUSBCapture} />
+            </div>
           )}
         </TabsContent>
 
