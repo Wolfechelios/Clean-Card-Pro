@@ -20,6 +20,7 @@ import { RemoteScanDesktop } from "./scanner/RemoteScanDesktop";
 import { RemoteScanMobile } from "./scanner/RemoteScanMobile";
 import RapidScanCamera from "./scanner/RapidScanCamera";
 import { USBPhoneCameraScanner } from "./scanner/USBPhoneCameraScanner";
+import { USBBulkImport } from "./scanner/USBBulkImport";
 import { DuplicateCardDialog } from "./scanner/DuplicateCardDialog";
 import { RecentScansBox } from "./scanner/RecentScansBox";
 
@@ -230,7 +231,10 @@ const Scanner = ({ userId }: ScannerProps) => {
               onCancel={handleCancelCard}
             />
           ) : (
-            <USBPhoneCameraScanner onImageCaptured={handleUSBCapture} />
+            <div className="space-y-6">
+              <USBBulkImport />
+              <USBPhoneCameraScanner onImageCaptured={handleUSBCapture} />
+            </div>
           )}
         </TabsContent>
 
