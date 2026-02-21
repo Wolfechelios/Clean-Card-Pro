@@ -47,6 +47,7 @@ import {
   type QueueItemMeta,
 } from "@/lib/idbQueue";
 import { compressImageForQueue } from "@/lib/imageCompressor";
+import { applyFastAutofocus, applyAutoColorBalance, applyAntiGlare } from "@/lib/camera-optimizations";
 import { useQueueProcessor } from "@/lib/queueProcessor";
 import { getRecentScans, clearAllRecentScans, removeRecentScan, updateRecentScan } from "@/lib/recentScans";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
@@ -444,12 +445,17 @@ export default function RapidScanCamera() {
       // Reset clarity zoom tracking on camera start
       clarityZoom.reset();
 
-      // Force autofocus on camera start
+      // Apply macro focus + color balancing optimizations
       try {
-        await trackRef.current?.applyConstraints({
-          advanced: [{ focusMode: "continuous" } as any],
-        });
-      } catch {}
+        await applyFastAutofocus(stream, true); // enableMacro = true
+      } catch {
+        // Fallback: basic continuous autofocus
+        try {
+          await trackRef.current?.applyConstraints({
+            advanced: [{ focusMode: "continuous" } as any],
+          });
+        } catch {}
+      }
 
       // Workers start automatically once you enqueue
       // Workers start automatically once you enqueue
@@ -690,6 +696,12 @@ export default function RapidScanCamera() {
       // Draw current frame
       ctx.drawImage(v, 0, 0, w, h);
 
+      // Apply auto color balance correction (gray-world) for accurate card colors
+      applyAutoColorBalance(ctx, c, 0.5);
+
+      // Apply light anti-glare to reduce hotspots on glossy/holo cards
+      applyAntiGlare(ctx, c, 0.2);
+
       // Check clarity and auto zoom-out if needed (for card stacks)
       if (settings.autoZoomEnabled) {
         clarityZoom.analyzeAndAdjustZoom(v).catch(() => {});
@@ -697,7 +709,7 @@ export default function RapidScanCamera() {
 
       // Convert to high-quality JPEG
       const blob: Blob | null = await new Promise((resolve) =>
-        c.toBlob(resolve, "image/jpeg", 0.92)
+        c.toBlob(resolve, "image/jpeg", 0.95)
       );
       if (!blob) throw new Error("Failed to capture image");
 
