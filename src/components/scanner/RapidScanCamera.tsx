@@ -47,6 +47,7 @@ import {
   type QueueItemMeta,
 } from "@/lib/idbQueue";
 import { compressImageForQueue } from "@/lib/imageCompressor";
+import { applyFastAutofocus, applyAutoColorBalance, applyAntiGlare } from "@/lib/camera-optimizations";
 import { useQueueProcessor } from "@/lib/queueProcessor";
 import { getRecentScans, clearAllRecentScans, removeRecentScan, updateRecentScan } from "@/lib/recentScans";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
