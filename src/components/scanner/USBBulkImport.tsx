@@ -21,7 +21,7 @@ import { toast } from "sonner";
 import { getDeviceTier } from "@/lib/performance/deviceTier";
 import { idbAdd } from "@/lib/idbQueue";
 import { useQueueProcessor } from "@/lib/queueProcessor";
-import { imageCompressor } from "@/lib/imageCompressor";
+import { compressImageForQueue } from "@/lib/imageCompressor";
 
 interface ImportedPhoto {
   id: string;
