@@ -4,7 +4,7 @@ import { getGpuStreamPrefs } from "./gpuSettings";
 // Uses an offscreen canvas to reduce GC pressure.
 export function makeVideoFrameEncoder() {
   const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true } as any);
+  const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true } as any) as CanvasRenderingContext2D | null;
 
   return function encode(videoEl: HTMLVideoElement): string | null {
     if (!ctx) return null;
