@@ -65,13 +65,13 @@ export default defineConfig(({ mode }) => ({
             name: "Scan Card",
             short_name: "Scan",
             url: "/scan",
-            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }],
+            icons: [{ src: "/pwa-192x192.png", sizes: "192x192", type: "image/png" }] as any,
           },
           {
             name: "My Collection",
             short_name: "Collection",
             url: "/collections",
-            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }],
+            icons: [{ src: "/pwa-192x192.png", sizes: "192x192", type: "image/png" }] as any,
           },
         ],
       },
@@ -171,11 +171,7 @@ export default defineConfig(({ mode }) => ({
           },
         ],
       },
-      devOptions: {
-        enabled: true,
-        type: "module",
-      },
-    }),
+    } as any),
   ].filter(Boolean),
   resolve: {
     alias: {
