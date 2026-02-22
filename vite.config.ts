@@ -171,11 +171,7 @@ export default defineConfig(({ mode }) => ({
           },
         ],
       },
-      devOptions: {
-        enabled: true,
-        type: "module",
-      },
-    }),
+    } as any),
   ].filter(Boolean),
   resolve: {
     alias: {
