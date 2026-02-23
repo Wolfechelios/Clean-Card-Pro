@@ -67,8 +67,10 @@ export function ZoomControls({
           >
             <ZoomIn className="h-4 w-4 text-white" />
           </Button>
+        </div>
 
-          {zoomLevel !== 1 && (
+        {zoomLevel !== 1 && (
+          <div className="absolute top-4 right-4 z-10">
             <Button
               variant="secondary"
               size="icon"
@@ -78,8 +80,8 @@ export function ZoomControls({
             >
               <RotateCcw className="h-4 w-4 text-white" />
             </Button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     );
   }
