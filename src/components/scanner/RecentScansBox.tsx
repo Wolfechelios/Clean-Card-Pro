@@ -92,12 +92,12 @@ export function RecentScansBox() {
         )}
 
         {/* Recent scans list */}
-        <div className="max-h-32 overflow-y-auto space-y-1">
+        <div className="max-h-64 overflow-y-auto space-y-1.5">
           {scans.slice(0, 10).map((scan, idx) => (
             <div
               key={scan.id}
               className={cn(
-                "flex items-center gap-2 text-xs p-1.5 rounded",
+                "flex items-center gap-3 text-sm p-2 rounded",
                 scan.isHighValue && "bg-primary/10 border border-primary/20"
               )}
             >
@@ -105,14 +105,14 @@ export function RecentScansBox() {
                 <img
                   src={scan.image_url}
                   alt=""
-                  className="w-6 h-6 rounded object-cover"
+                  className="w-10 h-10 rounded object-cover shrink-0"
                 />
               )}
               <div className="flex-1 min-w-0">
-                <div className="truncate font-medium">
+                <div className="truncate font-medium text-sm">
                   {scan.card_name}
                 </div>
-                <div className="text-muted-foreground truncate text-[10px]">
+                <div className="text-muted-foreground truncate text-xs">
                   {scan.player_name && <span>{scan.player_name}</span>}
                   {scan.player_name && scan.card_number && <span> • </span>}
                   {scan.card_number && <span>#{scan.card_number}</span>}
@@ -121,16 +121,16 @@ export function RecentScansBox() {
               </div>
               <div className="text-right shrink-0">
                 {scan.price !== null && (
-                  <div className={cn("font-semibold", scan.isHighValue && "text-primary")}>
+                  <div className={cn("font-semibold text-sm", scan.isHighValue && "text-primary")}>
                     ${scan.price.toFixed(2)}
                   </div>
                 )}
-                <div className="text-muted-foreground text-[10px]">
+                <div className="text-muted-foreground text-xs">
                   {formatTime(scan.scanned_at)}
                 </div>
               </div>
               {scan.isHighValue && (
-                <Badge variant="secondary" className="text-[9px] px-1">
+                <Badge variant="secondary" className="text-[10px] px-1.5">
                   +{idx} back
                 </Badge>
               )}
