@@ -16,11 +16,11 @@ export const RemoteScanDesktop = ({ userId, onImageReceived }: RemoteScanDesktop
   const [sessionId, setSessionId] = useState<string>("");
   const [isConnected, setIsConnected] = useState(false);
   const [lastImageUrl, setLastImageUrl] = useState<string>("");
+  const [receivedCount, setReceivedCount] = useState(0);
   const channelRef = useRef<any>(null);
 
   const generateSession = async () => {
     try {
-      // Generate unique 6-digit code
       const code = Math.random().toString(36).substring(2, 8).toUpperCase();
       
       const { data, error } = await supabase
@@ -46,24 +46,28 @@ export const RemoteScanDesktop = ({ userId, onImageReceived }: RemoteScanDesktop
   };
 
   const setupRealtimeChannel = (sessId: string) => {
-    // Clean up existing channel
     if (channelRef.current) {
       supabase.removeChannel(channelRef.current);
     }
 
-    // Create channel for this session
     const channel = supabase.channel(`remote-scan-${sessId}`)
-      .on('broadcast', { event: 'camera-frame' }, (payload: any) => {
-        if (payload.payload.imageData) {
-          setLastImageUrl(payload.payload.imageData);
-          
-          // Convert base64 to File for scanning
-          fetch(payload.payload.imageData)
-            .then(res => res.blob())
-            .then(blob => {
-              const file = new File([blob], `remote-${Date.now()}.jpg`, { type: 'image/jpeg' });
-              onImageReceived(file);
-            });
+      .on('broadcast', { event: 'camera-frame' }, async (payload: any) => {
+        const imageUrl = payload.payload?.imageUrl;
+        if (!imageUrl) return;
+
+        try {
+          setLastImageUrl(imageUrl);
+          setReceivedCount(prev => prev + 1);
+
+          // Download the image from storage and convert to File
+          const res = await fetch(imageUrl);
+          if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
+          const blob = await res.blob();
+          const file = new File([blob], `remote-${Date.now()}.jpg`, { type: 'image/jpeg' });
+          onImageReceived(file);
+        } catch (err) {
+          console.error("Failed to process remote image:", err);
+          toast.error("Failed to process received photo");
         }
       })
       .on('presence', { event: 'sync' }, () => {
@@ -88,6 +92,7 @@ export const RemoteScanDesktop = ({ userId, onImageReceived }: RemoteScanDesktop
     setSessionId("");
     setIsConnected(false);
     setLastImageUrl("");
+    setReceivedCount(0);
     if (channelRef.current) {
       supabase.removeChannel(channelRef.current);
     }
@@ -101,7 +106,6 @@ export const RemoteScanDesktop = ({ userId, onImageReceived }: RemoteScanDesktop
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
       }
-      // Clean up session
       if (sessionId) {
         supabase.from("remote_scan_sessions").delete().eq("id", sessionId);
       }
@@ -118,7 +122,10 @@ export const RemoteScanDesktop = ({ userId, onImageReceived }: RemoteScanDesktop
           <div>
             <CardTitle>Remote Phone Camera</CardTitle>
             <CardDescription>
-              Scan this QR code with your phone to use its camera
+              {isConnected 
+                ? `Phone connected — ${receivedCount} photo${receivedCount !== 1 ? 's' : ''} received`
+                : "Scan this QR code with your phone to use its camera"
+              }
             </CardDescription>
           </div>
           <Button onClick={refreshSession} variant="outline" size="icon" aria-label="Refresh QR code session">
@@ -133,7 +140,6 @@ export const RemoteScanDesktop = ({ userId, onImageReceived }: RemoteScanDesktop
           </div>
         ) : (
           <>
-            {/* QR Code */}
             <div className="flex flex-col items-center gap-4">
               <div className="bg-white p-6 rounded-lg shadow-lg">
                 <QRCodeSVG value={qrValue} size={256} level="H" />
@@ -146,7 +152,6 @@ export const RemoteScanDesktop = ({ userId, onImageReceived }: RemoteScanDesktop
                 </p>
               </div>
 
-              {/* Connection Status */}
               <div className="flex items-center gap-2">
                 {isConnected ? (
                   <>
@@ -162,10 +167,9 @@ export const RemoteScanDesktop = ({ userId, onImageReceived }: RemoteScanDesktop
               </div>
             </div>
 
-            {/* Live Preview */}
             {lastImageUrl && (
               <div className="space-y-2">
-                <h3 className="text-sm font-medium">Live Camera Feed</h3>
+                <h3 className="text-sm font-medium">Last Received Photo</h3>
                 <div className="relative aspect-[4/3] bg-black rounded-lg overflow-hidden">
                   <img 
                     src={lastImageUrl} 
@@ -176,7 +180,6 @@ export const RemoteScanDesktop = ({ userId, onImageReceived }: RemoteScanDesktop
               </div>
             )}
 
-            {/* Instructions */}
             <div className="bg-muted/50 rounded-lg p-4 space-y-2">
               <div className="flex items-start gap-3">
                 <Smartphone className="h-5 w-5 text-primary mt-0.5" />
@@ -186,7 +189,7 @@ export const RemoteScanDesktop = ({ userId, onImageReceived }: RemoteScanDesktop
                     <li>Open this app on your phone</li>
                     <li>Go to Scan page and tap "Remote Camera"</li>
                     <li>Scan the QR code or enter the code above</li>
-                    <li>Take photos - they'll appear here instantly!</li>
+                    <li>Take photos — they'll be scanned here automatically!</li>
                   </ol>
                 </div>
               </div>

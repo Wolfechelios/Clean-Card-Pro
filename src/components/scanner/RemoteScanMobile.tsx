@@ -22,6 +22,7 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
   const [cameraFacing, setCameraFacing] = useState<'environment' | 'user'>('environment');
   const [uploadProgress, setUploadProgress] = useState<'idle' | 'capturing' | 'processing' | 'uploading' | 'complete'>('idle');
   const [progressPercent, setProgressPercent] = useState(0);
+  const [sentCount, setSentCount] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const channelRef = useRef<any>(null);
@@ -29,7 +30,6 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
   const connectToSession = async (code: string) => {
     setIsConnecting(true);
     try {
-      // Find session by code
       const { data: session, error } = await supabase
         .from("remote_scan_sessions")
         .select("*")
@@ -38,10 +38,9 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
         .single();
 
       if (error || !session) {
-        throw new Error("Invalid session code");
+        throw new Error("Invalid session code or session expired");
       }
 
-      // Update session status
       await supabase
         .from("remote_scan_sessions")
         .update({ 
@@ -67,7 +66,6 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
     const channel = supabase.channel(`remote-scan-${sessId}`)
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
-          // Announce presence as phone
           await channel.track({ device: 'phone', userId });
         }
       });
@@ -77,15 +75,10 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
 
   const startCamera = async (facing: 'environment' | 'user' = cameraFacing) => {
     try {
-      console.log("Starting camera with facing:", facing);
-      
-      // Check if HTTPS or localhost
       if (!window.isSecureContext && window.location.hostname !== 'localhost') {
-        toast.error("Camera requires HTTPS connection. Please use a secure connection.");
+        toast.error("Camera requires HTTPS connection.");
         return;
       }
-
-      // Check if mediaDevices is available
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         toast.error("Camera not supported in this browser");
         return;
@@ -95,33 +88,24 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
 
-      console.log("Requesting camera access...");
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          facingMode: facing === 'environment' ? { exact: 'environment' } : { exact: 'user' },
-          width: { ideal: 3840, min: 1920 },
-          height: { ideal: 2160, min: 1080 },
-          aspectRatio: { ideal: 16/9 },
-          frameRate: { ideal: 30 },
+          facingMode: facing === 'environment' ? { ideal: 'environment' } : { ideal: 'user' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
         },
         audio: false,
       });
-
-      console.log("Camera access granted, stream received");
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.setAttribute('playsinline', 'true');
         videoRef.current.setAttribute('muted', 'true');
-        
-        // Explicitly play the video for mobile browsers
         try {
           await videoRef.current.play();
-          console.log("Video playback started");
         } catch (playError) {
           console.error("Video play error:", playError);
         }
-        
         streamRef.current = stream;
         setCameraFacing(facing);
         toast.success("Camera ready!");
@@ -129,13 +113,9 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
     } catch (error: any) {
       console.error("Camera error:", error);
       if (error.name === 'NotAllowedError') {
-        toast.error("Camera permission denied. Please allow camera access in your browser settings.");
+        toast.error("Camera permission denied.");
       } else if (error.name === 'NotFoundError') {
         toast.error("No camera found on this device");
-      } else if (error.name === 'NotReadableError') {
-        toast.error("Camera is already in use by another application");
-      } else if (error.name === 'NotSupportedError') {
-        toast.error("Camera not supported. Try using HTTPS.");
       } else {
         toast.error("Failed to access camera: " + error.message);
       }
@@ -143,81 +123,89 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
   };
 
   const captureAndSend = async () => {
-    if (!videoRef.current || !channelRef.current) return;
+    if (!videoRef.current || !channelRef.current) {
+      toast.error("Camera or connection not ready");
+      return;
+    }
 
     try {
-      // Stage 1: Capturing (0-33%)
+      // Stage 1: Capturing
       setUploadProgress('capturing');
       setProgressPercent(10);
-      
-      await new Promise(resolve => setTimeout(resolve, 200));
-      
-      // Create high-resolution canvas
+
       const canvas = document.createElement('canvas');
       const videoWidth = videoRef.current.videoWidth;
       const videoHeight = videoRef.current.videoHeight;
-      
-      // Use full video resolution or higher
-      canvas.width = Math.max(videoWidth, 3840);
-      canvas.height = Math.max(videoHeight, 2160);
-      
-      const ctx = canvas.getContext('2d', { 
-        alpha: false,
-        desynchronized: true,
-        willReadFrequently: false
-      });
+
+      // Use actual video resolution (no upscaling)
+      canvas.width = videoWidth;
+      canvas.height = videoHeight;
+
+      const ctx = canvas.getContext('2d', { alpha: false });
       if (!ctx) return;
 
-      setProgressPercent(20);
-      
-      // Optimize canvas rendering for quality
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-      
-      // Scale and draw with high quality
-      const scale = Math.min(canvas.width / videoWidth, canvas.height / videoHeight);
-      const x = (canvas.width - videoWidth * scale) / 2;
-      const y = (canvas.height - videoHeight * scale) / 2;
-      
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(videoRef.current, x, y, videoWidth * scale, videoHeight * scale);
-      
-      // Stage 2: Processing (33-66%)
+      ctx.drawImage(videoRef.current, 0, 0, videoWidth, videoHeight);
+
       setUploadProgress('processing');
-      setProgressPercent(40);
-      
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
-      // Maximum JPEG quality
-      const imageData = canvas.toDataURL('image/jpeg', 1.0);
-      
-      setProgressPercent(60);
-      
-      // Stage 3: Uploading (66-100%)
+      setProgressPercent(30);
+
+      // Convert to blob (high quality JPEG, ~200-800KB typically)
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error("Canvas toBlob failed"))),
+          'image/jpeg',
+          0.92
+        );
+      });
+
+      setProgressPercent(50);
+
+      // Stage 2: Upload to Supabase Storage
       setUploadProgress('uploading');
-      setProgressPercent(75);
-      
+      const fileName = `remote/${sessionId}/${Date.now()}-${Math.random().toString(36).substring(2, 6)}.jpg`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('card-images')
+        .upload(fileName, blob, {
+          contentType: 'image/jpeg',
+          cacheControl: '3600',
+          upsert: false,
+        });
+
+      if (uploadError) {
+        throw new Error(`Upload failed: ${uploadError.message}`);
+      }
+
+      setProgressPercent(80);
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('card-images')
+        .getPublicUrl(fileName);
+
+      // Stage 3: Broadcast just the URL (tiny payload)
       await channelRef.current.send({
         type: 'broadcast',
         event: 'camera-frame',
-        payload: { imageData }
+        payload: { 
+          imageUrl: publicUrl,
+          storagePath: fileName,
+          timestamp: Date.now(),
+        },
       });
 
-      // Complete
       setProgressPercent(100);
       setUploadProgress('complete');
-      
+      setSentCount(prev => prev + 1);
       toast.success("Photo sent to computer!");
-      
-      // Reset after brief delay
+
       setTimeout(() => {
         setUploadProgress('idle');
         setProgressPercent(0);
-      }, 1500);
-    } catch (error) {
+      }, 1200);
+    } catch (error: any) {
       console.error("Error capturing and sending:", error);
-      toast.error("Failed to send photo");
+      toast.error(error.message || "Failed to send photo");
       setUploadProgress('idle');
       setProgressPercent(0);
     }
@@ -243,6 +231,7 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
     setIsConnected(false);
     setMode('scan');
     setSessionCode("");
+    setSentCount(0);
   };
 
   useEffect(() => {
@@ -262,11 +251,15 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
 
   const handleQrScan = (data: any) => {
     if (data) {
-      const url = new URL(data.text || data);
-      const code = url.searchParams.get('remote');
-      if (code) {
-        setSessionCode(code);
-        connectToSession(code);
+      try {
+        const url = new URL(data.text || data);
+        const code = url.searchParams.get('remote');
+        if (code) {
+          setSessionCode(code);
+          connectToSession(code);
+        }
+      } catch {
+        // Not a valid URL, ignore
       }
     }
   };
@@ -282,7 +275,7 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
         <CardDescription>
           {mode === 'scan' && "Scan QR code or enter session code"}
           {mode === 'manual' && "Enter the session code from your computer"}
-          {mode === 'camera' && "Connected - Take photos to send to computer"}
+          {mode === 'camera' && `Connected — ${sentCount} photo${sentCount !== 1 ? 's' : ''} sent`}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -364,7 +357,6 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
                 className="w-full h-full object-cover"
               />
               
-              {/* Camera controls overlay */}
               <Button
                 onClick={toggleCamera}
                 variant="secondary"
@@ -375,24 +367,20 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
               </Button>
             </div>
 
-            {/* Progress indicator */}
             {uploadProgress !== 'idle' && (
               <div className="space-y-2">
                 <Progress value={progressPercent} className="h-3" />
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-muted-foreground font-medium">
-                    {uploadProgress === 'capturing' && '📸 Capturing photo...'}
-                    {uploadProgress === 'processing' && '⚙️ Processing image...'}
-                    {uploadProgress === 'uploading' && '📤 Uploading to PC...'}
-                    {uploadProgress === 'complete' && '✅ Complete!'}
+                    {uploadProgress === 'capturing' && '📸 Capturing...'}
+                    {uploadProgress === 'processing' && '⚙️ Processing...'}
+                    {uploadProgress === 'uploading' && '📤 Uploading...'}
+                    {uploadProgress === 'complete' && '✅ Sent!'}
                   </span>
                   <span className="text-muted-foreground tabular-nums">
                     {progressPercent}%
                   </span>
                 </div>
-                <p className="text-xs text-center text-muted-foreground">
-                  Est. time: ~{uploadProgress === 'complete' ? '0' : '1-2'}s
-                </p>
               </div>
             )}
 
@@ -415,7 +403,7 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
             {uploadProgress === 'idle' && (
               <div className="bg-muted/50 rounded-lg p-3 text-sm text-center">
                 <p className="text-muted-foreground">
-                  Photos will be sent to your computer for scanning
+                  Photos upload to storage, then the computer scans them
                 </p>
               </div>
             )}
