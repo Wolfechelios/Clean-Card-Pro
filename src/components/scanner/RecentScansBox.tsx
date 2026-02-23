@@ -76,11 +76,11 @@ export function RecentScansBox() {
             <div className="text-xs font-medium text-primary">High Value Cards ($20+)</div>
             <div className="flex flex-wrap gap-1">
               {highValueScans.map((scan) => (
-                <Badge
+            <Badge
                   key={scan.id}
                   variant="outline"
                   className={cn(
-                    "text-[10px] border-primary/50 bg-primary/10",
+                    "text-xs border-primary/50 bg-primary/10",
                     scan.positionBehind === 0 && "border-primary bg-primary/20"
                   )}
                 >
