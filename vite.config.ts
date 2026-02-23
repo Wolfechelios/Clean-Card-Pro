@@ -59,7 +59,6 @@ export default defineConfig(({ mode }) => ({
             purpose: "maskable",
           },
         ],
-        screenshots: [],
         shortcuts: [
           {
             name: "Scan Card",
