@@ -64,15 +64,13 @@ export default defineConfig(({ mode }) => ({
             name: "Scan Card",
             short_name: "Scan",
             url: "/scan",
-            icons: [{ src: "/pwa-192x192.png", sizes: "192x192", type: "image/png" }] as any,
           },
           {
             name: "My Collection",
             short_name: "Collection",
             url: "/collections",
-            icons: [{ src: "/pwa-192x192.png", sizes: "192x192", type: "image/png" }] as any,
           },
-        ],
+        ] as any,
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,jpg,jpeg,webp,woff,woff2}"],
