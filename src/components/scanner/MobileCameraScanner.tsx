@@ -25,7 +25,7 @@ interface MobileCameraScannerProps {
 export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraScannerProps) => {
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const [cameraFacing, setCameraFacing] = useState<'environment' | 'user'>('environment');
+  const cameraFacing = 'environment' as const;
   const [isInitializing, setIsInitializing] = useState(true);
   const [useNativeMode, setUseNativeMode] = useState(isNativePlatform());
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -82,7 +82,7 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
     }
   };
 
-  const startCamera = async (facing: 'environment' | 'user' = cameraFacing, deviceId?: string) => {
+  const startCamera = async (facing: 'environment' = 'environment', deviceId?: string) => {
     try {
       console.log("=== CAMERA START ===");
       console.log("Facing mode:", facing);
@@ -239,7 +239,7 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
       console.log("Video setup complete");
 
       streamRef.current = stream;
-      setCameraFacing(facing);
+      // rear-only, no facing state to update
       setCameraReady(true);
       setIsInitializing(false);
       detectZoomCapabilities();

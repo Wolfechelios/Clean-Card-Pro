@@ -20,7 +20,7 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [sessionId, setSessionId] = useState<string>("");
-  const [cameraFacing, setCameraFacing] = useState<'environment' | 'user'>('environment');
+  const cameraFacing = 'environment' as const;
   const [uploadProgress, setUploadProgress] = useState<'idle' | 'capturing' | 'uploading' | 'complete'>('idle');
   const [progressPercent, setProgressPercent] = useState(0);
   const [sentCount, setSentCount] = useState(0);
@@ -98,7 +98,7 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
     }, 15000);
   };
 
-  const startCamera = async (facing: 'environment' | 'user' = cameraFacing) => {
+  const startCamera = async (facing: 'environment' = 'environment') => {
     try {
       if (!window.isSecureContext && window.location.hostname !== 'localhost') {
         toast.error("Camera requires HTTPS connection.");
@@ -128,7 +128,7 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
         videoRef.current.setAttribute('muted', 'true');
         try { await videoRef.current.play(); } catch {}
         streamRef.current = stream;
-        setCameraFacing(facing);
+        // rear-only, no facing state to update
       }
     } catch (error: any) {
       console.error("Camera error:", error);
@@ -255,9 +255,7 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
     burstActiveRef.current = false;
   };
 
-  const toggleCamera = () => {
-    startCamera(cameraFacing === 'environment' ? 'user' : 'environment');
-  };
+  // Front camera disabled — only rear camera allowed
 
   const disconnect = () => {
     burstActiveRef.current = false;
@@ -375,14 +373,7 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
           <div className="space-y-4">
             <div className="relative aspect-[4/3] bg-black rounded-lg overflow-hidden">
               <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-              <Button
-                onClick={toggleCamera}
-                variant="secondary"
-                size="icon"
-                className="absolute top-3 right-3 rounded-full bg-background/70 hover:bg-background/90"
-              >
-                <SwitchCamera className="h-5 w-5" />
-              </Button>
+              {/* Front camera toggle removed — rear only */}
 
               {burstMode && (
                 <div className="absolute top-3 left-3">
