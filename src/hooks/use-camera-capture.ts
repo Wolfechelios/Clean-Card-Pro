@@ -13,7 +13,7 @@ interface UseCameraCaptureOptions {
 
 export function useCameraCapture({ onCapture }: UseCameraCaptureOptions) {
   const [isCameraActive, setIsCameraActive] = useState(false);
-  const [cameraFacingMode, setCameraFacingMode] = useState<'environment' | 'user'>('environment');
+  const cameraFacingMode = 'environment' as const;
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -22,7 +22,7 @@ export function useCameraCapture({ onCapture }: UseCameraCaptureOptions) {
     streamRef,
   });
 
-  const startCamera = useCallback(async (facingMode: 'environment' | 'user' = cameraFacingMode) => {
+  const startCamera = useCallback(async (facingMode: 'environment' = 'environment') => {
     try {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
@@ -138,8 +138,7 @@ export function useCameraCapture({ onCapture }: UseCameraCaptureOptions) {
           }, 5000);
         });
         
-        setIsCameraActive(true);
-        setCameraFacingMode(facingMode);
+      setIsCameraActive(true);
         
         // Apply fast autofocus
         try {
@@ -179,10 +178,10 @@ export function useCameraCapture({ onCapture }: UseCameraCaptureOptions) {
     setIsCameraActive(false);
   }, []);
 
+  // Front camera disabled — only rear camera allowed
   const toggleCamera = useCallback(() => {
-    const newMode = cameraFacingMode === 'environment' ? 'user' : 'environment';
-    startCamera(newMode);
-  }, [cameraFacingMode, startCamera]);
+    // No-op: front camera is disabled for card scanning
+  }, []);
 
   // Trigger fast focus before capture
   const triggerFocus = useCallback(async () => {
