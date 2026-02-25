@@ -106,6 +106,7 @@ type ScannedCard = {
   libraryQuantity?: number;
   isInLibrary?: boolean;
   imageUrl?: string;
+  addedToLibraryThisSession?: boolean;
 };
 
 type LastOverlay = {
@@ -954,6 +955,7 @@ export default function RapidScanCamera() {
           isInLibrary: true,
           libraryQuantity: Math.max((c.libraryQuantity || 0) + 1, 1),
           priceFetching: false,
+          addedToLibraryThisSession: true,
         });
         // Sync to persistent recent scans
         updateRecentScan(id, { dbId: inserted.id, isInLibrary: true, libraryQuantity: Math.max((c.libraryQuantity || 0) + 1, 1) });
@@ -974,7 +976,7 @@ export default function RapidScanCamera() {
       return;
     }
 
-    const newCards = cards.filter((c) => c.status === "completed" && !c.dbId && c.cardName);
+    const newCards = cards.filter((c) => c.status === "completed" && c.cardName && !c.addedToLibraryThisSession);
     if (newCards.length === 0) {
       toast.info("No new cards to add");
       return;
@@ -1003,6 +1005,7 @@ export default function RapidScanCamera() {
           isInLibrary: true,
           libraryQuantity: Math.max((c.libraryQuantity || 0) + 1, 1),
           priceFetching: false,
+          addedToLibraryThisSession: true,
         });
 
         added++;
