@@ -3,6 +3,7 @@ import { NavBar } from "./NavBar";
 import { ReactNode, Suspense } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAutoSync } from "@/hooks/use-auto-sync";
+import { useDisplayScale } from "@/hooks/use-display-scale";
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -31,6 +32,7 @@ function PageLoader() {
 export default function AppLayout({ children }: AppLayoutProps) {
   // Auto-sync cards for offline use when authenticated
   useAutoSync();
+  useDisplayScale(); // Apply saved display scale on every page
 
   return (
     <div className="min-h-[100dvh] min-h-screen flex w-full bg-background safe-top safe-bottom">

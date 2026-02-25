@@ -18,7 +18,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { LogOut, Trash2, User, Lock, ImageOff, Clock, RefreshCw, Database, ScanLine, ImageIcon, Wand2, Cpu, Key } from "lucide-react";
+import { LogOut, Trash2, User, Lock, ImageOff, Clock, RefreshCw, Database, ScanLine, ImageIcon, Wand2, Cpu, Key, Monitor } from "lucide-react";
+import { useDisplayScale } from "@/hooks/use-display-scale";
 
 import ServiceImportExport from "@/components/settings/ServiceImportExport";
 import DeviceStorageSettings from "@/components/settings/DeviceStorageSettings";
@@ -40,6 +41,7 @@ export default function Settings() {
   const navigate = useNavigate();
   const { user, userId, signOut } = useAuth();
   const { settings: scannerSettings, updateSettings: updateScannerSettings } = useScannerSettings();
+  const { scale, setScale, scaleOptions } = useDisplayScale();
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -408,6 +410,35 @@ setNullRarityCount(missingRarity || 0);
           <Button variant="outline" onClick={() => setShowPasswordDialog(true)}>
             Change Password
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* Display Resolution / Scaling */}
+      <Card className="bg-card border-border">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Monitor className="h-5 w-5" />
+            Display Resolution
+          </CardTitle>
+          <CardDescription>Adjust the UI scaling like a monitor resolution setting</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-5 sm:grid-cols-10 gap-2">
+            {scaleOptions.map((opt) => (
+              <Button
+                key={opt}
+                size="sm"
+                variant={scale === opt ? "default" : "outline"}
+                className="text-xs"
+                onClick={() => setScale(opt)}
+              >
+                {opt}%
+              </Button>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Current: <span className="font-medium text-foreground">{scale}%</span> — Lower values show more content (like a higher resolution monitor), higher values make everything larger.
+          </p>
         </CardContent>
       </Card>
 
