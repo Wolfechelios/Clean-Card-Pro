@@ -1,7 +1,7 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, Smartphone, Monitor, Camera } from "lucide-react";
-import { CameraDevice } from "@/hooks/use-camera-devices";
+import { RefreshCw, Smartphone, Camera, Scan, ZoomIn, Focus, Layers } from "lucide-react";
+import { CameraDevice, LensType } from "@/hooks/use-camera-devices";
 
 interface CameraDeviceSelectorProps {
   devices: CameraDevice[];
@@ -10,6 +10,24 @@ interface CameraDeviceSelectorProps {
   onRefresh: () => void;
   isLoading?: boolean;
   className?: string;
+}
+
+function getLensIcon(lensType: LensType) {
+  switch (lensType) {
+    case "ultrawide":
+      return <Scan className="h-4 w-4 text-primary" />;
+    case "wide":
+      return <Camera className="h-4 w-4 text-primary" />;
+    case "telephoto":
+      return <ZoomIn className="h-4 w-4 text-accent-foreground" />;
+    case "macro":
+    case "depth":
+      return <Focus className="h-4 w-4 text-primary" />;
+    case "usb":
+      return <Smartphone className="h-4 w-4 text-primary" />;
+    default:
+      return <Layers className="h-4 w-4 text-muted-foreground" />;
+  }
 }
 
 export const CameraDeviceSelector = ({
@@ -25,21 +43,15 @@ export const CameraDeviceSelector = ({
   return (
     <div className={`flex items-center gap-2 ${className}`}>
       <Select value={selectedDeviceId} onValueChange={onDeviceChange}>
-        <SelectTrigger className="w-[200px] bg-background/80 backdrop-blur-sm">
-          <SelectValue placeholder="Select camera" />
+        <SelectTrigger className="w-[220px] bg-background/80 backdrop-blur-sm">
+          <SelectValue placeholder="Select lens" />
         </SelectTrigger>
         <SelectContent>
           {devices.map((device) => (
             <SelectItem key={device.deviceId} value={device.deviceId}>
               <div className="flex items-center gap-2">
-                {device.isUSB ? (
-                  <Smartphone className="h-4 w-4 text-primary" />
-                ) : device.label.toLowerCase().includes("front") ? (
-                  <Monitor className="h-4 w-4" />
-                ) : (
-                  <Camera className="h-4 w-4" />
-                )}
-                <span className="truncate max-w-[150px]">{device.label}</span>
+                {getLensIcon(device.lensType)}
+                <span className="truncate max-w-[160px]">{device.lensLabel}</span>
               </div>
             </SelectItem>
           ))}
