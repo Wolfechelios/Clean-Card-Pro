@@ -84,7 +84,7 @@ export default defineConfig(({ mode }) => ({
         launch_handler: {
           client_mode: ["navigate-existing", "auto"]
         }
-      } as any,
+      },
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,json,webmanifest,woff2}"],
         navigateFallback: "/offline.html",
@@ -112,7 +112,7 @@ export default defineConfig(({ mode }) => ({
         enabled: true,
         type: "module"
       }
-    }),
+    } as any),
     mode === "development" && componentTagger(),
   ].filter(Boolean),
   resolve: {
