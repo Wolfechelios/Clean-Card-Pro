@@ -1,3 +1,4 @@
+// @ts-ignore - virtual module provided by vite-plugin-pwa
 import { registerSW } from "virtual:pwa-register";
 
 // Registers the Vite PWA service worker with aggressive update behavior.

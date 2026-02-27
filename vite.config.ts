@@ -44,7 +44,6 @@ export default defineConfig(({ mode }) => ({
         orientation: "portrait-primary",
         scope: "/",
         start_url: "/?source=pwa",
-        id: "clean-cards-pwa",
         lang: "en",
         dir: "ltr",
         categories: ["utilities", "lifestyle", "entertainment"],
@@ -55,7 +54,7 @@ export default defineConfig(({ mode }) => ({
           { src: "/pwa-512x512.png", sizes: "512x512", type: "image/png", purpose: "maskable" }
         ],
         screenshots: [
-          { src: "/pwa-512x512.png", sizes: "512x512", type: "image/png", form_factor: "narrow", label: "Clean Cards Home" }
+          { src: "/pwa-512x512.png", sizes: "512x512", type: "image/png", label: "Clean Cards Home" } as any
         ],
         shortcuts: [
           {
@@ -63,21 +62,21 @@ export default defineConfig(({ mode }) => ({
             short_name: "Scan",
             description: "Scan a new trading card",
             url: "/scan?source=shortcut",
-            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }]
+            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }] as any
           },
           {
             name: "My Collection",
             short_name: "Collection",
             description: "View your card collection",
             url: "/collections?source=shortcut",
-            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }]
+            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }] as any
           },
           {
             name: "Dashboard",
             short_name: "Dashboard",
             description: "View collection stats",
             url: "/dashboard?source=shortcut",
-            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }]
+            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }] as any
           }
         ],
         display_override: ["standalone", "minimal-ui"],
@@ -92,7 +91,7 @@ export default defineConfig(({ mode }) => ({
         navigateFallbackDenylist: [/^\/api\//, /\/supabase\//],
         runtimeCaching: [
           {
-            urlPattern: ({ request, url }) => request.method === "GET" && url.origin === self.location.origin && url.pathname.startsWith("/assets/"),
+            urlPattern: ({ request, url }: { request: Request; url: URL }) => request.method === "GET" && url.pathname.startsWith("/assets/"),
             handler: "CacheFirst",
             options: {
               cacheName: "assets-v1",

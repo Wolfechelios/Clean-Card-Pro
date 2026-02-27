@@ -19,6 +19,7 @@ import {
   type ParsedSet,
   type SetCompletion,
 } from "@/lib/priceChartingImport";
+
 import { SetEditDialog } from "@/components/price-db/SetEditDialog";
 import { MergeSetsDialog } from "@/components/price-db/MergeSetsDialog";
 import { SetCardsList } from "@/components/price-db/SetCardsList";
@@ -94,10 +95,8 @@ function PriceDBContent({ userId }: { userId: string }) {
     setProgress(0);
     setProgressMsg("Importing...");
     try {
-      const result = await importParsedSets(userId, pendingSets, (done, total) => {
-        setProgress(Math.round((done / total) * 100));
-      });
-      toast.success(`Imported ${result.cardsImported} cards across ${result.setsImported} new sets${result.setsUpdated ? `, updated ${result.setsUpdated} sets` : ""}`);
+      const result = await importParsedSets(userId, pendingSets);
+      toast.success(`Imported ${result.length} cards`);
       setPendingSets([]);
       fetchSets();
     } catch (err) {

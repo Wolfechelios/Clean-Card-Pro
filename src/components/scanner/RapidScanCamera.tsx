@@ -48,10 +48,7 @@ import {
 } from "@/lib/idbQueue";
 import { compressImageForQueue } from "@/lib/imageCompressor";
 import { applyFastAutofocus, applyAutoColorBalance, applyAntiGlare } from "@/lib/camera-optimizations";
-<<<<<<< HEAD
-=======
 import { DEFAULT_TUNING, nextAutoCaptureState, rgbaToGray, meanAbsDiff, type AutoCaptureState } from "@/lib/visionAutoCapture";
->>>>>>> test-
 import { useQueueProcessor } from "@/lib/queueProcessor";
 import { getRecentScans, clearAllRecentScans, removeRecentScan, updateRecentScan } from "@/lib/recentScans";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
@@ -67,30 +64,9 @@ import { useVoiceCommand } from "@/hooks/use-voice-command";
 import { useCameraDevices } from "@/hooks/use-camera-devices";
 import { CameraDeviceSelector } from "./CameraDeviceSelector";
 import { WhiteBalanceControl } from "./WhiteBalanceControl";
-<<<<<<< HEAD
 import { useGpuOffloadStream } from "@/hooks/use-gpu-offload-stream";
 import { makeVideoFrameEncoder } from "@/lib/gpuOffload/frameEncoder";
 import { playKachingBeep, playShutterBeep } from "@/lib/audioBeeps";
-=======
-import kachingSound from "@/assets/kaching.wav";
-import { useGpuOffloadStream } from "@/hooks/use-gpu-offload-stream";
-import { makeVideoFrameEncoder } from "@/lib/gpuOffload/frameEncoder";
-
-// Ka-ching sound for $10+ cards
-let kachingAudio: HTMLAudioElement | null = null;
-function playKachingSound() {
-  try {
-    if (!kachingAudio) {
-      kachingAudio = new Audio(kachingSound);
-      kachingAudio.volume = 0.8;
-    }
-    kachingAudio.currentTime = 0;
-    kachingAudio.play().catch(() => {});
-  } catch {
-    // Ignore audio errors
-  }
-}
->>>>>>> test-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TUNING
@@ -168,8 +144,6 @@ export default function RapidScanCamera() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const trackRef = useRef<MediaStreamTrack | null>(null);
-<<<<<<< HEAD
-=======
   // Auto-capture stability detector (optional)
   const autoCaptureStateRef = useRef<AutoCaptureState>({
     phase: "idle",
@@ -179,7 +153,6 @@ export default function RapidScanCamera() {
   });
   const autoCapturePrevGrayRef = useRef<Uint8Array | null>(null);
   const autoCaptureLastSampleAtRef = useRef<number>(0);
->>>>>>> test-
   const startingCameraRef = useRef(false);
 
   const [cameraOn, setCameraOn] = useState(false);
@@ -229,16 +202,13 @@ export default function RapidScanCamera() {
     enabled: settings.voiceCaptureEnabled && (isNative || cameraOn),
     keyword: settings.voiceCaptureKeyword,
     onMatch: () => {
-      // Prevent double-triggers from interim results
       captureNow();
     },
   });
 
-<<<<<<< HEAD
-=======
   // Optional hands-free auto-capture: triggers a capture when motion settles and the view becomes stable.
   useEffect(() => {
-    if (isNative) return; // native camera path does not expose video frames here
+    if (isNative) return;
     if (!settings.autoCaptureEnabled) return;
     if (!cameraOn) return;
 
@@ -264,11 +234,10 @@ export default function RapidScanCamera() {
 
       const v = videoRef.current;
       if (!v) return;
-      if (v.readyState < 2) return; // not enough data
+      if (v.readyState < 2) return;
       if (busyCapture) return;
 
       const now = performance.now();
-      // cap analysis FPS
       if (now - autoCaptureLastSampleAtRef.current < 120) return;
       autoCaptureLastSampleAtRef.current = now;
 
@@ -288,7 +257,6 @@ export default function RapidScanCamera() {
         autoCaptureStateRef.current = res.state;
 
         if (res.shouldCapture) {
-          // Fire and forget to avoid blocking the render loop.
           captureNow();
         }
       } catch {
@@ -304,7 +272,6 @@ export default function RapidScanCamera() {
     };
   }, [isNative, settings.autoCaptureEnabled, cameraOn, busyCapture, captureNow]);
 
->>>>>>> test-
   // Zoom
   const {
     zoomLevel,
@@ -321,7 +288,7 @@ export default function RapidScanCamera() {
     zoomLevel,
     minZoom: zoomCapabilities.min,
     setZoom,
-    enabled: settings.autoZoomEnabled !== false, // enabled by default
+    enabled: settings.autoZoomEnabled !== false,
   });
 
   // UI list - hydrate from persistent recentScans on mount
@@ -346,35 +313,29 @@ export default function RapidScanCamera() {
       priceFetching: false,
     }));
   });
-<<<<<<< HEAD
-  const [showAllCards, setShowAllCards] = useState(false);
-  const CARD_LIST_RENDER_LIMIT = 30;
-  const [overlay, setOverlay] = useState<LastOverlay | null>(null);
-=======
   const CARD_LIST_RENDER_LIMIT = 30;
   const [showAllCards, setShowAllCards] = useState(false);
   const [renderedCount, setRenderedCount] = useState(CARD_LIST_RENDER_LIMIT);
 
-// Incremental rendering guard: avoids rendering thousands of DOM nodes at once
-useEffect(() => {
-  if (!showAllCards) {
-    setRenderedCount(CARD_LIST_RENDER_LIMIT);
-    return;
-  }
-  // When switching to "show all", start with a modest window and grow on demand
-  setRenderedCount((prev) => Math.max(prev, Math.min(cards.length, CARD_LIST_RENDER_LIMIT * 2)));
-}, [showAllCards, cards.length]);
+  // Incremental rendering guard: avoids rendering thousands of DOM nodes at once
+  useEffect(() => {
+    if (!showAllCards) {
+      setRenderedCount(CARD_LIST_RENDER_LIMIT);
+      return;
+    }
+    setRenderedCount((prev) => Math.max(prev, Math.min(cards.length, CARD_LIST_RENDER_LIMIT * 2)));
+  }, [showAllCards, cards.length]);
 
-const loadMoreCards = useCallback(() => {
-  setRenderedCount((prev) => Math.min(cards.length, prev + 50));
-}, [cards.length]);
+  const loadMoreCards = useCallback(() => {
+    setRenderedCount((prev) => Math.min(cards.length, prev + 50));
+  }, [cards.length]);
 
-const cardsToRender = useMemo(() => {
-  if (!showAllCards) return cards.slice(0, CARD_LIST_RENDER_LIMIT);
-  return cards.slice(0, renderedCount);
-}, [cards, showAllCards, renderedCount]);
-    const [overlay, setOverlay] = useState<LastOverlay | null>(null);
->>>>>>> test-
+  const cardsToRender = useMemo(() => {
+    if (!showAllCards) return cards.slice(0, CARD_LIST_RENDER_LIMIT);
+    return cards.slice(0, renderedCount);
+  }, [cards, showAllCards, renderedCount]);
+
+  const [overlay, setOverlay] = useState<LastOverlay | null>(null);
 
   // Initialize frame encoder once (browser-only)
   useEffect(() => {
@@ -441,7 +402,6 @@ const cardsToRender = useMemo(() => {
   // ───────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    // Best-effort auth
     supabase.auth
       .getUser()
       .then(({ data }) => setUserId(data.user?.id ?? null))
@@ -453,7 +413,7 @@ const cardsToRender = useMemo(() => {
     await queueProcessor.refreshQueue();
   }, [queueProcessor.refreshQueue]);
 
-  // Throttled meta refresh: avoids hammering IndexedDB every capture/worker tick.
+  // Throttled meta refresh
   const lastMetaRefreshAtRef = useRef(0);
   const metaRefreshTimerRef = useRef<number | null>(null);
 
@@ -462,14 +422,12 @@ const cardsToRender = useMemo(() => {
     const now = Date.now();
     const elapsed = now - lastMetaRefreshAtRef.current;
 
-    // Refresh immediately if enough time has passed.
     if (elapsed >= MIN_INTERVAL_MS) {
       lastMetaRefreshAtRef.current = now;
       refreshMeta();
       return;
     }
 
-    // Otherwise, schedule a single refresh.
     if (metaRefreshTimerRef.current != null) return;
 
     metaRefreshTimerRef.current = window.setTimeout(() => {
@@ -499,7 +457,6 @@ const cardsToRender = useMemo(() => {
   }, []);
 
   const removeCard = useCallback(async (id: string) => {
-    // remove from list (and free any object URL preview)
     setCards((prev) => {
       const target = prev.find((c) => c.id === id);
       if (target?.preview) {
@@ -509,9 +466,7 @@ const cardsToRender = useMemo(() => {
       }
       return prev.filter((c) => c.id !== id);
     });
-    // remove from persistent recent scans
     removeRecentScan(id);
-    // remove from queue if still exists
     try {
       await idbDelete(id);
     } catch {
@@ -535,7 +490,6 @@ const cardsToRender = useMemo(() => {
     startingCameraRef.current = true;
 
     try {
-      // Build video constraints - use specific device if selected, otherwise environment-facing
       const videoConstraints: MediaTrackConstraints = {
         width: { ideal: 1920 },
         height: { ideal: 1080 },
@@ -557,11 +511,9 @@ const cardsToRender = useMemo(() => {
       trackRef.current = getVideoTrack(stream);
       setSupport(detectSupport(trackRef.current));
 
-      // Optional: manual focus lock (best-effort; many browsers ignore this)
       if (settings.manualFocusLock) {
         try {
           const track = trackRef.current;
-          // Try common constraint shapes
           await track?.applyConstraints?.({ advanced: [{ focusMode: "manual" } as MediaTrackConstraintSet] });
         } catch {
           // ignore
@@ -574,7 +526,6 @@ const cardsToRender = useMemo(() => {
         return;
       }
       
-      // Stop any existing stream first
       if (v.srcObject) {
         const oldStream = v.srcObject as MediaStream;
         oldStream.getTracks().forEach(t => t.stop());
@@ -582,7 +533,6 @@ const cardsToRender = useMemo(() => {
       
       v.srcObject = stream;
       
-      // Wait for video to be ready before playing
       await new Promise<void>((resolve, reject) => {
         const onCanPlay = () => {
           v.removeEventListener('canplay', onCanPlay);
@@ -597,7 +547,6 @@ const cardsToRender = useMemo(() => {
         v.addEventListener('canplay', onCanPlay);
         v.addEventListener('error', onError);
         
-        // If already ready, resolve immediately
         if (v.readyState >= 3) {
           v.removeEventListener('canplay', onCanPlay);
           v.removeEventListener('error', onError);
@@ -605,11 +554,9 @@ const cardsToRender = useMemo(() => {
         }
       });
       
-      // Now safe to play
       try {
         await v.play();
       } catch (playErr: any) {
-        // Ignore AbortError from interrupted play - video is still working
         if (playErr?.name !== 'AbortError') {
           throw playErr;
         }
@@ -618,29 +565,20 @@ const cardsToRender = useMemo(() => {
       setCameraOn(true);
       setStatusLine("Camera live — tap Capture for each card");
       
-      // Signal scanner active to pause expensive renders elsewhere
       useGlobalProcessControl.getState().setScannerActive(true);
 
-      // Zoom capabilities
       detectZoomCapabilities();
-
-      // Reset clarity zoom tracking on camera start
       clarityZoom.reset();
 
-      // Apply macro focus + color balancing optimizations
       try {
-        await applyFastAutofocus(stream, true); // enableMacro = true
+        await applyFastAutofocus(stream, true);
       } catch {
-        // Fallback: basic continuous autofocus
         try {
           await trackRef.current?.applyConstraints({
             advanced: [{ focusMode: "continuous" } as any],
           });
         } catch {}
       }
-
-      // Workers start automatically once you enqueue
-      // Workers start automatically once you enqueue
     } catch (err: any) {
       setStatusLine(`Camera error: ${err?.message ?? err}`);
       toast.error("Camera failed to start");
@@ -650,7 +588,6 @@ const cardsToRender = useMemo(() => {
   }
 
   async function stopCamera() {
-    // torch off (best-effort)
     if (torchOn) {
       await setTorch(trackRef.current, false);
       setTorchOn(false);
@@ -662,12 +599,7 @@ const cardsToRender = useMemo(() => {
     setCameraOn(false);
     setStatusLine("Camera stopped");
     
-    // Signal scanner inactive
     useGlobalProcessControl.getState().setScannerActive(false);
-<<<<<<< HEAD
-  }
-
-=======
 
     // Clear video element to release decoder resources (important on mobile)
     if (videoRef.current) {
@@ -679,7 +611,6 @@ const cardsToRender = useMemo(() => {
   useEffect(() => {
     return () => {
       try {
-        // Best-effort: stop camera if still running
         if (streamRef.current) {
           streamRef.current.getTracks().forEach((t) => t.stop());
           streamRef.current = null;
@@ -690,7 +621,6 @@ const cardsToRender = useMemo(() => {
     };
   }, []);
 
->>>>>>> test-
   // Pinch-to-zoom state
   const pinchRef = useRef<{ initialDistance: number; initialZoom: number } | null>(null);
 
@@ -734,12 +664,10 @@ const cardsToRender = useMemo(() => {
       const x = (e.clientX - rect.left) / rect.width;
       const y = (e.clientY - rect.top) / rect.height;
       
-      // Trigger focus point if supported
       if (support.focus) {
         await setFocusPoint(trackRef.current, { x, y });
       }
       
-      // Also trigger a fast autofocus via constraint
       if (trackRef.current?.applyConstraints) {
         try {
           await trackRef.current.applyConstraints({
@@ -750,7 +678,7 @@ const cardsToRender = useMemo(() => {
             advanced: [{ focusMode: "continuous" } as any],
           });
         } catch {
-          // Ignore - some devices don't support focus mode changes
+          // Ignore
         }
       }
     },
@@ -785,23 +713,8 @@ const cardsToRender = useMemo(() => {
   // SHUTTER SOUND
   // ───────────────────────────────────────────────────────────────────────────
 
-<<<<<<< HEAD
   const playShutterSound = useCallback(() => {
     playShutterBeep();
-=======
-  const shutterAudioRef = useRef<HTMLAudioElement | null>(null);
-
-  useEffect(() => {
-    shutterAudioRef.current = new Audio("/sounds/shutter.mp3");
-    shutterAudioRef.current.volume = 0.5;
-  }, []);
-
-  const playShutterSound = useCallback(() => {
-    if (shutterAudioRef.current) {
-      shutterAudioRef.current.currentTime = 0;
-      shutterAudioRef.current.play().catch(() => {});
-    }
->>>>>>> test-
   }, []);
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -845,7 +758,6 @@ const cardsToRender = useMemo(() => {
         ...prev,
       ]);
 
-      // Compress image before storing to reduce memory pressure
       const compressedBlob = await compressImageForQueue(result.blob);
 
       await idbAdd({
@@ -860,8 +772,6 @@ const cardsToRender = useMemo(() => {
       setStatusLine("Captured — processing in background");
       setOverlay({ label: "Captured…" });
 
-<<<<<<< HEAD
-=======
       // Progressive zoom-out after each snap to keep card in frame
       try {
         if (zoomCapabilities.supported && typeof zoomLevel === "number") {
@@ -873,7 +783,6 @@ const cardsToRender = useMemo(() => {
         // ignore zoom errors
       }
 
->>>>>>> test-
       requestRefreshMeta();
       ensureWorkersRunning();
     } catch (e: any) {
@@ -910,7 +819,6 @@ const cardsToRender = useMemo(() => {
         return;
       }
 
-      // Make capture resolution match the actual camera feed.
       const w = v.videoWidth || 1920;
       const h = v.videoHeight || 1080;
       c.width = w;
@@ -919,21 +827,14 @@ const cardsToRender = useMemo(() => {
       const ctx = c.getContext("2d", { willReadFrequently: false });
       if (!ctx) throw new Error("Canvas not available");
 
-      // Draw current frame
       ctx.drawImage(v, 0, 0, w, h);
-
-      // Apply auto color balance correction (gray-world) for accurate card colors
       applyAutoColorBalance(ctx, c, 0.5);
-
-      // Apply light anti-glare to reduce hotspots on glossy/holo cards
       applyAntiGlare(ctx, c, 0.2);
 
-      // Check clarity and auto zoom-out if needed (for card stacks)
       if (settings.autoZoomEnabled) {
         clarityZoom.analyzeAndAdjustZoom(v).catch(() => {});
       }
 
-      // Convert to high-quality JPEG
       const blob: Blob | null = await new Promise((resolve) =>
         c.toBlob(resolve, "image/jpeg", 0.95)
       );
@@ -941,7 +842,6 @@ const cardsToRender = useMemo(() => {
 
       const id = safeUUID();
 
-      // Local preview immediately
       const localUrl = URL.createObjectURL(blob);
       setCards((prev) => [
         {
@@ -955,7 +855,6 @@ const cardsToRender = useMemo(() => {
         ...prev,
       ]);
 
-      // Compress and persist into queue to reduce memory pressure
       const compressedBlob = await compressImageForQueue(blob);
       
       await idbAdd({
@@ -970,8 +869,6 @@ const cardsToRender = useMemo(() => {
       setStatusLine("Captured — processing in background");
       setOverlay({ label: "Captured…" });
 
-<<<<<<< HEAD
-=======
       // Progressive zoom-out after each snap to keep card in frame
       try {
         if (zoomCapabilities.supported && typeof zoomLevel === "number") {
@@ -983,7 +880,6 @@ const cardsToRender = useMemo(() => {
         // ignore zoom errors
       }
 
->>>>>>> test-
       requestRefreshMeta();
       ensureWorkersRunning();
     } catch (e: any) {
@@ -1003,10 +899,8 @@ const cardsToRender = useMemo(() => {
     setAutoTimerActive(true);
     setAutoTimerCountdown(autoTimerSeconds);
     
-    // Capture immediately on start
     captureAndEnqueue();
     
-    // Then capture every N seconds
     autoTimerRef.current = setInterval(() => {
       setAutoTimerCountdown((prev) => {
         if (prev <= 1) {
@@ -1027,7 +921,6 @@ const cardsToRender = useMemo(() => {
     }
   }, []);
 
-  // Cleanup timer on unmount or camera stop
   useEffect(() => {
     if (!cameraOn && autoTimerActive) {
       stopAutoTimer();
@@ -1047,7 +940,6 @@ const cardsToRender = useMemo(() => {
   // ───────────────────────────────────────────────────────────────────────────
 
   function ensureWorkersRunning() {
-    // Start the global queue processor
     queueProcessor.start();
   }
 
@@ -1075,11 +967,7 @@ const cardsToRender = useMemo(() => {
 
     // Play ka-ching sound for cards worth $10+
     if (typeof card.value === "number" && card.value >= 10) {
-<<<<<<< HEAD
       playKachingBeep();
-=======
-      playKachingSound();
->>>>>>> test-
     }
 
     setOverlay({
@@ -1138,7 +1026,6 @@ const cardsToRender = useMemo(() => {
           priceFetching: false,
           addedToLibraryThisSession: true,
         });
-        // Sync to persistent recent scans
         updateRecentScan(id, { dbId: inserted.id, isInLibrary: true, libraryQuantity: Math.max((c.libraryQuantity || 0) + 1, 1) });
 
         toast.success("Saved to library");
@@ -1331,7 +1218,7 @@ const cardsToRender = useMemo(() => {
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
-            {/* 3-way mode toggle - larger touch targets for mobile */}
+            {/* 3-way mode toggle */}
             <div className="flex rounded-lg border overflow-hidden">
               <Button
                 variant={settings.scanMode === "SAVE" ? "default" : "ghost"}
@@ -1378,21 +1265,16 @@ const cardsToRender = useMemo(() => {
         </div>
 
         <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_300px] landscape:grid-cols-[1fr_260px]">
-          {/* Camera preview - maximized for trading card scanning */}
+          {/* Camera preview */}
           <div className="relative overflow-hidden rounded-xl border-2 border-primary/30 bg-black touch-none shadow-lg">
             <video
               ref={videoRef}
               className={cn(
-                // Trading card optimized: fill most of viewport for easy framing
-              "w-full object-contain cursor-crosshair",
-                // Mobile: tall but capped to prevent stretching on ultra-tall phones
+                "w-full object-contain cursor-crosshair",
                 "h-[65vh] min-h-[400px] max-h-[700px]",
-                // Tablet: still large but bounded
                 "sm:h-[60vh] sm:min-h-[420px] sm:max-h-[650px]",
-                // Desktop: generous fixed height for precision
                 "md:h-[560px] md:min-h-0 md:max-h-none",
                 "lg:h-[600px]",
-                // Landscape: maximize horizontal space
                 "landscape:h-[70vh] landscape:min-h-[300px] landscape:max-h-[500px]",
                 usingDigitalZoom && zoomLevel > 1 && "transition-transform duration-100"
               )}
@@ -1414,7 +1296,6 @@ const cardsToRender = useMemo(() => {
                   aspectRatio: "5/7",
                 }}
               >
-                {/* Corner markers for precise alignment */}
                 <div className="absolute -top-1 -left-1 w-6 h-6 border-t-2 border-l-2 border-white/70 rounded-tl" />
                 <div className="absolute -top-1 -right-1 w-6 h-6 border-t-2 border-r-2 border-white/70 rounded-tr" />
                 <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-2 border-l-2 border-white/70 rounded-bl" />
@@ -1424,9 +1305,8 @@ const cardsToRender = useMemo(() => {
             <canvas ref={canvasRef} className="hidden" />
 
             {flashActive && <div className="capture-flash" />}
-            {flashActive && <div className="capture-flash" />}
 
-            {/* Torch dimmer overlay - reduces glare when scanning shiny cards */}
+            {/* Torch dimmer overlay */}
             {torchOn && torchDimmer < 100 && (
               <div 
                 className="pointer-events-none absolute inset-0 bg-black/80 transition-opacity duration-200"
@@ -1434,7 +1314,7 @@ const cardsToRender = useMemo(() => {
               />
             )}
 
-            {/* Pinch zoom indicator - only show when zoomed */}
+            {/* Pinch zoom indicator */}
             {cameraOn && zoomCapabilities.supported && zoomLevel > 1 && (
               <div className="absolute top-3 right-3 z-10">
                 <div className="bg-black/70 rounded-full px-3 py-1.5 flex items-center gap-2">
@@ -1541,10 +1421,8 @@ const cardsToRender = useMemo(() => {
                       selectedDeviceId={selectedDeviceId}
                       onDeviceChange={async (deviceId) => {
                         setSelectedDeviceId(deviceId);
-                        // If camera is running, restart with new device
                         if (cameraOn) {
                           await stopCamera();
-                          // Small delay to ensure camera is fully stopped
                           setTimeout(() => startCamera(), 100);
                         }
                       }}
@@ -1588,7 +1466,7 @@ const cardsToRender = useMemo(() => {
                       >
                         {torchOn ? <FlashlightOff className="h-6 w-6" /> : <Flashlight className="h-6 w-6" />}
                       </Button>
-                      {/* Torch dimmer slider - reduces glare for shiny cards */}
+                      {/* Torch dimmer slider */}
                       {torchOn && support.torch && (
                         <div className="flex items-center gap-2 bg-muted/50 rounded-lg px-3 py-2 h-14">
                           <SunDim className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -1664,7 +1542,7 @@ const cardsToRender = useMemo(() => {
                   </div>
                 )}
 
-                {/* Zoom reset button - pinch controls are now on video */}
+                {/* Zoom reset button */}
                 {!isNative && cameraOn && zoomLevel > 1 && (
                   <Button
                     variant="outline"
@@ -1716,11 +1594,7 @@ const cardsToRender = useMemo(() => {
       {cards.length > CARD_LIST_RENDER_LIMIT && (
         <div className="mb-2 flex items-center justify-between">
           <div className="text-xs text-muted-foreground">
-<<<<<<< HEAD
-            Showing {showAllCards ? cards.length : Math.min(cards.length, CARD_LIST_RENDER_LIMIT)} of {cards.length}
-=======
             Showing {showAllCards ? Math.min(renderedCount, cards.length) : Math.min(cards.length, CARD_LIST_RENDER_LIMIT)} of {cards.length}
->>>>>>> test-
           </div>
           <Button
             variant="ghost"
@@ -1729,27 +1603,20 @@ const cardsToRender = useMemo(() => {
           >
             {showAllCards ? "Show less" : `Show all (${cards.length})`}
           </Button>
-<<<<<<< HEAD
-=======
-{showAllCards && renderedCount < cards.length && (
-  <Button
-    variant="ghost"
-    size="sm"
-    onClick={loadMoreCards}
-  >
-    Load more (+50)
-  </Button>
-)}
->>>>>>> test-
+          {showAllCards && renderedCount < cards.length && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={loadMoreCards}
+            >
+              Load more (+50)
+            </Button>
+          )}
         </div>
       )}
 
       <ScannedCardList
-<<<<<<< HEAD
-        cards={showAllCards ? cards : cards.slice(0, CARD_LIST_RENDER_LIMIT)}
-=======
         cards={cardsToRender}
->>>>>>> test-
         onCardUpdate={(id, updates) => updateCard(id, updates as any)}
         onCardDelete={(id) => removeCard(id)}
         scanMode={true}
@@ -1761,11 +1628,9 @@ const cardsToRender = useMemo(() => {
         onReorder={(orderedIds) => {
           setCards((prev) => {
             const byId = new Map(prev.map((c) => [c.id, c]));
-            // Only reorder completed cards; keep non-completed at top
             const completed = prev.filter((c) => c.status === "completed");
             const rest = prev.filter((c) => c.status !== "completed");
             const nextCompleted = orderedIds.map((id) => byId.get(id)).filter(Boolean) as any[];
-            // Fallback for any missing
             const missing = completed.filter((c) => !orderedIds.includes(c.id));
             return [...rest, ...nextCompleted, ...missing];
           });

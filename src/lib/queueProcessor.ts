@@ -7,10 +7,7 @@
 import { create } from "zustand";
 import { supabase } from "@/integrations/supabase/client";
 import { withRetry } from "@/lib/retry";
-<<<<<<< HEAD
-=======
 import { withTimeout } from "@/lib/async/withTimeout";
->>>>>>> test-
 import { getScannerSettings } from "@/hooks/use-scanner-settings";
 import { canProcessFrame, markFrameStart, markFrameEnd } from "@/lib/performance/pipelineGuards";
 import { MEMORY_CONFIG } from "@/lib/performance/memoryConfig";
@@ -82,11 +79,9 @@ type ProcessorStore = ProcessorState & {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
-const WORKER_SCALE_INTERVAL_MS = 500; // Scale check interval
-const QUEUE_REFRESH_INTERVAL_MS = 2000; // Only refresh UI queue every 2s
+const WORKER_SCALE_INTERVAL_MS = 500;
+const QUEUE_REFRESH_INTERVAL_MS = 2000;
 
-<<<<<<< HEAD
-=======
 // Pricing cache: reduces repeated edge-function calls during rapid scanning
 const PRICE_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const priceCache = new Map<string, { ts: number; value: number | null }>();
@@ -118,7 +113,6 @@ function getCachedPrice(key: string): number | null | undefined {
   return hit.value;
 }
 
->>>>>>> test-
 // Dynamic config from device tier
 import { getDeviceTier } from "@/lib/performance/deviceTier";
 
@@ -128,15 +122,11 @@ function getPollIntervalMs(): number { return getDeviceTier().pollIntervalMs; }
 function getMaxWorkerCount(): number {
   const tier = getDeviceTier();
   const userSetting = getScannerSettings().batchScanSize || tier.maxWorkers;
-<<<<<<< HEAD
-  return Math.min(userSetting, tier.maxWorkers);
-=======
   // Never allow more workers than the pipeline in-flight guard
   return Math.min(userSetting, tier.maxWorkers, tier.maxInFlightFrames);
->>>>>>> test-
 }
 
-// Adaptive scaling: start with fewer workers and scale up based on queue size
+// Adaptive scaling
 function getTargetWorkerCount(queueSize: number, maxWorkers: number): number {
   if (queueSize <= 0) return 0;
   return Math.min(queueSize, maxWorkers);
@@ -153,7 +143,6 @@ function scheduleQueueRefresh() {
     useQueueProcessor.getState().refreshQueue();
     return;
   }
-  // Schedule if not already scheduled
   if (!pendingQueueRefresh) {
     const delay = QUEUE_REFRESH_INTERVAL_MS - (now - lastQueueRefreshAt);
     pendingQueueRefresh = setTimeout(() => {
@@ -186,7 +175,6 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
 
   stop: () => {
     set({ isRunning: false, isPaused: false });
-    // Reset worker count so next start works properly
     workersActive = 0;
     if (scalingInterval) {
       clearInterval(scalingInterval);
@@ -204,7 +192,6 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
 
   refreshQueue: async () => {
     const queuedCount = await idbCountQueued();
-    // Use fast meta loading that doesn't load blobs
     const all = await idbListMetaFast();
     set({
       queueCount: queuedCount,
@@ -237,15 +224,13 @@ function money(n: number | null | undefined) {
   return Math.round(n * 100) / 100;
 }
 
-<<<<<<< HEAD
-=======
 async function invokeEdgeFunction<T = any>(
   name: string,
   body: any,
   opts?: { timeoutMs?: number; retries?: number; retryDelayMs?: number }
 ): Promise<{ data?: T; error?: any }> {
   const timeoutMs = opts?.timeoutMs ?? 8000;
-  const retries = Math.max(0, Math.min(opts?.retries ?? 2, 3)); // cap
+  const retries = Math.max(0, Math.min(opts?.retries ?? 2, 3));
   const retryDelayMs = opts?.retryDelayMs ?? 250;
 
   let lastErr: any = null;
@@ -259,7 +244,6 @@ async function invokeEdgeFunction<T = any>(
       return res as any;
     } catch (e: any) {
       lastErr = e;
-      // Don't retry timeouts endlessly; small capped retries only
       if (i < retries) await sleep(retryDelayMs * (i + 1));
     }
   }
@@ -309,7 +293,6 @@ async function cachedFetchPrice(args: {
   return p;
 }
 
->>>>>>> test-
 async function getUserId(): Promise<string | null> {
   try {
     const { data } = await supabase.auth.getUser();
@@ -326,21 +309,17 @@ async function getUserId(): Promise<string | null> {
 let workersActive = 0;
 let scalingInterval: ReturnType<typeof setInterval> | null = null;
 
-// When the backend rate-limits, pause all workers briefly to avoid marking jobs as permanent errors.
 let rateLimitUntil = 0;
 function isRateLimitError(e: unknown): boolean {
   return /rate limit|429/i.test(String((e as any)?.message ?? e));
 }
 
 function startWorkers() {
-  // Start with just 1 worker initially
-  // (workersActive can go negative if the app was stopped mid-loop; clamp it)
   if (workersActive <= 0) {
     workersActive = 1;
     workerLoop(0);
   }
   
-  // Start adaptive scaling interval
   if (!scalingInterval) {
     scalingInterval = setInterval(async () => {
       const store = useQueueProcessor.getState();
@@ -352,12 +331,10 @@ function startWorkers() {
         return;
       }
       
-      // Use idbCountQueued to count actually processable items
       const queueSize = await idbCountQueued();
       const maxWorkers = getMaxWorkerCount();
       const targetWorkers = getTargetWorkerCount(queueSize, maxWorkers);
       
-      // Scale up if needed
       while (workersActive < targetWorkers && store.isRunning) {
         const newWorkerId = workersActive;
         workersActive++;
@@ -368,7 +345,6 @@ function startWorkers() {
   }
 }
 
-// Cache for scaling decisions - avoid hitting IDB on every loop iteration
 let cachedQueueSize = 0;
 let lastScaleCheckAt = 0;
 const SCALE_CHECK_INTERVAL_MS = 500;
@@ -378,29 +354,23 @@ async function workerLoop(workerId: number) {
   let consecutiveEmpty = 0;
 
   while (store().isRunning) {
-    // Paused? Wait
     if (store().isPaused) {
       await sleep(getPollIntervalMs());
       continue;
     }
 
-    // Global backoff when upstream rate-limits
     const now = Date.now();
     if (rateLimitUntil > now) {
       await sleep(Math.min(getPollIntervalMs(), rateLimitUntil - now));
       continue;
     }
-<<<<<<< HEAD
-=======
-// Max in-flight guard (prevents worker pileups under load / mobile thermals)
-if (!canProcessFrame()) {
-  await sleep(getPollIntervalMs());
-  continue;
-}
 
->>>>>>> test-
+    // Max in-flight guard (prevents worker pileups under load / mobile thermals)
+    if (!canProcessFrame()) {
+      await sleep(getPollIntervalMs());
+      continue;
+    }
 
-    // Check scaling only periodically to avoid IDB hammering
     if (workerId > 0 && now - lastScaleCheckAt > SCALE_CHECK_INTERVAL_MS) {
       lastScaleCheckAt = now;
       cachedQueueSize = await idbCountQueued();
@@ -413,12 +383,10 @@ if (!canProcessFrame()) {
       }
     }
 
-    // Try to get next job - this is the main IDB read per iteration
     const next = await idbGetNextQueued();
     if (!next) {
       consecutiveEmpty++;
       
-      // Only do expensive count check after multiple empty polls
       if (consecutiveEmpty >= 3) {
         const queuedCount = await idbCountQueued();
         store()._setQueueCount(queuedCount);
@@ -437,10 +405,6 @@ if (!canProcessFrame()) {
     consecutiveEmpty = 0;
 
     try {
-<<<<<<< HEAD
-      await processJob(next);
-      store()._incrementProcessed();
-=======
       markFrameStart();
       try {
         await processJob(next);
@@ -448,7 +412,6 @@ if (!canProcessFrame()) {
       } finally {
         markFrameEnd();
       }
->>>>>>> test-
     } catch (e: any) {
       const msg = String(e?.message ?? e);
       console.error(`[Worker ${workerId}] Job failed:`, e);
@@ -462,10 +425,7 @@ if (!canProcessFrame()) {
       }
     }
 
-    // Throttled queue refresh for UI - don't block the worker
     scheduleQueueRefresh();
-
-    // Minimal delay between jobs
     await sleep(getJobDelayMs());
   }
 
@@ -483,32 +443,12 @@ async function processJob(item: QueueItem): Promise<void> {
   const store = useQueueProcessor.getState();
   store._setCurrentItem(item.id);
 
-  // Mark processing
   await idbUpdateMeta(item.id, { status: "processing" });
 
   // Upload to storage
   const filePath = `cards/${item.id}.jpg`;
   const file = new File([item.blob], item.filename, { type: item.mime });
 
-<<<<<<< HEAD
-  await withRetry(async () => {
-    const res = await supabase.storage
-      .from("card-images")
-      .upload(filePath, file, { upsert: false });
-    if (res.error) throw new Error(res.error.message);
-    return res.data;
-  });
-
-  // Get signed URL
-  const imageUrl = await withRetry(async () => {
-    const res = await supabase.storage
-      .from("card-images")
-      .createSignedUrl(filePath, SIGNED_URL_TTL_SECONDS);
-    if (res.error) throw new Error(res.error.message);
-    if (!res.data?.signedUrl) throw new Error("Signed URL missing");
-    return res.data.signedUrl;
-  });
-=======
   await withTimeout(
     withRetry(async () => {
       const res = await supabase.storage
@@ -534,7 +474,6 @@ async function processJob(item: QueueItem): Promise<void> {
     10000,
     "Signed URL"
   );
->>>>>>> test-
 
   // Identify card using hybrid routing (cloud or local LLM)
   let identify: any;
@@ -546,7 +485,6 @@ async function processJob(item: QueueItem): Promise<void> {
     identify = result.cardData;
     console.log(`[QueueProcessor] Card identified via ${result.source}:`, identify?.card_name);
   } catch (e: any) {
-    // If offline mode max attempts reached, mark as error and don't requeue
     if (e?.message?.includes("max attempts reached")) {
       throw new Error("Offline: requires internet connection to identify this card");
     }
@@ -561,8 +499,8 @@ async function processJob(item: QueueItem): Promise<void> {
   const sportType: string | null = identify?.sport_type ?? null;
   const confidence: number = identify?.confidence ?? 0;
 
-  // Filter out unreadable/blurry cards - don't process further if confidence too low
-  const MIN_CONFIDENCE = 0.3; // 30% minimum
+  // Filter out unreadable/blurry cards
+  const MIN_CONFIDENCE = 0.3;
   if (cardName === "Unknown Card" || confidence < MIN_CONFIDENCE) {
     console.log(`[QueueProcessor] Discarding unreadable card (confidence: ${(confidence * 100).toFixed(0)}%, name: ${cardName})`);
     await idbDelete(item.id);
@@ -570,22 +508,10 @@ async function processJob(item: QueueItem): Promise<void> {
     return;
   }
 
-<<<<<<< HEAD
-  // Fetch price
-  let rawPrice: number | null = null;
-  try {
-    const p = await supabase.functions.invoke("fetch-card-prices", {
-      body: { cardName, cardSet, cardNumber, gameType, sportType },
-    });
-    if (!p.error && p.data) {
-      rawPrice = money(p.data.raw ?? p.data.suggested ?? null);
-    }
-=======
   // Fetch price (cached + timeout-protected)
   let rawPrice: number | null = null;
   try {
     rawPrice = await cachedFetchPrice({ cardName, cardSet, cardNumber, gameType, sportType });
->>>>>>> test-
   } catch {
     rawPrice = null;
   }
@@ -641,7 +567,7 @@ async function processJob(item: QueueItem): Promise<void> {
   store._setLastProcessedCard(processedCard);
   store._setCurrentItem(null);
 
-  // Track in recent scans - will auto-filter if still doesn't meet criteria
+  // Track in recent scans
   addRecentScan({
     id: item.id,
     card_name: cardName,
