@@ -41,6 +41,10 @@ export type ProcessedCard = {
   isInLibrary: boolean;
   libraryQuantity: number;
   dbId?: string;
+  year?: string;
+  playerName?: string;
+  team?: string;
+  manufacturer?: string;
 };
 
 export type ProcessorState = {

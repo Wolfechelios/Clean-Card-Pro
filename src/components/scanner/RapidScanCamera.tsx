@@ -93,6 +93,9 @@ type ScannedCard = {
   isInLibrary?: boolean;
   imageUrl?: string;
   addedToLibraryThisSession?: boolean;
+  year?: string;
+  team?: string;
+  manufacturer?: string;
 };
 
 type LastOverlay = {

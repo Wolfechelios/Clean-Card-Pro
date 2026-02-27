@@ -31,6 +31,9 @@ interface ScannedCard {
   libraryQuantity?: number;
   isInLibrary?: boolean;
   imageUrl?: string;
+  year?: string;
+  team?: string;
+  manufacturer?: string;
 }
 
 interface ScannedCardListProps {

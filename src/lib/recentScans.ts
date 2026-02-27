@@ -28,6 +28,9 @@ export interface RecentScan {
   dbId?: string | null;
   isInLibrary?: boolean;
   libraryQuantity?: number;
+  year?: string | null;
+  team?: string | null;
+  manufacturer?: string | null;
 }
 
 export function getRecentScans(): RecentScan[] {
