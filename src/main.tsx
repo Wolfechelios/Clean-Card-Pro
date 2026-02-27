@@ -6,6 +6,7 @@ import { registerPWA } from "./pwa";
 import { enableSustainedPerformance } from "@/lib/performance/sustainedMode";
 
 enableSustainedPerformance();
+registerPWA();
 
 window.addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
