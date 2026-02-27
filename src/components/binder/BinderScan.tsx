@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { playShutterBeep } from "@/lib/audioBeeps";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -432,8 +433,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
       });
 
       // Play shutter sound
-      const shutterSound = new Audio('/sounds/shutter.mp3');
-      shutterSound.play().catch(() => {});
+      playShutterBeep();
 
       const file = new File([blob], "binder-scan.jpg", { type: "image/jpeg" });
       stopCamera();

@@ -63,24 +63,9 @@ import { useVoiceCommand } from "@/hooks/use-voice-command";
 import { useCameraDevices } from "@/hooks/use-camera-devices";
 import { CameraDeviceSelector } from "./CameraDeviceSelector";
 import { WhiteBalanceControl } from "./WhiteBalanceControl";
-import kachingSound from "@/assets/kaching.wav";
 import { useGpuOffloadStream } from "@/hooks/use-gpu-offload-stream";
 import { makeVideoFrameEncoder } from "@/lib/gpuOffload/frameEncoder";
-
-// Ka-ching sound for $10+ cards
-let kachingAudio: HTMLAudioElement | null = null;
-function playKachingSound() {
-  try {
-    if (!kachingAudio) {
-      kachingAudio = new Audio(kachingSound);
-      kachingAudio.volume = 0.8;
-    }
-    kachingAudio.currentTime = 0;
-    kachingAudio.play().catch(() => {});
-  } catch {
-    // Ignore audio errors
-  }
-}
+import { playKachingBeep, playShutterBeep } from "@/lib/audioBeeps";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TUNING
@@ -641,18 +626,8 @@ export default function RapidScanCamera() {
   // SHUTTER SOUND
   // ───────────────────────────────────────────────────────────────────────────
 
-  const shutterAudioRef = useRef<HTMLAudioElement | null>(null);
-
-  useEffect(() => {
-    shutterAudioRef.current = new Audio("/sounds/shutter.mp3");
-    shutterAudioRef.current.volume = 0.5;
-  }, []);
-
   const playShutterSound = useCallback(() => {
-    if (shutterAudioRef.current) {
-      shutterAudioRef.current.currentTime = 0;
-      shutterAudioRef.current.play().catch(() => {});
-    }
+    playShutterBeep();
   }, []);
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -898,7 +873,7 @@ export default function RapidScanCamera() {
 
     // Play ka-ching sound for cards worth $10+
     if (typeof card.value === "number" && card.value >= 10) {
-      playKachingSound();
+      playKachingBeep();
     }
 
     setOverlay({
