@@ -153,8 +153,12 @@ export const ScannedCardList = ({
     const lines = cardsToList.map((c, i) => {
       const parts: string[] = [`${i + 1}. ${c.cardName || "Unknown"}`];
       if (c.playerName && c.playerName !== c.cardName) parts.push(`(${c.playerName})`);
+      if (c.year) parts.push(`[${c.year}]`);
+      if (c.team) parts.push(`{${c.team}}`);
       if (c.cardNumber) parts.push(`#${c.cardNumber}`);
+      if (c.gameType) parts.push(`[${c.gameType}]`);
       if (c.rarity) parts.push(`[${c.rarity}]`);
+      if (c.manufacturer) parts.push(`- ${c.manufacturer}`);
       if (c.value != null && c.value > 0) parts.push(`- $${c.value.toFixed(2)}`);
       return parts.join(" ");
     });
