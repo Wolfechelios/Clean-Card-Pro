@@ -585,7 +585,7 @@ async function processJob(item: QueueItem): Promise<void> {
     card_name: cardName,
     card_set: cardSet,
     card_number: cardNumber,
-    player_name: sportType ? cardName : null,
+    player_name: playerName || (sportType ? cardName : null),
     image_url: imageUrl,
     price: rawPrice,
     confidence,
@@ -595,6 +595,9 @@ async function processJob(item: QueueItem): Promise<void> {
     dbId: existingId ?? null,
     isInLibrary,
     libraryQuantity: ownedCount,
+    year,
+    team,
+    manufacturer,
   });
   window.dispatchEvent(new CustomEvent("recent-scan-added"));
 
