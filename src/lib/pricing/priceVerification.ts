@@ -34,7 +34,7 @@ export async function verifyCardPrice(
   }
 
   // Fetch from all adapters concurrently
-  const adapters = getDefaultAdapters();
+  const adapters = getDefaultAdapters(card);
   const results = await Promise.allSettled(
     adapters.map((adapter) => adapter.fetchQuotes(card))
   );
