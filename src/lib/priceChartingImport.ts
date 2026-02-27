@@ -165,7 +165,7 @@ export async function parseXLSXFile(data: ArrayBuffer): Promise<ParsedSet[]> {
 }
 
 export async function importParsedSets(userId: string, sets: ParsedSet[]): Promise<Card[]> {
-  const cardsToInsert: Omit<Database["public"]["Tables"]["cards"]["Insert"], "id">[] = [];
+  const cardsToInsert: Database["public"]["Tables"]["cards"]["Insert"][] = [];
   for (const set of sets) {
     for (const card of set.cards) {
       cardsToInsert.push({
