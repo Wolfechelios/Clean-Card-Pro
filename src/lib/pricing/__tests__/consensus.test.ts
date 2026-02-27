@@ -1,3 +1,4 @@
+// @ts-ignore - vitest types available at test time
 import { describe, it, expect } from "vitest";
 import { computeConsensus, requiresManualReview } from "@/lib/pricing/consensus";
 import type { PriceQuote } from "@/lib/pricing/types";
