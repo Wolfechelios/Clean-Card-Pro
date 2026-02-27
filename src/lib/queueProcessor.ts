@@ -570,6 +570,10 @@ async function processJob(item: QueueItem): Promise<void> {
     isInLibrary,
     libraryQuantity: ownedCount,
     dbId: existingId,
+    year: year || undefined,
+    playerName: playerName || (sportType ? cardName : undefined),
+    team: team || undefined,
+    manufacturer: manufacturer || undefined,
   };
 
   store._setLastProcessedCard(processedCard);
