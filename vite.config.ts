@@ -63,7 +63,7 @@ export default defineConfig(({ mode }) => ({
             short_name: "Scan",
             description: "Scan a new trading card",
             url: "/scan?source=shortcut",
-            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }]
+            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }] as any
           },
           {
             name: "My Collection",
