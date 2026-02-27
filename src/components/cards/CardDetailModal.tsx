@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Dialog,
@@ -29,6 +29,9 @@ import { PSA10PriceSection } from "@/components/pricing/PSA10PriceSection";
 import { GradedPriceChip } from "@/components/pricing/GradedPriceChip";
 import { TCGPlayerPriceChip } from "@/components/pricing/TCGPlayerPriceChip";
 import { CardImageActions } from "@/components/collections/CardImageActions";
+import { PriceConsensusPanel } from "@/components/pricing/PriceConsensusPanel";
+import { usePriceConsensus } from "@/hooks/use-price-consensus";
+import type { CardPriceIdentity } from "@/lib/pricing/types";
 import { toast } from "sonner";
 import { Pencil, Trash2, X, Save, Search, ImageIcon, CheckCircle2, XCircle, Box, Image, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -83,6 +86,7 @@ export function CardDetailModal({
   const [showVerification, setShowVerification] = useState(false);
   const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
   const [cardState, setCardState] = useState<CardData | null>(null);
+  const { consensus, loading: consensusLoading, error: consensusError, needsReview, fetchConsensus, reset: resetConsensus } = usePriceConsensus();
   
   // Keep local card state for PSA10 updates
   useEffect(() => {
@@ -90,6 +94,23 @@ export function CardDetailModal({
       setCardState(card);
     }
   }, [card]);
+
+  // Fetch price consensus when modal opens
+  useEffect(() => {
+    if (open && card) {
+      const identity: CardPriceIdentity = {
+        name: card.card_name,
+        set: card.card_set,
+        number: card.card_number,
+        condition: card.condition,
+        gameType: card.game_type,
+        sportType: card.sport_type,
+      };
+      fetchConsensus(identity);
+    } else {
+      resetConsensus();
+    }
+  }, [open, card?.id]);
   const [editData, setEditData] = useState({
     card_name: "",
     card_set: "",
@@ -630,6 +651,29 @@ export function CardDetailModal({
                     />
                   </div>
                 )}
+
+                {/* Price Consensus Panel */}
+                <PriceConsensusPanel
+                  consensus={consensus}
+                  loading={consensusLoading}
+                  error={consensusError}
+                  needsReview={needsReview}
+                  onUseConsensusPrice={async (price) => {
+                    const { error } = await supabase
+                      .from("cards")
+                      .update({ suggested_price: price, current_price_raw: price })
+                      .eq("id", card.id);
+                    if (!error) {
+                      toast.success(`Price updated to $${price.toFixed(2)}`);
+                      if (cardState) {
+                        const updated = { ...cardState, current_price_raw: price };
+                        setCardState(updated);
+                        onUpdate?.(updated);
+                      }
+                    }
+                  }}
+                  onRescan={() => navigate(`/scan`)}
+                />
 
                 {/* Badges */}
                 <div className="flex items-center gap-2 flex-wrap">
