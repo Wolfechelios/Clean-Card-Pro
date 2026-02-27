@@ -1,68 +1,14 @@
-<<<<<<< HEAD
 // Recent scans tracking - 2 hour window with $20+ value highlighting
 
 import { playJackpotBeep } from "@/lib/audioBeeps";
-=======
-// No bundled asset required.
-// Uses WebAudio beep if available, otherwise does nothing.
-export function playHighValueAlert(enabled: boolean = true) {
-  if (!enabled) return;
-
-  try {
-    const Ctx = (window.AudioContext || (window as any).webkitAudioContext);
-    if (!Ctx) return;
-
-    const ctx = new Ctx();
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-
-    o.type = "sine";
-    o.frequency.value = 880; // pleasant alert tone
-    g.gain.value = 0.04;     // low volume
-
-    o.connect(g);
-    g.connect(ctx.destination);
-
-    const now = ctx.currentTime;
-    o.start(now);
-    o.stop(now + 0.12);
-
-    // Cleanup
-    o.onended = () => ctx.close().catch(() => {});
-  } catch {
-    // fail-closed: no sound, no crash
-  }
-}
-// Recent scans tracking - 2 hour window with $20+ value highlighting
-
->>>>>>> test-
 
 const STORAGE_KEY = "recent_scans";
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 const VALUE_THRESHOLD = 20; // USD
 const JACKPOT_THRESHOLD = 50; // USD - plays special sound
 
-<<<<<<< HEAD
 export function playJackpotSound(): void {
   playJackpotBeep();
-=======
-// Audio instance for jackpot alert
-let jackpotAudio: HTMLAudioElement | null = null;
-
-export function playJackpotSound(): void {
-  try {
-    if (!jackpotAudio) {
-      jackpotAudio = new Audio(highValueAlertSound);
-      jackpotAudio.volume = 0.7;
-    }
-    jackpotAudio.currentTime = 0;
-    jackpotAudio.play().catch(() => {
-      // Ignore autoplay errors
-    });
-  } catch (e) {
-    console.error("Failed to play jackpot sound:", e);
-  }
->>>>>>> test-
 }
 
 export interface RecentScan {
@@ -74,9 +20,8 @@ export interface RecentScan {
   image_url: string;
   price: number | null;
   confidence: number | null;
-  scanned_at: number; // timestamp
+  scanned_at: number;
   isHighValue: boolean;
-  // Extended fields for persistence
   rarity?: string | null;
   gameType?: string | null;
   sportType?: string | null;
@@ -93,29 +38,23 @@ export function getRecentScans(): RecentScan[] {
     const scans: RecentScan[] = JSON.parse(stored);
     const now = Date.now();
     
-    // Filter to only scans within 24 hours
     return scans.filter(s => now - s.scanned_at < TWENTY_FOUR_HOURS_MS);
   } catch {
     return [];
   }
 }
 
-// Minimum confidence required to keep a scan (filter out blurry/unreadable)
-const MIN_CONFIDENCE_THRESHOLD = 0.3; // 30% confidence minimum
+const MIN_CONFIDENCE_THRESHOLD = 0.3;
 
 export function addRecentScan(scan: Omit<RecentScan, "scanned_at" | "isHighValue">): boolean {
   try {
-    // Filter out unreadable cards:
-    // 1. Must have a card name that isn't "Unknown Card"
-    // 2. Must have confidence above threshold (if provided)
     const cardName = scan.card_name?.trim() || "";
     if (!cardName || cardName.toLowerCase() === "unknown card") {
       console.log("[RecentScans] Skipping unreadable card: no valid name");
       return false;
     }
     
-    // Check confidence if provided
-    const confidence = scan.confidence ?? 1; // Default to 1 if not provided
+    const confidence = scan.confidence ?? 1;
     if (confidence < MIN_CONFIDENCE_THRESHOLD) {
       console.log(`[RecentScans] Skipping low confidence card (${(confidence * 100).toFixed(0)}%): ${cardName}`);
       return false;
@@ -129,12 +68,10 @@ export function addRecentScan(scan: Omit<RecentScan, "scanned_at" | "isHighValue
       isHighValue: price >= VALUE_THRESHOLD,
     };
     
-    // Play jackpot sound for $50+ cards
     if (price >= JACKPOT_THRESHOLD) {
       playJackpotSound();
     }
     
-    // Add to front, limit to 100 scans
     const updated = [newScan, ...existing].slice(0, 100);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     return true;
@@ -152,7 +89,7 @@ export function getHighValueScans(): Array<RecentScan & { positionBehind: number
     if (scan.isHighValue) {
       highValue.push({
         ...scan,
-        positionBehind: index, // 0 = most recent, higher = further back
+        positionBehind: index,
       });
     }
   });

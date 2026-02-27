@@ -5,24 +5,16 @@ interface SplashScreenProps {
   minDisplayTime?: number;
 }
 
-<<<<<<< HEAD
-export function SplashScreen({ onComplete, minDisplayTime = 2500 }: SplashScreenProps) {
-=======
-// Use public path so builds don't fail if src/assets is missing.
-// Put your image at: public/splash-logo.jpg
-const splashLogo = "/splash-logo.jpg";
-
 export function SplashScreen({
   onComplete,
   minDisplayTime = 2500,
 }: SplashScreenProps) {
->>>>>>> test-
   const [fadeOut, setFadeOut] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => {
       setFadeOut(true);
-      setTimeout(onComplete, 500); // Wait for fade animation
+      setTimeout(onComplete, 500);
     }, minDisplayTime);
 
     return () => clearTimeout(timer);
@@ -34,37 +26,25 @@ export function SplashScreen({
         fadeOut ? "opacity-0 pointer-events-none" : "opacity-100"
       }`}
     >
-      {/* Animated background glow */}
       <div className="absolute inset-0 overflow-hidden">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-amber-500/20 rounded-full blur-[120px] animate-pulse" />
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] bg-orange-500/15 rounded-full blur-[80px] animate-pulse delay-300" />
       </div>
 
-      {/* Logo container with animations */}
       <div className="relative z-10 flex flex-col items-center gap-8">
-        {/* Logo image with scale + rotate animation */}
         <div className="relative">
           <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-amber-400 via-orange-500 to-red-500 blur-xl opacity-60 animate-spin-slow" />
           <img
-<<<<<<< HEAD
             src="/brand/splash-logo.jpg"
             alt="CleanCards"
             className="relative w-40 h-40 rounded-full object-cover border-4 border-amber-400/50 shadow-2xl shadow-amber-500/30 animate-splash-logo"
-=======
-            src={splashLogo}
-            alt="CleanCards"
-            className="relative w-40 h-40 rounded-full object-cover border-4 border-amber-400/50 shadow-2xl shadow-amber-500/30 animate-splash-logo"
             onError={(e) => {
-              // If missing, hide image but keep splash functional
               (e.currentTarget as HTMLImageElement).style.display = "none";
             }}
->>>>>>> test-
           />
-          {/* Ring animation */}
           <div className="absolute inset-0 rounded-full border-4 border-amber-400/40 animate-ping-slow" />
         </div>
 
-        {/* App name with typing animation */}
         <div className="text-center">
           <h1 className="text-4xl font-black tracking-tight bg-gradient-to-r from-amber-200 via-amber-400 to-orange-500 bg-clip-text text-transparent animate-fade-in">
             CleanCards
@@ -74,32 +54,12 @@ export function SplashScreen({
           </p>
         </div>
 
-        {/* Loading indicator */}
         <div className="flex gap-1.5 animate-fade-in-delayed">
-<<<<<<< HEAD
           <span className="w-2 h-2 bg-amber-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
           <span className="w-2 h-2 bg-amber-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
           <span className="w-2 h-2 bg-amber-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-=======
-          <span
-            className="w-2 h-2 bg-amber-400 rounded-full animate-bounce"
-            style={{ animationDelay: "0ms" }}
-          />
-          <span
-            className="w-2 h-2 bg-amber-400 rounded-full animate-bounce"
-            style={{ animationDelay: "150ms" }}
-          />
-          <span
-            className="w-2 h-2 bg-amber-400 rounded-full animate-bounce"
-            style={{ animationDelay: "300ms" }}
-          />
->>>>>>> test-
         </div>
       </div>
     </div>
   );
-<<<<<<< HEAD
 }
-=======
-}
->>>>>>> test-

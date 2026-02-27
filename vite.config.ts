@@ -2,13 +2,8 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
-<<<<<<< HEAD
-
-
-=======
 import { VitePWA } from "vite-plugin-pwa";
 
->>>>>>> test-
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   server: {
@@ -19,21 +14,15 @@ export default defineConfig(({ mode }) => ({
     rollupOptions: {
       output: {
         manualChunks: {
-          // Split heavy OCR/ML dependencies into separate chunks
           "ocr-engine": ["@gutenye/ocr-browser"],
           "onnx-runtime": ["onnxruntime-web"],
-          // Split other heavy libs
           "charts": ["recharts"],
           "three": ["three", "three-stdlib"],
         },
       },
     },
   },
-<<<<<<< HEAD
   plugins: [
-    react(),
-=======
-    plugins: [
     react(),
     VitePWA({
       registerType: "autoUpdate",
@@ -46,102 +35,56 @@ export default defineConfig(({ mode }) => ({
         "pwa-512x512.png"
       ],
       manifest: {
-            "name": "Clean Cards - Trading Card Manager",
-            "short_name": "Clean Cards",
-            "description": "AI-powered trading card scanner and collection manager. Scan, identify, and price your cards instantly.",
-            "theme_color": "#000000",
-            "background_color": "#000000",
-            "display": "standalone",
-            "orientation": "portrait-primary",
-            "scope": "/",
-            "start_url": "/?source=pwa",
-            "id": "clean-cards-pwa",
-            "lang": "en",
-            "dir": "ltr",
-            "categories": [
-                  "utilities",
-                  "lifestyle",
-                  "entertainment"
-            ],
-            "prefer_related_applications": false,
-            "icons": [
-                  {
-                        "src": "/pwa-192x192.png",
-                        "sizes": "192x192",
-                        "type": "image/png",
-                        "purpose": "any"
-                  },
-                  {
-                        "src": "/pwa-512x512.png",
-                        "sizes": "512x512",
-                        "type": "image/png",
-                        "purpose": "any"
-                  },
-                  {
-                        "src": "/pwa-512x512.png",
-                        "sizes": "512x512",
-                        "type": "image/png",
-                        "purpose": "maskable"
-                  }
-            ],
-            "screenshots": [
-                  {
-                        "src": "/pwa-512x512.png",
-                        "sizes": "512x512",
-                        "type": "image/png",
-                        "form_factor": "narrow",
-                        "label": "Clean Cards Home"
-                  }
-            ],
-            "shortcuts": [
-                  {
-                        "name": "Scan Card",
-                        "short_name": "Scan",
-                        "description": "Scan a new trading card",
-                        "url": "/scan?source=shortcut",
-                        "icons": [
-                              {
-                                    "src": "/pwa-192x192.png",
-                                    "sizes": "192x192"
-                              }
-                        ]
-                  },
-                  {
-                        "name": "My Collection",
-                        "short_name": "Collection",
-                        "description": "View your card collection",
-                        "url": "/collections?source=shortcut",
-                        "icons": [
-                              {
-                                    "src": "/pwa-192x192.png",
-                                    "sizes": "192x192"
-                              }
-                        ]
-                  },
-                  {
-                        "name": "Dashboard",
-                        "short_name": "Dashboard",
-                        "description": "View collection stats",
-                        "url": "/dashboard?source=shortcut",
-                        "icons": [
-                              {
-                                    "src": "/pwa-192x192.png",
-                                    "sizes": "192x192"
-                              }
-                        ]
-                  }
-            ],
-            "display_override": [
-                  "standalone",
-                  "minimal-ui"
-            ],
-            "handle_links": "preferred",
-            "launch_handler": {
-                  "client_mode": [
-                        "navigate-existing",
-                        "auto"
-                  ]
-            }
+        name: "Clean Cards - Trading Card Manager",
+        short_name: "Clean Cards",
+        description: "AI-powered trading card scanner and collection manager. Scan, identify, and price your cards instantly.",
+        theme_color: "#000000",
+        background_color: "#000000",
+        display: "standalone",
+        orientation: "portrait-primary",
+        scope: "/",
+        start_url: "/?source=pwa",
+        id: "clean-cards-pwa",
+        lang: "en",
+        dir: "ltr",
+        categories: ["utilities", "lifestyle", "entertainment"],
+        prefer_related_applications: false,
+        icons: [
+          { src: "/pwa-192x192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "/pwa-512x512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+          { src: "/pwa-512x512.png", sizes: "512x512", type: "image/png", purpose: "maskable" }
+        ],
+        screenshots: [
+          { src: "/pwa-512x512.png", sizes: "512x512", type: "image/png", form_factor: "narrow", label: "Clean Cards Home" }
+        ],
+        shortcuts: [
+          {
+            name: "Scan Card",
+            short_name: "Scan",
+            description: "Scan a new trading card",
+            url: "/scan?source=shortcut",
+            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }]
+          },
+          {
+            name: "My Collection",
+            short_name: "Collection",
+            description: "View your card collection",
+            url: "/collections?source=shortcut",
+            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }]
+          },
+          {
+            name: "Dashboard",
+            short_name: "Dashboard",
+            description: "View collection stats",
+            url: "/dashboard?source=shortcut",
+            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }]
+          }
+        ],
+        display_override: ["standalone", "minimal-ui"],
+        handle_links: "preferred",
+        launch_handler: {
+          client_mode: ["navigate-existing", "auto"]
+        }
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,json,webmanifest,woff2}"],
@@ -171,7 +114,6 @@ export default defineConfig(({ mode }) => ({
         type: "module"
       }
     }),
->>>>>>> test-
     mode === "development" && componentTagger(),
   ].filter(Boolean),
   resolve: {

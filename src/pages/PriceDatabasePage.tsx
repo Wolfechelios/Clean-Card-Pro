@@ -71,11 +71,7 @@ function PriceDBContent({ userId }: { userId: string }) {
     for (const file of Array.from(files)) {
       try {
         const buffer = await file.arrayBuffer();
-<<<<<<< HEAD
-        const parsed = parseXLSXFile(buffer);
-=======
         const parsed = await parseXLSXFile(buffer);
->>>>>>> test-
         allSets.push(...parsed);
       } catch (err) {
         console.error(`Failed to parse ${file.name}:`, err);
