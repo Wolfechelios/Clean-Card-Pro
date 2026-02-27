@@ -35,7 +35,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
   useDisplayScale(); // Apply saved display scale on every page
 
   return (
-    <div className="min-h-[100dvh] min-h-screen flex w-full bg-background safe-top safe-bottom">
+    <div className="min-h-[100dvh] min-h-screen flex w-full bg-background safe-top safe-bottom safe-left safe-right overflow-x-hidden">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-background focus:px-3 focus:py-2 focus:text-sm focus:shadow-lg"
