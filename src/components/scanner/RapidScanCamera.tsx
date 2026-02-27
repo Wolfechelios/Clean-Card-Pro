@@ -314,6 +314,9 @@ export default function RapidScanCamera() {
       libraryQuantity: s.libraryQuantity ?? 0,
       imageUrl: s.image_url,
       priceFetching: false,
+      year: s.year ?? undefined,
+      team: s.team ?? undefined,
+      manufacturer: s.manufacturer ?? undefined,
     }));
   });
   const CARD_LIST_RENDER_LIMIT = 30;
