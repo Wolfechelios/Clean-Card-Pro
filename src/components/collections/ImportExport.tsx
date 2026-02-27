@@ -4,7 +4,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Download, Upload, FileSpreadsheet, AlertCircle, Cloud } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+<<<<<<< HEAD
 import * as XLSX from "xlsx";
+=======
+import * as ExcelJS from "exceljs";
+>>>>>>> test-
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
@@ -15,6 +19,88 @@ interface ImportExportProps {
   onImportComplete: () => void;
 }
 
+<<<<<<< HEAD
+=======
+
+function downloadBlob(filename: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function readSpreadsheetFile(file: File): Promise<any[]> {
+  const ext = file.name.split(".").pop()?.toLowerCase();
+  if (ext === "csv") {
+    const text = await file.text();
+    const lines = text.split(/
+?
+/).filter(Boolean);
+    if (lines.length === 0) return [];
+    const parseLine = (line: string) => {
+      const out: string[] = [];
+      let cur = "";
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+          if (inQuotes && line[i + 1] === '"') {
+            cur += '"';
+            i++;
+          } else {
+            inQuotes = !inQuotes;
+          }
+        } else if (ch === "," && !inQuotes) {
+          out.push(cur);
+          cur = "";
+        } else {
+          cur += ch;
+        }
+      }
+      out.push(cur);
+      return out.map(v => v.trim());
+    };
+    const headers = parseLine(lines[0]).map(h => h.replace(/^"(.*)"$/, "$1").trim());
+    const rows: any[] = [];
+    for (let i = 1; i < lines.length; i++) {
+      const cols = parseLine(lines[i]);
+      if (cols.every(c => c === "")) continue;
+      const obj: any = {};
+      headers.forEach((h, idx) => (obj[h] = cols[idx] ?? ""));
+      rows.push(obj);
+    }
+    return rows;
+  }
+
+  // XLSX via ExcelJS
+  const buf = await file.arrayBuffer();
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  const ws = wb.worksheets[0];
+  if (!ws) return [];
+  const headerRow = ws.getRow(1).values as any[];
+  const headers = headerRow.slice(1).map(v => String(v ?? "").trim());
+  const rows: any[] = [];
+  ws.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const values = row.values as any[];
+    const obj: any = {};
+    let hasAny = false;
+    for (let i = 0; i < headers.length; i++) {
+      const key = headers[i];
+      const val = values[i + 1];
+      const norm = val instanceof Date ? val.toISOString() : (val ?? "");
+      if (String(norm).trim() !== "") hasAny = true;
+      obj[key] = norm;
+    }
+    if (hasAny) rows.push(obj);
+  });
+  return rows;
+}
+
+>>>>>>> test-
 // Helper to lookup image for a card
 async function lookupCardImage(cardName: string, cardSet: string | null, gameType: string | null): Promise<string | null> {
   try {
@@ -54,7 +140,11 @@ export default function ImportExport({ cards, onImportComplete }: ImportExportPr
   const [autoStoreImages, setAutoStoreImages] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+<<<<<<< HEAD
   const exportToExcel = () => {
+=======
+  const exportToExcel = async () => {
+>>>>>>> test-
     if (cards.length === 0) {
       toast.error("No cards to export");
       return;
@@ -73,11 +163,27 @@ export default function ImportExport({ cards, onImportComplete }: ImportExportPr
       "Added Date": new Date(card.created_at).toLocaleDateString(),
     }));
 
+<<<<<<< HEAD
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Cards");
     
     XLSX.writeFile(wb, `card-collection-${new Date().toISOString().split('T')[0]}.xlsx`);
+=======
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Cards");
+
+    const headers = Object.keys(exportData[0] || {});
+    ws.addRow(headers);
+    exportData.forEach(row => ws.addRow(headers.map(h => row[h as keyof typeof row])));
+
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+
+    downloadBlob(`card-collection-${new Date().toISOString().split('T')[0]}.xlsx`, blob);
+>>>>>>> test-
     toast.success(`Exported ${cards.length} cards`);
   };
 
@@ -127,6 +233,7 @@ export default function ImportExport({ cards, onImportComplete }: ImportExportPr
         return;
       }
 
+<<<<<<< HEAD
       const reader = new FileReader();
       reader.onload = async (e) => {
         try {
@@ -263,6 +370,126 @@ export default function ImportExport({ cards, onImportComplete }: ImportExportPr
       };
 
       reader.readAsArrayBuffer(file);
+=======
+      const jsonData = await readSpreadsheetFile(file);
+
+      if (jsonData.length === 0) {
+        toast.error("No data found in file");
+        setImporting(false);
+        return;
+      }
+
+      // Process cards in batches
+      const batchSize = 10;
+      let imported = 0;
+      let errors = 0;
+      let imagesFound = 0;
+      let imagesStored = 0;
+      const cardsToStore: { id: string; imageUrl: string }[] = [];
+
+      for (let i = 0; i < jsonData.length; i += batchSize) {
+        const batch = jsonData.slice(i, i + batchSize);
+
+        // Prepare cards with image lookup for those without images
+        setProgressMessage(`Processing batch ${Math.floor(i / batchSize) + 1}...`);
+
+        const cardsToInsert = await Promise.all(batch.map(async (row: any) => {
+          const existingImageUrl = row["Image URL"] || row["image_url"];
+          const cardName = row["Card Name"] || row["card_name"] || "Unknown Card";
+          const cardSet = row["Set"] || row["card_set"] || null;
+          const gameType = row["Game Type"] || row["game_type"] || null;
+
+          let finalImageUrl = existingImageUrl;
+          let isExternalUrl = false;
+
+          // If no image URL or it's a placeholder, try to look one up
+          if (!existingImageUrl || String(existingImageUrl).includes('placehold') || String(existingImageUrl).includes('placeholder')) {
+            const lookedUpImage = await lookupCardImage(cardName, cardSet, gameType);
+            if (lookedUpImage) {
+              finalImageUrl = lookedUpImage;
+              imagesFound++;
+              isExternalUrl = true;
+            } else {
+              // No image found - leave empty so UI shows "no image" state
+              finalImageUrl = "";
+            }
+          } else if (existingImageUrl && !String(existingImageUrl).includes('supabase')) {
+            // Existing external URL
+            isExternalUrl = true;
+          }
+
+          return {
+            user_id: session.user.id,
+            card_name: cardName,
+            card_set: cardSet,
+            card_number: row["Card Number"] || row["card_number"] || null,
+            rarity: row["Rarity"] || row["rarity"] || null,
+            condition: row["Condition"] || row["condition"] || "ungraded",
+            current_price_raw: parseFloat(row["Price (Raw)"] || row["Price"] || row["current_price_raw"] || 0),
+            current_price_psa9: parseFloat(row["Price (PSA 9)"] || row["current_price_psa9"] || 0),
+            current_price_psa10: parseFloat(row["Price (PSA 10)"] || row["current_price_psa10"] || 0),
+            collection_name: (row["Set"] || row["card_set"] || row["Collection"] || row["collection_name"] || null),
+            game_type: gameType,
+            image_url: finalImageUrl,
+            _isExternalUrl: isExternalUrl, // Temporary flag for storage
+          };
+        }));
+
+        // Remove temporary flag before insert
+        const cleanCards = cardsToInsert.map(({ _isExternalUrl, ...card }) => card);
+
+        const { data: insertedCards, error } = await supabase
+          .from("cards")
+          .insert(cleanCards)
+          .select("id, image_url");
+
+        if (error) {
+          console.error("Batch import error:", error);
+          errors += batch.length;
+        } else {
+          imported += batch.length;
+
+          // Track cards that need cloud storage
+          if (autoStoreImages && insertedCards) {
+            insertedCards.forEach((card, idx) => {
+              const originalCard = cardsToInsert[idx];
+              if (originalCard._isExternalUrl && card.image_url && card.image_url.length > 0) {
+                cardsToStore.push({ id: card.id, imageUrl: card.image_url });
+              }
+            });
+          }
+        }
+
+        // Update progress
+        setImportProgress(Math.round(((i + batch.length) / jsonData.length) * 100));
+      }
+
+      // Store images in cloud storage if enabled
+      if (autoStoreImages && cardsToStore.length > 0) {
+        setProgressMessage(`Storing ${cardsToStore.length} images to cloud storage...`);
+
+        for (let i = 0; i < cardsToStore.length; i++) {
+          const item = cardsToStore[i];
+          const success = await storeImageToCloud(item.id, item.imageUrl);
+          if (success) {
+            imagesStored++;
+          }
+          setImportProgress(Math.round((i / cardsToStore.length) * 100));
+        }
+      }
+
+      const totalProcessed = imported + errors;
+      setProgressMessage(`Imported ${imported}/${totalProcessed} cards. Images found: ${imagesFound}. Images stored: ${imagesStored}.`);
+
+      toast.success(`Imported ${imported} cards${errors > 0 ? ` (${errors} errors)` : ""}`);
+      onImportComplete();
+      setImporting(false);
+      setImportProgress(100);
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+>>>>>>> test-
     } catch (error) {
       console.error("File read error:", error);
       toast.error("Failed to read file");

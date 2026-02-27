@@ -5,7 +5,18 @@ interface SplashScreenProps {
   minDisplayTime?: number;
 }
 
+<<<<<<< HEAD
 export function SplashScreen({ onComplete, minDisplayTime = 2500 }: SplashScreenProps) {
+=======
+// Use public path so builds don't fail if src/assets is missing.
+// Put your image at: public/splash-logo.jpg
+const splashLogo = "/splash-logo.jpg";
+
+export function SplashScreen({
+  onComplete,
+  minDisplayTime = 2500,
+}: SplashScreenProps) {
+>>>>>>> test-
   const [fadeOut, setFadeOut] = useState(false);
 
   useEffect(() => {
@@ -35,9 +46,19 @@ export function SplashScreen({ onComplete, minDisplayTime = 2500 }: SplashScreen
         <div className="relative">
           <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-amber-400 via-orange-500 to-red-500 blur-xl opacity-60 animate-spin-slow" />
           <img
+<<<<<<< HEAD
             src="/brand/splash-logo.jpg"
             alt="CleanCards"
             className="relative w-40 h-40 rounded-full object-cover border-4 border-amber-400/50 shadow-2xl shadow-amber-500/30 animate-splash-logo"
+=======
+            src={splashLogo}
+            alt="CleanCards"
+            className="relative w-40 h-40 rounded-full object-cover border-4 border-amber-400/50 shadow-2xl shadow-amber-500/30 animate-splash-logo"
+            onError={(e) => {
+              // If missing, hide image but keep splash functional
+              (e.currentTarget as HTMLImageElement).style.display = "none";
+            }}
+>>>>>>> test-
           />
           {/* Ring animation */}
           <div className="absolute inset-0 rounded-full border-4 border-amber-400/40 animate-ping-slow" />
@@ -55,11 +76,30 @@ export function SplashScreen({ onComplete, minDisplayTime = 2500 }: SplashScreen
 
         {/* Loading indicator */}
         <div className="flex gap-1.5 animate-fade-in-delayed">
+<<<<<<< HEAD
           <span className="w-2 h-2 bg-amber-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
           <span className="w-2 h-2 bg-amber-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
           <span className="w-2 h-2 bg-amber-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+=======
+          <span
+            className="w-2 h-2 bg-amber-400 rounded-full animate-bounce"
+            style={{ animationDelay: "0ms" }}
+          />
+          <span
+            className="w-2 h-2 bg-amber-400 rounded-full animate-bounce"
+            style={{ animationDelay: "150ms" }}
+          />
+          <span
+            className="w-2 h-2 bg-amber-400 rounded-full animate-bounce"
+            style={{ animationDelay: "300ms" }}
+          />
+>>>>>>> test-
         </div>
       </div>
     </div>
   );
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> test-

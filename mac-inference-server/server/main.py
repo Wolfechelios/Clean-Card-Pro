@@ -8,11 +8,19 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+<<<<<<< HEAD
 from pipeline.image_io import load_image
 from pipeline.card_detect import detect_card_region, crop_region
 from pipeline.ocr_backends import ocr_image
 from pipeline.parse_fields import parse_from_ocr
 from pipeline.pricing import lookup_price
+=======
+from server.pipeline.image_io import load_image
+from server.pipeline.card_detect import detect_card_region, crop_region
+from server.pipeline.ocr_backends import ocr_image
+from server.pipeline.parse_fields import parse_from_ocr
+from server.pipeline.pricing import lookup_price
+>>>>>>> test-
 
 APP_VERSION = "0.1.0"
 

@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 import * as XLSX from "xlsx";
+=======
+import * as ExcelJS from "exceljs";
+>>>>>>> test-
 import { supabase } from "@/integrations/supabase/client";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -109,11 +113,36 @@ function cleanVariant(raw: string | null | undefined): string | null {
 
 // ── Parse XLSX ─────────────────────────────────────────────────────
 
+<<<<<<< HEAD
 export function parseXLSXFile(data: ArrayBuffer): ParsedSet[] {
   const workbook = XLSX.read(data, { type: "array" });
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
   const rows: PCRawRow[] = XLSX.utils.sheet_to_json(sheet);
+=======
+export async function parseXLSXFile(data: ArrayBuffer): Promise<ParsedSet[]> {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(data);
+  const ws = wb.worksheets[0];
+  if (!ws) return [];
+  const headerRow = ws.getRow(1).values as any[];
+  const headers = headerRow.slice(1).map(v => String(v ?? "").trim());
+  const rows: PCRawRow[] = [];
+  ws.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const values = row.values as any[];
+    const obj: any = {};
+    let hasAny = false;
+    for (let i = 0; i < headers.length; i++) {
+      const key = headers[i];
+      const val = values[i + 1];
+      const norm = val instanceof Date ? val.toISOString() : val;
+      if (norm !== undefined && String(norm).trim() !== "") hasAny = true;
+      obj[key] = norm;
+    }
+    if (hasAny) rows.push(obj as PCRawRow);
+  });
+>>>>>>> test-
 
   if (rows.length === 0) return [];
 

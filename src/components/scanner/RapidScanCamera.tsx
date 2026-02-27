@@ -48,6 +48,10 @@ import {
 } from "@/lib/idbQueue";
 import { compressImageForQueue } from "@/lib/imageCompressor";
 import { applyFastAutofocus, applyAutoColorBalance, applyAntiGlare } from "@/lib/camera-optimizations";
+<<<<<<< HEAD
+=======
+import { DEFAULT_TUNING, nextAutoCaptureState, rgbaToGray, meanAbsDiff, type AutoCaptureState } from "@/lib/visionAutoCapture";
+>>>>>>> test-
 import { useQueueProcessor } from "@/lib/queueProcessor";
 import { getRecentScans, clearAllRecentScans, removeRecentScan, updateRecentScan } from "@/lib/recentScans";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
@@ -63,9 +67,30 @@ import { useVoiceCommand } from "@/hooks/use-voice-command";
 import { useCameraDevices } from "@/hooks/use-camera-devices";
 import { CameraDeviceSelector } from "./CameraDeviceSelector";
 import { WhiteBalanceControl } from "./WhiteBalanceControl";
+<<<<<<< HEAD
 import { useGpuOffloadStream } from "@/hooks/use-gpu-offload-stream";
 import { makeVideoFrameEncoder } from "@/lib/gpuOffload/frameEncoder";
 import { playKachingBeep, playShutterBeep } from "@/lib/audioBeeps";
+=======
+import kachingSound from "@/assets/kaching.wav";
+import { useGpuOffloadStream } from "@/hooks/use-gpu-offload-stream";
+import { makeVideoFrameEncoder } from "@/lib/gpuOffload/frameEncoder";
+
+// Ka-ching sound for $10+ cards
+let kachingAudio: HTMLAudioElement | null = null;
+function playKachingSound() {
+  try {
+    if (!kachingAudio) {
+      kachingAudio = new Audio(kachingSound);
+      kachingAudio.volume = 0.8;
+    }
+    kachingAudio.currentTime = 0;
+    kachingAudio.play().catch(() => {});
+  } catch {
+    // Ignore audio errors
+  }
+}
+>>>>>>> test-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TUNING
@@ -143,6 +168,18 @@ export default function RapidScanCamera() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const trackRef = useRef<MediaStreamTrack | null>(null);
+<<<<<<< HEAD
+=======
+  // Auto-capture stability detector (optional)
+  const autoCaptureStateRef = useRef<AutoCaptureState>({
+    phase: "idle",
+    stableFrames: 0,
+    lastCaptureAt: 0,
+    lastDiff: 0,
+  });
+  const autoCapturePrevGrayRef = useRef<Uint8Array | null>(null);
+  const autoCaptureLastSampleAtRef = useRef<number>(0);
+>>>>>>> test-
   const startingCameraRef = useRef(false);
 
   const [cameraOn, setCameraOn] = useState(false);
@@ -197,6 +234,77 @@ export default function RapidScanCamera() {
     },
   });
 
+<<<<<<< HEAD
+=======
+  // Optional hands-free auto-capture: triggers a capture when motion settles and the view becomes stable.
+  useEffect(() => {
+    if (isNative) return; // native camera path does not expose video frames here
+    if (!settings.autoCaptureEnabled) return;
+    if (!cameraOn) return;
+
+    let raf = 0;
+    const tuning = DEFAULT_TUNING;
+    const sampleCanvas = document.createElement("canvas");
+    sampleCanvas.width = tuning.sampleW;
+    sampleCanvas.height = tuning.sampleH;
+    const sctx = sampleCanvas.getContext("2d", { willReadFrequently: true });
+    if (!sctx) return;
+
+    autoCapturePrevGrayRef.current = null;
+    autoCaptureStateRef.current = {
+      phase: "idle",
+      stableFrames: 0,
+      lastCaptureAt: 0,
+      lastDiff: 0,
+    };
+    autoCaptureLastSampleAtRef.current = 0;
+
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+
+      const v = videoRef.current;
+      if (!v) return;
+      if (v.readyState < 2) return; // not enough data
+      if (busyCapture) return;
+
+      const now = performance.now();
+      // cap analysis FPS
+      if (now - autoCaptureLastSampleAtRef.current < 120) return;
+      autoCaptureLastSampleAtRef.current = now;
+
+      try {
+        sctx.drawImage(v, 0, 0, tuning.sampleW, tuning.sampleH);
+        const frame = sctx.getImageData(0, 0, tuning.sampleW, tuning.sampleH);
+        const gray = rgbaToGray(frame.data);
+
+        const prev = autoCapturePrevGrayRef.current;
+        autoCapturePrevGrayRef.current = gray;
+
+        if (!prev) return;
+
+        const diff = meanAbsDiff(prev, gray);
+        const prevState = autoCaptureStateRef.current;
+        const res = nextAutoCaptureState(prevState, diff, Date.now(), tuning);
+        autoCaptureStateRef.current = res.state;
+
+        if (res.shouldCapture) {
+          // Fire and forget to avoid blocking the render loop.
+          captureNow();
+        }
+      } catch {
+        // ignore frame sampling errors
+      }
+    };
+
+    raf = requestAnimationFrame(tick);
+
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      autoCapturePrevGrayRef.current = null;
+    };
+  }, [isNative, settings.autoCaptureEnabled, cameraOn, busyCapture, captureNow]);
+
+>>>>>>> test-
   // Zoom
   const {
     zoomLevel,
@@ -238,9 +346,35 @@ export default function RapidScanCamera() {
       priceFetching: false,
     }));
   });
+<<<<<<< HEAD
   const [showAllCards, setShowAllCards] = useState(false);
   const CARD_LIST_RENDER_LIMIT = 30;
   const [overlay, setOverlay] = useState<LastOverlay | null>(null);
+=======
+  const CARD_LIST_RENDER_LIMIT = 30;
+  const [showAllCards, setShowAllCards] = useState(false);
+  const [renderedCount, setRenderedCount] = useState(CARD_LIST_RENDER_LIMIT);
+
+// Incremental rendering guard: avoids rendering thousands of DOM nodes at once
+useEffect(() => {
+  if (!showAllCards) {
+    setRenderedCount(CARD_LIST_RENDER_LIMIT);
+    return;
+  }
+  // When switching to "show all", start with a modest window and grow on demand
+  setRenderedCount((prev) => Math.max(prev, Math.min(cards.length, CARD_LIST_RENDER_LIMIT * 2)));
+}, [showAllCards, cards.length]);
+
+const loadMoreCards = useCallback(() => {
+  setRenderedCount((prev) => Math.min(cards.length, prev + 50));
+}, [cards.length]);
+
+const cardsToRender = useMemo(() => {
+  if (!showAllCards) return cards.slice(0, CARD_LIST_RENDER_LIMIT);
+  return cards.slice(0, renderedCount);
+}, [cards, showAllCards, renderedCount]);
+    const [overlay, setOverlay] = useState<LastOverlay | null>(null);
+>>>>>>> test-
 
   // Initialize frame encoder once (browser-only)
   useEffect(() => {
@@ -530,8 +664,33 @@ export default function RapidScanCamera() {
     
     // Signal scanner inactive
     useGlobalProcessControl.getState().setScannerActive(false);
+<<<<<<< HEAD
   }
 
+=======
+
+    // Clear video element to release decoder resources (important on mobile)
+    if (videoRef.current) {
+      try { (videoRef.current as any).srcObject = null; } catch {}
+    }
+  }
+
+  // Cleanup: stop camera & timers on unmount
+  useEffect(() => {
+    return () => {
+      try {
+        // Best-effort: stop camera if still running
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((t) => t.stop());
+          streamRef.current = null;
+          trackRef.current = null;
+        }
+        useGlobalProcessControl.getState().setScannerActive(false);
+      } catch {}
+    };
+  }, []);
+
+>>>>>>> test-
   // Pinch-to-zoom state
   const pinchRef = useRef<{ initialDistance: number; initialZoom: number } | null>(null);
 
@@ -626,8 +785,23 @@ export default function RapidScanCamera() {
   // SHUTTER SOUND
   // ───────────────────────────────────────────────────────────────────────────
 
+<<<<<<< HEAD
   const playShutterSound = useCallback(() => {
     playShutterBeep();
+=======
+  const shutterAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    shutterAudioRef.current = new Audio("/sounds/shutter.mp3");
+    shutterAudioRef.current.volume = 0.5;
+  }, []);
+
+  const playShutterSound = useCallback(() => {
+    if (shutterAudioRef.current) {
+      shutterAudioRef.current.currentTime = 0;
+      shutterAudioRef.current.play().catch(() => {});
+    }
+>>>>>>> test-
   }, []);
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -686,6 +860,20 @@ export default function RapidScanCamera() {
       setStatusLine("Captured — processing in background");
       setOverlay({ label: "Captured…" });
 
+<<<<<<< HEAD
+=======
+      // Progressive zoom-out after each snap to keep card in frame
+      try {
+        if (zoomCapabilities.supported && typeof zoomLevel === "number") {
+          const minZ = zoomCapabilities.min ?? 1;
+          const nextZ = Math.max(minZ, zoomLevel - 0.035);
+          if (nextZ !== zoomLevel) setZoom(nextZ);
+        }
+      } catch {
+        // ignore zoom errors
+      }
+
+>>>>>>> test-
       requestRefreshMeta();
       ensureWorkersRunning();
     } catch (e: any) {
@@ -782,6 +970,20 @@ export default function RapidScanCamera() {
       setStatusLine("Captured — processing in background");
       setOverlay({ label: "Captured…" });
 
+<<<<<<< HEAD
+=======
+      // Progressive zoom-out after each snap to keep card in frame
+      try {
+        if (zoomCapabilities.supported && typeof zoomLevel === "number") {
+          const minZ = zoomCapabilities.min ?? 1;
+          const nextZ = Math.max(minZ, zoomLevel - 0.035);
+          if (nextZ !== zoomLevel) setZoom(nextZ);
+        }
+      } catch {
+        // ignore zoom errors
+      }
+
+>>>>>>> test-
       requestRefreshMeta();
       ensureWorkersRunning();
     } catch (e: any) {
@@ -873,7 +1075,11 @@ export default function RapidScanCamera() {
 
     // Play ka-ching sound for cards worth $10+
     if (typeof card.value === "number" && card.value >= 10) {
+<<<<<<< HEAD
       playKachingBeep();
+=======
+      playKachingSound();
+>>>>>>> test-
     }
 
     setOverlay({
@@ -1510,7 +1716,11 @@ export default function RapidScanCamera() {
       {cards.length > CARD_LIST_RENDER_LIMIT && (
         <div className="mb-2 flex items-center justify-between">
           <div className="text-xs text-muted-foreground">
+<<<<<<< HEAD
             Showing {showAllCards ? cards.length : Math.min(cards.length, CARD_LIST_RENDER_LIMIT)} of {cards.length}
+=======
+            Showing {showAllCards ? Math.min(renderedCount, cards.length) : Math.min(cards.length, CARD_LIST_RENDER_LIMIT)} of {cards.length}
+>>>>>>> test-
           </div>
           <Button
             variant="ghost"
@@ -1519,11 +1729,27 @@ export default function RapidScanCamera() {
           >
             {showAllCards ? "Show less" : `Show all (${cards.length})`}
           </Button>
+<<<<<<< HEAD
+=======
+{showAllCards && renderedCount < cards.length && (
+  <Button
+    variant="ghost"
+    size="sm"
+    onClick={loadMoreCards}
+  >
+    Load more (+50)
+  </Button>
+)}
+>>>>>>> test-
         </div>
       )}
 
       <ScannedCardList
+<<<<<<< HEAD
         cards={showAllCards ? cards : cards.slice(0, CARD_LIST_RENDER_LIMIT)}
+=======
+        cards={cardsToRender}
+>>>>>>> test-
         onCardUpdate={(id, updates) => updateCard(id, updates as any)}
         onCardDelete={(id) => removeCard(id)}
         scanMode={true}

@@ -2,6 +2,10 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
+<<<<<<< HEAD
+=======
+import "./pwa";
+>>>>>>> test-
 import { enableSustainedPerformance } from "@/lib/performance/sustainedMode";
 
 // Enable sustained performance mode on Android (does nothing on web/iOS)
@@ -24,6 +28,7 @@ window.addEventListener("appinstalled", () => {
   window.dispatchEvent(new CustomEvent("pwa-installed"));
 });
 
+<<<<<<< HEAD
 // Register service worker updates
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.ready.then((registration) => {
@@ -32,6 +37,8 @@ if ("serviceWorker" in navigator) {
     });
   });
 }
+=======
+>>>>>>> test-
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

@@ -7,6 +7,10 @@
 import { create } from "zustand";
 import { supabase } from "@/integrations/supabase/client";
 import { withRetry } from "@/lib/retry";
+<<<<<<< HEAD
+=======
+import { withTimeout } from "@/lib/async/withTimeout";
+>>>>>>> test-
 import { getScannerSettings } from "@/hooks/use-scanner-settings";
 import { canProcessFrame, markFrameStart, markFrameEnd } from "@/lib/performance/pipelineGuards";
 import { MEMORY_CONFIG } from "@/lib/performance/memoryConfig";
@@ -81,6 +85,40 @@ const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
 const WORKER_SCALE_INTERVAL_MS = 500; // Scale check interval
 const QUEUE_REFRESH_INTERVAL_MS = 2000; // Only refresh UI queue every 2s
 
+<<<<<<< HEAD
+=======
+// Pricing cache: reduces repeated edge-function calls during rapid scanning
+const PRICE_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const priceCache = new Map<string, { ts: number; value: number | null }>();
+const priceInFlight = new Map<string, Promise<number | null>>();
+
+function priceKey(args: {
+  cardName: string;
+  cardSet: string | null;
+  cardNumber: string | null;
+  gameType: string | null;
+  sportType: string | null;
+}): string {
+  return [
+    args.cardName,
+    args.cardSet ?? "",
+    args.cardNumber ?? "",
+    args.gameType ?? "",
+    args.sportType ?? "",
+  ].join("|").toLowerCase();
+}
+
+function getCachedPrice(key: string): number | null | undefined {
+  const hit = priceCache.get(key);
+  if (!hit) return undefined;
+  if (Date.now() - hit.ts > PRICE_CACHE_TTL_MS) {
+    priceCache.delete(key);
+    return undefined;
+  }
+  return hit.value;
+}
+
+>>>>>>> test-
 // Dynamic config from device tier
 import { getDeviceTier } from "@/lib/performance/deviceTier";
 
@@ -90,7 +128,12 @@ function getPollIntervalMs(): number { return getDeviceTier().pollIntervalMs; }
 function getMaxWorkerCount(): number {
   const tier = getDeviceTier();
   const userSetting = getScannerSettings().batchScanSize || tier.maxWorkers;
+<<<<<<< HEAD
   return Math.min(userSetting, tier.maxWorkers);
+=======
+  // Never allow more workers than the pipeline in-flight guard
+  return Math.min(userSetting, tier.maxWorkers, tier.maxInFlightFrames);
+>>>>>>> test-
 }
 
 // Adaptive scaling: start with fewer workers and scale up based on queue size
@@ -194,6 +237,79 @@ function money(n: number | null | undefined) {
   return Math.round(n * 100) / 100;
 }
 
+<<<<<<< HEAD
+=======
+async function invokeEdgeFunction<T = any>(
+  name: string,
+  body: any,
+  opts?: { timeoutMs?: number; retries?: number; retryDelayMs?: number }
+): Promise<{ data?: T; error?: any }> {
+  const timeoutMs = opts?.timeoutMs ?? 8000;
+  const retries = Math.max(0, Math.min(opts?.retries ?? 2, 3)); // cap
+  const retryDelayMs = opts?.retryDelayMs ?? 250;
+
+  let lastErr: any = null;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const res = await withTimeout(
+        supabase.functions.invoke(name, { body }),
+        timeoutMs,
+        `Edge function ${name}`
+      );
+      return res as any;
+    } catch (e: any) {
+      lastErr = e;
+      // Don't retry timeouts endlessly; small capped retries only
+      if (i < retries) await sleep(retryDelayMs * (i + 1));
+    }
+  }
+  return { error: lastErr };
+}
+
+async function cachedFetchPrice(args: {
+  cardName: string;
+  cardSet: string | null;
+  cardNumber: string | null;
+  gameType: string | null;
+  sportType: string | null;
+}): Promise<number | null> {
+  const key = priceKey(args);
+
+  const cached = getCachedPrice(key);
+  if (cached !== undefined) return cached;
+
+  const existing = priceInFlight.get(key);
+  if (existing) return existing;
+
+  const p = (async () => {
+    const res = await invokeEdgeFunction<any>(
+      "fetch-card-prices",
+      {
+        cardName: args.cardName,
+        cardSet: args.cardSet,
+        cardNumber: args.cardNumber,
+        gameType: args.gameType,
+        sportType: args.sportType,
+      },
+      { timeoutMs: 8000, retries: 1, retryDelayMs: 300 }
+    );
+
+    let v: number | null = null;
+    if (!res.error && res.data) {
+      v = money((res.data as any).raw ?? (res.data as any).suggested ?? null);
+    }
+
+    priceCache.set(key, { ts: Date.now(), value: v });
+    return v;
+  })().finally(() => {
+    priceInFlight.delete(key);
+  });
+
+  priceInFlight.set(key, p);
+  return p;
+}
+
+>>>>>>> test-
 async function getUserId(): Promise<string | null> {
   try {
     const { data } = await supabase.auth.getUser();
@@ -274,6 +390,15 @@ async function workerLoop(workerId: number) {
       await sleep(Math.min(getPollIntervalMs(), rateLimitUntil - now));
       continue;
     }
+<<<<<<< HEAD
+=======
+// Max in-flight guard (prevents worker pileups under load / mobile thermals)
+if (!canProcessFrame()) {
+  await sleep(getPollIntervalMs());
+  continue;
+}
+
+>>>>>>> test-
 
     // Check scaling only periodically to avoid IDB hammering
     if (workerId > 0 && now - lastScaleCheckAt > SCALE_CHECK_INTERVAL_MS) {
@@ -312,8 +437,18 @@ async function workerLoop(workerId: number) {
     consecutiveEmpty = 0;
 
     try {
+<<<<<<< HEAD
       await processJob(next);
       store()._incrementProcessed();
+=======
+      markFrameStart();
+      try {
+        await processJob(next);
+        store()._incrementProcessed();
+      } finally {
+        markFrameEnd();
+      }
+>>>>>>> test-
     } catch (e: any) {
       const msg = String(e?.message ?? e);
       console.error(`[Worker ${workerId}] Job failed:`, e);
@@ -355,6 +490,7 @@ async function processJob(item: QueueItem): Promise<void> {
   const filePath = `cards/${item.id}.jpg`;
   const file = new File([item.blob], item.filename, { type: item.mime });
 
+<<<<<<< HEAD
   await withRetry(async () => {
     const res = await supabase.storage
       .from("card-images")
@@ -372,6 +508,33 @@ async function processJob(item: QueueItem): Promise<void> {
     if (!res.data?.signedUrl) throw new Error("Signed URL missing");
     return res.data.signedUrl;
   });
+=======
+  await withTimeout(
+    withRetry(async () => {
+      const res = await supabase.storage
+        .from("card-images")
+        .upload(filePath, file, { upsert: false });
+      if (res.error) throw new Error(res.error.message);
+      return res.data;
+    }),
+    15000,
+    "Storage upload"
+  );
+
+  // Get signed URL
+  const imageUrl = await withTimeout(
+    withRetry(async () => {
+      const res = await supabase.storage
+        .from("card-images")
+        .createSignedUrl(filePath, SIGNED_URL_TTL_SECONDS);
+      if (res.error) throw new Error(res.error.message);
+      if (!res.data?.signedUrl) throw new Error("Signed URL missing");
+      return res.data.signedUrl;
+    }),
+    10000,
+    "Signed URL"
+  );
+>>>>>>> test-
 
   // Identify card using hybrid routing (cloud or local LLM)
   let identify: any;
@@ -407,6 +570,7 @@ async function processJob(item: QueueItem): Promise<void> {
     return;
   }
 
+<<<<<<< HEAD
   // Fetch price
   let rawPrice: number | null = null;
   try {
@@ -416,6 +580,12 @@ async function processJob(item: QueueItem): Promise<void> {
     if (!p.error && p.data) {
       rawPrice = money(p.data.raw ?? p.data.suggested ?? null);
     }
+=======
+  // Fetch price (cached + timeout-protected)
+  let rawPrice: number | null = null;
+  try {
+    rawPrice = await cachedFetchPrice({ cardName, cardSet, cardNumber, gameType, sportType });
+>>>>>>> test-
   } catch {
     rawPrice = null;
   }

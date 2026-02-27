@@ -594,6 +594,23 @@ setNullRarityCount(missingRarity || 0);
               />
             </div>
 
+<<<<<<< HEAD
+=======
+
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-sm font-medium">Auto-capture when stable</Label>
+                <p className="text-xs text-muted-foreground">Hands-free: captures when the camera view becomes stable after motion</p>
+              </div>
+              <Switch
+                checked={scannerSettings.autoCaptureEnabled}
+                onCheckedChange={(checked) => updateScannerSettings({ autoCaptureEnabled: checked })}
+              />
+            </div>
+
+            <Separator />
+
+>>>>>>> test-
             <Separator />
 
             {/* Batch Processing */}

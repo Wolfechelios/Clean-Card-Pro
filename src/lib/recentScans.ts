@@ -1,14 +1,68 @@
+<<<<<<< HEAD
 // Recent scans tracking - 2 hour window with $20+ value highlighting
 
 import { playJackpotBeep } from "@/lib/audioBeeps";
+=======
+// No bundled asset required.
+// Uses WebAudio beep if available, otherwise does nothing.
+export function playHighValueAlert(enabled: boolean = true) {
+  if (!enabled) return;
+
+  try {
+    const Ctx = (window.AudioContext || (window as any).webkitAudioContext);
+    if (!Ctx) return;
+
+    const ctx = new Ctx();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+
+    o.type = "sine";
+    o.frequency.value = 880; // pleasant alert tone
+    g.gain.value = 0.04;     // low volume
+
+    o.connect(g);
+    g.connect(ctx.destination);
+
+    const now = ctx.currentTime;
+    o.start(now);
+    o.stop(now + 0.12);
+
+    // Cleanup
+    o.onended = () => ctx.close().catch(() => {});
+  } catch {
+    // fail-closed: no sound, no crash
+  }
+}
+// Recent scans tracking - 2 hour window with $20+ value highlighting
+
+>>>>>>> test-
 
 const STORAGE_KEY = "recent_scans";
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 const VALUE_THRESHOLD = 20; // USD
 const JACKPOT_THRESHOLD = 50; // USD - plays special sound
 
+<<<<<<< HEAD
 export function playJackpotSound(): void {
   playJackpotBeep();
+=======
+// Audio instance for jackpot alert
+let jackpotAudio: HTMLAudioElement | null = null;
+
+export function playJackpotSound(): void {
+  try {
+    if (!jackpotAudio) {
+      jackpotAudio = new Audio(highValueAlertSound);
+      jackpotAudio.volume = 0.7;
+    }
+    jackpotAudio.currentTime = 0;
+    jackpotAudio.play().catch(() => {
+      // Ignore autoplay errors
+    });
+  } catch (e) {
+    console.error("Failed to play jackpot sound:", e);
+  }
+>>>>>>> test-
 }
 
 export interface RecentScan {

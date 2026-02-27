@@ -56,6 +56,10 @@
     "cmdk": "^1.1.1",
     "date-fns": "^3.6.0",
     "embla-carousel-react": "^8.6.0",
+<<<<<<< HEAD
+=======
+    "exceljs": "^4.4.0",
+>>>>>>> test-
     "framer-motion": "^12.26.2",
     "input-otp": "^1.4.2",
     "localforage": "^1.10.0",
@@ -76,8 +80,11 @@
     "three": "^0.181.2",
     "three-stdlib": "^2.36.1",
     "vaul": "^0.9.9",
+<<<<<<< HEAD
     "vite-plugin-pwa": "^0.11.3",
     "xlsx": "^0.18.5",
+=======
+>>>>>>> test-
     "zod": "^3.25.76",
     "zustand": "^5.0.9"
   },
@@ -89,7 +96,11 @@
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react-swc": "^3.11.0",
     "autoprefixer": "^10.4.21",
+<<<<<<< HEAD
     "eslint": "^10.0.1",
+=======
+    "eslint": "^9.39.3",
+>>>>>>> test-
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
     "globals": "^15.15.0",
@@ -98,6 +109,11 @@
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.36.0",
+<<<<<<< HEAD
     "vite": "^7.3.1"
+=======
+    "vite": "^7.3.1",
+    "vite-plugin-pwa": "^1.2.0"
+>>>>>>> test-
   }
 }

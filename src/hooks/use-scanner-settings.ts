@@ -21,6 +21,12 @@ export interface ScannerSettings {
   // Smart zoom
   autoZoomEnabled: boolean; // Auto zoom-out when cards get too close (blurry)
 
+<<<<<<< HEAD
+=======
+  // Auto-capture (frame stability detector)
+  autoCaptureEnabled: boolean;
+
+>>>>>>> test-
   // Batch processing
   batchScanSize: number; // 1-3, concurrent cards to process (max 3)
 
@@ -49,6 +55,11 @@ const DEFAULT_SETTINGS: ScannerSettings = {
 
   autoZoomEnabled: true, // Auto zoom-out for card stacks
 
+<<<<<<< HEAD
+=======
+  autoCaptureEnabled: false, // Off by default; adds hands-free scanning when enabled
+
+>>>>>>> test-
   batchScanSize: 3, // Default 3 concurrent workers
 
   gpuOffloadEnabled: false,

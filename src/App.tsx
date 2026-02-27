@@ -15,6 +15,10 @@ import { SplashScreen } from "@/components/SplashScreen";
 import { OfflineIndicator } from "@/components/OfflineIndicator";
 import { PWAOnboarding } from "@/components/pwa/PWAOnboarding";
 import { PWAInstallBanner } from "@/components/pwa/PWAInstallBanner";
+<<<<<<< HEAD
+=======
+import { PwaUpdateBanner } from "@/components/pwa/PwaUpdateBanner";
+>>>>>>> test-
 import { usePWAOnboarding } from "@/hooks/use-pwa-onboarding";
 
 const Auth = lazy(() => import("./pages/Auth"));
@@ -115,6 +119,10 @@ function PWAWrapper({ children }: { children: React.ReactNode }) {
       {children}
       {/* Show install banner only when not in standalone mode */}
       {!isStandalone && <PWAInstallBanner />}
+<<<<<<< HEAD
+=======
+      <PwaUpdateBanner />
+>>>>>>> test-
     </>
   );
 }
