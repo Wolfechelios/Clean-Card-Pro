@@ -79,11 +79,11 @@ export default defineConfig(({ mode }) => ({
             icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }] as any
           }
         ],
-        display_override: ["standalone", "minimal-ui"],
-        handle_links: "preferred",
-        launch_handler: {
-          client_mode: ["navigate-existing", "auto"]
-        }
+      display_override: ["standalone", "minimal-ui"] as any,
+      handle_links: "preferred" as any,
+      launch_handler: {
+        client_mode: ["navigate-existing", "auto"]
+      } as any
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,json,webmanifest,woff2}"],
