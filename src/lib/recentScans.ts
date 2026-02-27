@@ -1,28 +1,11 @@
 // Recent scans tracking - 2 hour window with $20+ value highlighting
 
-import highValueAlertSound from "@/assets/high-value-alert.mp3";
+import { playJackpotBeep } from "@/lib/audioBeeps";
 
 const STORAGE_KEY = "recent_scans";
-const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
-const VALUE_THRESHOLD = 20; // USD
-const JACKPOT_THRESHOLD = 50; // USD - plays special sound
-
-// Audio instance for jackpot alert
-let jackpotAudio: HTMLAudioElement | null = null;
 
 export function playJackpotSound(): void {
-  try {
-    if (!jackpotAudio) {
-      jackpotAudio = new Audio(highValueAlertSound);
-      jackpotAudio.volume = 0.7;
-    }
-    jackpotAudio.currentTime = 0;
-    jackpotAudio.play().catch(() => {
-      // Ignore autoplay errors
-    });
-  } catch (e) {
-    console.error("Failed to play jackpot sound:", e);
-  }
+  playJackpotBeep();
 }
 
 export interface RecentScan {

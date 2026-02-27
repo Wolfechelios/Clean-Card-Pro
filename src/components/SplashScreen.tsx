@@ -35,7 +35,7 @@ export function SplashScreen({ onComplete, minDisplayTime = 2500 }: SplashScreen
         <div className="relative">
           <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-amber-400 via-orange-500 to-red-500 blur-xl opacity-60 animate-spin-slow" />
           <img
-            src={splashLogo}
+            src="/brand/splash-logo.jpg"
             alt="CleanCards"
             className="relative w-40 h-40 rounded-full object-cover border-4 border-amber-400/50 shadow-2xl shadow-amber-500/30 animate-splash-logo"
           />
