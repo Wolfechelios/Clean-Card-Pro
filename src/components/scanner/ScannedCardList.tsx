@@ -224,13 +224,9 @@ export const ScannedCardList = ({
 
       setDeletingId(card.id);
       try {
-        if (card.dbId) {
-          const { error } = await withTimeout(
-            supabase.from("cards").delete().eq("id", card.dbId),
-            8000,
-            "Delete card"
-          );
-          if (error) throw error;
+      if (card.dbId) {
+          const res = await supabase.from("cards").delete().eq("id", card.dbId);
+          if (res.error) throw res.error;
         }
 
         onCardDelete(card.id);
