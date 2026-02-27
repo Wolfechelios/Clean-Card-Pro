@@ -70,7 +70,7 @@ export default defineConfig(({ mode }) => ({
             short_name: "Collection",
             description: "View your card collection",
             url: "/collections?source=shortcut",
-            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }]
+            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }] as any
           },
           {
             name: "Dashboard",
