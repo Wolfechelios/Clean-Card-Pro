@@ -594,8 +594,6 @@ setNullRarityCount(missingRarity || 0);
               />
             </div>
 
-<<<<<<< HEAD
-=======
 
             <div className="flex items-center justify-between">
               <div>
@@ -608,9 +606,6 @@ setNullRarityCount(missingRarity || 0);
               />
             </div>
 
-            <Separator />
-
->>>>>>> test-
             <Separator />
 
             {/* Batch Processing */}
