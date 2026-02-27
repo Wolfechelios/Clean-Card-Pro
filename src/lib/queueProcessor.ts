@@ -41,6 +41,10 @@ export type ProcessedCard = {
   isInLibrary: boolean;
   libraryQuantity: number;
   dbId?: string;
+  year?: string;
+  playerName?: string;
+  team?: string;
+  manufacturer?: string;
 };
 
 export type ProcessorState = {
@@ -498,6 +502,10 @@ async function processJob(item: QueueItem): Promise<void> {
   const gameType: string | null = identify?.game_type ?? null;
   const sportType: string | null = identify?.sport_type ?? null;
   const confidence: number = identify?.confidence ?? 0;
+  const year: string | null = identify?.year ?? null;
+  const playerName: string | null = identify?.player_name ?? null;
+  const team: string | null = identify?.team ?? null;
+  const manufacturer: string | null = identify?.manufacturer ?? null;
 
   // Filter out unreadable/blurry cards
   const MIN_CONFIDENCE = 0.3;
@@ -562,6 +570,10 @@ async function processJob(item: QueueItem): Promise<void> {
     isInLibrary,
     libraryQuantity: ownedCount,
     dbId: existingId,
+    year: year || undefined,
+    playerName: playerName || (sportType ? cardName : undefined),
+    team: team || undefined,
+    manufacturer: manufacturer || undefined,
   };
 
   store._setLastProcessedCard(processedCard);
@@ -573,7 +585,7 @@ async function processJob(item: QueueItem): Promise<void> {
     card_name: cardName,
     card_set: cardSet,
     card_number: cardNumber,
-    player_name: sportType ? cardName : null,
+    player_name: playerName || (sportType ? cardName : null),
     image_url: imageUrl,
     price: rawPrice,
     confidence,
@@ -583,6 +595,9 @@ async function processJob(item: QueueItem): Promise<void> {
     dbId: existingId ?? null,
     isInLibrary,
     libraryQuantity: ownedCount,
+    year,
+    team,
+    manufacturer,
   });
   window.dispatchEvent(new CustomEvent("recent-scan-added"));
 

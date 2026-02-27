@@ -93,6 +93,9 @@ type ScannedCard = {
   isInLibrary?: boolean;
   imageUrl?: string;
   addedToLibraryThisSession?: boolean;
+  year?: string;
+  team?: string;
+  manufacturer?: string;
 };
 
 type LastOverlay = {
@@ -311,6 +314,9 @@ export default function RapidScanCamera() {
       libraryQuantity: s.libraryQuantity ?? 0,
       imageUrl: s.image_url,
       priceFetching: false,
+      year: s.year ?? undefined,
+      team: s.team ?? undefined,
+      manufacturer: s.manufacturer ?? undefined,
     }));
   });
   const CARD_LIST_RENDER_LIMIT = 30;
@@ -953,7 +959,7 @@ export default function RapidScanCamera() {
       cardName: card.cardName,
       cardSet: card.cardSet,
       cardNumber: card.cardNumber,
-      playerName: card.sportType ? card.cardName : undefined,
+      playerName: card.playerName || (card.sportType ? card.cardName : undefined),
       rarity: card.rarity,
       gameType: card.gameType,
       sportType: card.sportType,
@@ -963,6 +969,9 @@ export default function RapidScanCamera() {
       libraryQuantity: card.libraryQuantity,
       dbId: card.dbId,
       priceFetching: false,
+      year: card.year,
+      team: card.team,
+      manufacturer: card.manufacturer,
     });
 
     // Play ka-ching sound for cards worth $10+
