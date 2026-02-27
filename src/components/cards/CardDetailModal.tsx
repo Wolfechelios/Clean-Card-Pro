@@ -652,6 +652,29 @@ export function CardDetailModal({
                   </div>
                 )}
 
+                {/* Price Consensus Panel */}
+                <PriceConsensusPanel
+                  consensus={consensus}
+                  loading={consensusLoading}
+                  error={consensusError}
+                  needsReview={needsReview}
+                  onUseConsensusPrice={async (price) => {
+                    const { error } = await supabase
+                      .from("cards")
+                      .update({ suggested_price: price, current_price_raw: price })
+                      .eq("id", card.id);
+                    if (!error) {
+                      toast.success(`Price updated to $${price.toFixed(2)}`);
+                      if (cardState) {
+                        const updated = { ...cardState, current_price_raw: price };
+                        setCardState(updated);
+                        onUpdate?.(updated);
+                      }
+                    }
+                  }}
+                  onRescan={() => navigate(`/scan`)}
+                />
+
                 {/* Badges */}
                 <div className="flex items-center gap-2 flex-wrap">
                   {card.rarity && <Badge variant="secondary">{card.rarity}</Badge>}
