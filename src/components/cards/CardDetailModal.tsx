@@ -86,6 +86,7 @@ export function CardDetailModal({
   const [showVerification, setShowVerification] = useState(false);
   const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
   const [cardState, setCardState] = useState<CardData | null>(null);
+  const { consensus, loading: consensusLoading, error: consensusError, needsReview, fetchConsensus, reset: resetConsensus } = usePriceConsensus();
   
   // Keep local card state for PSA10 updates
   useEffect(() => {
@@ -93,6 +94,23 @@ export function CardDetailModal({
       setCardState(card);
     }
   }, [card]);
+
+  // Fetch price consensus when modal opens
+  useEffect(() => {
+    if (open && card) {
+      const identity: CardPriceIdentity = {
+        name: card.card_name,
+        set: card.card_set,
+        number: card.card_number,
+        condition: card.condition,
+        gameType: card.game_type,
+        sportType: card.sport_type,
+      };
+      fetchConsensus(identity);
+    } else {
+      resetConsensus();
+    }
+  }, [open, card?.id]);
   const [editData, setEditData] = useState({
     card_name: "",
     card_set: "",
