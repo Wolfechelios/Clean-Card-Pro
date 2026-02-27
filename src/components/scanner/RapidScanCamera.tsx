@@ -626,18 +626,8 @@ export default function RapidScanCamera() {
   // SHUTTER SOUND
   // ───────────────────────────────────────────────────────────────────────────
 
-  const shutterAudioRef = useRef<HTMLAudioElement | null>(null);
-
-  useEffect(() => {
-    shutterAudioRef.current = new Audio("/sounds/shutter.mp3");
-    shutterAudioRef.current.volume = 0.5;
-  }, []);
-
   const playShutterSound = useCallback(() => {
-    if (shutterAudioRef.current) {
-      shutterAudioRef.current.currentTime = 0;
-      shutterAudioRef.current.play().catch(() => {});
-    }
+    playShutterBeep();
   }, []);
 
   // ───────────────────────────────────────────────────────────────────────────
