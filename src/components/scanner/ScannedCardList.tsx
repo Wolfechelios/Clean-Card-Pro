@@ -255,21 +255,17 @@ export const ScannedCardList = ({
       });
 
       if (editingCard.dbId) {
-        const { error } = await withTimeout(
-          supabase
-            .from("cards")
-            .update({
-              card_name: editForm.cardName,
-              card_set: editForm.cardSet,
-              card_number: editForm.cardNumber,
-              rarity: editForm.rarity,
-              suggested_price: editForm.value ? parseFloat(editForm.value) : null,
-            })
-            .eq("id", editingCard.dbId),
-          8000,
-          "Update card"
-        );
-        if (error) throw error;
+        const res = await supabase
+          .from("cards")
+          .update({
+            card_name: editForm.cardName,
+            card_set: editForm.cardSet,
+            card_number: editForm.cardNumber,
+            rarity: editForm.rarity,
+            suggested_price: editForm.value ? parseFloat(editForm.value) : null,
+          })
+          .eq("id", editingCard.dbId);
+        if (res.error) throw res.error;
       }
 
       toast.success("Card updated successfully");
