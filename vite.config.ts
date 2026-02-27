@@ -55,7 +55,7 @@ export default defineConfig(({ mode }) => ({
           { src: "/pwa-512x512.png", sizes: "512x512", type: "image/png", purpose: "maskable" }
         ],
         screenshots: [
-          { src: "/pwa-512x512.png", sizes: "512x512", type: "image/png", form_factor: "narrow", label: "Clean Cards Home" }
+          { src: "/pwa-512x512.png", sizes: "512x512", type: "image/png", label: "Clean Cards Home" } as any
         ],
         shortcuts: [
           {
