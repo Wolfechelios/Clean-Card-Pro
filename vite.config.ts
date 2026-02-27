@@ -54,7 +54,7 @@ export default defineConfig(({ mode }) => ({
           { src: "/pwa-512x512.png", sizes: "512x512", type: "image/png", purpose: "maskable" }
         ],
         screenshots: [
-          { src: "/pwa-512x512.png", sizes: "512x512", type: "image/png", label: "Clean Cards Home" } as any
+          { src: "/pwa-512x512.png", sizes: "512x512", type: "image/png", label: "Clean Cards Home" }
         ],
         shortcuts: [
           {
@@ -62,29 +62,29 @@ export default defineConfig(({ mode }) => ({
             short_name: "Scan",
             description: "Scan a new trading card",
             url: "/scan?source=shortcut",
-            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }] as any
+            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }]
           },
           {
             name: "My Collection",
             short_name: "Collection",
             description: "View your card collection",
             url: "/collections?source=shortcut",
-            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }] as any
+            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }]
           },
           {
             name: "Dashboard",
             short_name: "Dashboard",
             description: "View collection stats",
             url: "/dashboard?source=shortcut",
-            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }] as any
+            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }]
           }
         ],
-      display_override: ["standalone", "minimal-ui"] as any,
-      handle_links: "preferred" as any,
-      launch_handler: {
-        client_mode: ["navigate-existing", "auto"]
-      } as any
-      },
+        display_override: ["standalone", "minimal-ui"],
+        handle_links: "preferred",
+        launch_handler: {
+          client_mode: ["navigate-existing", "auto"]
+        }
+      } as any,
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,json,webmanifest,woff2}"],
         navigateFallback: "/offline.html",
