@@ -95,10 +95,8 @@ function PriceDBContent({ userId }: { userId: string }) {
     setProgress(0);
     setProgressMsg("Importing...");
     try {
-      const result = await importParsedSets(userId, pendingSets, (done, total) => {
-        setProgress(Math.round((done / total) * 100));
-      });
-      toast.success(`Imported ${result.cardsImported} cards across ${result.setsImported} new sets${result.setsUpdated ? `, updated ${result.setsUpdated} sets` : ""}`);
+      const result = await importParsedSets(userId, pendingSets);
+      toast.success(`Imported ${result.length} cards`);
       setPendingSets([]);
       fetchSets();
     } catch (err) {

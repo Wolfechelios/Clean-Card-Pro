@@ -225,19 +225,35 @@ export async function toMatch(cardName: string): Promise<Card[]> {
   return data || [];
 }
 
-export async function getSetCompletion(userId: string, cardSet: string): Promise<{ total: number; owned: number }> {
-  const { data: all, error: errAll } = await supabase
+export async function getSetCompletion(userId: string, setId: string): Promise<SetCompletion> {
+  // Get set info
+  const { data: setData } = await supabase.from("pc_sets").select("*").eq("id", setId).single();
+  if (!setData) return { set_id: setId, set_name: "", set_code: null, total_cards: 0, owned_cards: 0, completion_pct: 0, missing: [] };
+
+  // Get all cards in this set
+  const { data: allCards } = await supabase.from("pc_cards").select("*").eq("set_id", setId);
+  const totalCards = allCards?.length || 0;
+
+  // Get user's owned cards matching this set name
+  const { data: ownedCards } = await supabase
     .from("cards")
-    .select("id", { count: "exact" })
-    .eq("card_set", cardSet);
-  const { data: owned, error: errOwned } = await supabase
-    .from("cards")
-    .select("id", { count: "exact" })
+    .select("card_name")
     .eq("user_id", userId)
-    .eq("card_set", cardSet);
-  if (errAll || errOwned) {
-    console.error("Error getting set completion", errAll, errOwned);
-    return { total: 0, owned: 0 };
-  }
-  return { total: all?.[0]?.count || 0, owned: owned?.[0]?.count || 0 };
+    .ilike("card_set", setData.set_name);
+
+  const ownedNames = new Set((ownedCards || []).map(c => c.card_name?.toLowerCase()));
+  const owned = allCards?.filter(c => ownedNames.has(c.card_name?.toLowerCase())) || [];
+  const missing = (allCards || [])
+    .filter(c => !ownedNames.has(c.card_name?.toLowerCase()))
+    .map(c => ({ card_name: c.card_name, card_number: c.card_number, variant: c.variant, ungraded_price: c.ungraded_price }));
+
+  return {
+    set_id: setId,
+    set_name: setData.set_name,
+    set_code: setData.set_code,
+    total_cards: totalCards,
+    owned_cards: owned.length,
+    completion_pct: totalCards > 0 ? Math.round((owned.length / totalCards) * 100) : 0,
+    missing,
+  };
 }
