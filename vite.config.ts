@@ -44,7 +44,6 @@ export default defineConfig(({ mode }) => ({
         orientation: "portrait-primary",
         scope: "/",
         start_url: "/?source=pwa",
-        id: "clean-cards-pwa" as any,
         lang: "en",
         dir: "ltr",
         categories: ["utilities", "lifestyle", "entertainment"],
