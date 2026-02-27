@@ -959,7 +959,7 @@ export default function RapidScanCamera() {
       cardName: card.cardName,
       cardSet: card.cardSet,
       cardNumber: card.cardNumber,
-      playerName: card.sportType ? card.cardName : undefined,
+      playerName: card.playerName || (card.sportType ? card.cardName : undefined),
       rarity: card.rarity,
       gameType: card.gameType,
       sportType: card.sportType,
@@ -969,6 +969,9 @@ export default function RapidScanCamera() {
       libraryQuantity: card.libraryQuantity,
       dbId: card.dbId,
       priceFetching: false,
+      year: card.year,
+      team: card.team,
+      manufacturer: card.manufacturer,
     });
 
     // Play ka-ching sound for cards worth $10+
