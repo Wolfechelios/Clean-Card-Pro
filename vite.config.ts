@@ -54,7 +54,7 @@ export default defineConfig(({ mode }) => ({
           { src: "/pwa-512x512.png", sizes: "512x512", type: "image/png", purpose: "maskable" }
         ],
         screenshots: [
-          { src: "/pwa-512x512.png", sizes: "512x512", type: "image/png", label: "Clean Cards Home" } as any
+          { src: "/pwa-512x512.png", sizes: "512x512", type: "image/png", label: "Clean Cards Home" }
         ],
         shortcuts: [
           {
@@ -62,21 +62,21 @@ export default defineConfig(({ mode }) => ({
             short_name: "Scan",
             description: "Scan a new trading card",
             url: "/scan?source=shortcut",
-            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }] as any
+            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }]
           },
           {
             name: "My Collection",
             short_name: "Collection",
             description: "View your card collection",
             url: "/collections?source=shortcut",
-            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }] as any
+            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }]
           },
           {
             name: "Dashboard",
             short_name: "Dashboard",
             description: "View collection stats",
             url: "/dashboard?source=shortcut",
-            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }] as any
+            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }]
           }
         ],
         display_override: ["standalone", "minimal-ui"],
@@ -99,7 +99,7 @@ export default defineConfig(({ mode }) => ({
             }
           },
           {
-            urlPattern: ({ request }) => request.method === "GET" && request.destination === "image",
+            urlPattern: ({ request }: { request: Request }) => request.method === "GET" && request.destination === "image",
             handler: "StaleWhileRevalidate",
             options: {
               cacheName: "images-v1",
@@ -112,7 +112,7 @@ export default defineConfig(({ mode }) => ({
         enabled: true,
         type: "module"
       }
-    }),
+    } as any),
     mode === "development" && componentTagger(),
   ].filter(Boolean),
   resolve: {
