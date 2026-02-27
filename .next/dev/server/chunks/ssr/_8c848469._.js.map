@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 4, "column": 0}, "map": {"version":3,"sources":["file:///Users/damacpro/Documents/GitHub/cleancards/app/layout.tsx"],"sourcesContent":["export const metadata = {\n  title: \"Mint Condition Market\",\n  description: \"Advanced trading card collection manager\",\n  manifest: \"/manifest.json\"\n};\n\nexport default function RootLayout({ children }) {\n  return (\n    <html>\n      <body style={{ background: \"#0a0a0a\", color: \"white\" }}>\n        {children}\n      </body>\n    </html>\n  );\n}"],"names":[],"mappings":";;;;;;;;AAAO,MAAM,WAAW;IACtB,OAAO;IACP,aAAa;IACb,UAAU;AACZ;AAEe,SAAS,WAAW,EAAE,QAAQ,EAAE;IAC7C,qBACE,8OAAC;kBACC,cAAA,8OAAC;YAAK,OAAO;gBAAE,YAAY;gBAAW,OAAO;YAAQ;sBAClD;;;;;;;;;;;AAIT"}},
+    {"offset": {"line": 40, "column": 0}, "map": {"version":3,"sources":["file:///Users/damacpro/Documents/GitHub/cleancards/node_modules/next/src/server/route-modules/app-page/vendored/rsc/react-jsx-dev-runtime.ts"],"sourcesContent":["module.exports = (\n  require('../../module.compiled') as typeof import('../../module.compiled')\n).vendored['react-rsc']!.ReactJsxDevRuntime\n"],"names":["module","exports","require","vendored","ReactJsxDevRuntime"],"mappings":"AAAAA,OAAOC,OAAO,GACZC,QAAQ,4HACRC,QAAQ,CAAC,YAAY,CAAEC,kBAAkB","ignoreList":[0]}}]
+}

@@ -44,13 +44,26 @@ serve(async (req) => {
 
 Analyze this trading card image and provide the most likely card identification along with up to 2 alternative possibilities if you're not completely certain.
 
-CRITICAL FOR YU-GI-OH CARDS:
-- Look for the SET NUMBER on the right side, just below the card artwork
-- Format: [SET CODE]-EN[NUMBER] (e.g., "LART-EN035", "SDK-EN001", "LOB-EN001")
-- This is typically separated by a dash (-) followed by "EN" and then a number
-- This set number is the MOST RELIABLE identifier for Yu-Gi-Oh cards
-- Also look for the 8-digit passcode number (e.g., "89631139") which can help confirm identity
-- Use the set number as the PRIMARY identification method
+CRITICAL FOR YU-GI-OH CARDS — ROI-BASED DETECTION (NO GUESSING):
+
+STEP 1 — REGIONS OF INTEREST:
+A. Set Code Region: Crop bottom 18-25% of image vertically, then isolate rightmost 30-40% horizontally. Set code is in small text directly ABOVE copyright line, right-aligned near card border.
+B. Edition Region: Crop bottom 35-50% of image vertically, then isolate leftmost 30-40% horizontally. Edition marker appears below artwork frame, left-aligned.
+
+STEP 2 — SET CODE EXTRACTION:
+Strict regex: \\b[A-Z0-9]{2,5}-[A-Z]{0,2}[0-9]{3}\\b
+Valid: LOB-001, SDK-003, MRD-EN045, MP23-EN001, BLMR-EN045
+Rules: MUST contain hyphen, MUST end in exactly 3 digits. Ignore non-matching text. Extract ONLY first valid match. No match → "Not Detected".
+
+STEP 3 — EDITION DETECTION:
+Search ONLY within Edition Region for exact case-sensitive string "1st Edition".
+Do NOT accept: "First Edition", "1st Ed", "1st", or partial text.
+If found → edition = "1st Edition". If NOT found → edition = "Unlimited".
+
+STEP 4 — DO NOT CONFUSE WITH:
+Ignore: Card name (top center), attribute icon (top right), ATK/DEF (bottom right large font), serial number inside artwork box, holographic square stamp (older prints). Set Code is ALWAYS above copyright line. Edition stamp is below artwork frame on lower-left.
+
+Also look for the 8-digit passcode number (e.g., "89631139") to confirm identity.
 
 Return JSON in this exact format:
 
@@ -58,9 +71,9 @@ Return JSON in this exact format:
   "primary": {
     "card_name": "exact card name",
     "card_set": "set name",
-    "card_number": "set number (e.g., LART-EN035) for Yu-Gi-Oh",
+    "card_number": "set code from ROI extraction (e.g., LART-EN035)",
     "rarity": "rarity level",
-    "edition": "edition (e.g., 1st Edition, Unlimited, etc.)",
+    "edition": "1st Edition or Unlimited — determined ONLY by exact '1st Edition' text in Edition Region",
     "game_type": "Pokemon/MTG/YuGiOh/etc or null for sports",
     "sport_type": "Baseball/Basketball/Football/etc or null for games",
     "year": "year of release",
@@ -80,7 +93,7 @@ Return JSON in this exact format:
 
 ${ocrText ? `OCR text extracted: ${ocrText}` : ''}
 
-Only include alternatives array if confidence is below 0.95. If completely certain, return empty alternatives array. For Yu-Gi-Oh cards, ALWAYS look for the set number in [CODE]-EN[NUMBER] format on the right side below the artwork.`;
+Only include alternatives array if confidence is below 0.95. If completely certain, return empty alternatives array.`;
 
     const messages = [
       {

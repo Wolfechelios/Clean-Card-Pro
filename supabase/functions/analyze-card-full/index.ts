@@ -58,7 +58,7 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     const body: RequestBody = await req.json();
-    const { image_url } = body;
+    let image_url = body.image_url;
 
     if (!image_url) {
       return new Response(
@@ -68,6 +68,16 @@ serve(async (req: Request): Promise<Response> => {
           headers: { ...corsHeaders, "Content-Type": "application/json" } 
         }
       );
+    }
+
+    // Convert expired signed URLs to public URLs (card-images bucket is public)
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
+    if (image_url.includes("/storage/v1/object/sign/")) {
+      const match = image_url.match(/\/storage\/v1\/object\/sign\/([^?]+)/);
+      if (match) {
+        image_url = `${SUPABASE_URL}/storage/v1/object/public/${match[1]}`;
+        console.log(`Converted signed URL to public: ${image_url}`);
+      }
     }
 
     console.log(`Analyzing card image: ${image_url}`);
@@ -125,12 +135,26 @@ RARITY DETECTION - ALWAYS IDENTIFY RARITY:
 - If you see holographic/prismatic effects, special borders, or serial numbers - it's NOT Common
 - NEVER return null for rarity - always make your best determination
 
-CRITICAL FOR YU-GI-OH CARDS:
-- Look for the SET NUMBER on the right side, just below the card artwork
-- Format: [SET CODE]-EN[NUMBER] (e.g., "LART-EN035", "SDK-EN001", "LOB-EN001")
-- This is separated by a dash (-) followed by "EN" and then a number
-- Include this set number in the card_number field
-- This is the MOST IMPORTANT identifier for Yu-Gi-Oh cards
+CRITICAL FOR YU-GI-OH CARDS — ROI-BASED DETECTION (NO GUESSING):
+
+STEP 1 — REGIONS OF INTEREST:
+A. Set Code Region: Crop bottom 18-25% vertically, then isolate rightmost 30-40% horizontally. The set code is in small text directly ABOVE the copyright line, right-aligned near the card border.
+B. Edition Region: Crop bottom 35-50% vertically, then isolate leftmost 30-40% horizontally. The edition marker appears below the artwork frame, left-aligned.
+
+STEP 2 — SET CODE EXTRACTION:
+Strict regex: \\b[A-Z0-9]{2,5}-[A-Z]{0,2}[0-9]{3}\\b
+Valid: LOB-001, SDK-003, MRD-EN045, MP23-EN001, BLMR-EN045
+Rules: MUST contain hyphen, MUST end in exactly 3 digits. Extract ONLY the first valid match in the Set Code Region. If no match → "Not Detected"
+
+STEP 3 — EDITION DETECTION:
+Search ONLY within Edition Region for exact case-sensitive string "1st Edition".
+Do NOT accept: "First Edition", "1st Ed", "1st", or partial text.
+If found → edition = "1st Edition". If NOT found → edition = "Unlimited".
+
+STEP 4 — DO NOT CONFUSE WITH:
+Ignore: Card name (top center), attribute icon (top right), ATK/DEF (bottom right large font), serial number inside artwork box, holographic square stamp (older prints). Set code is ALWAYS above the copyright line. Edition stamp is below artwork frame on lower-left.
+
+Also look for the 8-digit passcode number (e.g., "89631139") to confirm card identity.
 
 Be thorough with OCR extraction. Analyze card condition carefully. Grade estimate should be PSA-style (1-10 scale).`
               },

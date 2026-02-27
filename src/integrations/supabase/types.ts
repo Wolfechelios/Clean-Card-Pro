@@ -367,6 +367,110 @@ export type Database = {
         }
         Relationships: []
       }
+      pc_cards: {
+        Row: {
+          card_name: string
+          card_name_clean: string
+          card_number: string | null
+          card_url: string | null
+          grade9_price: number | null
+          graded_price: number | null
+          id: string
+          imported_at: string
+          price_updated_at: string
+          psa10_price: number | null
+          rarity: string | null
+          set_id: string
+          ungraded_price: number | null
+          user_id: string
+          variant: string | null
+        }
+        Insert: {
+          card_name: string
+          card_name_clean: string
+          card_number?: string | null
+          card_url?: string | null
+          grade9_price?: number | null
+          graded_price?: number | null
+          id?: string
+          imported_at?: string
+          price_updated_at?: string
+          psa10_price?: number | null
+          rarity?: string | null
+          set_id: string
+          ungraded_price?: number | null
+          user_id: string
+          variant?: string | null
+        }
+        Update: {
+          card_name?: string
+          card_name_clean?: string
+          card_number?: string | null
+          card_url?: string | null
+          grade9_price?: number | null
+          graded_price?: number | null
+          id?: string
+          imported_at?: string
+          price_updated_at?: string
+          psa10_price?: number | null
+          rarity?: string | null
+          set_id?: string
+          ungraded_price?: number | null
+          user_id?: string
+          variant?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pc_cards_set_id_fkey"
+            columns: ["set_id"]
+            isOneToOne: false
+            referencedRelation: "pc_sets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pc_sets: {
+        Row: {
+          game: string
+          id: string
+          imported_at: string
+          set_code: string | null
+          set_name: string
+          set_name_raw: string | null
+          source_file_hash: string | null
+          source_url: string | null
+          total_cards: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          game?: string
+          id?: string
+          imported_at?: string
+          set_code?: string | null
+          set_name: string
+          set_name_raw?: string | null
+          source_file_hash?: string | null
+          source_url?: string | null
+          total_cards?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          game?: string
+          id?: string
+          imported_at?: string
+          set_code?: string | null
+          set_name?: string
+          set_name_raw?: string | null
+          source_file_hash?: string | null
+          source_url?: string | null
+          total_cards?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       price_alerts: {
         Row: {
           alert_type: string
