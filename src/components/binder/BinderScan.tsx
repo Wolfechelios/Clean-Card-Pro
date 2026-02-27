@@ -433,8 +433,7 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
       });
 
       // Play shutter sound
-      const shutterSound = new Audio('/sounds/shutter.mp3');
-      shutterSound.play().catch(() => {});
+      playShutterBeep();
 
       const file = new File([blob], "binder-scan.jpg", { type: "image/jpeg" });
       stopCamera();
