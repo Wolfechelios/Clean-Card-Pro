@@ -6,10 +6,9 @@ export type ScanMode = "SAVE" | "SCAN_ONLY" | "REMOVE";
 
 export interface ScannerSettings {
   autoConfirmEnabled: boolean;
-  autoConfirmThreshold: number; // 0-100, percentage
-  scanMode: ScanMode; // NEW
+  autoConfirmThreshold: number;
+  scanMode: ScanMode;
 
-  // Capture UX
   hapticsOnCapture: boolean;
   flashOnCapture: boolean;
   autoTimerIntervalSeconds: 1 | 1.5 | 2 | 5;
@@ -18,32 +17,25 @@ export interface ScannerSettings {
   manualFocusLock: boolean;
   fullscreenScanMode: boolean;
 
-  // Smart zoom
-  autoZoomEnabled: boolean; // Auto zoom-out when cards get too close (blurry)
+  autoZoomEnabled: boolean;
 
-<<<<<<< HEAD
-=======
-  // Auto-capture (frame stability detector)
   autoCaptureEnabled: boolean;
 
->>>>>>> test-
-  // Batch processing
-  batchScanSize: number; // 1-3, concurrent cards to process (max 3)
+  batchScanSize: number;
 
-  // Local Accelerator (Mac/PC) — optional, superset feature
   gpuOffloadEnabled: boolean;
-  gpuServerBaseUrl: string; // e.g. http://192.168.1.5:8000 or 192.168.1.5:8000
-  gpuPreferForQueue: boolean; // use GPU server for queued job processing
-  gpuPreferForLive: boolean; // use GPU server for live preview overlay
-  gpuStreamMaxFps: number; // 2-30
-  gpuStreamTargetWidth: number; // 320-1280
-  gpuStreamJpegQuality: number; // 0.35-0.95
+  gpuServerBaseUrl: string;
+  gpuPreferForQueue: boolean;
+  gpuPreferForLive: boolean;
+  gpuStreamMaxFps: number;
+  gpuStreamTargetWidth: number;
+  gpuStreamJpegQuality: number;
 }
 
 const DEFAULT_SETTINGS: ScannerSettings = {
   autoConfirmEnabled: true,
   autoConfirmThreshold: 75,
-  scanMode: "SAVE", // NEW default keeps old behavior
+  scanMode: "SAVE",
 
   hapticsOnCapture: true,
   flashOnCapture: true,
@@ -53,14 +45,11 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   manualFocusLock: false,
   fullscreenScanMode: false,
 
-  autoZoomEnabled: true, // Auto zoom-out for card stacks
+  autoZoomEnabled: true,
 
-<<<<<<< HEAD
-=======
-  autoCaptureEnabled: false, // Off by default; adds hands-free scanning when enabled
+  autoCaptureEnabled: false,
 
->>>>>>> test-
-  batchScanSize: 3, // Default 3 concurrent workers
+  batchScanSize: 3,
 
   gpuOffloadEnabled: false,
   gpuServerBaseUrl: "",
@@ -107,14 +96,9 @@ export function useScannerSettings() {
     }
   }, []);
 
-  return {
-    settings,
-    updateSettings,
-    resetSettings,
-  };
+  return { settings, updateSettings, resetSettings };
 }
 
-// Standalone function to get settings without hook (for use in other hooks)
 export function getScannerSettings(): ScannerSettings {
   try {
     const stored = localStorage.getItem(SCANNER_SETTINGS_KEY);
