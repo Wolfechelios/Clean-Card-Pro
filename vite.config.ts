@@ -99,7 +99,7 @@ export default defineConfig(({ mode }) => ({
             }
           },
           {
-            urlPattern: ({ request }) => request.method === "GET" && request.destination === "image",
+            urlPattern: ({ request }: { request: Request }) => request.method === "GET" && request.destination === "image",
             handler: "StaleWhileRevalidate",
             options: {
               cacheName: "images-v1",
