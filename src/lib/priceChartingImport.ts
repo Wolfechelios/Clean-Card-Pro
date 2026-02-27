@@ -1,7 +1,18 @@
 import * as ExcelJS from "exceljs";
-import { Database } from "@/types/supabase";
-import { Card } from "@/types";
+import { Database } from "@/integrations/supabase/types";
 import { supabase } from "@/integrations/supabase/client";
+
+type Card = Database["public"]["Tables"]["cards"]["Row"];
+
+export interface SetCompletion {
+  set_id: string;
+  set_name: string;
+  set_code: string | null;
+  total_cards: number;
+  owned_cards: number;
+  completion_pct: number;
+  missing: { card_name: string; card_number: string | null; variant: string | null; ungraded_price: number | null }[];
+}
 
 // ── Types ──────────────────────────────────────────────────────────
 export interface PCRawRow {
