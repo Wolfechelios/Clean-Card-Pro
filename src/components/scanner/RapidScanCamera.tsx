@@ -883,7 +883,7 @@ export default function RapidScanCamera() {
 
     // Play ka-ching sound for cards worth $10+
     if (typeof card.value === "number" && card.value >= 10) {
-      playKachingSound();
+      playKachingBeep();
     }
 
     setOverlay({
