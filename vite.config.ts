@@ -77,7 +77,7 @@ export default defineConfig(({ mode }) => ({
             short_name: "Dashboard",
             description: "View collection stats",
             url: "/dashboard?source=shortcut",
-            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }]
+            icons: [{ src: "/pwa-192x192.png", sizes: "192x192" }] as any
           }
         ],
         display_override: ["standalone", "minimal-ui"],
