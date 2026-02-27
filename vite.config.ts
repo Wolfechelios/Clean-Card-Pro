@@ -92,7 +92,7 @@ export default defineConfig(({ mode }) => ({
         navigateFallbackDenylist: [/^\/api\//, /\/supabase\//],
         runtimeCaching: [
           {
-            urlPattern: ({ request, url }) => request.method === "GET" && url.origin === self.location.origin && url.pathname.startsWith("/assets/"),
+            urlPattern: ({ request, url }: { request: Request; url: URL }) => request.method === "GET" && url.origin === location.origin && url.pathname.startsWith("/assets/"),
             handler: "CacheFirst",
             options: {
               cacheName: "assets-v1",
