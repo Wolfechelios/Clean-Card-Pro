@@ -3,6 +3,7 @@
 
 import type { PriceQuote, CardPriceIdentity, PriceSourceAdapter } from "./types";
 import { supabase } from "@/integrations/supabase/client";
+import { getSportsCardAdapters } from "./sportsAdapters";
 
 /**
  * Adapter: eBay Sold Comps via existing fetch-card-prices edge function
