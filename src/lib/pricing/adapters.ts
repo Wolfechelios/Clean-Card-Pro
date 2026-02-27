@@ -205,12 +205,31 @@ export class TCGPlayerAdapter implements PriceSourceAdapter {
 }
 
 /**
- * All available adapters in priority order
+ * Helper to detect sports cards
  */
-export function getDefaultAdapters(): PriceSourceAdapter[] {
-  return [
+function isSportsCard(card?: CardPriceIdentity | null): boolean {
+  if (!card) return false;
+  const sport = card.sportType?.toLowerCase();
+  return !!sport && ["baseball", "basketball", "football", "hockey", "soccer", "sports"].some(
+    (s) => sport.includes(s)
+  );
+}
+
+/**
+ * All available adapters in priority order.
+ * For sports cards, adds SportsCardPro, CardLadder, 130point.com, and eBay Firecrawl adapters.
+ */
+export function getDefaultAdapters(card?: CardPriceIdentity | null): PriceSourceAdapter[] {
+  const adapters: PriceSourceAdapter[] = [
     new EbaySoldAdapter(),
     new PriceChartingLocalAdapter(),
     new TCGPlayerAdapter(),
   ];
+
+  // Add sports-card-specific sources when applicable
+  if (isSportsCard(card)) {
+    adapters.push(...getSportsCardAdapters());
+  }
+
+  return adapters;
 }
