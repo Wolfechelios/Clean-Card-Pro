@@ -44,6 +44,12 @@ serve(async (req) => {
 
 Analyze this trading card image and provide the most likely card identification along with up to 2 alternative possibilities if you're not completely certain.
 
+CRITICAL NAME RULES — DO NOT CHANGE THE CARD NAME:
+1. Use the EXACT name as printed on the card. Do NOT paraphrase, translate, abbreviate, or "correct" spelling.
+2. If you can read the card number/set code, cross-reference it against the official card database for that game to confirm the EXACT official English name for that card number.
+3. Priority order for name: (a) official name by card number lookup, (b) exact text printed on the card, (c) your best identification — but NEVER invent or alter a name.
+4. For sports cards: use the player name exactly as printed. Do NOT change formatting (e.g. "Ken Griffey Jr." stays as-is, not "Kenneth Griffey Junior").
+
 CRITICAL FOR YU-GI-OH CARDS — ROI-BASED DETECTION (NO GUESSING):
 
 STEP 1 — REGIONS OF INTEREST:
@@ -65,11 +71,14 @@ Ignore: Card name (top center), attribute icon (top right), ATK/DEF (bottom righ
 
 Also look for the 8-digit passcode number (e.g., "89631139") to confirm identity.
 
+STEP 5 — NAME VERIFICATION BY CARD NUMBER:
+If you extracted a valid set code (e.g., LOB-001), look up the official card name for that exact set code. Use THAT official name as "card_name". Do NOT use the name you read from the card image if it differs from the official database entry for that number.
+
 Return JSON in this exact format:
 
 {
   "primary": {
-    "card_name": "exact card name",
+    "card_name": "EXACT name as printed on card or verified by card number lookup",
     "card_set": "set name",
     "card_number": "set code from ROI extraction (e.g., LART-EN035)",
     "rarity": "rarity level",
