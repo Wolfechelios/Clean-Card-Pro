@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { resolveOfficialCardIdentity } from "../_shared/officialNameResolver.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -197,6 +198,16 @@ Only include alternatives array if confidence is below 0.95. If completely certa
       }
       
       throw new Error('Failed to parse card identification response');
+    }
+
+    try {
+      if (cardData?.primary && typeof cardData.primary === "object") {
+        cardData.primary = await resolveOfficialCardIdentity(cardData.primary, { ocrText });
+      } else if (cardData && typeof cardData === "object") {
+        cardData = await resolveOfficialCardIdentity(cardData, { ocrText });
+      }
+    } catch (verifyError) {
+      console.warn("Official name verification skipped:", verifyError);
     }
 
     console.log('Card identified:', cardData);
