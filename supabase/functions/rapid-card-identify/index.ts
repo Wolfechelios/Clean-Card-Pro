@@ -76,6 +76,12 @@ serve(async (req) => {
   "confidence": 0.0-1.0
 }
 
+CRITICAL NAME RULES:
+- Never invent, paraphrase, or auto-correct names.
+- Prefer exact printed card name text.
+- If card_number/set code is readable, extract it exactly (keep hyphens/slashes).
+- If uncertain, keep the printed name text and LOWER confidence.
+
 RARITY RULES:
 - Pokemon: Circle=Common, Diamond=Uncommon, Star=Rare, Star H=Holo Rare, Rainbow/Full Art=Secret Rare
 - Yu-Gi-Oh: Check name color (silver=Rare, gold=Ultra Rare), holo pattern (Super/Secret/Ultimate/Ghost/Starlight)
@@ -85,7 +91,7 @@ RARITY RULES:
 - NEVER return null for rarity
 
 For Yu-Gi-Oh: use SET NUMBER format like LART-EN035 for card_number.
-For sports: include player name in card_name.
+For sports: include player name exactly as printed.
 JSON only.`;
 
     let content: string | null = null;
