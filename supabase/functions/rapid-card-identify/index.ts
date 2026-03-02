@@ -233,6 +233,12 @@ JSON only.`;
       cardData = { card_name: 'Unknown Card', confidence: 0 };
     }
 
+    try {
+      cardData = await resolveOfficialCardIdentity(cardData);
+    } catch (verifyError) {
+      console.warn('Official name verification skipped:', verifyError);
+    }
+
     console.log('Identified:', cardData.card_name);
 
     return new Response(
