@@ -435,9 +435,8 @@ export const captureMaxQualityPhoto = async (
     // GPU-first: use desynchronized rendering for GPU acceleration
     // This is already set in getReusableCanvas based on GPU_CONFIG
     
-    // High-quality rendering
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
+    // High-quality rendering — disable smoothing to preserve pixel sharpness
+    ctx.imageSmoothingEnabled = false;
     
     // Calculate crop offset for aspect ratio
     const offsetX = (video.videoWidth - captureWidth) / 2;

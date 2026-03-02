@@ -4,7 +4,8 @@ import { useCameraZoom } from "./use-camera-zoom";
 import { 
   captureMaxQualityPhoto, 
   applyFastAutofocus,
-  triggerFastFocus 
+  triggerFastFocus,
+  getMaxCameraConstraints,
 } from "@/lib/camera-optimizations";
 
 interface UseCameraCaptureOptions {
