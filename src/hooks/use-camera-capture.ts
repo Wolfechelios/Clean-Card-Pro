@@ -4,7 +4,8 @@ import { useCameraZoom } from "./use-camera-zoom";
 import { 
   captureMaxQualityPhoto, 
   applyFastAutofocus,
-  triggerFastFocus 
+  triggerFastFocus,
+  getMaxCameraConstraints,
 } from "@/lib/camera-optimizations";
 
 interface UseCameraCaptureOptions {
@@ -28,47 +29,8 @@ export function useCameraCapture({ onCapture }: UseCameraCaptureOptions) {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
 
-      // Use progressive fallback constraints like RapidScanCamera
-      const constraintOptions = [
-        // Try 1: 4K
-        {
-          video: {
-            facingMode: { ideal: facingMode },
-            width: { ideal: 3840, min: 1280 },
-            height: { ideal: 2160, min: 720 },
-            frameRate: { ideal: 30 },
-          },
-          audio: false as const,
-        },
-        // Try 2: Full HD
-        {
-          video: {
-            facingMode: { ideal: facingMode },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-          },
-          audio: false as const,
-        },
-        // Try 3: HD
-        {
-          video: {
-            facingMode: { ideal: facingMode },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-          audio: false as const,
-        },
-        // Fallback: Any camera with facing mode
-        {
-          video: { facingMode },
-          audio: false as const,
-        },
-        // Last resort: Any camera at all
-        {
-          video: true,
-          audio: false as const,
-        },
-      ];
+      // Use optimized constraints from camera-optimizations library
+      const constraintOptions = getMaxCameraConstraints(facingMode);
 
       let stream: MediaStream | null = null;
       let lastError: Error | null = null;

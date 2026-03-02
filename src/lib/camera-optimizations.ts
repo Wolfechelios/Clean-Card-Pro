@@ -55,17 +55,30 @@ function getReusableCanvas(width: number, height: number): { canvas: HTMLCanvasE
 export const getMaxCameraConstraints = (facingMode: 'environment' | 'user' = 'environment', deviceId?: string): OptimizedCameraConstraints[] => {
   const baseConstraints = deviceId 
     ? { deviceId: { exact: deviceId } }
-    : { facingMode: { ideal: facingMode } };
+    : { facingMode: { exact: facingMode } };
+
+  // Advanced hardware hints for rear camera quality
+  const advancedHints: any = {
+    focusMode: { ideal: 'continuous' },
+    exposureMode: { ideal: 'continuous' },
+    whiteBalanceMode: { ideal: 'continuous' },
+    // Reduce noise at hardware level
+    ...(typeof (window as any).MediaStreamTrack !== 'undefined' ? {
+      noiseSuppression: { ideal: true },
+    } : {}),
+  };
 
   return [
     // Try 1: 8K Ultra HD (7680x4320)
     {
       video: {
         ...baseConstraints,
+        ...advancedHints,
         width: { ideal: 7680, min: 3840 },
         height: { ideal: 4320, min: 2160 },
         frameRate: { ideal: 30, min: 15 },
-        aspectRatio: { ideal: 16/9 },
+        aspectRatio: { ideal: 4/3 }, // 4:3 captures more card detail than 16:9
+        resizeMode: { ideal: 'none' } as any, // Prevent downscaling
       },
       audio: false as const,
     },
@@ -73,41 +86,45 @@ export const getMaxCameraConstraints = (facingMode: 'environment' | 'user' = 'en
     {
       video: {
         ...baseConstraints,
+        ...advancedHints,
         width: { ideal: 3840, min: 1920 },
-        height: { ideal: 2160, min: 1080 },
+        height: { ideal: 2880, min: 1440 }, // 4:3 aspect
         frameRate: { ideal: 30 },
+        resizeMode: { ideal: 'none' } as any,
       },
       audio: false as const,
     },
-    // Try 3: 2K QHD (2560x1440)
+    // Try 3: 2K QHD (2560x1920 in 4:3)
     {
       video: {
         ...baseConstraints,
+        ...advancedHints,
         width: { ideal: 2560 },
-        height: { ideal: 1440 },
+        height: { ideal: 1920 },
         frameRate: { ideal: 30 },
       },
       audio: false as const,
     },
-    // Try 4: Full HD (1920x1080)
+    // Try 4: Full HD (1920x1440 in 4:3, fallback 1920x1080)
     {
       video: {
         ...baseConstraints,
+        ...advancedHints,
         width: { ideal: 1920 },
-        height: { ideal: 1080 },
+        height: { ideal: 1440 },
       },
       audio: false as const,
     },
-    // Try 5: Basic HD
+    // Try 5: HD
     {
       video: {
         ...baseConstraints,
         width: { ideal: 1280 },
-        height: { ideal: 720 },
+        height: { ideal: 960 },
       },
       audio: false as const,
     },
-    // Fallback: Any camera
+    // Fallback: Any rear camera
     {
       video: deviceId ? { deviceId } : { facingMode },
       audio: false as const,
@@ -123,54 +140,87 @@ export const applyFastAutofocus = async (stream: MediaStream, enableMacro: boole
 
     const capabilities = track.getCapabilities?.() as any;
     
-    // Apply continuous autofocus with close-range (macro) focus
+    // Build a single advanced constraints batch for maximum hardware quality
+    const advancedBatch: any[] = [];
+
+    // 1. Continuous autofocus with macro support
     if (capabilities?.focusMode?.includes('continuous')) {
-      const focusAdvanced: any[] = [{ focusMode: 'continuous' }];
+      advancedBatch.push({ focusMode: 'continuous' });
       
-      // Set focus distance to minimum for macro/close-up card scanning
       if (enableMacro && capabilities.focusDistance) {
         const minDist = capabilities.focusDistance.min;
-        // Use the closest focus distance the hardware supports
-        focusAdvanced.push({ focusDistance: minDist });
+        advancedBatch.push({ focusDistance: minDist });
         console.log(`Macro focus enabled: min distance ${minDist}`);
       }
-      
-      await track.applyConstraints({ advanced: focusAdvanced });
-      console.log('Fast continuous autofocus enabled');
     }
 
-    // Enable auto white balance for better colors
-    if (capabilities?.whiteBalanceMode?.includes('continuous')) {
-      await track.applyConstraints({
-        advanced: [{ whiteBalanceMode: 'continuous' } as any]
-      });
-    }
-
-    // Enable auto exposure for proper brightness
+    // 2. Continuous auto-exposure
     if (capabilities?.exposureMode?.includes('continuous')) {
-      await track.applyConstraints({
-        advanced: [{ exposureMode: 'continuous' } as any]
-      });
+      advancedBatch.push({ exposureMode: 'continuous' });
     }
 
-    // Set exposure compensation to slight positive for well-lit card detail
+    // 3. Continuous auto white balance
+    if (capabilities?.whiteBalanceMode?.includes('continuous')) {
+      advancedBatch.push({ whiteBalanceMode: 'continuous' });
+    }
+
+    // 4. Exposure compensation (+0.3 EV for card text legibility)
     if (capabilities?.exposureCompensation) {
       const maxComp = capabilities.exposureCompensation.max || 2;
       const step = capabilities.exposureCompensation.step || 0.1;
-      // Slight overexposure (+0.3 to +0.5 EV) helps card text legibility
-      const targetComp = Math.min(0.5, maxComp);
+      const targetComp = Math.min(0.3, maxComp);
       const snapped = Math.round(targetComp / step) * step;
-      try {
-        await track.applyConstraints({
-          advanced: [{ exposureCompensation: snapped } as any]
-        });
-        console.log(`Exposure compensation set to +${snapped} EV`);
-      } catch { /* best effort */ }
+      advancedBatch.push({ exposureCompensation: snapped });
+      console.log(`Exposure compensation: +${snapped} EV`);
     }
 
-    // Enable color temperature optimization if available
+    // 5. Sharpness — maximize if hardware supports it
+    if (capabilities?.sharpness) {
+      const maxSharpness = capabilities.sharpness.max ?? 100;
+      advancedBatch.push({ sharpness: maxSharpness });
+      console.log(`Sharpness set to max: ${maxSharpness}`);
+    }
+
+    // 6. Contrast boost for card detail
+    if (capabilities?.contrast) {
+      const maxContrast = capabilities.contrast.max ?? 100;
+      const midHigh = Math.round(maxContrast * 0.7); // 70% — punchy without clipping
+      advancedBatch.push({ contrast: midHigh });
+      console.log(`Contrast set to: ${midHigh}`);
+    }
+
+    // 7. Saturation — slight boost for vivid card art
+    if (capabilities?.saturation) {
+      const maxSat = capabilities.saturation.max ?? 100;
+      const target = Math.round(maxSat * 0.6); // 60% — natural but vivid
+      advancedBatch.push({ saturation: target });
+    }
+
+    // 8. ISO — keep as low as possible for minimal noise
+    if (capabilities?.iso) {
+      const minISO = capabilities.iso.min ?? 50;
+      advancedBatch.push({ iso: minISO });
+      console.log(`ISO set to minimum: ${minISO}`);
+    }
+
+    // Apply all hardware tuning in one call
+    if (advancedBatch.length > 0) {
+      try {
+        await track.applyConstraints({ advanced: advancedBatch });
+        console.log(`Applied ${advancedBatch.length} camera hardware optimizations`);
+      } catch (e) {
+        // If batch fails, apply individually
+        console.warn('Batch constraints failed, applying individually');
+        for (const constraint of advancedBatch) {
+          try {
+            await track.applyConstraints({ advanced: [constraint] });
+          } catch { /* best effort */ }
+        }
+      }
+    }
+
+    // 9. Color temperature — try manual 5500K for neutral card colors
     if (capabilities?.colorTemperature && capabilities?.whiteBalanceMode?.includes('manual')) {
-      // 5500K is daylight-neutral, ideal for accurate card color reproduction
       const min = capabilities.colorTemperature.min || 2500;
       const max = capabilities.colorTemperature.max || 10000;
       const target = Math.min(Math.max(5500, min), max);
@@ -181,10 +231,9 @@ export const applyFastAutofocus = async (stream: MediaStream, enableMacro: boole
             { colorTemperature: target } as any,
           ]
         });
-        console.log(`Color temperature set to ${target}K for neutral card colors`);
+        console.log(`Color temperature: ${target}K`);
       } catch {
-        // Fall back to continuous white balance (already applied above)
-        console.log('Manual color temperature not available, using continuous WB');
+        console.log('Manual color temp unavailable, using continuous WB');
       }
     }
 
@@ -386,9 +435,8 @@ export const captureMaxQualityPhoto = async (
     // GPU-first: use desynchronized rendering for GPU acceleration
     // This is already set in getReusableCanvas based on GPU_CONFIG
     
-    // High-quality rendering
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
+    // High-quality rendering — disable smoothing to preserve pixel sharpness
+    ctx.imageSmoothingEnabled = false;
     
     // Calculate crop offset for aspect ratio
     const offsetX = (video.videoWidth - captureWidth) / 2;
