@@ -140,54 +140,87 @@ export const applyFastAutofocus = async (stream: MediaStream, enableMacro: boole
 
     const capabilities = track.getCapabilities?.() as any;
     
-    // Apply continuous autofocus with close-range (macro) focus
+    // Build a single advanced constraints batch for maximum hardware quality
+    const advancedBatch: any[] = [];
+
+    // 1. Continuous autofocus with macro support
     if (capabilities?.focusMode?.includes('continuous')) {
-      const focusAdvanced: any[] = [{ focusMode: 'continuous' }];
+      advancedBatch.push({ focusMode: 'continuous' });
       
-      // Set focus distance to minimum for macro/close-up card scanning
       if (enableMacro && capabilities.focusDistance) {
         const minDist = capabilities.focusDistance.min;
-        // Use the closest focus distance the hardware supports
-        focusAdvanced.push({ focusDistance: minDist });
+        advancedBatch.push({ focusDistance: minDist });
         console.log(`Macro focus enabled: min distance ${minDist}`);
       }
-      
-      await track.applyConstraints({ advanced: focusAdvanced });
-      console.log('Fast continuous autofocus enabled');
     }
 
-    // Enable auto white balance for better colors
-    if (capabilities?.whiteBalanceMode?.includes('continuous')) {
-      await track.applyConstraints({
-        advanced: [{ whiteBalanceMode: 'continuous' } as any]
-      });
-    }
-
-    // Enable auto exposure for proper brightness
+    // 2. Continuous auto-exposure
     if (capabilities?.exposureMode?.includes('continuous')) {
-      await track.applyConstraints({
-        advanced: [{ exposureMode: 'continuous' } as any]
-      });
+      advancedBatch.push({ exposureMode: 'continuous' });
     }
 
-    // Set exposure compensation to slight positive for well-lit card detail
+    // 3. Continuous auto white balance
+    if (capabilities?.whiteBalanceMode?.includes('continuous')) {
+      advancedBatch.push({ whiteBalanceMode: 'continuous' });
+    }
+
+    // 4. Exposure compensation (+0.3 EV for card text legibility)
     if (capabilities?.exposureCompensation) {
       const maxComp = capabilities.exposureCompensation.max || 2;
       const step = capabilities.exposureCompensation.step || 0.1;
-      // Slight overexposure (+0.3 to +0.5 EV) helps card text legibility
-      const targetComp = Math.min(0.5, maxComp);
+      const targetComp = Math.min(0.3, maxComp);
       const snapped = Math.round(targetComp / step) * step;
-      try {
-        await track.applyConstraints({
-          advanced: [{ exposureCompensation: snapped } as any]
-        });
-        console.log(`Exposure compensation set to +${snapped} EV`);
-      } catch { /* best effort */ }
+      advancedBatch.push({ exposureCompensation: snapped });
+      console.log(`Exposure compensation: +${snapped} EV`);
     }
 
-    // Enable color temperature optimization if available
+    // 5. Sharpness — maximize if hardware supports it
+    if (capabilities?.sharpness) {
+      const maxSharpness = capabilities.sharpness.max ?? 100;
+      advancedBatch.push({ sharpness: maxSharpness });
+      console.log(`Sharpness set to max: ${maxSharpness}`);
+    }
+
+    // 6. Contrast boost for card detail
+    if (capabilities?.contrast) {
+      const maxContrast = capabilities.contrast.max ?? 100;
+      const midHigh = Math.round(maxContrast * 0.7); // 70% — punchy without clipping
+      advancedBatch.push({ contrast: midHigh });
+      console.log(`Contrast set to: ${midHigh}`);
+    }
+
+    // 7. Saturation — slight boost for vivid card art
+    if (capabilities?.saturation) {
+      const maxSat = capabilities.saturation.max ?? 100;
+      const target = Math.round(maxSat * 0.6); // 60% — natural but vivid
+      advancedBatch.push({ saturation: target });
+    }
+
+    // 8. ISO — keep as low as possible for minimal noise
+    if (capabilities?.iso) {
+      const minISO = capabilities.iso.min ?? 50;
+      advancedBatch.push({ iso: minISO });
+      console.log(`ISO set to minimum: ${minISO}`);
+    }
+
+    // Apply all hardware tuning in one call
+    if (advancedBatch.length > 0) {
+      try {
+        await track.applyConstraints({ advanced: advancedBatch });
+        console.log(`Applied ${advancedBatch.length} camera hardware optimizations`);
+      } catch (e) {
+        // If batch fails, apply individually
+        console.warn('Batch constraints failed, applying individually');
+        for (const constraint of advancedBatch) {
+          try {
+            await track.applyConstraints({ advanced: [constraint] });
+          } catch { /* best effort */ }
+        }
+      }
+    }
+
+    // 9. Color temperature — try manual 5500K for neutral card colors
     if (capabilities?.colorTemperature && capabilities?.whiteBalanceMode?.includes('manual')) {
-      // 5500K is daylight-neutral, ideal for accurate card color reproduction
       const min = capabilities.colorTemperature.min || 2500;
       const max = capabilities.colorTemperature.max || 10000;
       const target = Math.min(Math.max(5500, min), max);
@@ -198,10 +231,9 @@ export const applyFastAutofocus = async (stream: MediaStream, enableMacro: boole
             { colorTemperature: target } as any,
           ]
         });
-        console.log(`Color temperature set to ${target}K for neutral card colors`);
+        console.log(`Color temperature: ${target}K`);
       } catch {
-        // Fall back to continuous white balance (already applied above)
-        console.log('Manual color temperature not available, using continuous WB');
+        console.log('Manual color temp unavailable, using continuous WB');
       }
     }
 
