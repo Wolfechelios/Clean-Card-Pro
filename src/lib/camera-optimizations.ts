@@ -55,17 +55,30 @@ function getReusableCanvas(width: number, height: number): { canvas: HTMLCanvasE
 export const getMaxCameraConstraints = (facingMode: 'environment' | 'user' = 'environment', deviceId?: string): OptimizedCameraConstraints[] => {
   const baseConstraints = deviceId 
     ? { deviceId: { exact: deviceId } }
-    : { facingMode: { ideal: facingMode } };
+    : { facingMode: { exact: facingMode } };
+
+  // Advanced hardware hints for rear camera quality
+  const advancedHints: any = {
+    focusMode: { ideal: 'continuous' },
+    exposureMode: { ideal: 'continuous' },
+    whiteBalanceMode: { ideal: 'continuous' },
+    // Reduce noise at hardware level
+    ...(typeof (window as any).MediaStreamTrack !== 'undefined' ? {
+      noiseSuppression: { ideal: true },
+    } : {}),
+  };
 
   return [
     // Try 1: 8K Ultra HD (7680x4320)
     {
       video: {
         ...baseConstraints,
+        ...advancedHints,
         width: { ideal: 7680, min: 3840 },
         height: { ideal: 4320, min: 2160 },
         frameRate: { ideal: 30, min: 15 },
-        aspectRatio: { ideal: 16/9 },
+        aspectRatio: { ideal: 4/3 }, // 4:3 captures more card detail than 16:9
+        resizeMode: { ideal: 'none' } as any, // Prevent downscaling
       },
       audio: false as const,
     },
@@ -73,41 +86,45 @@ export const getMaxCameraConstraints = (facingMode: 'environment' | 'user' = 'en
     {
       video: {
         ...baseConstraints,
+        ...advancedHints,
         width: { ideal: 3840, min: 1920 },
-        height: { ideal: 2160, min: 1080 },
+        height: { ideal: 2880, min: 1440 }, // 4:3 aspect
         frameRate: { ideal: 30 },
+        resizeMode: { ideal: 'none' } as any,
       },
       audio: false as const,
     },
-    // Try 3: 2K QHD (2560x1440)
+    // Try 3: 2K QHD (2560x1920 in 4:3)
     {
       video: {
         ...baseConstraints,
+        ...advancedHints,
         width: { ideal: 2560 },
-        height: { ideal: 1440 },
+        height: { ideal: 1920 },
         frameRate: { ideal: 30 },
       },
       audio: false as const,
     },
-    // Try 4: Full HD (1920x1080)
+    // Try 4: Full HD (1920x1440 in 4:3, fallback 1920x1080)
     {
       video: {
         ...baseConstraints,
+        ...advancedHints,
         width: { ideal: 1920 },
-        height: { ideal: 1080 },
+        height: { ideal: 1440 },
       },
       audio: false as const,
     },
-    // Try 5: Basic HD
+    // Try 5: HD
     {
       video: {
         ...baseConstraints,
         width: { ideal: 1280 },
-        height: { ideal: 720 },
+        height: { ideal: 960 },
       },
       audio: false as const,
     },
-    // Fallback: Any camera
+    // Fallback: Any rear camera
     {
       video: deviceId ? { deviceId } : { facingMode },
       audio: false as const,
