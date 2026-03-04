@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { resolveOfficialCardIdentity } from "../_shared/officialNameResolver.ts";
+import { buildYgoRarityPromptSection } from "../_shared/ygoRarityMatrix.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
