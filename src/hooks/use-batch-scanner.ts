@@ -65,13 +65,10 @@ export function useBatchScanner() {
       supabase.storage.from("card-images").upload(path, job.file)
     )
 
-    const signedUrl = await withRetry(async () => {
-      const res = await supabase.storage
-        .from("card-images")
-        .createSignedUrl(path, 86400)
-      if (!res.data?.signedUrl) throw new Error("Signed URL failed")
-      return res.data.signedUrl
-    })
+    const { data: publicUrlData } = supabase.storage
+      .from("card-images")
+      .getPublicUrl(path)
+    const signedUrl = publicUrlData.publicUrl
 
     // Use hybrid routing for card identification
     const result = await hybridIdentifyCard(signedUrl, {

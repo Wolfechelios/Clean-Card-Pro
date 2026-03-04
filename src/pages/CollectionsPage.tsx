@@ -36,6 +36,7 @@ import { VirtualizedCardGrid } from "@/components/collections/VirtualizedCardGri
 import { CardDetailModal, CardData } from "@/components/cards/CardDetailModal";
 import { BulkImageSearch } from "@/components/collections/BulkImageSearch";
 import { AutopilotPanel } from "@/components/AutopilotPanel";
+import { toPublicImageUrl } from "@/lib/storage/getPublicImageUrl";
 
 interface CardItem {
   id: string;
@@ -269,7 +270,13 @@ export default function Collections() {
         if (error) throw error;
 
         if (data && data.length > 0) {
-          allCards.push(...data);
+          // Convert expired signed URLs to public URLs
+          const fixed = data.map(card => ({
+            ...card,
+            image_url: toPublicImageUrl(card.image_url),
+            thumbnail_url: card.thumbnail_url ? toPublicImageUrl(card.thumbnail_url) : card.thumbnail_url,
+          }));
+          allCards.push(...fixed);
           page++;
           hasMore = data.length === pageSize;
         } else {

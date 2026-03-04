@@ -233,14 +233,10 @@ export function useCardScanner({
         if (uploadError) throw uploadError;
       });
 
-      const imageUrl = await withRetry(async () => {
-        const { data: signedUrlData, error: urlError } = await supabase.storage
-          .from("card-images")
-          .createSignedUrl(fileName, 60 * 60 * 24 * 365);
-        if (urlError) throw urlError;
-        if (!signedUrlData?.signedUrl) throw new Error("Signed URL failed");
-        return signedUrlData.signedUrl;
-      });
+      const { data: publicUrlData } = supabase.storage
+        .from("card-images")
+        .getPublicUrl(fileName);
+      const imageUrl = publicUrlData.publicUrl;
 
       setScanProgress(40);
 

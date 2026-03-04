@@ -47,6 +47,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 import { RecentScansBox } from "@/components/scanner/RecentScansBox";
+import { toPublicImageUrl } from "@/lib/storage/getPublicImageUrl";
 
 type CardType = Database["public"]["Tables"]["cards"]["Row"];
 
@@ -199,7 +200,12 @@ export default function NewDashboard() {
       }
 
       if (cards && cards.length > 0) {
-        allCards.push(...cards);
+        const fixed = cards.map(c => ({
+          ...c,
+          image_url: toPublicImageUrl(c.image_url),
+          thumbnail_url: c.thumbnail_url ? toPublicImageUrl(c.thumbnail_url) : c.thumbnail_url,
+        }));
+        allCards.push(...fixed);
         page++;
         hasMore = cards.length === pageSize;
       } else {

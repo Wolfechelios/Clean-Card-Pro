@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Edit2, DollarSign, Hash, Sparkles, Trash2, Loader2, Library, Plus, List, Copy, Check, User, Gamepad2, Download, ImageIcon, Package } from "lucide-react";
 import JSZip from "jszip";
+import { toPublicImageUrl } from "@/lib/storage/getPublicImageUrl";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -215,8 +216,9 @@ export const ScannedCardList = ({
         const batch = imageCards.slice(i, i + batchSize);
         await Promise.allSettled(
           batch.map(async (c) => {
-            const url = c.imageUrl || c.preview;
-            if (!url) return;
+            const rawUrl = c.imageUrl || c.preview;
+            if (!rawUrl) return;
+            const url = toPublicImageUrl(rawUrl);
             const resp = await fetch(url);
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const blob = await resp.blob();
