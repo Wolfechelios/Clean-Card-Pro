@@ -173,17 +173,43 @@ export const ScannedCardList = ({
     return lines.join("\n");
   }, [selectedCards, completedCards]);
 
-  const copyList = useCallback(async () => {
-    const text = generateListText();
+  const copyList = useCallback(async (includeImages = false) => {
+    const text = generateListText(includeImages);
     try {
       await navigator.clipboard.writeText(text);
       setListCopied(true);
-      toast.success("List copied to clipboard");
+      toast.success(includeImages ? "List with image URLs copied!" : "List copied to clipboard");
       setTimeout(() => setListCopied(false), 2000);
     } catch {
       toast.error("Failed to copy");
     }
   }, [generateListText]);
+
+  const downloadImages = useCallback(async () => {
+    const cardsToExport = selectedCards.length > 0 ? selectedCards : completedCards;
+    const imageCards = cardsToExport.filter(c => c.imageUrl || (c.preview && c.preview.startsWith("http")));
+    
+    if (imageCards.length === 0) {
+      toast.error("No card images available to download");
+      return;
+    }
+
+    // Generate a text file with all image URLs for bulk download
+    const urlLines = imageCards.map((c, i) => {
+      const url = c.imageUrl || c.preview;
+      const name = c.cardName || "Unknown";
+      const number = c.cardNumber ? ` #${c.cardNumber}` : "";
+      return `${i + 1}. ${name}${number}\n   ${url}`;
+    });
+    
+    const blob = new Blob([urlLines.join("\n\n")], { type: "text/plain" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `card-images-${new Date().toISOString().slice(0, 10)}.txt`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast.success(`Exported ${imageCards.length} image URLs`);
+  }, [selectedCards, completedCards]);
 
   const handleAddAll = useCallback(async () => {
     if (!onAddAllToLibrary) return;
