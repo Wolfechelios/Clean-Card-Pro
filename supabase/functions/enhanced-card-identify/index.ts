@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { resolveOfficialCardIdentity } from "../_shared/officialNameResolver.ts";
+import { buildYgoRarityPromptSection } from "../_shared/ygoRarityMatrix.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -41,6 +42,8 @@ serve(async (req) => {
     console.log('Analyzing card with Lovable AI...');
 
     // Prepare the prompt for card identification with multiple options
+    const ygoRaritySection = buildYgoRarityPromptSection();
+
     const prompt = `You are an expert trading card identifier specializing in sports cards, Pokémon, Magic: The Gathering, Yu-Gi-Oh!, and other collectible card games.
 
 Analyze this trading card image and provide the most likely card identification along with up to 2 alternative possibilities if you're not completely certain.
@@ -75,6 +78,8 @@ Also look for the 8-digit passcode number (e.g., "89631139") to confirm identity
 STEP 5 — NAME VERIFICATION BY CARD NUMBER:
 If you extracted a valid set code (e.g., LOB-001), look up the official card name for that exact set code. Use THAT official name as "card_name". Do NOT use the name you read from the card image if it differs from the official database entry for that number.
 
+${ygoRaritySection}
+
 Return JSON in this exact format:
 
 {
@@ -82,14 +87,22 @@ Return JSON in this exact format:
     "card_name": "EXACT name as printed on card or verified by card number lookup",
     "card_set": "set name",
     "card_number": "set code from ROI extraction (e.g., LART-EN035)",
-    "rarity": "rarity level",
+    "rarity": "rarity level — for Yu-Gi-Oh use the 5-zone matrix rarity name",
     "edition": "1st Edition or Unlimited — determined ONLY by exact '1st Edition' text in Edition Region",
     "game_type": "Pokemon/MTG/YuGiOh/etc or null for sports",
     "sport_type": "Baseball/Basketball/Football/etc or null for games",
     "year": "year of release",
     "manufacturer": "manufacturer name",
     "confidence": "confidence score 0-1",
-    "description": "brief description of the card"
+    "description": "brief description of the card",
+    "rarity_zones": {
+      "nameplate_foil": "none|silver|gold|rainbow",
+      "art_pattern": "none|rainbow|diagonal_lines|horizontal_vertical_grid|embossed_3d|speckled_varnish",
+      "border_state": "standard|holographic_lattice|textured|gold",
+      "icons_foiled": true,
+      "watermark": "null or string",
+      "false_positive_check": "explanation of any holo bleed / misprint ruling"
+    }
   },
   "alternatives": [
     {
@@ -103,7 +116,8 @@ Return JSON in this exact format:
 
 ${ocrText ? `OCR text extracted: ${ocrText}` : ''}
 
-Only include alternatives array if confidence is below 0.95. If completely certain, return empty alternatives array.`;
+Only include alternatives array if confidence is below 0.95. If completely certain, return empty alternatives array.
+For non-Yu-Gi-Oh cards, omit the rarity_zones object.`;
 
     const messages = [
       {

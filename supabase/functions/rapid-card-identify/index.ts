@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getUserApiKey, API_KEY_NAMES } from "../_shared/getUserApiKey.ts";
 import { resolveOfficialCardIdentity } from "../_shared/officialNameResolver.ts";
+import { buildYgoRarityPromptSection } from "../_shared/ygoRarityMatrix.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -64,16 +65,18 @@ serve(async (req) => {
 
     console.log(`Rapid card identification using ${useGeminiDirect ? 'Gemini Direct (user key)' : 'Lovable AI'}...`);
 
-    // Prompt for card identification
+    const ygoRaritySection = buildYgoRarityPromptSection();
+
     const prompt = `Identify this trading card. Return JSON only:
 {
   "card_name": "name",
   "card_set": "set name or null",
   "card_number": "number or null",
-  "rarity": "REQUIRED - Common/Uncommon/Rare/Holo Rare/Ultra Rare/Secret Rare/Rookie Card/Refractor/Prizm/Parallel/Base/etc",
+  "rarity": "REQUIRED - use 5-zone matrix for YGO, standard rules for others",
   "game_type": "Pokemon/MTG/YuGiOh/Sports or null",
   "sport_type": "sport type or null",
-  "confidence": 0.0-1.0
+  "confidence": 0.0-1.0,
+  "rarity_zones": { only for Yu-Gi-Oh — see below }
 }
 
 CRITICAL NAME RULES:
@@ -82,13 +85,14 @@ CRITICAL NAME RULES:
 - If card_number/set code is readable, extract it exactly (keep hyphens/slashes).
 - If uncertain, keep the printed name text and LOWER confidence.
 
-RARITY RULES:
+RARITY RULES (non-YGO):
 - Pokemon: Circle=Common, Diamond=Uncommon, Star=Rare, Star H=Holo Rare, Rainbow/Full Art=Secret Rare
-- Yu-Gi-Oh: Check name color (silver=Rare, gold=Ultra Rare), holo pattern (Super/Secret/Ultimate/Ghost/Starlight)
 - Sports: Base, RC (Rookie Card), Refractor, Prizm, Mosaic, Parallel, Auto, Numbered
 - MTG: Black symbol=Common, Silver=Uncommon, Gold=Rare, Orange=Mythic Rare
 - If holographic/prismatic/numbered - NOT Common
 - NEVER return null for rarity
+
+${ygoRaritySection}
 
 For Yu-Gi-Oh: use SET NUMBER format like LART-EN035 for card_number.
 For sports: include player name exactly as printed.
