@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getUserApiKey, API_KEY_NAMES } from "../_shared/getUserApiKey.ts";
 import { resolveOfficialCardIdentity } from "../_shared/officialNameResolver.ts";
+import { buildYgoRarityPromptSection } from "../_shared/ygoRarityMatrix.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
