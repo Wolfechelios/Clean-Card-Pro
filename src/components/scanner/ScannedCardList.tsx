@@ -609,17 +609,22 @@ export const ScannedCardList = ({
             </div>
 
             <div className="bg-muted rounded-lg p-3 max-h-64 overflow-y-auto">
-              <pre className="text-xs whitespace-pre-wrap font-mono">{generateListText()}</pre>
+              <pre className="text-xs whitespace-pre-wrap font-mono">{generateListText(false)}</pre>
             </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowListDialog(false)}>
-              Close
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" size="sm" onClick={downloadImages} className="gap-1">
+              <Download className="h-4 w-4" />
+              Export Image URLs
             </Button>
-            <Button onClick={copyList} className="gap-1">
+            <Button variant="outline" size="sm" onClick={() => copyList(true)} className="gap-1">
+              <ImageIcon className="h-4 w-4" />
+              Copy with Images
+            </Button>
+            <Button onClick={() => copyList(false)} className="gap-1">
               {listCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-              {listCopied ? "Copied!" : "Copy to Clipboard"}
+              {listCopied ? "Copied!" : "Copy List"}
             </Button>
           </DialogFooter>
         </DialogContent>
