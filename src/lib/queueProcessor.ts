@@ -465,19 +465,11 @@ async function processJob(item: QueueItem): Promise<void> {
     "Storage upload"
   );
 
-  // Get signed URL
-  const imageUrl = await withTimeout(
-    withRetry(async () => {
-      const res = await supabase.storage
-        .from("card-images")
-        .createSignedUrl(filePath, SIGNED_URL_TTL_SECONDS);
-      if (res.error) throw new Error(res.error.message);
-      if (!res.data?.signedUrl) throw new Error("Signed URL missing");
-      return res.data.signedUrl;
-    }),
-    10000,
-    "Signed URL"
-  );
+  // Get public URL (bucket is public, no signed token needed)
+  const { data: publicUrlData } = supabase.storage
+    .from("card-images")
+    .getPublicUrl(filePath);
+  const imageUrl = publicUrlData.publicUrl;
 
   // Identify card using hybrid routing (cloud or local LLM)
   let identify: any;

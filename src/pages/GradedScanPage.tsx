@@ -288,20 +288,10 @@ export default function GradedScanPage() {
         return;
       }
 
-      const { data: urlData, error: urlError } = await supabase.storage
+      const { data: publicUrlData } = supabase.storage
         .from("card-images")
-        .createSignedUrl(fileName, 3600);
-
-      if (urlError) {
-        console.error("Graded scan signed URL error:", urlError);
-        toast.error(urlError.message || "Failed to create image URL");
-        return;
-      }
-
-      if (urlData?.signedUrl) {
-        await processImage(urlData.signedUrl);
-      } else {
-        toast.error("Failed to create image URL");
+        .getPublicUrl(fileName);
+      await processImage(publicUrlData.publicUrl);
       }
     } catch (err) {
       console.error("Capture error:", err);
