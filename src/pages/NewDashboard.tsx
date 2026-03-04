@@ -199,7 +199,12 @@ export default function NewDashboard() {
       }
 
       if (cards && cards.length > 0) {
-        allCards.push(...cards);
+        const fixed = cards.map(c => ({
+          ...c,
+          image_url: toPublicImageUrl(c.image_url),
+          thumbnail_url: c.thumbnail_url ? toPublicImageUrl(c.thumbnail_url) : c.thumbnail_url,
+        }));
+        allCards.push(...fixed);
         page++;
         hasMore = cards.length === pageSize;
       } else {
