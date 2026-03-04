@@ -292,7 +292,6 @@ export default function GradedScanPage() {
         .from("card-images")
         .getPublicUrl(fileName);
       await processImage(publicUrlData.publicUrl);
-      }
     } catch (err) {
       console.error("Capture error:", err);
       toast.error("Failed to capture photo");
