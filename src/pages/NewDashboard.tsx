@@ -47,6 +47,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 import { RecentScansBox } from "@/components/scanner/RecentScansBox";
+import { toPublicImageUrl } from "@/lib/storage/getPublicImageUrl";
 
 type CardType = Database["public"]["Tables"]["cards"]["Row"];
 
