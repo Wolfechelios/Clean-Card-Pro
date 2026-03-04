@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Edit2, DollarSign, Hash, Sparkles, Trash2, Loader2, Library, Plus, List, Copy, Check, User, Gamepad2 } from "lucide-react";
+import { Edit2, DollarSign, Hash, Sparkles, Trash2, Loader2, Library, Plus, List, Copy, Check, User, Gamepad2, Download, ImageIcon } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
