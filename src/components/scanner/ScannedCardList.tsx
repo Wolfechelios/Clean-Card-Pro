@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Edit2, DollarSign, Hash, Sparkles, Trash2, Loader2, Library, Plus, List, Copy, Check, User, Gamepad2, Download, ImageIcon, Package } from "lucide-react";
 import JSZip from "jszip";
+import { toPublicImageUrl } from "@/lib/storage/getPublicImageUrl";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
