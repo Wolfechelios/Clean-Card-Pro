@@ -147,19 +147,23 @@ export const ScannedCardList = ({
     [selectedCards]
   );
 
-  const generateListText = useCallback(() => {
+  const generateListText = useCallback((includeImages = false) => {
     const cardsToList = selectedCards.length > 0 ? selectedCards : completedCards;
 
     const lines = cardsToList.map((c, i) => {
       const parts: string[] = [`${i + 1}. ${c.cardName || "Unknown"}`];
-      if (c.playerName && c.playerName !== c.cardName) parts.push(`(${c.playerName})`);
-      if (c.year) parts.push(`[${c.year}]`);
-      if (c.team) parts.push(`{${c.team}}`);
-      if (c.cardNumber) parts.push(`#${c.cardNumber}`);
-      if (c.gameType) parts.push(`[${c.gameType}]`);
-      if (c.rarity) parts.push(`[${c.rarity}]`);
-      if (c.manufacturer) parts.push(`- ${c.manufacturer}`);
-      if (c.value != null && c.value > 0) parts.push(`- $${c.value.toFixed(2)}`);
+      if (c.playerName && c.playerName !== c.cardName) parts.push(`| Player: ${c.playerName}`);
+      if (c.cardNumber) parts.push(`| Card #${c.cardNumber}`);
+      if (c.cardSet) parts.push(`| Set: ${c.cardSet}`);
+      if (c.year) parts.push(`| Year: ${c.year}`);
+      if (c.team) parts.push(`| Team: ${c.team}`);
+      if (c.manufacturer) parts.push(`| Mfr: ${c.manufacturer}`);
+      if (c.gameType) parts.push(`| Type: ${c.gameType}`);
+      if (c.sportType) parts.push(`| Sport: ${c.sportType}`);
+      if (c.rarity) parts.push(`| Rarity: ${c.rarity}`);
+      if (c.value != null && c.value > 0) parts.push(`| $${c.value.toFixed(2)}`);
+      if (includeImages && c.imageUrl) parts.push(`\n   Image: ${c.imageUrl}`);
+      else if (includeImages && c.preview && c.preview.startsWith("http")) parts.push(`\n   Image: ${c.preview}`);
       return parts.join(" ");
     });
 
