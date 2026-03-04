@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Edit2, DollarSign, Hash, Sparkles, Trash2, Loader2, Library, Plus, List, Copy, Check, User, Gamepad2 } from "lucide-react";
+import { Edit2, DollarSign, Hash, Sparkles, Trash2, Loader2, Library, Plus, List, Copy, Check, User, Gamepad2, Download, ImageIcon } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -147,19 +147,23 @@ export const ScannedCardList = ({
     [selectedCards]
   );
 
-  const generateListText = useCallback(() => {
+  const generateListText = useCallback((includeImages = false) => {
     const cardsToList = selectedCards.length > 0 ? selectedCards : completedCards;
 
     const lines = cardsToList.map((c, i) => {
       const parts: string[] = [`${i + 1}. ${c.cardName || "Unknown"}`];
-      if (c.playerName && c.playerName !== c.cardName) parts.push(`(${c.playerName})`);
-      if (c.year) parts.push(`[${c.year}]`);
-      if (c.team) parts.push(`{${c.team}}`);
-      if (c.cardNumber) parts.push(`#${c.cardNumber}`);
-      if (c.gameType) parts.push(`[${c.gameType}]`);
-      if (c.rarity) parts.push(`[${c.rarity}]`);
-      if (c.manufacturer) parts.push(`- ${c.manufacturer}`);
-      if (c.value != null && c.value > 0) parts.push(`- $${c.value.toFixed(2)}`);
+      if (c.playerName && c.playerName !== c.cardName) parts.push(`| Player: ${c.playerName}`);
+      if (c.cardNumber) parts.push(`| Card #${c.cardNumber}`);
+      if (c.cardSet) parts.push(`| Set: ${c.cardSet}`);
+      if (c.year) parts.push(`| Year: ${c.year}`);
+      if (c.team) parts.push(`| Team: ${c.team}`);
+      if (c.manufacturer) parts.push(`| Mfr: ${c.manufacturer}`);
+      if (c.gameType) parts.push(`| Type: ${c.gameType}`);
+      if (c.sportType) parts.push(`| Sport: ${c.sportType}`);
+      if (c.rarity) parts.push(`| Rarity: ${c.rarity}`);
+      if (c.value != null && c.value > 0) parts.push(`| $${c.value.toFixed(2)}`);
+      if (includeImages && c.imageUrl) parts.push(`\n   Image: ${c.imageUrl}`);
+      else if (includeImages && c.preview && c.preview.startsWith("http")) parts.push(`\n   Image: ${c.preview}`);
       return parts.join(" ");
     });
 
@@ -169,17 +173,43 @@ export const ScannedCardList = ({
     return lines.join("\n");
   }, [selectedCards, completedCards]);
 
-  const copyList = useCallback(async () => {
-    const text = generateListText();
+  const copyList = useCallback(async (includeImages = false) => {
+    const text = generateListText(includeImages);
     try {
       await navigator.clipboard.writeText(text);
       setListCopied(true);
-      toast.success("List copied to clipboard");
+      toast.success(includeImages ? "List with image URLs copied!" : "List copied to clipboard");
       setTimeout(() => setListCopied(false), 2000);
     } catch {
       toast.error("Failed to copy");
     }
   }, [generateListText]);
+
+  const downloadImages = useCallback(async () => {
+    const cardsToExport = selectedCards.length > 0 ? selectedCards : completedCards;
+    const imageCards = cardsToExport.filter(c => c.imageUrl || (c.preview && c.preview.startsWith("http")));
+    
+    if (imageCards.length === 0) {
+      toast.error("No card images available to download");
+      return;
+    }
+
+    // Generate a text file with all image URLs for bulk download
+    const urlLines = imageCards.map((c, i) => {
+      const url = c.imageUrl || c.preview;
+      const name = c.cardName || "Unknown";
+      const number = c.cardNumber ? ` #${c.cardNumber}` : "";
+      return `${i + 1}. ${name}${number}\n   ${url}`;
+    });
+    
+    const blob = new Blob([urlLines.join("\n\n")], { type: "text/plain" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `card-images-${new Date().toISOString().slice(0, 10)}.txt`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast.success(`Exported ${imageCards.length} image URLs`);
+  }, [selectedCards, completedCards]);
 
   const handleAddAll = useCallback(async () => {
     if (!onAddAllToLibrary) return;
@@ -579,17 +609,22 @@ export const ScannedCardList = ({
             </div>
 
             <div className="bg-muted rounded-lg p-3 max-h-64 overflow-y-auto">
-              <pre className="text-xs whitespace-pre-wrap font-mono">{generateListText()}</pre>
+              <pre className="text-xs whitespace-pre-wrap font-mono">{generateListText(false)}</pre>
             </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowListDialog(false)}>
-              Close
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" size="sm" onClick={downloadImages} className="gap-1">
+              <Download className="h-4 w-4" />
+              Export Image URLs
             </Button>
-            <Button onClick={copyList} className="gap-1">
+            <Button variant="outline" size="sm" onClick={() => copyList(true)} className="gap-1">
+              <ImageIcon className="h-4 w-4" />
+              Copy with Images
+            </Button>
+            <Button onClick={() => copyList(false)} className="gap-1">
               {listCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-              {listCopied ? "Copied!" : "Copy to Clipboard"}
+              {listCopied ? "Copied!" : "Copy List"}
             </Button>
           </DialogFooter>
         </DialogContent>
