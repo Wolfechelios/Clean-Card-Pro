@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Edit2, DollarSign, Hash, Sparkles, Trash2, Loader2, Library, Plus, List, Copy, Check, User, Gamepad2, Download, ImageIcon } from "lucide-react";
+import { Edit2, DollarSign, Hash, Sparkles, Trash2, Loader2, Library, Plus, List, Copy, Check, User, Gamepad2, Download, ImageIcon, PackageOpen } from "lucide-react";
+import JSZip from "jszip";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -185,6 +186,8 @@ export const ScannedCardList = ({
     }
   }, [generateListText]);
 
+  const [downloadingImages, setDownloadingImages] = useState(false);
+
   const downloadImages = useCallback(async () => {
     const cardsToExport = selectedCards.length > 0 ? selectedCards : completedCards;
     const imageCards = cardsToExport.filter(c => c.imageUrl || (c.preview && c.preview.startsWith("http")));
@@ -194,22 +197,54 @@ export const ScannedCardList = ({
       return;
     }
 
-    // Generate a text file with all image URLs for bulk download
-    const urlLines = imageCards.map((c, i) => {
-      const url = c.imageUrl || c.preview;
-      const name = c.cardName || "Unknown";
-      const number = c.cardNumber ? ` #${c.cardNumber}` : "";
-      return `${i + 1}. ${name}${number}\n   ${url}`;
-    });
-    
-    const blob = new Blob([urlLines.join("\n\n")], { type: "text/plain" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `card-images-${new Date().toISOString().slice(0, 10)}.txt`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-    toast.success(`Exported ${imageCards.length} image URLs`);
-  }, [selectedCards, completedCards]);
+    setDownloadingImages(true);
+    const toastId = toast.loading(`Downloading ${imageCards.length} images...`);
+
+    try {
+      const zip = new JSZip();
+      const imgFolder = zip.folder("card-images")!;
+
+      // Include listing text in the zip
+      const listText = generateListText(false);
+      zip.file("listing.txt", listText);
+
+      let successCount = 0;
+      const batchSize = 4;
+
+      for (let i = 0; i < imageCards.length; i += batchSize) {
+        const batch = imageCards.slice(i, i + batchSize);
+        await Promise.allSettled(
+          batch.map(async (c) => {
+            const url = c.imageUrl || c.preview;
+            if (!url) return;
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const blob = await resp.blob();
+            const ext = blob.type.includes("png") ? "png" : "jpg";
+            const safeName = (c.cardName || "card").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 60);
+            const num = c.cardNumber ? `_${c.cardNumber.replace(/[^a-zA-Z0-9-]/g, "")}` : "";
+            const fileName = `${safeName}${num}_${c.id.slice(0, 6)}.${ext}`;
+            imgFolder.file(fileName, blob);
+            successCount++;
+          })
+        );
+        toast.loading(`Downloaded ${Math.min(i + batchSize, imageCards.length)}/${imageCards.length}...`, { id: toastId });
+      }
+
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(zipBlob);
+      a.download = `card-images-${new Date().toISOString().slice(0, 10)}.zip`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast.success(`Downloaded ${successCount} card images as ZIP`, { id: toastId });
+    } catch (err: any) {
+      console.error("Image download error:", err);
+      toast.error(`Failed to download images: ${err.message}`, { id: toastId });
+    } finally {
+      setDownloadingImages(false);
+    }
+  }, [selectedCards, completedCards, generateListText]);
 
   const handleAddAll = useCallback(async () => {
     if (!onAddAllToLibrary) return;
@@ -614,13 +649,13 @@ export const ScannedCardList = ({
           </div>
 
           <DialogFooter className="flex-col sm:flex-row gap-2">
-            <Button variant="outline" size="sm" onClick={downloadImages} className="gap-1">
-              <Download className="h-4 w-4" />
-              Export Image URLs
+            <Button variant="outline" size="sm" onClick={downloadImages} disabled={downloadingImages} className="gap-1">
+              {downloadingImages ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageOpen className="h-4 w-4" />}
+              {downloadingImages ? "Zipping..." : "Download Images (ZIP)"}
             </Button>
             <Button variant="outline" size="sm" onClick={() => copyList(true)} className="gap-1">
               <ImageIcon className="h-4 w-4" />
-              Copy with Images
+              Copy with Image URLs
             </Button>
             <Button onClick={() => copyList(false)} className="gap-1">
               {listCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
