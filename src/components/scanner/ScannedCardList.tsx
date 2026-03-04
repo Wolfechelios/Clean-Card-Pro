@@ -649,13 +649,13 @@ export const ScannedCardList = ({
           </div>
 
           <DialogFooter className="flex-col sm:flex-row gap-2">
-            <Button variant="outline" size="sm" onClick={downloadImages} className="gap-1">
-              <Download className="h-4 w-4" />
-              Export Image URLs
+            <Button variant="outline" size="sm" onClick={downloadImages} disabled={downloadingImages} className="gap-1">
+              {downloadingImages ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackageOpen className="h-4 w-4" />}
+              {downloadingImages ? "Zipping..." : "Download Images (ZIP)"}
             </Button>
             <Button variant="outline" size="sm" onClick={() => copyList(true)} className="gap-1">
               <ImageIcon className="h-4 w-4" />
-              Copy with Images
+              Copy with Image URLs
             </Button>
             <Button onClick={() => copyList(false)} className="gap-1">
               {listCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
