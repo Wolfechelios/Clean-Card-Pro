@@ -216,8 +216,9 @@ export const ScannedCardList = ({
         const batch = imageCards.slice(i, i + batchSize);
         await Promise.allSettled(
           batch.map(async (c) => {
-            const url = c.imageUrl || c.preview;
-            if (!url) return;
+            const rawUrl = c.imageUrl || c.preview;
+            if (!rawUrl) return;
+            const url = toPublicImageUrl(rawUrl);
             const resp = await fetch(url);
             if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
             const blob = await resp.blob();
