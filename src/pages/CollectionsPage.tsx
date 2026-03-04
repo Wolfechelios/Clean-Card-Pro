@@ -36,6 +36,7 @@ import { VirtualizedCardGrid } from "@/components/collections/VirtualizedCardGri
 import { CardDetailModal, CardData } from "@/components/cards/CardDetailModal";
 import { BulkImageSearch } from "@/components/collections/BulkImageSearch";
 import { AutopilotPanel } from "@/components/AutopilotPanel";
+import { toPublicImageUrl } from "@/lib/storage/getPublicImageUrl";
 
 interface CardItem {
   id: string;
