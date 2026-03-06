@@ -572,6 +572,53 @@ async function processJob(item: QueueItem): Promise<void> {
   store._setLastProcessedCard(processedCard);
   store._setCurrentItem(null);
 
+  // Auto-save to database when scanMode is SAVE and confidence is sufficient
+  const settings = getScannerSettings();
+  const confPct = confidence * 100;
+  const threshold = settings.autoConfirmThreshold ?? 75;
+
+  if (settings.scanMode === "SAVE" && userId && confPct >= threshold) {
+    try {
+      const inserted = await insertCardDual({
+        user_id: userId,
+        card_name: cardName,
+        card_set: cardSet,
+        card_number: cardNumber,
+        rarity,
+        game_type: gameType,
+        sport_type: sportType,
+        image_url: imageUrl,
+        image_storage_path: `cards/${item.id}.jpg`,
+        image_source: "scan",
+        image_status: "stored",
+        image_search_status: "found",
+        current_price_raw: rawPrice,
+        suggested_price: rawPrice,
+        last_price_update: rawPrice ? new Date().toISOString() : null,
+        condition: "ungraded",
+        year: year ? parseInt(year, 10) || null : null,
+        player_name: playerName || (sportType ? cardName : null),
+        team,
+        manufacturer,
+        raw_name: cardName,
+        raw_set: cardSet,
+        raw_number: cardNumber,
+        raw_year: year,
+        raw_manufacturer: manufacturer,
+        ocr_confidence: confidence,
+      });
+
+      processedCard.isInLibrary = true;
+      processedCard.dbId = inserted.id;
+      processedCard.libraryQuantity = ownedCount + 1;
+
+      console.log(`[QueueProcessor] Auto-saved to library: ${cardName} (${confPct.toFixed(0)}% confidence)`);
+    } catch (e: any) {
+      console.error(`[QueueProcessor] Auto-save failed for ${cardName}:`, e);
+      // Don't fail the whole job — card is still in recent scans
+    }
+  }
+
   // Track in recent scans
   addRecentScan({
     id: item.id,
@@ -585,9 +632,9 @@ async function processJob(item: QueueItem): Promise<void> {
     rarity,
     gameType,
     sportType,
-    dbId: existingId ?? null,
-    isInLibrary,
-    libraryQuantity: ownedCount,
+    dbId: processedCard.dbId ?? null,
+    isInLibrary: processedCard.isInLibrary,
+    libraryQuantity: processedCard.libraryQuantity,
     year,
     team,
     manufacturer,
