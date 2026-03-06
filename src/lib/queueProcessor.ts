@@ -13,6 +13,7 @@ import { canProcessFrame, markFrameStart, markFrameEnd } from "@/lib/performance
 import { MEMORY_CONFIG } from "@/lib/performance/memoryConfig";
 import { hybridIdentifyCard, clearOfflineAttempt } from "@/lib/hybridCardIdentify";
 import { addRecentScan } from "@/lib/recentScans";
+import { insertCardDual } from "@/lib/localCards";
 import {
   idbGetNextQueued,
   idbUpdateMeta,
