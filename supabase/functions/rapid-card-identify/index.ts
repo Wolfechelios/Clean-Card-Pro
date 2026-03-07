@@ -69,14 +69,18 @@ serve(async (req) => {
 
     const prompt = `Identify this trading card. Return JSON only:
 {
-  "card_name": "name",
+  "card_name": "exact printed name",
   "card_set": "set name or null",
   "card_number": "number or null",
   "rarity": "REQUIRED - use 5-zone matrix for YGO, standard rules for others",
   "game_type": "Pokemon/MTG/YuGiOh/Sports or null",
-  "sport_type": "sport type or null",
+  "sport_type": "sport type if sports card, else null",
+  "year": "year printed on card or estimated year, as string or null",
+  "player_name": "athlete/character name if different from card_name, else null",
+  "team": "team name if sports card, else null",
+  "manufacturer": "card manufacturer (Topps/Panini/Konami/WOTC/Pokemon Company/Upper Deck etc) or null",
   "confidence": 0.0-1.0,
-  "rarity_zones": { only for Yu-Gi-Oh — see below }
+  "rarity_zones": { "only for Yu-Gi-Oh — see below" }
 }
 
 CRITICAL NAME RULES:
@@ -84,6 +88,12 @@ CRITICAL NAME RULES:
 - Prefer exact printed card name text.
 - If card_number/set code is readable, extract it exactly (keep hyphens/slashes).
 - If uncertain, keep the printed name text and LOWER confidence.
+
+METADATA RULES:
+- year: Look for copyright year, set release year, or season year printed on the card.
+- player_name: For sports cards, extract the athlete name. For TCG, use null unless a character is featured.
+- team: For sports cards, extract the team. For TCG, use null.
+- manufacturer: Identify from logos/text (Topps, Panini, Konami, Wizards of the Coast, The Pokémon Company, Upper Deck, Fleer, etc).
 
 RARITY RULES (non-YGO):
 - Pokemon: Circle=Common, Diamond=Uncommon, Star=Rare, Star H=Holo Rare, Rainbow/Full Art=Secret Rare
