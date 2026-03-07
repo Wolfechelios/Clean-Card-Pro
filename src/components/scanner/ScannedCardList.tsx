@@ -472,10 +472,35 @@ export const ScannedCardList = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5 mt-1">
+          {card.cardSet && (
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5">
+              {card.cardSet}
+            </Badge>
+          )}
+
           {card.cardNumber && (
             <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 font-mono">
               <Hash className="h-2.5 w-2.5 mr-0.5" />
               {card.cardNumber}
+            </Badge>
+          )}
+
+          {card.year && (
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5">
+              {card.year}
+            </Badge>
+          )}
+
+          {card.team && (
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5">
+              {card.team}
+            </Badge>
+          )}
+
+          {card.manufacturer && (
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 text-muted-foreground">
+              <Package className="h-2.5 w-2.5 mr-0.5" />
+              {card.manufacturer}
             </Badge>
           )}
 
@@ -490,6 +515,12 @@ export const ScannedCardList = ({
             <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 text-muted-foreground">
               <Gamepad2 className="h-2.5 w-2.5 mr-0.5" />
               {card.gameType}
+            </Badge>
+          )}
+
+          {card.sportType && (
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 text-muted-foreground">
+              {card.sportType}
             </Badge>
           )}
         </div>
