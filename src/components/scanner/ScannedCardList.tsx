@@ -645,8 +645,55 @@ export const ScannedCardList = ({
               </span>
             </div>
 
-            <div className="bg-muted rounded-lg p-3 max-h-64 overflow-y-auto">
-              <pre className="text-xs whitespace-pre-wrap font-mono">{generateListText(false)}</pre>
+            <div className="bg-muted rounded-lg max-h-80 overflow-y-auto divide-y divide-border/40">
+              {(selectedCards.length > 0 ? selectedCards : completedCards).map((c, i) => (
+                <div key={c.id} className="flex gap-3 p-3">
+                  {/* Thumbnail */}
+                  <div className="shrink-0">
+                    {(c.imageUrl || c.preview) ? (
+                      <img
+                        src={c.imageUrl ? toPublicImageUrl(c.imageUrl) : c.preview}
+                        alt={c.cardName || "Card"}
+                        className="w-14 h-20 object-cover rounded-md border border-border/50 bg-background"
+                      />
+                    ) : (
+                      <div className="w-14 h-20 rounded-md border border-border/50 bg-background flex items-center justify-center">
+                        <ImageIcon className="h-5 w-5 text-muted-foreground/40" />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Details */}
+                  <div className="flex-1 min-w-0 text-xs space-y-0.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-semibold text-sm text-foreground truncate">
+                        {i + 1}. {c.cardName || "Unknown"}
+                      </p>
+                      {c.value != null && c.value > 0 && (
+                        <span className={`font-bold text-sm shrink-0 ${c.value >= 20 ? "text-primary" : "text-success"}`}>
+                          ${c.value.toFixed(2)}
+                        </span>
+                      )}
+                    </div>
+                    {c.playerName && c.playerName !== c.cardName && (
+                      <p className="text-muted-foreground truncate">Player: {c.playerName}</p>
+                    )}
+                    {c.cardSet && <p className="text-muted-foreground truncate">Set: {c.cardSet}</p>}
+                    {c.cardNumber && <p className="text-muted-foreground">Card #{c.cardNumber}</p>}
+                    {c.year && <p className="text-muted-foreground">Year: {c.year}</p>}
+                    {c.team && <p className="text-muted-foreground">Team: {c.team}</p>}
+                    {c.manufacturer && <p className="text-muted-foreground">Manufacturer: {c.manufacturer}</p>}
+                    {c.gameType && <p className="text-muted-foreground">Type: {c.gameType}</p>}
+                    {c.sportType && <p className="text-muted-foreground">Sport: {c.sportType}</p>}
+                    {c.rarity && (
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 mt-0.5">
+                        <Sparkles className="h-2.5 w-2.5 mr-0.5" />
+                        {c.rarity}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
