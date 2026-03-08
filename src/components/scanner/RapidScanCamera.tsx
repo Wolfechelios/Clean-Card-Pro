@@ -577,6 +577,7 @@ export default function RapidScanCamera() {
       setStatusLine("Camera live — tap Capture for each card");
       
       useGlobalProcessControl.getState().setScannerActive(true);
+      stackCaptureCountRef.current = 0;
 
       detectZoomCapabilities();
       clarityZoom.reset();
