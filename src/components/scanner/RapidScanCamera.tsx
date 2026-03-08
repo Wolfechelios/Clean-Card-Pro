@@ -158,6 +158,11 @@ export default function RapidScanCamera() {
   const autoCaptureLastSampleAtRef = useRef<number>(0);
   const startingCameraRef = useRef(false);
 
+  // Stack Focus Assist state
+  const stackCaptureCountRef = useRef(0);
+  const stackCompensatingRef = useRef(false);
+  const lastStackCompensationRef = useRef(0);
+
   const [cameraOn, setCameraOn] = useState(false);
   const [support, setSupport] = useState<MediaSupport>({ torch: false, focus: false, zoom: false });
   const [torchOn, setTorchOn] = useState(false);
