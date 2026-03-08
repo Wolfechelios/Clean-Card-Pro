@@ -220,23 +220,10 @@ export const applyFastAutofocus = async (stream: MediaStream, enableMacro: boole
       }
     }
 
-    // 9. Color temperature — try manual 5500K for neutral card colors
-    if (capabilities?.colorTemperature && capabilities?.whiteBalanceMode?.includes('manual')) {
-      const min = capabilities.colorTemperature.min || 2500;
-      const max = capabilities.colorTemperature.max || 10000;
-      const target = Math.min(Math.max(5500, min), max);
-      try {
-        await track.applyConstraints({
-          advanced: [
-            { whiteBalanceMode: 'manual' } as any,
-            { colorTemperature: target } as any,
-          ]
-        });
-        console.log(`Color temperature: ${target}K`);
-      } catch {
-        console.log('Manual color temp unavailable, using continuous WB');
-      }
-    }
+    // 9. Color temperature — let continuous auto WB handle it
+    // Manual 5500K override removed: it fights the camera's own AWB on many
+    // devices (e.g. Red Magic 10 Pro) and introduces persistent color casts.
+    // Continuous WB (step 3) adapts to ambient lighting automatically.
 
   } catch (e) {
     console.log('Autofocus optimization not fully available:', e);
