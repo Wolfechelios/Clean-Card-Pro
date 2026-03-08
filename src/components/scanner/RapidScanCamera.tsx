@@ -47,7 +47,7 @@ import {
   type QueueItemMeta,
 } from "@/lib/idbQueue";
 import { compressImageForQueue } from "@/lib/imageCompressor";
-import { applyFastAutofocus, applyAutoColorBalance, applyAntiGlare } from "@/lib/camera-optimizations";
+import { applyFastAutofocus, applyAutoColorBalance, applyAntiGlare, compensateForStackHeight } from "@/lib/camera-optimizations";
 import { DEFAULT_TUNING, nextAutoCaptureState, rgbaToGray, meanAbsDiff, type AutoCaptureState } from "@/lib/visionAutoCapture";
 import { useQueueProcessor } from "@/lib/queueProcessor";
 import { getRecentScans, clearAllRecentScans, removeRecentScan, updateRecentScan } from "@/lib/recentScans";
@@ -157,6 +157,11 @@ export default function RapidScanCamera() {
   const autoCapturePrevGrayRef = useRef<Uint8Array | null>(null);
   const autoCaptureLastSampleAtRef = useRef<number>(0);
   const startingCameraRef = useRef(false);
+
+  // Stack Focus Assist state
+  const stackCaptureCountRef = useRef(0);
+  const stackCompensatingRef = useRef(false);
+  const lastStackCompensationRef = useRef(0);
 
   const [cameraOn, setCameraOn] = useState(false);
   const [support, setSupport] = useState<MediaSupport>({ torch: false, focus: false, zoom: false });
@@ -572,6 +577,7 @@ export default function RapidScanCamera() {
       setStatusLine("Camera live — tap Capture for each card");
       
       useGlobalProcessControl.getState().setScannerActive(true);
+      stackCaptureCountRef.current = 0;
 
       detectZoomCapabilities();
       clarityZoom.reset();
@@ -613,7 +619,49 @@ export default function RapidScanCamera() {
     }
   }
 
-  // Cleanup: stop camera & timers on unmount
+  // ───────────────────────────────────────────────────────────────────────────
+  // STACK FOCUS ASSIST
+  // ───────────────────────────────────────────────────────────────────────────
+
+  const runStackCompensation = useCallback(async () => {
+    // Guards: don't run if already compensating, camera restarting, or too soon
+    if (stackCompensatingRef.current) return;
+    if (startingCameraRef.current) return;
+    if (busyCapture) return;
+
+    const now = Date.now();
+    const cooldownMs = (settings.stackFocusPulseMs || 120) * 4;
+    if (now - lastStackCompensationRef.current < cooldownMs) return;
+
+    stackCompensatingRef.current = true;
+    lastStackCompensationRef.current = now;
+    setStatusLine("Stack focus assist: refocusing…");
+
+    try {
+      const strategy = await compensateForStackHeight(
+        trackRef.current,
+        {
+          backoutCards: settings.stackFocusBackoutCards || 3,
+          pulseMs: settings.stackFocusPulseMs || 120,
+          zoomFallbackStep: settings.stackFocusZoomFallbackStep || 0.10,
+        },
+        zoomCapabilities.supported
+          ? { zoomLevel, zoomMin: zoomCapabilities.min, setZoom }
+          : undefined,
+        (video) => clarityZoom.analyzeAndAdjustZoom(video).then(() => {}),
+        videoRef.current,
+      );
+      console.log(`[StackFocusAssist] Completed via ${strategy}`);
+      setStatusLine(`Stack adjusted (${strategy}) — keep scanning`);
+    } catch (e) {
+      console.warn("[StackFocusAssist] Error:", e);
+      setStatusLine("Camera live — tap Capture for each card");
+    } finally {
+      stackCompensatingRef.current = false;
+    }
+  }, [busyCapture, settings, zoomCapabilities, zoomLevel, setZoom, clarityZoom]);
+
+
   useEffect(() => {
     return () => {
       try {
@@ -778,15 +826,13 @@ export default function RapidScanCamera() {
       setStatusLine("Captured — processing in background");
       setOverlay({ label: "Captured…" });
 
-      // Progressive zoom-out after each snap to keep card in frame
-      try {
-        if (zoomCapabilities.supported && typeof zoomLevel === "number") {
-          const minZ = zoomCapabilities.min ?? 1;
-          const nextZ = Math.max(minZ, zoomLevel - 0.035);
-          if (nextZ !== zoomLevel) setZoom(nextZ);
+      // Stack Focus Assist — periodic compensation replaces per-shot zoom-out
+      if (settings.stackFocusAssistEnabled) {
+        stackCaptureCountRef.current += 1;
+        if (stackCaptureCountRef.current >= (settings.stackFocusEveryCards || 8)) {
+          stackCaptureCountRef.current = 0;
+          runStackCompensation();
         }
-      } catch {
-        // ignore zoom errors
       }
 
       requestRefreshMeta();
@@ -875,15 +921,13 @@ export default function RapidScanCamera() {
       setStatusLine("Captured — processing in background");
       setOverlay({ label: "Captured…" });
 
-      // Progressive zoom-out after each snap to keep card in frame
-      try {
-        if (zoomCapabilities.supported && typeof zoomLevel === "number") {
-          const minZ = zoomCapabilities.min ?? 1;
-          const nextZ = Math.max(minZ, zoomLevel - 0.035);
-          if (nextZ !== zoomLevel) setZoom(nextZ);
+      // Stack Focus Assist — periodic compensation replaces per-shot zoom-out
+      if (settings.stackFocusAssistEnabled) {
+        stackCaptureCountRef.current += 1;
+        if (stackCaptureCountRef.current >= (settings.stackFocusEveryCards || 8)) {
+          stackCaptureCountRef.current = 0;
+          runStackCompensation();
         }
-      } catch {
-        // ignore zoom errors
       }
 
       requestRefreshMeta();
