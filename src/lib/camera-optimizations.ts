@@ -189,10 +189,11 @@ export const applyFastAutofocus = async (stream: MediaStream, enableMacro: boole
       console.log(`Contrast set to: ${midHigh}`);
     }
 
-    // 7. Saturation — slight boost for vivid card art
+    // 7. Saturation — keep neutral to avoid color casts on some devices
     if (capabilities?.saturation) {
       const maxSat = capabilities.saturation.max ?? 100;
-      const target = Math.round(maxSat * 0.6); // 60% — natural but vivid
+      const minSat = capabilities.saturation.min ?? 0;
+      const target = Math.round((maxSat + minSat) / 2); // 50% — neutral default
       advancedBatch.push({ saturation: target });
     }
 
