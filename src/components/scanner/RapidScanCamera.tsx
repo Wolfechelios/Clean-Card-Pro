@@ -1481,11 +1481,11 @@ export default function RapidScanCamera() {
 
               <div className="space-y-4">
                 {/* Camera/Optic selector */}
-                {!isNative && cameraDevices.length > 1 && (
+                {!isNative && rearOnlyCameraDevices.length > 1 && (
                   <div className="space-y-2">
                     <label className="text-sm text-muted-foreground">Select Camera/Lens</label>
                     <CameraDeviceSelector
-                      devices={cameraDevices}
+                      devices={rearOnlyCameraDevices}
                       selectedDeviceId={selectedDeviceId}
                       onDeviceChange={async (deviceId) => {
                         setSelectedDeviceId(deviceId);
