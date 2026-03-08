@@ -1610,6 +1610,22 @@ export default function RapidScanCamera() {
                   </div>
                 )}
 
+                {/* Zoom/stack assist toggle */}
+                {!isNative && (
+                  <Button
+                    variant={settings.stackFocusAssistEnabled ? "secondary" : "outline"}
+                    size="default"
+                    onClick={() => {
+                      const next = !settings.stackFocusAssistEnabled;
+                      updateSettings({ stackFocusAssistEnabled: next });
+                      toast.info(`Stack focus assist ${next ? "enabled" : "disabled"}`);
+                    }}
+                    className="w-full h-12 text-base"
+                  >
+                    Stack Focus Assist: {settings.stackFocusAssistEnabled ? "On" : "Off"}
+                  </Button>
+                )}
+
                 {/* Zoom reset button */}
                 {!isNative && cameraOn && zoomLevel > 1 && (
                   <Button

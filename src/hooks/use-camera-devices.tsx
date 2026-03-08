@@ -121,21 +121,28 @@ function isRearCamera(label: string, facingMode: FacingModeGuess = "unknown"): b
 
 function isUSBDevice(label: string): boolean {
   const l = label.toLowerCase();
+
+  // Never classify explicitly front/back mobile lenses as USB cameras.
+  if (
+    l.includes("front") ||
+    l.includes("back") ||
+    l.includes("rear") ||
+    l.includes("facetime") ||
+    l.includes("selfie") ||
+    l.includes("user")
+  ) {
+    return false;
+  }
+
   return (
     l.includes("usb") ||
-    l.includes("phone") ||
-    l.includes("android") ||
-    l.includes("iphone") ||
     l.includes("webcam") ||
     l.includes("droidcam") ||
     l.includes("iriun") ||
     l.includes("camo") ||
     l.includes("epoccam") ||
-    (!l.includes("front") &&
-      !l.includes("back") &&
-      !l.includes("facetime") &&
-      !l.includes("integrated") &&
-      !l.includes("camera"))
+    l.includes("continuity camera") ||
+    (!l.includes("integrated") && !l.includes("camera"))
   );
 }
 
