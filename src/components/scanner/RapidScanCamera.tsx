@@ -878,15 +878,13 @@ export default function RapidScanCamera() {
       setStatusLine("Captured — processing in background");
       setOverlay({ label: "Captured…" });
 
-      // Progressive zoom-out after each snap to keep card in frame
-      try {
-        if (zoomCapabilities.supported && typeof zoomLevel === "number") {
-          const minZ = zoomCapabilities.min ?? 1;
-          const nextZ = Math.max(minZ, zoomLevel - 0.035);
-          if (nextZ !== zoomLevel) setZoom(nextZ);
+      // Stack Focus Assist — periodic compensation replaces per-shot zoom-out
+      if (settings.stackFocusAssistEnabled) {
+        stackCaptureCountRef.current += 1;
+        if (stackCaptureCountRef.current >= (settings.stackFocusEveryCards || 8)) {
+          stackCaptureCountRef.current = 0;
+          runStackCompensation();
         }
-      } catch {
-        // ignore zoom errors
       }
 
       requestRefreshMeta();
