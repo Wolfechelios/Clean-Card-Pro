@@ -59,18 +59,58 @@ function classifyLens(label: string, index: number, totalRear: number): { lensTy
   return { lensType: "standard", lensLabel: "Standard" };
 }
 
-function isRearCamera(label: string): boolean {
+type FacingModeGuess = "user" | "environment" | "unknown";
+
+function getFacingFromLabel(label: string): FacingModeGuess {
   const l = label.toLowerCase();
-  // Exclude front-facing
   if (l.includes("front") || l.includes("facetime") || l.includes("selfie") || l.includes("user")) {
-    return false;
+    return "user";
   }
-  // Explicitly rear
-  if (l.includes("back") || l.includes("rear") || l.includes("environment")) {
-    return true;
+  if (l.includes("back") || l.includes("rear") || l.includes("environment") || l.includes("world")) {
+    return "environment";
   }
-  // Default to rear if not identifiable as front
-  return true;
+  return "unknown";
+}
+
+async function probeDeviceFacingMode(deviceId: string): Promise<FacingModeGuess> {
+  let stream: MediaStream | null = null;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        deviceId: { exact: deviceId },
+        width: { ideal: 320 },
+        height: { ideal: 240 },
+      },
+      audio: false,
+    });
+
+    const track = stream.getVideoTracks()[0];
+    const settingsFacing = track?.getSettings?.().facingMode;
+
+    if (settingsFacing === "user" || settingsFacing === "environment") {
+      return settingsFacing;
+    }
+
+    const capabilities = (track as any)?.getCapabilities?.();
+    const capFacingModes = Array.isArray(capabilities?.facingMode)
+      ? capabilities.facingMode
+      : [];
+
+    if (capFacingModes.includes("environment")) return "environment";
+    if (capFacingModes.includes("user")) return "user";
+
+    return "unknown";
+  } catch {
+    return "unknown";
+  } finally {
+    stream?.getTracks().forEach((track) => track.stop());
+  }
+}
+
+function isRearCamera(label: string, facingMode: FacingModeGuess = "unknown"): boolean {
+  if (facingMode === "environment") return true;
+  if (facingMode === "user") return false;
+  return getFacingFromLabel(label) === "environment";
 }
 
 function isUSBDevice(label: string): boolean {
