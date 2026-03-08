@@ -441,6 +441,9 @@ export const captureMaxQualityPhoto = async (
     if (applyAntiGlareFilter) {
       applyAntiGlare(ctx, canvas, 0.25);
     }
+
+    // Apply auto color balance to neutralize remaining color casts
+    applyAutoColorBalance(ctx, canvas, 0.4);
     
     // Enhance for OCR
     if (enhanceOCR) {
