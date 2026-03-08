@@ -64,6 +64,12 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   gpuStreamMaxFps: 12,
   gpuStreamTargetWidth: 720,
   gpuStreamJpegQuality: 0.65,
+
+  stackFocusAssistEnabled: true,
+  stackFocusEveryCards: 8,
+  stackFocusBackoutCards: 3,
+  stackFocusPulseMs: 120,
+  stackFocusZoomFallbackStep: 0.10,
 };
 
 export function useScannerSettings() {
