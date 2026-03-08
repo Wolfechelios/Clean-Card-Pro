@@ -30,6 +30,12 @@ export interface ScannerSettings {
   gpuStreamMaxFps: number;
   gpuStreamTargetWidth: number;
   gpuStreamJpegQuality: number;
+
+  stackFocusAssistEnabled: boolean;
+  stackFocusEveryCards: number;
+  stackFocusBackoutCards: number;
+  stackFocusPulseMs: number;
+  stackFocusZoomFallbackStep: number;
 }
 
 const DEFAULT_SETTINGS: ScannerSettings = {
