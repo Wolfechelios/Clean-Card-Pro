@@ -142,6 +142,21 @@ export default function RapidScanCamera() {
     refreshDevices,
   } = useCameraDevices();
 
+  // Extra safety filter for Rapid Scan: never show explicitly front-facing options.
+  const rearOnlyCameraDevices = useMemo(
+    () =>
+      cameraDevices.filter(
+        (device) => !/(^|\W)(front|facetime|selfie|user)(\W|$)/i.test(device.label)
+      ),
+    [cameraDevices]
+  );
+
+  useEffect(() => {
+    if (!rearOnlyCameraDevices.length) return;
+    if (!selectedDeviceId || rearOnlyCameraDevices.some((d) => d.deviceId === selectedDeviceId)) return;
+    setSelectedDeviceId(rearOnlyCameraDevices[0].deviceId);
+  }, [rearOnlyCameraDevices, selectedDeviceId, setSelectedDeviceId]);
+
   // Camera
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);

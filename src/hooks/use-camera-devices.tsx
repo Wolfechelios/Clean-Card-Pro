@@ -96,8 +96,14 @@ async function probeDeviceFacingMode(deviceId: string): Promise<FacingModeGuess>
       ? capabilities.facingMode
       : [];
 
-    if (capFacingModes.includes("environment")) return "environment";
-    if (capFacingModes.includes("user")) return "user";
+    const hasEnvironment = capFacingModes.includes("environment");
+    const hasUser = capFacingModes.includes("user");
+
+    // Some devices expose both values in capabilities for every camera.
+    // Treat ambiguous capability data as unknown instead of defaulting to rear.
+    if (hasEnvironment && hasUser) return "unknown";
+    if (hasUser) return "user";
+    if (hasEnvironment) return "environment";
 
     return "unknown";
   } catch {
