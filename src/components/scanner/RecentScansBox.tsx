@@ -121,7 +121,10 @@ export function RecentScansBox() {
               </div>
               <div className="text-right shrink-0">
                 {scan.price !== null && (
-                  <div className={cn("font-semibold text-sm", scan.isHighValue && "text-primary")}>
+                  <div className={cn(
+                    "font-semibold text-sm",
+                    scan.price >= 30 ? "text-red-500" : scan.price >= 10 ? "text-blue-500" : "text-muted-foreground"
+                  )}>
                     ${scan.price.toFixed(2)}
                   </div>
                 )}
