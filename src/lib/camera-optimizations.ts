@@ -189,10 +189,11 @@ export const applyFastAutofocus = async (stream: MediaStream, enableMacro: boole
       console.log(`Contrast set to: ${midHigh}`);
     }
 
-    // 7. Saturation — slight boost for vivid card art
+    // 7. Saturation — keep neutral to avoid color casts on some devices
     if (capabilities?.saturation) {
       const maxSat = capabilities.saturation.max ?? 100;
-      const target = Math.round(maxSat * 0.6); // 60% — natural but vivid
+      const minSat = capabilities.saturation.min ?? 0;
+      const target = Math.round((maxSat + minSat) / 2); // 50% — neutral default
       advancedBatch.push({ saturation: target });
     }
 
@@ -219,23 +220,10 @@ export const applyFastAutofocus = async (stream: MediaStream, enableMacro: boole
       }
     }
 
-    // 9. Color temperature — try manual 5500K for neutral card colors
-    if (capabilities?.colorTemperature && capabilities?.whiteBalanceMode?.includes('manual')) {
-      const min = capabilities.colorTemperature.min || 2500;
-      const max = capabilities.colorTemperature.max || 10000;
-      const target = Math.min(Math.max(5500, min), max);
-      try {
-        await track.applyConstraints({
-          advanced: [
-            { whiteBalanceMode: 'manual' } as any,
-            { colorTemperature: target } as any,
-          ]
-        });
-        console.log(`Color temperature: ${target}K`);
-      } catch {
-        console.log('Manual color temp unavailable, using continuous WB');
-      }
-    }
+    // 9. Color temperature — let continuous auto WB handle it
+    // Manual 5500K override removed: it fights the camera's own AWB on many
+    // devices (e.g. Red Magic 10 Pro) and introduces persistent color casts.
+    // Continuous WB (step 3) adapts to ambient lighting automatically.
 
   } catch (e) {
     console.log('Autofocus optimization not fully available:', e);
@@ -453,6 +441,9 @@ export const captureMaxQualityPhoto = async (
     if (applyAntiGlareFilter) {
       applyAntiGlare(ctx, canvas, 0.25);
     }
+
+    // Apply auto color balance to neutralize remaining color casts
+    applyAutoColorBalance(ctx, canvas, 0.4);
     
     // Enhance for OCR
     if (enhanceOCR) {
