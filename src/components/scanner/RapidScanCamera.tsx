@@ -618,7 +618,49 @@ export default function RapidScanCamera() {
     }
   }
 
-  // Cleanup: stop camera & timers on unmount
+  // ───────────────────────────────────────────────────────────────────────────
+  // STACK FOCUS ASSIST
+  // ───────────────────────────────────────────────────────────────────────────
+
+  const runStackCompensation = useCallback(async () => {
+    // Guards: don't run if already compensating, camera restarting, or too soon
+    if (stackCompensatingRef.current) return;
+    if (startingCameraRef.current) return;
+    if (busyCapture) return;
+
+    const now = Date.now();
+    const cooldownMs = (settings.stackFocusPulseMs || 120) * 4;
+    if (now - lastStackCompensationRef.current < cooldownMs) return;
+
+    stackCompensatingRef.current = true;
+    lastStackCompensationRef.current = now;
+    setStatusLine("Stack focus assist: refocusing…");
+
+    try {
+      const strategy = await compensateForStackHeight(
+        trackRef.current,
+        {
+          backoutCards: settings.stackFocusBackoutCards || 3,
+          pulseMs: settings.stackFocusPulseMs || 120,
+          zoomFallbackStep: settings.stackFocusZoomFallbackStep || 0.10,
+        },
+        zoomCapabilities.supported
+          ? { zoomLevel, zoomMin: zoomCapabilities.min, setZoom }
+          : undefined,
+        (video) => clarityZoom.analyzeAndAdjustZoom(video).then(() => {}),
+        videoRef.current,
+      );
+      console.log(`[StackFocusAssist] Completed via ${strategy}`);
+      setStatusLine(`Stack adjusted (${strategy}) — keep scanning`);
+    } catch (e) {
+      console.warn("[StackFocusAssist] Error:", e);
+      setStatusLine("Camera live — tap Capture for each card");
+    } finally {
+      stackCompensatingRef.current = false;
+    }
+  }, [busyCapture, settings, zoomCapabilities, zoomLevel, setZoom, clarityZoom]);
+
+
   useEffect(() => {
     return () => {
       try {
