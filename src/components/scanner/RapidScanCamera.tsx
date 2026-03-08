@@ -142,6 +142,21 @@ export default function RapidScanCamera() {
     refreshDevices,
   } = useCameraDevices();
 
+  // Extra safety filter for Rapid Scan: never show explicitly front-facing options.
+  const rearOnlyCameraDevices = useMemo(
+    () =>
+      cameraDevices.filter(
+        (device) => !/(^|\W)(front|facetime|selfie|user)(\W|$)/i.test(device.label)
+      ),
+    [cameraDevices]
+  );
+
+  useEffect(() => {
+    if (!rearOnlyCameraDevices.length) return;
+    if (!selectedDeviceId || rearOnlyCameraDevices.some((d) => d.deviceId === selectedDeviceId)) return;
+    setSelectedDeviceId(rearOnlyCameraDevices[0].deviceId);
+  }, [rearOnlyCameraDevices, selectedDeviceId, setSelectedDeviceId]);
+
   // Camera
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1466,11 +1481,11 @@ export default function RapidScanCamera() {
 
               <div className="space-y-4">
                 {/* Camera/Optic selector */}
-                {!isNative && cameraDevices.length > 1 && (
+                {!isNative && rearOnlyCameraDevices.length > 1 && (
                   <div className="space-y-2">
                     <label className="text-sm text-muted-foreground">Select Camera/Lens</label>
                     <CameraDeviceSelector
-                      devices={cameraDevices}
+                      devices={rearOnlyCameraDevices}
                       selectedDeviceId={selectedDeviceId}
                       onDeviceChange={async (deviceId) => {
                         setSelectedDeviceId(deviceId);
@@ -1593,6 +1608,22 @@ export default function RapidScanCamera() {
                       </div>
                     </Button>
                   </div>
+                )}
+
+                {/* Zoom/stack assist toggle */}
+                {!isNative && (
+                  <Button
+                    variant={settings.stackFocusAssistEnabled ? "secondary" : "outline"}
+                    size="default"
+                    onClick={() => {
+                      const next = !settings.stackFocusAssistEnabled;
+                      updateSettings({ stackFocusAssistEnabled: next });
+                      toast.info(`Stack focus assist ${next ? "enabled" : "disabled"}`);
+                    }}
+                    className="w-full h-12 text-base"
+                  >
+                    Stack Focus Assist: {settings.stackFocusAssistEnabled ? "On" : "Off"}
+                  </Button>
                 )}
 
                 {/* Zoom reset button */}

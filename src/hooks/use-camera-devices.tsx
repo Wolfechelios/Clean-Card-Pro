@@ -96,8 +96,14 @@ async function probeDeviceFacingMode(deviceId: string): Promise<FacingModeGuess>
       ? capabilities.facingMode
       : [];
 
-    if (capFacingModes.includes("environment")) return "environment";
-    if (capFacingModes.includes("user")) return "user";
+    const hasEnvironment = capFacingModes.includes("environment");
+    const hasUser = capFacingModes.includes("user");
+
+    // Some devices expose both values in capabilities for every camera.
+    // Treat ambiguous capability data as unknown instead of defaulting to rear.
+    if (hasEnvironment && hasUser) return "unknown";
+    if (hasUser) return "user";
+    if (hasEnvironment) return "environment";
 
     return "unknown";
   } catch {
@@ -115,21 +121,28 @@ function isRearCamera(label: string, facingMode: FacingModeGuess = "unknown"): b
 
 function isUSBDevice(label: string): boolean {
   const l = label.toLowerCase();
+
+  // Never classify explicitly front/back mobile lenses as USB cameras.
+  if (
+    l.includes("front") ||
+    l.includes("back") ||
+    l.includes("rear") ||
+    l.includes("facetime") ||
+    l.includes("selfie") ||
+    l.includes("user")
+  ) {
+    return false;
+  }
+
   return (
     l.includes("usb") ||
-    l.includes("phone") ||
-    l.includes("android") ||
-    l.includes("iphone") ||
     l.includes("webcam") ||
     l.includes("droidcam") ||
     l.includes("iriun") ||
     l.includes("camo") ||
     l.includes("epoccam") ||
-    (!l.includes("front") &&
-      !l.includes("back") &&
-      !l.includes("facetime") &&
-      !l.includes("integrated") &&
-      !l.includes("camera"))
+    l.includes("continuity camera") ||
+    (!l.includes("integrated") && !l.includes("camera"))
   );
 }
 
