@@ -153,18 +153,34 @@ export const useCameraDevices = () => {
       const allDevices = await navigator.mediaDevices.enumerateDevices();
       const videoInputs = allDevices.filter(device => device.kind === "videoinput");
 
+      const allowUnknownAsRear = videoInputs.length === 1;
+
+      // Probe each device to reliably remove front-facing cameras on multi-lens phones.
+      const deviceFacingModes = await Promise.all(
+        videoInputs.map(async (device) => {
+          const label = device.label || `Camera ${device.deviceId.slice(0, 8)}`;
+          const fromLabel = getFacingFromLabel(label);
+          if (fromLabel !== "unknown") return fromLabel;
+          return probeDeviceFacingMode(device.deviceId);
+        })
+      );
+
       // Separate rear cameras for positional classification
       const rearIndices: number[] = [];
       videoInputs.forEach((d, i) => {
         const label = d.label || `Camera ${d.deviceId.slice(0, 8)}`;
-        if (isRearCamera(label)) rearIndices.push(i);
+        const usb = isUSBDevice(label);
+        const facingMode = deviceFacingModes[i] ?? "unknown";
+        const rear = isRearCamera(label, facingMode) || (facingMode === "unknown" && allowUnknownAsRear);
+        if (rear && !usb) rearIndices.push(i);
       });
 
       let rearCounter = 0;
       const videoDevices: CameraDevice[] = videoInputs.map((device, i) => {
         const label = device.label || `Camera ${device.deviceId.slice(0, 8)}`;
         const usb = isUSBDevice(label);
-        const rear = isRearCamera(label);
+        const facingMode = deviceFacingModes[i] ?? "unknown";
+        const rear = isRearCamera(label, facingMode) || (facingMode === "unknown" && allowUnknownAsRear);
 
         let lensType: LensType = "unknown";
         let lensLabel = label;
@@ -178,6 +194,7 @@ export const useCameraDevices = () => {
           lensLabel = classification.lensLabel;
           rearCounter++;
         }
+
         // Skip front cameras entirely
         if (!rear && !usb) {
           return null;
