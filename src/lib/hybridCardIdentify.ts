@@ -354,8 +354,3 @@ export async function getInferenceStatus(): Promise<{
 
   return { online, localAvailable, orinAvailable: orinStatus.ok, preferredMode };
 }
-    preferredMode = "local";
-  }
-
-  return { online, localAvailable, preferredMode };
-}
