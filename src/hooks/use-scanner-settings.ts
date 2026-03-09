@@ -75,6 +75,11 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   stackFocusBackoutCards: 3,
   stackFocusPulseMs: 120,
   stackFocusZoomFallbackStep: 0.10,
+
+  orinEnabled: false,
+  orinServerUrl: "http://192.168.1.37:8000",
+  orinPreferForQueue: true,
+  orinPreferForLive: true,
 };
 
 export function useScannerSettings() {
