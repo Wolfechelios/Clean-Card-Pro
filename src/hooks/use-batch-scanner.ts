@@ -58,7 +58,7 @@ export function useBatchScanner() {
     setRunning(false)
   }
 
-  async function scanOne(job: BatchJob): Promise<{ source: "local" | "cloud" | "gpu" }> {
+  async function scanOne(job: BatchJob): Promise<{ source: "local" | "cloud" | "gpu" | "orin" }> {
     const path = `cards/${job.id}.jpg`
 
     await withRetry(() =>
