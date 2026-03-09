@@ -222,8 +222,18 @@ export async function hybridIdentifyCard(
 
   const scanner = getScannerSettings() as any;
   const gpuEnabled = scanner.gpuOffloadEnabled === true && scanner.gpuPreferForQueue !== false;
+  const orinEnabled = scanner.orinEnabled === true && scanner.orinPreferForQueue !== false;
 
-  const gpuAvailable = (forceGpu || gpuEnabled) ? (await checkGpuServerAvailable()).ok : false;
+  const [gpuAvailable, orinAvailable] = await Promise.all([
+    (forceGpu || gpuEnabled) ? checkGpuServerAvailable().then(r => r.ok) : Promise.resolve(false),
+    (forceOrin || orinEnabled) ? checkOrinAvailable().then(r => r.ok) : Promise.resolve(false),
+  ]);
+
+  // Force Orin mode
+  if (forceOrin && orinAvailable) {
+    const cardData = await orinIdentifyByUrl(imageUrl);
+    return { success: true, cardData, source: "orin" };
+  }
 
   // Force GPU mode
   if (forceGpu && gpuAvailable) {
@@ -231,7 +241,17 @@ export async function hybridIdentifyCard(
     return { success: true, cardData, source: "gpu" };
   }
 
-  // Priority 0: GPU server (if enabled)
+  // Priority 0a: Orin server (if enabled — highest hardware priority)
+  if (orinEnabled && orinAvailable) {
+    try {
+      const cardData = await orinIdentifyByUrl(imageUrl);
+      return { success: true, cardData, source: "orin" };
+    } catch (e) {
+      console.warn("Orin server identification failed, falling back:", e);
+    }
+  }
+
+  // Priority 0b: GPU server (if enabled)
   if (gpuEnabled && gpuAvailable) {
     try {
       const cardData = await identifyWithGpuServer(imageUrl);
