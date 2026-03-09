@@ -103,6 +103,7 @@ Then set Server Base URL:
 - `GET /health`
 - `POST /ocr`  `{ imageUrl | imageDataUrl }`
 - `POST /identify` `{ imageUrl | imageDataUrl, wantPricing }`
+- `POST /scan`  Multipart file upload (`file` field) — used by the Orin/hardware scanner integration. Returns flat card data.
 
 ### WebSocket
 
