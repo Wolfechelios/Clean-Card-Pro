@@ -36,6 +36,11 @@ export interface ScannerSettings {
   stackFocusBackoutCards: number;
   stackFocusPulseMs: number;
   stackFocusZoomFallbackStep: number;
+
+  orinEnabled: boolean;
+  orinServerUrl: string;
+  orinPreferForQueue: boolean;
+  orinPreferForLive: boolean;
 }
 
 const DEFAULT_SETTINGS: ScannerSettings = {
