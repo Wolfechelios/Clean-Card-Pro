@@ -334,15 +334,26 @@ export async function hybridIdentifyCard(
 export async function getInferenceStatus(): Promise<{
   online: boolean;
   localAvailable: boolean;
-  preferredMode: "cloud" | "local" | "none";
+  orinAvailable: boolean;
+  preferredMode: "cloud" | "local" | "orin" | "none";
 }> {
   const online = isOnline();
-  const localAvailable = await isLocalLLMAvailable();
+  const [localAvailable, orinStatus] = await Promise.all([
+    isLocalLLMAvailable(),
+    checkOrinAvailable(),
+  ]);
 
-  let preferredMode: "cloud" | "local" | "none" = "none";
-  if (online) {
+  let preferredMode: "cloud" | "local" | "orin" | "none" = "none";
+  if (orinStatus.ok) {
+    preferredMode = "orin";
+  } else if (online) {
     preferredMode = "cloud";
   } else if (localAvailable) {
+    preferredMode = "local";
+  }
+
+  return { online, localAvailable, orinAvailable: orinStatus.ok, preferredMode };
+}
     preferredMode = "local";
   }
 
