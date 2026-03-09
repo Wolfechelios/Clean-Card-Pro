@@ -11,6 +11,7 @@ import { runPaddleOCR, isPaddleOCRReady } from "./paddleOCR";
 import { getScannerSettings } from "@/hooks/use-scanner-settings";
 import { checkGpuServerAvailable } from "@/lib/gpuOffload/gpuAvailability";
 import { gpuIdentifyByImageUrl } from "@/lib/gpuOffload/gpuHttpClient";
+import { checkOrinAvailable, orinIdentifyByUrl } from "@/lib/orinScanner";
 
 export interface IdentifiedCardData {
   card_name: string;
@@ -29,7 +30,7 @@ export interface IdentifiedCardData {
 export interface HybridIdentifyResult {
   success: boolean;
   cardData: IdentifiedCardData;
-  source: "local" | "cloud" | "gpu";
+  source: "local" | "cloud" | "gpu" | "orin";
   error?: string;
 }
 
@@ -195,8 +196,9 @@ export async function hybridIdentifyCard(
     forceLocal?: boolean;
     forceCloud?: boolean;
     forceGpu?: boolean;
+    forceOrin?: boolean;
     skipOfflineGuard?: boolean;
-    usePaddleOCR?: boolean; // Enable PaddleOCR preprocessing for enhanced accuracy
+    usePaddleOCR?: boolean;
   } = {}
 ): Promise<HybridIdentifyResult> {
   const {
@@ -204,6 +206,7 @@ export async function hybridIdentifyCard(
     forceLocal = false,
     forceCloud = false,
     forceGpu = false,
+    forceOrin = false,
     skipOfflineGuard = false,
     usePaddleOCR = false,
   } = options;
@@ -219,8 +222,18 @@ export async function hybridIdentifyCard(
 
   const scanner = getScannerSettings() as any;
   const gpuEnabled = scanner.gpuOffloadEnabled === true && scanner.gpuPreferForQueue !== false;
+  const orinEnabled = scanner.orinEnabled === true && scanner.orinPreferForQueue !== false;
 
-  const gpuAvailable = (forceGpu || gpuEnabled) ? (await checkGpuServerAvailable()).ok : false;
+  const [gpuAvailable, orinAvailable] = await Promise.all([
+    (forceGpu || gpuEnabled) ? checkGpuServerAvailable().then(r => r.ok) : Promise.resolve(false),
+    (forceOrin || orinEnabled) ? checkOrinAvailable().then(r => r.ok) : Promise.resolve(false),
+  ]);
+
+  // Force Orin mode
+  if (forceOrin && orinAvailable) {
+    const cardData = await orinIdentifyByUrl(imageUrl);
+    return { success: true, cardData, source: "orin" };
+  }
 
   // Force GPU mode
   if (forceGpu && gpuAvailable) {
@@ -228,7 +241,17 @@ export async function hybridIdentifyCard(
     return { success: true, cardData, source: "gpu" };
   }
 
-  // Priority 0: GPU server (if enabled)
+  // Priority 0a: Orin server (if enabled — highest hardware priority)
+  if (orinEnabled && orinAvailable) {
+    try {
+      const cardData = await orinIdentifyByUrl(imageUrl);
+      return { success: true, cardData, source: "orin" };
+    } catch (e) {
+      console.warn("Orin server identification failed, falling back:", e);
+    }
+  }
+
+  // Priority 0b: GPU server (if enabled)
   if (gpuEnabled && gpuAvailable) {
     try {
       const cardData = await identifyWithGpuServer(imageUrl);
@@ -311,17 +334,23 @@ export async function hybridIdentifyCard(
 export async function getInferenceStatus(): Promise<{
   online: boolean;
   localAvailable: boolean;
-  preferredMode: "cloud" | "local" | "none";
+  orinAvailable: boolean;
+  preferredMode: "cloud" | "local" | "orin" | "none";
 }> {
   const online = isOnline();
-  const localAvailable = await isLocalLLMAvailable();
+  const [localAvailable, orinStatus] = await Promise.all([
+    isLocalLLMAvailable(),
+    checkOrinAvailable(),
+  ]);
 
-  let preferredMode: "cloud" | "local" | "none" = "none";
-  if (online) {
+  let preferredMode: "cloud" | "local" | "orin" | "none" = "none";
+  if (orinStatus.ok) {
+    preferredMode = "orin";
+  } else if (online) {
     preferredMode = "cloud";
   } else if (localAvailable) {
     preferredMode = "local";
   }
 
-  return { online, localAvailable, preferredMode };
+  return { online, localAvailable, orinAvailable: orinStatus.ok, preferredMode };
 }
