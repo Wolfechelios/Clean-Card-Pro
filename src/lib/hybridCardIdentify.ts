@@ -196,8 +196,9 @@ export async function hybridIdentifyCard(
     forceLocal?: boolean;
     forceCloud?: boolean;
     forceGpu?: boolean;
+    forceOrin?: boolean;
     skipOfflineGuard?: boolean;
-    usePaddleOCR?: boolean; // Enable PaddleOCR preprocessing for enhanced accuracy
+    usePaddleOCR?: boolean;
   } = {}
 ): Promise<HybridIdentifyResult> {
   const {
