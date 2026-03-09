@@ -206,6 +206,7 @@ export async function hybridIdentifyCard(
     forceLocal = false,
     forceCloud = false,
     forceGpu = false,
+    forceOrin = false,
     skipOfflineGuard = false,
     usePaddleOCR = false,
   } = options;
