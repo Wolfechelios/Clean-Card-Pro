@@ -144,7 +144,7 @@ const App = () => {
               <AuthProvider>
                 <PWAWrapper>
                   <AppRoutes />
-                  <QueueStatusIndicator />
+                  
                   <OfflineIndicator />
                 </PWAWrapper>
               </AuthProvider>
