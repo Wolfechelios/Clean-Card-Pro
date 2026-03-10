@@ -220,8 +220,8 @@ export const useCameraDevices = ({ allowUnknownAsRear }: UseCameraDevicesOptions
       const videoDevices: CameraDevice[] = videoInputs.map((device, i) => {
         const label = device.label || `Camera ${device.deviceId.slice(0, 8)}`;
         const usb = isUSBDevice(label);
-        const facingMode = deviceFacingModes[i] ?? "unknown";
-        const rear = isRearCamera(label, facingMode) || (facingMode === "unknown" && shouldAllowUnknownAsRear);
+        const facing = probeResults[i]?.facing ?? "unknown";
+        const rear = isRearCamera(label, facing) || (facing === "unknown" && shouldAllowUnknownAsRear);
 
         let lensType: LensType = "unknown";
         let lensLabel = label;
