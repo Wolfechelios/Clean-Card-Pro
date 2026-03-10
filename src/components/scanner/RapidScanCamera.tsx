@@ -1661,6 +1661,13 @@ export default function RapidScanCamera() {
               </div>
             </div>
 
+            <div className="rounded-xl border p-4">
+              <div className="text-base font-semibold">Buffer status</div>
+              <div className="mt-2 text-sm text-muted-foreground">
+                Queued: {queueMeta.filter((q) => q.status === "queued").length} • Processing: {queueMeta.filter((q) => q.status === "processing").length}
+              </div>
+            </div>
+
           </div>
         </div>
       </Card>
