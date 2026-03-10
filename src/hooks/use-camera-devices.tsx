@@ -197,7 +197,7 @@ export const useCameraDevices = ({ allowUnknownAsRear }: UseCameraDevicesOptions
         const label = device.label || `Camera ${device.deviceId.slice(0, 8)}`;
         const usb = isUSBDevice(label);
         const facingMode = deviceFacingModes[i] ?? "unknown";
-        const rear = isRearCamera(label, facingMode) || (facingMode === "unknown" && allowUnknownAsRear);
+        const rear = isRearCamera(label, facingMode) || (facingMode === "unknown" && shouldAllowUnknownAsRear);
 
         let lensType: LensType = "unknown";
         let lensLabel = label;
