@@ -1668,6 +1668,7 @@ export default function RapidScanCamera() {
               </div>
             </div>
 
+          </div>
         </div>
       </Card>
 
