@@ -188,7 +188,7 @@ export const useCameraDevices = ({ allowUnknownAsRear }: UseCameraDevicesOptions
         const label = d.label || `Camera ${d.deviceId.slice(0, 8)}`;
         const usb = isUSBDevice(label);
         const facingMode = deviceFacingModes[i] ?? "unknown";
-        const rear = isRearCamera(label, facingMode) || (facingMode === "unknown" && allowUnknownAsRear);
+        const rear = isRearCamera(label, facingMode) || (facingMode === "unknown" && shouldAllowUnknownAsRear);
         if (rear && !usb) rearIndices.push(i);
       });
 
