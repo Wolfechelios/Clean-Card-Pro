@@ -240,7 +240,7 @@ export const useCameraDevices = ({ allowUnknownAsRear }: UseCameraDevicesOptions
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [allowUnknownAsRear]);
 
   useEffect(() => {
     refreshDevices();
