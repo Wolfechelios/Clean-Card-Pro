@@ -676,6 +676,12 @@ export default function RapidScanCamera() {
     }
   }, [busyCapture, settings, zoomCapabilities, zoomLevel, setZoom, clarityZoom]);
 
+            <div className="rounded-xl border p-4">
+              <div className="text-base font-semibold">Buffer status</div>
+              <div className="mt-2 text-sm text-muted-foreground">
+                Queued: {queueMeta.filter((q) => q.status === "queued").length} • Processing: {queueMeta.filter((q) => q.status === "processing").length}
+              </div>
+            </div>
 
   useEffect(() => {
     return () => {
