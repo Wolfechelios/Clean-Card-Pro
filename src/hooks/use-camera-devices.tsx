@@ -170,7 +170,7 @@ export const useCameraDevices = ({ allowUnknownAsRear }: UseCameraDevicesOptions
       const allDevices = await navigator.mediaDevices.enumerateDevices();
       const videoInputs = allDevices.filter(device => device.kind === "videoinput");
 
-      const allowUnknownAsRear = videoInputs.length === 1;
+      const shouldAllowUnknownAsRear = allowUnknownAsRear ?? videoInputs.length === 1;
 
       // Probe each device to reliably remove front-facing cameras on multi-lens phones.
       const deviceFacingModes = await Promise.all(
