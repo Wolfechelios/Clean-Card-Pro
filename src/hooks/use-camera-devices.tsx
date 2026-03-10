@@ -146,7 +146,11 @@ function isUSBDevice(label: string): boolean {
   );
 }
 
-export const useCameraDevices = () => {
+interface UseCameraDevicesOptions {
+  allowUnknownAsRear?: boolean;
+}
+
+export const useCameraDevices = ({ allowUnknownAsRear }: UseCameraDevicesOptions = {}) => {
   const [devices, setDevices] = useState<CameraDevice[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
