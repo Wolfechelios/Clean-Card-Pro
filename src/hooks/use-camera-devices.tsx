@@ -146,7 +146,11 @@ function isUSBDevice(label: string): boolean {
   );
 }
 
-export const useCameraDevices = () => {
+interface UseCameraDevicesOptions {
+  allowUnknownAsRear?: boolean;
+}
+
+export const useCameraDevices = ({ allowUnknownAsRear }: UseCameraDevicesOptions = {}) => {
   const [devices, setDevices] = useState<CameraDevice[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
@@ -166,7 +170,7 @@ export const useCameraDevices = () => {
       const allDevices = await navigator.mediaDevices.enumerateDevices();
       const videoInputs = allDevices.filter(device => device.kind === "videoinput");
 
-      const allowUnknownAsRear = videoInputs.length === 1;
+      const shouldAllowUnknownAsRear = allowUnknownAsRear ?? videoInputs.length === 1;
 
       // Probe each device to reliably remove front-facing cameras on multi-lens phones.
       const deviceFacingModes = await Promise.all(
@@ -184,7 +188,7 @@ export const useCameraDevices = () => {
         const label = d.label || `Camera ${d.deviceId.slice(0, 8)}`;
         const usb = isUSBDevice(label);
         const facingMode = deviceFacingModes[i] ?? "unknown";
-        const rear = isRearCamera(label, facingMode) || (facingMode === "unknown" && allowUnknownAsRear);
+        const rear = isRearCamera(label, facingMode) || (facingMode === "unknown" && shouldAllowUnknownAsRear);
         if (rear && !usb) rearIndices.push(i);
       });
 
@@ -193,7 +197,7 @@ export const useCameraDevices = () => {
         const label = device.label || `Camera ${device.deviceId.slice(0, 8)}`;
         const usb = isUSBDevice(label);
         const facingMode = deviceFacingModes[i] ?? "unknown";
-        const rear = isRearCamera(label, facingMode) || (facingMode === "unknown" && allowUnknownAsRear);
+        const rear = isRearCamera(label, facingMode) || (facingMode === "unknown" && shouldAllowUnknownAsRear);
 
         let lensType: LensType = "unknown";
         let lensLabel = label;
@@ -236,7 +240,7 @@ export const useCameraDevices = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [allowUnknownAsRear]);
 
   useEffect(() => {
     refreshDevices();

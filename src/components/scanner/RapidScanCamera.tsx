@@ -140,7 +140,7 @@ export default function RapidScanCamera() {
     setSelectedDeviceId,
     isLoading: devicesLoading,
     refreshDevices,
-  } = useCameraDevices();
+  } = useCameraDevices({ allowUnknownAsRear: false });
 
   // Extra safety filter for Rapid Scan: never show explicitly front-facing options.
   const rearOnlyCameraDevices = useMemo(
