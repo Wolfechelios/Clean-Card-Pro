@@ -1316,7 +1316,6 @@ export default function RapidScanCamera() {
                 className="rounded-none border-0 px-3 sm:px-4 h-11 sm:h-10"
                 onClick={() => {
                   updateSettings({ scanMode: "REMOVE" });
-                  toast.info("Remove Mode — scan to delete cards");
                 }}
               >
                 <Trash2 className="h-5 w-5 sm:h-4 sm:w-4 sm:mr-1.5" />
