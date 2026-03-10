@@ -1294,7 +1294,6 @@ export default function RapidScanCamera() {
                 className="rounded-none border-0 px-3 sm:px-4 h-11 sm:h-10"
                 onClick={() => {
                   updateSettings({ scanMode: "SAVE" });
-                  toast.info("Save Mode — cards added to collection");
                 }}
               >
                 <Save className="h-5 w-5 sm:h-4 sm:w-4 sm:mr-1.5" />
@@ -1306,7 +1305,6 @@ export default function RapidScanCamera() {
                 className="rounded-none border-0 border-x px-3 sm:px-4 h-11 sm:h-10"
                 onClick={() => {
                   updateSettings({ scanMode: "SCAN_ONLY" });
-                  toast.info("Scan & Price — preview only");
                 }}
               >
                 <Eye className="h-5 w-5 sm:h-4 sm:w-4 sm:mr-1.5" />
@@ -1318,7 +1316,6 @@ export default function RapidScanCamera() {
                 className="rounded-none border-0 px-3 sm:px-4 h-11 sm:h-10"
                 onClick={() => {
                   updateSettings({ scanMode: "REMOVE" });
-                  toast.info("Remove Mode — scan to delete cards");
                 }}
               >
                 <Trash2 className="h-5 w-5 sm:h-4 sm:w-4 sm:mr-1.5" />
@@ -1664,12 +1661,6 @@ export default function RapidScanCamera() {
               </div>
             </div>
 
-            <div className="rounded-xl border p-4">
-              <div className="text-base font-semibold">Buffer status</div>
-              <div className="mt-2 text-sm text-muted-foreground">
-                Queued: {queueMeta.filter((q) => q.status === "queued").length} • Processing: {queueMeta.filter((q) => q.status === "processing").length}
-              </div>
-            </div>
           </div>
         </div>
       </Card>
