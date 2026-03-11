@@ -248,8 +248,68 @@ serve(async (req) => {
     let result = { price: null as number | null, confidence: 0, source_ref: "", raw: null as any };
     let source = "estimated";
 
-    // Only call API if not skipping (for bulk operations we might skip)
-    if (!skip_api) {
+    // For Yu-Gi-Oh! cards, check PriceCharting local data first
+    const gameType = (card.game_type || "").toLowerCase();
+    if (gameType.includes("yugioh") || gameType.includes("yu-gi-oh") || gameType === "yu gi oh") {
+      try {
+        const cardNameClean = (card.card_name || "")
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]/g, "")
+          .trim();
+
+        let pcQuery = supabase
+          .from("pc_cards")
+          .select("psa10_price, card_name, card_number, card_url, pc_sets!inner(set_name, game)")
+          .eq("user_id", card.user_id)
+          .not("psa10_price", "is", null);
+
+        // Try card number match first for precision
+        if (card.card_number) {
+          const { data: pcExact } = await pcQuery
+            .eq("card_number", card.card_number.replace(/^[#0]+/, "").trim())
+            .ilike("card_name_clean", `%${cardNameClean}%`)
+            .limit(1);
+
+          if (pcExact?.length && pcExact[0].psa10_price && pcExact[0].psa10_price > 0) {
+            result = {
+              price: pcExact[0].psa10_price,
+              confidence: 92,
+              source_ref: pcExact[0].card_url || "pricecharting.com",
+              raw: { method: "pricecharting-local", card_name: pcExact[0].card_name, card_number: pcExact[0].card_number }
+            };
+            source = "pricecharting";
+            console.log(`[YGO] PriceCharting PSA 10 match: ${pcExact[0].card_name} = $${pcExact[0].psa10_price}`);
+          }
+        }
+
+        // Fallback: name-only fuzzy match
+        if (!result.price && cardNameClean.length >= 3) {
+          const { data: pcFuzzy } = await supabase
+            .from("pc_cards")
+            .select("psa10_price, card_name, card_number, card_url")
+            .eq("user_id", card.user_id)
+            .not("psa10_price", "is", null)
+            .ilike("card_name_clean", `%${cardNameClean}%`)
+            .limit(3);
+
+          if (pcFuzzy?.length && pcFuzzy[0].psa10_price && pcFuzzy[0].psa10_price > 0) {
+            result = {
+              price: pcFuzzy[0].psa10_price,
+              confidence: 80,
+              source_ref: pcFuzzy[0].card_url || "pricecharting.com",
+              raw: { method: "pricecharting-local-fuzzy", card_name: pcFuzzy[0].card_name }
+            };
+            source = "pricecharting";
+            console.log(`[YGO] PriceCharting fuzzy PSA 10 match: ${pcFuzzy[0].card_name} = $${pcFuzzy[0].psa10_price}`);
+          }
+        }
+      } catch (pcError) {
+        console.warn("[YGO] PriceCharting lookup failed:", pcError);
+      }
+    }
+
+    // Only call Perplexity API if no PriceCharting result and not skipping
+    if (!result.price && !skip_api) {
       result = await fetchPSA10WithPerplexity(card);
       if (result.price) {
         source = "perplexity";
