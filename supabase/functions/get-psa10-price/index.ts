@@ -36,8 +36,52 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: nu
   }
 }
 
-// Scrape PSA 10 price directly from a PriceCharting.com card page using Firecrawl
-async function scrapePSA10FromPriceCharting(cardUrl: string): Promise<{
+// Extract exact PSA 10 price from PriceCharting page markdown
+function extractPSA10Price(markdown: string): number | null {
+  if (!markdown) return null;
+  const text = markdown.replace(/\r\n/g, '\n');
+
+  // Pattern matching for PSA 10 price on PriceCharting pages
+  const patterns = [
+    /PSA\s*10[^$\d]*\$?([\d,]+(?:\.\d{1,2})?)/i,
+    /GEM[\s-]*(?:MT|MINT)\s*10[^$\d]*\$?([\d,]+(?:\.\d{1,2})?)/i,
+    /\$?([\d,]+(?:\.\d{1,2})?)\s*\|?\s*PSA\s*10/i,
+    /Grade:\s*PSA\s*10[^$\d]*\$?([\d,]+(?:\.\d{1,2})?)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) {
+      const price = parseFloat(match[1].replace(/,/g, ''));
+      if (price > 0 && price < 10000000) return price;
+    }
+  }
+
+  // Line-by-line search near "PSA 10"
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    if (/PSA\s*10|GEM[\s-]*(?:MT|MINT)\s*10/i.test(lines[i])) {
+      const block = [lines[i - 1] || "", lines[i], lines[i + 1] || ""].join(" ");
+      const priceMatch = block.match(/\$?([\d,]+(?:\.\d{1,2})?)/);
+      if (priceMatch?.[1]) {
+        const price = parseFloat(priceMatch[1].replace(/,/g, ''));
+        if (price > 0.5 && price < 10000000) return price;
+      }
+    }
+  }
+
+  // Markdown table format
+  const tableMatch = text.match(/\|\s*PSA\s*10\s*\|\s*\$?([\d,]+(?:\.\d{1,2})?)\s*\|/i);
+  if (tableMatch?.[1]) {
+    const price = parseFloat(tableMatch[1].replace(/,/g, ''));
+    if (price > 0 && price < 10000000) return price;
+  }
+
+  return null;
+}
+
+// Scrape PSA 10 price from a PriceCharting URL via Firecrawl
+async function scrapePSA10FromUrl(url: string): Promise<{
   price: number | null;
   confidence: number;
   source_ref: string;
@@ -45,229 +89,136 @@ async function scrapePSA10FromPriceCharting(cardUrl: string): Promise<{
 }> {
   const FIRECRAWL_API_KEY = Deno.env.get('FIRECRAWL_API_KEY');
   if (!FIRECRAWL_API_KEY) {
-    console.log('FIRECRAWL_API_KEY not configured, cannot scrape PriceCharting');
+    console.log('FIRECRAWL_API_KEY not configured');
     return { price: null, confidence: 0, source_ref: "", raw: null };
   }
 
   try {
-    // Ensure full URL
-    let url = cardUrl.trim();
-    if (!url.startsWith('http')) {
-      url = `https://www.pricecharting.com${url.startsWith('/') ? '' : '/'}${url}`;
-    }
-
-    console.log('Scraping PriceCharting page:', url);
-
+    console.log('Scraping PriceCharting:', url);
     const response = await fetchWithTimeout('https://api.firecrawl.dev/v1/scrape', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        url,
-        formats: ['markdown'],
-        onlyMainContent: true,
-      }),
+      body: JSON.stringify({ url, formats: ['markdown'], onlyMainContent: true }),
     }, REQUEST_TIMEOUT_MS);
 
     if (!response.ok) {
-      console.error('Firecrawl scrape error:', response.status);
+      console.error('Firecrawl error:', response.status);
       return { price: null, confidence: 0, source_ref: "", raw: null };
     }
 
     const data = await response.json();
     const markdown = data?.data?.markdown || data?.markdown || "";
-
-    console.log('PriceCharting markdown length:', markdown.length);
-
-    // Extract PSA 10 price from the page content
-    // PriceCharting typically shows prices in a table/grid format
-    // Look for patterns like "PSA 10" followed by a price
     const psa10Price = extractPSA10Price(markdown);
 
     if (psa10Price !== null) {
-      console.log(`PriceCharting PSA 10 price found: $${psa10Price}`);
-      return {
-        price: psa10Price,
-        confidence: 95,
-        source_ref: url,
-        raw: { method: "pricecharting-scrape", url, price_found: psa10Price }
-      };
+      console.log(`PSA 10 scraped: $${psa10Price} from ${url}`);
+      return { price: psa10Price, confidence: 95, source_ref: url, raw: { method: "pricecharting-scrape", url } };
     }
 
     console.log('No PSA 10 price found on page');
     return { price: null, confidence: 0, source_ref: url, raw: { method: "pricecharting-scrape", url, price_found: null } };
   } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      console.log('PriceCharting scrape timed out');
-    } else {
-      console.error('PriceCharting scrape error:', error);
-    }
+    console.error('Scrape error:', error instanceof Error ? error.message : error);
     return { price: null, confidence: 0, source_ref: "", raw: null };
   }
 }
 
-// Extract the exact PSA 10 price from PriceCharting page markdown
-function extractPSA10Price(markdown: string): number | null {
-  if (!markdown) return null;
-
-  // Normalize line breaks
-  const text = markdown.replace(/\r\n/g, '\n');
-
-  // Strategy 1: Look for "PSA 10" in table rows or near price values
-  // Common patterns on PriceCharting:
-  //   "PSA 10 | $2,850.00" or "PSA 10: $2,850.00" or "PSA 10 $2,850.00"
-  //   Also "Gem Mint 10" or "GEM-MT 10"
-  const psa10Patterns = [
-    /PSA\s*10[^$\d]*\$?([\d,]+(?:\.\d{1,2})?)/i,
-    /GEM[\s-]*(?:MT|MINT)\s*10[^$\d]*\$?([\d,]+(?:\.\d{1,2})?)/i,
-    /\$?([\d,]+(?:\.\d{1,2})?)\s*\|?\s*PSA\s*10/i,
-    /Grade:\s*PSA\s*10[^$\d]*\$?([\d,]+(?:\.\d{1,2})?)/i,
-  ];
-
-  for (const pattern of psa10Patterns) {
-    const match = text.match(pattern);
-    if (match && match[1]) {
-      const priceStr = match[1].replace(/,/g, '');
-      const price = parseFloat(priceStr);
-      if (price > 0 && price < 10000000) {
-        return price;
-      }
-    }
-  }
-
-  // Strategy 2: Look for a line/section containing "PSA 10" and extract the nearest price
-  const lines = text.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (/PSA\s*10|GEM[\s-]*(?:MT|MINT)\s*10/i.test(line)) {
-      // Check this line and adjacent lines for a price
-      const searchBlock = [lines[i - 1] || "", line, lines[i + 1] || ""].join(" ");
-      const priceMatch = searchBlock.match(/\$?([\d,]+(?:\.\d{1,2})?)/);
-      if (priceMatch && priceMatch[1]) {
-        const priceStr = priceMatch[1].replace(/,/g, '');
-        const price = parseFloat(priceStr);
-        if (price > 0.5 && price < 10000000) {
-          return price;
-        }
-      }
-    }
-  }
-
-  // Strategy 3: Look in markdown table format "| PSA 10 | $1,234.56 |"
-  const tablePattern = /\|\s*PSA\s*10\s*\|\s*\$?([\d,]+(?:\.\d{1,2})?)\s*\|/i;
-  const tableMatch = text.match(tablePattern);
-  if (tableMatch && tableMatch[1]) {
-    const priceStr = tableMatch[1].replace(/,/g, '');
-    const price = parseFloat(priceStr);
-    if (price > 0 && price < 10000000) {
-      return price;
-    }
-  }
-
-  return null;
-}
-
-// Find the PriceCharting URL for a Yu-Gi-Oh! card from local data
-async function findPriceChartingUrl(supabase: any, card: any): Promise<string | null> {
-  const cardNameClean = (card.card_name || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, "")
-    .trim();
-
-  if (!cardNameClean || cardNameClean.length < 2) return null;
-
-  // Try exact card number + name match first
-  if (card.card_number) {
-    const cleanNum = card.card_number.replace(/^[#0]+/, "").trim();
-    const { data: exact } = await supabase
-      .from("pc_cards")
-      .select("card_url, card_name, card_number")
-      .eq("user_id", card.user_id)
-      .eq("card_number", cleanNum)
-      .ilike("card_name_clean", `%${cardNameClean}%`)
-      .not("card_url", "is", null)
-      .limit(1);
-
-    if (exact?.length && exact[0].card_url) {
-      console.log(`[YGO] URL match by number+name: ${exact[0].card_name}`);
-      return exact[0].card_url;
-    }
-  }
-
-  // Fallback: fuzzy name match
-  if (cardNameClean.length >= 3) {
-    const { data: fuzzy } = await supabase
-      .from("pc_cards")
-      .select("card_url, card_name")
-      .eq("user_id", card.user_id)
-      .ilike("card_name_clean", `%${cardNameClean}%`)
-      .not("card_url", "is", null)
-      .limit(3);
-
-    if (fuzzy?.length && fuzzy[0].card_url) {
-      console.log(`[YGO] URL match by name: ${fuzzy[0].card_name}`);
-      return fuzzy[0].card_url;
-    }
-  }
-
-  return null;
-}
-
-// Perplexity fallback for non-YGO cards
-async function fetchPSA10WithPerplexity(card: any): Promise<{
+// Search PriceCharting via Firecrawl search to find the card page, then scrape it
+async function searchAndScrapePriceCharting(card: any): Promise<{
   price: number | null;
   confidence: number;
   source_ref: string;
   raw: any;
 }> {
-  const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY');
-  if (!PERPLEXITY_API_KEY) {
+  const FIRECRAWL_API_KEY = Deno.env.get('FIRECRAWL_API_KEY');
+  if (!FIRECRAWL_API_KEY) {
     return { price: null, confidence: 0, source_ref: "", raw: null };
   }
 
   try {
-    const playerName = card.player_name || card.card_name;
-    const cardSet = card.card_set || card.set_name;
+    const name = card.player_name || card.card_name;
+    const set = card.card_set || card.set_name;
     const year = card.year || card.raw_year;
-    const cardNumber = card.card_number;
-    const searchQuery = [playerName, cardSet, year, cardNumber, "PSA 10 price"].filter(Boolean).join(" ");
+    const number = card.card_number;
+    const query = `site:pricecharting.com ${name} ${set || ""} ${year || ""} ${number || ""} PSA 10`.trim();
 
-    const response = await fetchWithTimeout('https://api.perplexity.ai/chat/completions', {
+    console.log('Firecrawl search:', query);
+
+    const searchResp = await fetchWithTimeout('https://api.firecrawl.dev/v1/search', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${PERPLEXITY_API_KEY}`,
+        'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model: 'sonar',
-        messages: [
-          { role: 'system', content: `You are a trading card price finder. Find the PSA 10 graded price for cards.\nReturn ONLY a number representing the USD price (no $ symbol, no text).\nIf you find a price range, return the average.\nIf you cannot find a reliable PSA 10 price, respond with: 0` },
-          { role: 'user', content: `What is the current PSA 10 price for: ${playerName}${cardSet ? ` from ${cardSet}` : ''}${year ? ` (${year})` : ''}${cardNumber ? ` #${cardNumber}` : ''}?` }
-        ],
-        search_domain_filter: ['sportscardpro.com', 'pricecharting.com', 'psacard.com', '130point.com', 'ebay.com'],
-      }),
+      body: JSON.stringify({ query, limit: 3 }),
     }, REQUEST_TIMEOUT_MS);
 
-    if (!response.ok) return { price: null, confidence: 0, source_ref: "", raw: null };
+    if (!searchResp.ok) {
+      console.error('Firecrawl search error:', searchResp.status);
+      return { price: null, confidence: 0, source_ref: "", raw: null };
+    }
 
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content?.trim();
-    const citations = data.citations || [];
+    const searchData = await searchResp.json();
+    const results = searchData?.data || searchData?.results || [];
 
-    if (content) {
-      const priceStr = content.replace(/[^0-9.]/g, '');
-      const price = parseFloat(priceStr);
-      if (price && price > 0 && price < 1000000) {
-        return { price, confidence: citations.length > 0 ? 85 : 70, source_ref: citations[0] || 'perplexity', raw: { query: searchQuery, response: content, citations } };
+    // Find a pricecharting.com result
+    for (const result of results) {
+      const url = result.url || result.link || "";
+      if (url.includes("pricecharting.com")) {
+        // If the search result already has markdown content with PSA 10 price
+        if (result.markdown) {
+          const price = extractPSA10Price(result.markdown);
+          if (price !== null) {
+            console.log(`PSA 10 from search result: $${price}`);
+            return { price, confidence: 90, source_ref: url, raw: { method: "pricecharting-search-inline", url } };
+          }
+        }
+        // Otherwise scrape the page directly
+        const scraped = await scrapePSA10FromUrl(url);
+        if (scraped.price) return scraped;
       }
     }
-    return { price: null, confidence: 0, source_ref: "", raw: null };
+
+    return { price: null, confidence: 0, source_ref: "", raw: { method: "pricecharting-search", query, results_count: results.length } };
   } catch (error) {
-    console.error('Perplexity PSA 10 error:', error);
+    console.error('Search+scrape error:', error instanceof Error ? error.message : error);
     return { price: null, confidence: 0, source_ref: "", raw: null };
   }
+}
+
+// Find PriceCharting URL from local pc_cards table
+async function findLocalPriceChartingUrl(supabase: any, card: any): Promise<string | null> {
+  const cardNameClean = (card.card_name || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
+  if (!cardNameClean || cardNameClean.length < 2) return null;
+
+  if (card.card_number) {
+    const cleanNum = card.card_number.replace(/^[#0]+/, "").trim();
+    const { data } = await supabase
+      .from("pc_cards")
+      .select("card_url, card_name")
+      .eq("user_id", card.user_id)
+      .eq("card_number", cleanNum)
+      .ilike("card_name_clean", `%${cardNameClean}%`)
+      .not("card_url", "is", null)
+      .limit(1);
+    if (data?.length && data[0].card_url) return data[0].card_url;
+  }
+
+  if (cardNameClean.length >= 3) {
+    const { data } = await supabase
+      .from("pc_cards")
+      .select("card_url, card_name")
+      .eq("user_id", card.user_id)
+      .ilike("card_name_clean", `%${cardNameClean}%`)
+      .not("card_url", "is", null)
+      .limit(1);
+    if (data?.length && data[0].card_url) return data[0].card_url;
+  }
+
+  return null;
 }
 
 serve(async (req) => {
@@ -283,9 +234,7 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
     const { data: card, error: cardError } = await supabase
       .from("cards").select("*").eq("id", card_id).single();
@@ -306,16 +255,16 @@ serve(async (req) => {
 
     // Check 24h cache
     const identityHash = generateIdentityHash(card);
-    const twentyFourHoursAgo = new Date();
-    twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
+    const cutoff = new Date();
+    cutoff.setHours(cutoff.getHours() - 24);
 
     const { data: cached } = await supabase
       .from("price_cache").select("*")
       .eq("identity_hash", identityHash)
-      .gte("updated_at", twentyFourHoursAgo.toISOString())
+      .gte("updated_at", cutoff.toISOString())
       .single();
 
-    if (cached && cached.price) {
+    if (cached?.price) {
       await supabase.from("cards").update({
         psa10_price: cached.price, psa10_currency: cached.currency,
         psa10_source: cached.source, psa10_updated_at: new Date().toISOString(),
@@ -331,47 +280,29 @@ serve(async (req) => {
     let result = { price: null as number | null, confidence: 0, source_ref: "", raw: null as any };
     let source = "none";
 
-    const gameType = (card.game_type || "").toLowerCase();
-    const isYugioh = gameType.includes("yugioh") || gameType.includes("yu-gi-oh") || gameType === "yu gi oh";
+    if (!skip_api) {
+      // Step 1: Try local pc_cards URL → scrape PriceCharting page
+      const localUrl = await findLocalPriceChartingUrl(supabase, card);
+      if (localUrl) {
+        const fullUrl = localUrl.startsWith('http') ? localUrl : `https://www.pricecharting.com${localUrl.startsWith('/') ? '' : '/'}${localUrl}`;
+        result = await scrapePSA10FromUrl(fullUrl);
+        if (result.price) source = "pricecharting";
+      }
 
-    // === YU-GI-OH: Scrape exact PSA 10 price from PriceCharting.com ===
-    if (isYugioh && !skip_api) {
-      const pcUrl = await findPriceChartingUrl(supabase, card);
-      if (pcUrl) {
-        result = await scrapePSA10FromPriceCharting(pcUrl);
-        if (result.price) {
-          source = "pricecharting";
-        }
-      } else {
-        console.log('[YGO] No PriceCharting URL found for card:', card.card_name);
+      // Step 2: No local URL — search PriceCharting via Firecrawl
+      if (!result.price) {
+        result = await searchAndScrapePriceCharting(card);
+        if (result.price) source = "pricecharting";
       }
     }
 
-    // Non-YGO: use Perplexity
-    if (!result.price && !skip_api && !isYugioh) {
-      result = await fetchPSA10WithPerplexity(card);
-      if (result.price) source = "perplexity";
-    }
-
-    // Fallback: use existing psa10 price from import
+    // Fallback: existing imported PSA 10 price
     if (!result.price && card.current_price_psa10) {
       result = { price: card.current_price_psa10, confidence: 60, source_ref: "imported", raw: { method: "existing psa10 price" } };
       source = "imported";
     }
 
-    // NO estimation or multiplier fallback for YGO — strict rule: exact price or null
-
-    // For non-YGO, allow estimation fallback from raw price
-    if (!result.price && !isYugioh && card.current_price_raw) {
-      const r = (card.rarity || "").toLowerCase();
-      let mult = 2.5;
-      if (r.includes('ultra') || r.includes('secret') || r.includes('starlight')) mult = 3.0;
-      else if (r.includes('super') || r.includes('holo')) mult = 2.8;
-      else if (r.includes('common')) mult = 2.0;
-      const est = Math.round(card.current_price_raw * mult * 100) / 100;
-      result = { price: est, confidence: 50, source_ref: "estimated", raw: { method: "multiplier", raw_price: card.current_price_raw } };
-      source = "estimated";
-    }
+    // No estimation, no multipliers, no guessing — exact price or null
 
     if (result.price) {
       await supabase.from("price_cache").upsert({
