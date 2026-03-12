@@ -36,45 +36,102 @@ async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: nu
   }
 }
 
-// Extract exact PSA 10 price from PriceCharting page markdown
+// Extract exact PSA 10 price from PriceCharting page markdown table
 function extractPSA10Price(markdown: string): number | null {
   if (!markdown) return null;
   const text = markdown.replace(/\r\n/g, '\n');
-
-  // Pattern matching for PSA 10 price on PriceCharting pages
-  const patterns = [
-    /PSA\s*10[^$\d]*\$?([\d,]+(?:\.\d{1,2})?)/i,
-    /GEM[\s-]*(?:MT|MINT)\s*10[^$\d]*\$?([\d,]+(?:\.\d{1,2})?)/i,
-    /\$?([\d,]+(?:\.\d{1,2})?)\s*\|?\s*PSA\s*10/i,
-    /Grade:\s*PSA\s*10[^$\d]*\$?([\d,]+(?:\.\d{1,2})?)/i,
-  ];
-
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match?.[1]) {
-      const price = parseFloat(match[1].replace(/,/g, ''));
-      if (price > 0 && price < 10000000) return price;
-    }
-  }
-
-  // Line-by-line search near "PSA 10"
   const lines = text.split('\n');
+
+  // PRIMARY: Parse the PriceCharting markdown pricing table
+  // Format: | Ungraded | Grade 7 | Grade 8 | Grade 9 | Grade 9.5 | PSA 10 |
+  //         | $0.15... | -       | -       | $10.23  | $11.00    | $30.64... |
   for (let i = 0; i < lines.length; i++) {
-    if (/PSA\s*10|GEM[\s-]*(?:MT|MINT)\s*10/i.test(lines[i])) {
-      const block = [lines[i - 1] || "", lines[i], lines[i + 1] || ""].join(" ");
-      const priceMatch = block.match(/\$?([\d,]+(?:\.\d{1,2})?)/);
-      if (priceMatch?.[1]) {
-        const price = parseFloat(priceMatch[1].replace(/,/g, ''));
-        if (price > 0.5 && price < 10000000) return price;
+    const line = lines[i];
+    // Find the header row containing grade columns
+    if (/\|\s*PSA\s*10\s*\|/i.test(line) && /\|\s*(?:Ungraded|Grade)\s/i.test(line)) {
+      // This is the header row - find PSA 10 column index
+      const headers = line.split('|').map(h => h.trim()).filter(h => h.length > 0);
+      const psa10Index = headers.findIndex(h => /^PSA\s*10$/i.test(h));
+      if (psa10Index === -1) continue;
+
+      // Look at the next non-separator row for prices
+      for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+        const dataLine = lines[j];
+        if (/^\s*\|[\s-]+\|/.test(dataLine) && !/\$/.test(dataLine)) continue; // skip separator
+        if (!/\|/.test(dataLine)) continue;
+        
+        const cells = dataLine.split('|').map(c => c.trim()).filter(c => c.length > 0);
+        if (psa10Index < cells.length) {
+          const cell = cells[psa10Index];
+          // Extract first dollar amount from the cell (e.g., "$30.64<br> <br> +$0.25")
+          const priceMatch = cell.match(/\$?([\d,]+(?:\.\d{1,2})?)/);
+          if (priceMatch?.[1]) {
+            const price = parseFloat(priceMatch[1].replace(/,/g, ''));
+            if (price > 0 && price < 10000000) {
+              console.log(`Table extraction: PSA 10 = $${price} (column ${psa10Index})`);
+              return price;
+            }
+          }
+        }
+        break;
       }
     }
   }
 
-  // Markdown table format
-  const tableMatch = text.match(/\|\s*PSA\s*10\s*\|\s*\$?([\d,]+(?:\.\d{1,2})?)\s*\|/i);
-  if (tableMatch?.[1]) {
-    const price = parseFloat(tableMatch[1].replace(/,/g, ''));
-    if (price > 0 && price < 10000000) return price;
+  // SECONDARY: Look for a simpler repeated table like:
+  // | Grade 9 | Grade 9.5 | PSA 10 |  |
+  // | $10.23  | $11.00    | $30.64 |  |
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/\|\s*PSA\s*10\s*\|/i.test(line) && !/Ungraded/i.test(line) && !/Sold/i.test(line)) {
+      const headers = line.split('|').map(h => h.trim()).filter(h => h.length > 0);
+      const psa10Index = headers.findIndex(h => /^PSA\s*10$/i.test(h));
+      if (psa10Index === -1) continue;
+
+      for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+        const dataLine = lines[j];
+        if (/^\s*\|[\s-]+\|/.test(dataLine) && !/\$/.test(dataLine)) continue;
+        if (!/\|/.test(dataLine)) continue;
+
+        const cells = dataLine.split('|').map(c => c.trim()).filter(c => c.length > 0);
+        if (psa10Index < cells.length) {
+          const cell = cells[psa10Index];
+          const priceMatch = cell.match(/\$?([\d,]+(?:\.\d{1,2})?)/);
+          if (priceMatch?.[1]) {
+            const price = parseFloat(priceMatch[1].replace(/,/g, ''));
+            if (price > 0 && price < 10000000) {
+              console.log(`Secondary table extraction: PSA 10 = $${price}`);
+              return price;
+            }
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  // TERTIARY: Check for "PSA 10" in a non-chart context with a dollar sign price nearby
+  // Avoid Highcharts text which contains dates like "PSA 10Oct 2024"
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Skip chart/graph lines
+    if (/Highcharts|Zoom|View \d|month|year/i.test(line)) continue;
+    
+    // Match "PSA 10" followed by a dollar price (require $ sign to avoid year matches)
+    const match = line.match(/PSA\s*10[^$\d]{0,20}\$([\d,]+(?:\.\d{1,2})?)/i);
+    if (match?.[1]) {
+      const price = parseFloat(match[1].replace(/,/g, ''));
+      if (price > 0 && price < 10000000) {
+        console.log(`Line extraction: PSA 10 = $${price}`);
+        return price;
+      }
+    }
+  }
+
+  // Check if PriceCharting says the PSA 10 price is an estimate with no real sales
+  if (/No sales data for this card and grade/i.test(text) && /estimate/i.test(text)) {
+    console.log('PriceCharting shows PSA 10 as estimate only (no real sales data)');
+    // Still return the table value if we found one above; if we're here, we didn't find it
   }
 
   return null;
