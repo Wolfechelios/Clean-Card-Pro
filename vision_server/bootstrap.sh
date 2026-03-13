@@ -59,7 +59,8 @@ pip install -q \
   numpy==1.* \
   opencv-python-headless==4.* \
   pyyaml==6.* \
-  psutil==6.*
+  psutil==6.* \
+  aiohttp==3.*
 
 # ONNX Runtime — try GPU first, fall back to CPU
 echo "  Installing ONNX Runtime..."
