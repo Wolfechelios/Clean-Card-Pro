@@ -22,6 +22,7 @@ from api.rectify import router as rectify_router
 from api.embedding import router as embedding_router
 from api.stream import router as stream_router
 from api.discover import router as discover_router
+from api.clients import router as clients_router
 from utils.model_manager import ModelManager
 from utils.gpu import log_gpu_info
 from utils.announce import register_avahi, get_local_ip
@@ -76,6 +77,7 @@ app.include_router(rectify_router)
 app.include_router(embedding_router)
 app.include_router(stream_router)
 app.include_router(discover_router)
+app.include_router(clients_router)
 
 
 if __name__ == "__main__":
