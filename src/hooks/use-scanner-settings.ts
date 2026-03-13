@@ -79,8 +79,11 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   stackFocusPulseMs: 120,
   stackFocusZoomFallbackStep: 0.10,
 
+  visionProvider: "local",
   orinEnabled: false,
-  orinServerUrl: "http://192.168.1.37:8000",
+  orinServerUrl: "192.168.1.37",
+  orinEndpoint: "/infer",
+  orinTimeoutMs: 15000,
   orinPreferForQueue: true,
   orinPreferForLive: true,
 };
