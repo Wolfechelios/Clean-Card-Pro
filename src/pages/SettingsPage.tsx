@@ -756,6 +756,9 @@ setNullRarityCount(missingRarity || 0);
         </CardContent>
       </Card>
 
+      {/* Jetson / Vision Provider */}
+      <JetsonInferenceSettings />
+
       {/* Collection Management */}
       <Card className="bg-card border-border">
         <CardHeader>
