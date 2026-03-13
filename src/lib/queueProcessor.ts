@@ -427,6 +427,9 @@ async function workerLoop(workerId: number) {
       try {
         await processJob(next);
         store()._incrementProcessed();
+        rateLimitHitCount = 0; // Reset on success
+        // Minimum 2s spacing between cloud AI requests to stay under rate limits
+        await sleep(Math.max(getJobDelayMs(), 2000));
       } finally {
         markFrameEnd();
       }
