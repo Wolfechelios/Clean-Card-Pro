@@ -115,7 +115,7 @@ JSON only.`;
     // Try Lovable AI FIRST (always available, no user key needed)
     if (LOVABLE_API_KEY) {
       console.log('Trying Lovable AI...');
-      for (let attempt = 0; attempt < 5; attempt++) {
+      for (let attempt = 0; attempt < 3; attempt++) {
         try {
           const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
             method: 'POST',
