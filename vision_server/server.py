@@ -21,8 +21,10 @@ from api.ocr import router as ocr_router
 from api.rectify import router as rectify_router
 from api.embedding import router as embedding_router
 from api.stream import router as stream_router
+from api.discover import router as discover_router
 from utils.model_manager import ModelManager
 from utils.gpu import log_gpu_info
+from utils.announce import register_avahi, get_local_ip
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,7 +44,11 @@ async def lifespan(app: FastAPI):
     log_gpu_info()
     model_manager.load_all()
     app.state.models = model_manager
+    port = int(os.environ.get("VISION_PORT", 8000))
+    register_avahi(port)
+    ip = get_local_ip()
     logger.info("All models loaded — server ready")
+    logger.info(f"Discoverable at http://{ip}:{port}/discover")
     logger.info("═" * 50)
     yield
     logger.info("Shutting down — releasing models...")
@@ -69,6 +75,7 @@ app.include_router(ocr_router)
 app.include_router(rectify_router)
 app.include_router(embedding_router)
 app.include_router(stream_router)
+app.include_router(discover_router)
 
 
 if __name__ == "__main__":

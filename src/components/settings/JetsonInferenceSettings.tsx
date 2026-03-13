@@ -17,6 +17,7 @@ import {
   jetsonHealth,
   type JetsonHealth,
 } from "@/lib/jetsonClient";
+import { JetsonAutoSetupWizard } from "./JetsonAutoSetupWizard";
 
 interface EndpointStatus {
   status: "idle" | "testing" | "ok" | "fail";
@@ -143,7 +144,8 @@ export function JetsonInferenceSettings() {
 
         {isJetson && (
           <div className="space-y-5 pt-3 border-t border-border">
-            {/* Connection Settings */}
+            {/* Auto Setup Wizard */}
+            <JetsonAutoSetupWizard />
             <div className="grid sm:grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label className="text-sm font-medium">Jetson IP Address</Label>

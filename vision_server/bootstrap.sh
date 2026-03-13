@@ -23,8 +23,13 @@ apt-get install -y -qq \
   libopencv-dev python3-opencv \
   libglib2.0-0 libgl1-mesa-glx \
   tesseract-ocr libtesseract-dev \
+  avahi-daemon avahi-utils libnss-mdns \
   curl wget git \
   2>/dev/null
+
+# Enable Avahi for mDNS auto-discovery
+systemctl enable avahi-daemon 2>/dev/null || true
+systemctl start avahi-daemon 2>/dev/null || true
 
 # Install CUDA toolkit if not present (JetPack usually has it)
 if ! command -v nvcc &>/dev/null; then
