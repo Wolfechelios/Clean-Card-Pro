@@ -18,10 +18,6 @@ import {
   type JetsonHealth,
 } from "@/lib/jetsonClient";
 import { JetsonAutoSetupWizard } from "./JetsonAutoSetupWizard";
-import {
-  jetsonHealth,
-  type JetsonHealth,
-} from "@/lib/jetsonClient";
 
 interface EndpointStatus {
   status: "idle" | "testing" | "ok" | "fail";
