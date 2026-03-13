@@ -435,9 +435,14 @@ async function workerLoop(workerId: number) {
       console.error(`[Worker ${workerId}] Job failed:`, e);
 
       if (isRateLimitError(e)) {
-        rateLimitUntil = Math.max(rateLimitUntil, Date.now() + 5000);
+        rateLimitHitCount++;
+        // Progressive backoff: 15s, 30s, 60s, 120s max
+        const backoffMs = Math.min(120_000, 15_000 * Math.pow(2, rateLimitHitCount - 1));
+        rateLimitUntil = Math.max(rateLimitUntil, Date.now() + backoffMs);
+        console.log(`[Worker ${workerId}] Rate limited (hit #${rateLimitHitCount}), backing off ${backoffMs / 1000}s`);
         await idbUpdateMeta(next.id, { status: "queued", error: msg });
       } else {
+        rateLimitHitCount = 0; // Reset on non-rate-limit errors
         store()._incrementError();
         await idbUpdateMeta(next.id, { status: "error", error: msg });
       }
