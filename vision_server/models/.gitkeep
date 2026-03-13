@@ -1,0 +1,4 @@
+# Placeholder — models are downloaded by bootstrap.sh
+# Place your ONNX models here:
+#   - yolov8n.onnx      (object detection)
+#   - mobilenet_v3.onnx  (embeddings)
