@@ -327,6 +327,7 @@ let workersActive = 0;
 let scalingInterval: ReturnType<typeof setInterval> | null = null;
 
 let rateLimitUntil = 0;
+let rateLimitHitCount = 0; // Track consecutive rate limits for progressive backoff
 function isRateLimitError(e: unknown): boolean {
   return /rate limit|429/i.test(String((e as any)?.message ?? e));
 }
