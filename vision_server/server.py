@@ -21,8 +21,10 @@ from api.ocr import router as ocr_router
 from api.rectify import router as rectify_router
 from api.embedding import router as embedding_router
 from api.stream import router as stream_router
+from api.discover import router as discover_router
 from utils.model_manager import ModelManager
 from utils.gpu import log_gpu_info
+from utils.announce import register_avahi, get_local_ip
 
 logging.basicConfig(
     level=logging.INFO,
