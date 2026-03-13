@@ -125,10 +125,22 @@ function getJobDelayMs(): number { return getDeviceTier().jobDelayMs; }
 function getPollIntervalMs(): number { return getDeviceTier().pollIntervalMs; }
 
 function getMaxWorkerCount(): number {
+  // IMPORTANT: Cloud AI has strict rate limits.
+  // Running multiple concurrent identification workers causes 429 storms
+  // that lead to misidentified cards and duplicated results.
+  // Serialize all cloud AI requests through a single worker.
   const tier = getDeviceTier();
-  const userSetting = getScannerSettings().batchScanSize || tier.maxWorkers;
-  // Never allow more workers than the pipeline in-flight guard
-  return Math.min(userSetting, tier.maxWorkers, tier.maxInFlightFrames);
+  const settings = getScannerSettings() as any;
+  const hasLocalHardware = settings.gpuOffloadEnabled || settings.orinEnabled;
+  
+  if (hasLocalHardware) {
+    // Local hardware can handle parallelism
+    const userSetting = settings.batchScanSize || tier.maxWorkers;
+    return Math.min(userSetting, tier.maxWorkers, tier.maxInFlightFrames);
+  }
+  
+  // Cloud-only: strictly 1 worker to prevent rate limit storms
+  return 1;
 }
 
 // Adaptive scaling
