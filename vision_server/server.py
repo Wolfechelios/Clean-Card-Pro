@@ -44,7 +44,11 @@ async def lifespan(app: FastAPI):
     log_gpu_info()
     model_manager.load_all()
     app.state.models = model_manager
+    port = int(os.environ.get("VISION_PORT", 8000))
+    register_avahi(port)
+    ip = get_local_ip()
     logger.info("All models loaded — server ready")
+    logger.info(f"Discoverable at http://{ip}:{port}/discover")
     logger.info("═" * 50)
     yield
     logger.info("Shutting down — releasing models...")
