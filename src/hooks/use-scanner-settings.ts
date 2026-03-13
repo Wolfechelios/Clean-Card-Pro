@@ -37,8 +37,11 @@ export interface ScannerSettings {
   stackFocusPulseMs: number;
   stackFocusZoomFallbackStep: number;
 
+  visionProvider: "local" | "jetson";
   orinEnabled: boolean;
   orinServerUrl: string;
+  orinEndpoint: string;
+  orinTimeoutMs: number;
   orinPreferForQueue: boolean;
   orinPreferForLive: boolean;
 }
