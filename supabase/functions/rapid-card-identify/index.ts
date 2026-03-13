@@ -139,10 +139,10 @@ JSON only.`;
 
           if (!response.ok) {
             if (response.status === 429) {
-              const delay = Math.min(10_000, 1000 * Math.pow(2, attempt));
-              console.log(`Lovable AI rate limited, waiting ${delay}ms (attempt ${attempt + 1}/5)`);
+              const delay = Math.min(5_000, 1500 * Math.pow(2, attempt));
+              console.log(`Lovable AI rate limited, waiting ${delay}ms (attempt ${attempt + 1}/3)`);
               await new Promise(r => setTimeout(r, delay));
-              if (attempt === 4) {
+              if (attempt === 2) {
                 lovableExhausted = true;
               }
               continue;
