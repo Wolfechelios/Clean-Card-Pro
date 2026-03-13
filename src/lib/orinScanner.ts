@@ -1,96 +1,64 @@
 // src/lib/orinScanner.ts
-// Jetson Orin inference engine — sends card images to a local Orin/Jetson device for identification
+// Jetson/Orin inference — wraps jetsonClient for the hybrid pipeline interface
 
 import type { IdentifiedCardData } from "./hybridCardIdentify";
-import { getScannerSettings } from "@/hooks/use-scanner-settings";
-
-const AVAILABILITY_TIMEOUT_MS = 2_000;
-
-function getOrinBaseUrl(): string {
-  const settings = getScannerSettings();
-  const ip = settings.orinServerUrl || "192.168.1.37";
-  // Ensure protocol prefix
-  const base = ip.startsWith("http") ? ip : `http://${ip}`;
-  // Ensure port
-  return base.includes(":8") ? base : `${base}:8000`;
-}
-
-function getOrinEndpoint(): string {
-  const settings = getScannerSettings();
-  return settings.orinEndpoint || "/infer";
-}
-
-function getOrinTimeout(): number {
-  const settings = getScannerSettings();
-  return settings.orinTimeoutMs || 15_000;
-}
+import { jetsonHealth, jetsonInfer, jetsonRectify } from "./jetsonClient";
 
 /**
- * Quick availability check — HEAD or GET to /health
+ * Quick availability check via /health
  */
 export async function checkOrinAvailable(): Promise<{ ok: boolean }> {
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), AVAILABILITY_TIMEOUT_MS);
-
-    const res = await fetch(`${getOrinBaseUrl()}/health`, {
-      method: "GET",
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-    return { ok: res.ok };
+    const h = await jetsonHealth(2_000);
+    return { ok: h.status === "ok" };
   } catch {
     return { ok: false };
   }
 }
 
 /**
- * Send an image blob to the Orin /infer endpoint for card identification.
+ * Send an image blob to the Jetson for card identification.
+ * Optionally rectifies first, then runs /infer.
  */
 export async function scanWithOrin(imageBlob: Blob): Promise<IdentifiedCardData> {
-  const formData = new FormData();
-  formData.append("file", imageBlob, "frame.jpg");
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), getOrinTimeout());
-
-  const url = `${getOrinBaseUrl()}${getOrinEndpoint()}`;
-  console.log(`[Orin] POST ${url} (timeout: ${getOrinTimeout()}ms)`);
-
-  const response = await fetch(url, {
-    method: "POST",
-    body: formData,
-    signal: controller.signal,
-  });
-  clearTimeout(timer);
-
-  if (!response.ok) {
-    throw new Error(`Orin server returned ${response.status}: ${response.statusText}`);
+  // Try perspective correction first
+  let finalBlob = imageBlob;
+  try {
+    const rect = await jetsonRectify(imageBlob);
+    if (rect.corrected_image) {
+      const bin = atob(rect.corrected_image);
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      finalBlob = new Blob([arr], { type: "image/jpeg" });
+    }
+  } catch {
+    // rectify not available — use original
   }
 
-  const data = await response.json();
+  const result = await jetsonInfer(finalBlob);
+  const det = result.detections?.[0];
 
   return {
-    card_name: data.card_name || data.name || "Unknown Card",
-    card_set: data.card_set || data.set || null,
-    card_number: data.card_number || data.number || null,
-    rarity: data.rarity || null,
-    edition: data.edition || null,
-    game_type: data.game_type || null,
-    sport_type: data.sport_type || null,
-    year: data.year || null,
-    manufacturer: data.manufacturer || null,
-    confidence: data.confidence ?? 80,
-    description: data.description,
+    card_name: result.ocr?.name || det?.label || "Unknown Card",
+    card_set: result.ocr?.set || null,
+    card_number: null,
+    rarity: null,
+    edition: null,
+    game_type: null,
+    sport_type: null,
+    year: null,
+    manufacturer: null,
+    confidence: det?.confidence ? Math.round(det.confidence * 100) : 80,
+    description: `Jetson inference (${result.latency_ms}ms)`,
   };
 }
 
 /**
- * Identify a card from a URL by fetching the image first, then sending to Orin.
+ * Identify a card from a URL by fetching the image first.
  */
 export async function orinIdentifyByUrl(imageUrl: string): Promise<IdentifiedCardData> {
   const res = await fetch(imageUrl);
-  if (!res.ok) throw new Error(`Failed to fetch image for Orin: ${res.status}`);
+  if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
   const blob = await res.blob();
   return scanWithOrin(blob);
 }
