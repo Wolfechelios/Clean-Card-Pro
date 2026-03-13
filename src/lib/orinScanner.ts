@@ -1,15 +1,28 @@
 // src/lib/orinScanner.ts
-// Jetson Orin inference engine — sends card images to a local Orin device for identification
+// Jetson Orin inference engine — sends card images to a local Orin/Jetson device for identification
 
 import type { IdentifiedCardData } from "./hybridCardIdentify";
 import { getScannerSettings } from "@/hooks/use-scanner-settings";
 
-const ORIN_TIMEOUT_MS = 15_000;
 const AVAILABILITY_TIMEOUT_MS = 2_000;
 
 function getOrinBaseUrl(): string {
-  const settings = getScannerSettings() as any;
-  return settings.orinServerUrl || "http://192.168.1.37:8000";
+  const settings = getScannerSettings();
+  const ip = settings.orinServerUrl || "192.168.1.37";
+  // Ensure protocol prefix
+  const base = ip.startsWith("http") ? ip : `http://${ip}`;
+  // Ensure port
+  return base.includes(":8") ? base : `${base}:8000`;
+}
+
+function getOrinEndpoint(): string {
+  const settings = getScannerSettings();
+  return settings.orinEndpoint || "/infer";
+}
+
+function getOrinTimeout(): number {
+  const settings = getScannerSettings();
+  return settings.orinTimeoutMs || 15_000;
 }
 
 /**
@@ -32,16 +45,19 @@ export async function checkOrinAvailable(): Promise<{ ok: boolean }> {
 }
 
 /**
- * Send an image blob to the Orin /scan endpoint for card identification.
+ * Send an image blob to the Orin /infer endpoint for card identification.
  */
 export async function scanWithOrin(imageBlob: Blob): Promise<IdentifiedCardData> {
   const formData = new FormData();
   formData.append("file", imageBlob, "frame.jpg");
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ORIN_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), getOrinTimeout());
 
-  const response = await fetch(`${getOrinBaseUrl()}/scan`, {
+  const url = `${getOrinBaseUrl()}${getOrinEndpoint()}`;
+  console.log(`[Orin] POST ${url} (timeout: ${getOrinTimeout()}ms)`);
+
+  const response = await fetch(url, {
     method: "POST",
     body: formData,
     signal: controller.signal,
