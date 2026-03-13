@@ -77,6 +77,7 @@ app.include_router(rectify_router)
 app.include_router(embedding_router)
 app.include_router(stream_router)
 app.include_router(discover_router)
+app.include_router(clients_router)
 
 
 if __name__ == "__main__":
