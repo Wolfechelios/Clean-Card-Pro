@@ -125,10 +125,22 @@ function getJobDelayMs(): number { return getDeviceTier().jobDelayMs; }
 function getPollIntervalMs(): number { return getDeviceTier().pollIntervalMs; }
 
 function getMaxWorkerCount(): number {
+  // IMPORTANT: Cloud AI has strict rate limits.
+  // Running multiple concurrent identification workers causes 429 storms
+  // that lead to misidentified cards and duplicated results.
+  // Serialize all cloud AI requests through a single worker.
   const tier = getDeviceTier();
-  const userSetting = getScannerSettings().batchScanSize || tier.maxWorkers;
-  // Never allow more workers than the pipeline in-flight guard
-  return Math.min(userSetting, tier.maxWorkers, tier.maxInFlightFrames);
+  const settings = getScannerSettings() as any;
+  const hasLocalHardware = settings.gpuOffloadEnabled || settings.orinEnabled;
+  
+  if (hasLocalHardware) {
+    // Local hardware can handle parallelism
+    const userSetting = settings.batchScanSize || tier.maxWorkers;
+    return Math.min(userSetting, tier.maxWorkers, tier.maxInFlightFrames);
+  }
+  
+  // Cloud-only: strictly 1 worker to prevent rate limit storms
+  return 1;
 }
 
 // Adaptive scaling
@@ -315,6 +327,7 @@ let workersActive = 0;
 let scalingInterval: ReturnType<typeof setInterval> | null = null;
 
 let rateLimitUntil = 0;
+let rateLimitHitCount = 0; // Track consecutive rate limits for progressive backoff
 function isRateLimitError(e: unknown): boolean {
   return /rate limit|429/i.test(String((e as any)?.message ?? e));
 }
@@ -414,6 +427,9 @@ async function workerLoop(workerId: number) {
       try {
         await processJob(next);
         store()._incrementProcessed();
+        rateLimitHitCount = 0; // Reset on success
+        // Minimum 2s spacing between cloud AI requests to stay under rate limits
+        await sleep(Math.max(getJobDelayMs(), 2000));
       } finally {
         markFrameEnd();
       }
@@ -422,9 +438,14 @@ async function workerLoop(workerId: number) {
       console.error(`[Worker ${workerId}] Job failed:`, e);
 
       if (isRateLimitError(e)) {
-        rateLimitUntil = Math.max(rateLimitUntil, Date.now() + 5000);
+        rateLimitHitCount++;
+        // Progressive backoff: 15s, 30s, 60s, 120s max
+        const backoffMs = Math.min(120_000, 15_000 * Math.pow(2, rateLimitHitCount - 1));
+        rateLimitUntil = Math.max(rateLimitUntil, Date.now() + backoffMs);
+        console.log(`[Worker ${workerId}] Rate limited (hit #${rateLimitHitCount}), backing off ${backoffMs / 1000}s`);
         await idbUpdateMeta(next.id, { status: "queued", error: msg });
       } else {
+        rateLimitHitCount = 0; // Reset on non-rate-limit errors
         store()._incrementError();
         await idbUpdateMeta(next.id, { status: "error", error: msg });
       }
