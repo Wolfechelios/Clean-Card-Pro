@@ -22,6 +22,7 @@ import { LogOut, Trash2, User, Lock, ImageOff, Clock, RefreshCw, Database, ScanL
 import { useDisplayScale } from "@/hooks/use-display-scale";
 
 import ServiceImportExport from "@/components/settings/ServiceImportExport";
+import { JetsonInferenceSettings } from "@/components/settings/JetsonInferenceSettings";
 import DeviceStorageSettings from "@/components/settings/DeviceStorageSettings";
 import { OfflineStoragePanel } from "@/components/settings/OfflineStoragePanel";
 import { BulkRarityReanalyze } from "@/components/collections/BulkRarityReanalyze";
