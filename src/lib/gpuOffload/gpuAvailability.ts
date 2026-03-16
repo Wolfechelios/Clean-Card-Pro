@@ -1,7 +1,7 @@
 import { getGpuServerBaseUrl } from "./gpuSettings";
 
 const TIMEOUT_MS = 1800;
-let cached: { ok: boolean; at: number; caps?: any } | null = null;
+let cached: { ok: boolean; at: number; caps?: any; serverType?: string } | null = null;
 const TTL_MS = 15000;
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
