@@ -95,13 +95,12 @@ Return JSON in this exact format:
     "manufacturer": "manufacturer name",
     "confidence": "confidence score 0-1",
     "description": "brief description of the card",
-    "rarity_zones": {
-      "nameplate_foil": "none|silver|gold|rainbow",
-      "art_pattern": "none|rainbow|diagonal_lines|horizontal_vertical_grid|embossed_3d|speckled_varnish",
-      "border_state": "standard|holographic_lattice|textured|gold",
-      "icons_foiled": true,
-      "watermark": "null or string",
-      "false_positive_check": "explanation of any holo bleed / misprint ruling"
+    "foilFeatures": {
+      "nameFoil": "none|silver|gold|rainbow",
+      "artPattern": "none|secretDiagonal|starlight|lattice|ghost|foil",
+      "borderFoil": true/false,
+      "watermark": true/false,
+      "embossTexture": true/false
     }
   },
   "alternatives": [
@@ -117,7 +116,7 @@ Return JSON in this exact format:
 ${ocrText ? `OCR text extracted: ${ocrText}` : ''}
 
 Only include alternatives array if confidence is below 0.95. If completely certain, return empty alternatives array.
-For non-Yu-Gi-Oh cards, omit the rarity_zones object.`;
+For non-Yu-Gi-Oh cards, omit the foilFeatures object.`;
 
     const messages = [
       {

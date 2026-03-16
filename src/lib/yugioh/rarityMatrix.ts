@@ -1,18 +1,17 @@
 // src/lib/yugioh/rarityMatrix.ts
-// Client-side Yu-Gi-Oh! rarity matrix for display, validation, and zone analysis
+// Client-side Yu-Gi-Oh! foil-rarity detection matrix
 
-export type YgoZoneProfile = {
-  nameplate_foil: "none" | "silver" | "gold" | "rainbow";
-  art_pattern: "none" | "rainbow" | "diagonal_lines" | "horizontal_vertical_grid" | "embossed_3d" | "speckled_varnish";
-  border_state: "standard" | "holographic_lattice" | "textured" | "gold";
-  icons_foiled: boolean;
-  watermark: string | null;
-  false_positive_check?: string | null;
+export type FoilFeatures = {
+  nameFoil: "none" | "silver" | "gold" | "rainbow";
+  artPattern: "none" | "secretDiagonal" | "starlight" | "lattice" | "ghost" | "foil";
+  borderFoil: boolean;
+  watermark: boolean;
+  embossTexture: boolean;
 };
 
 export type YgoRarityDefinition = {
   rarity: string;
-  zones: YgoZoneProfile;
+  foilFeatures: FoilFeatures;
   scannerMarker: string;
   falsePositiveNotes: string | null;
   /** Approximate relative value tier: 1 = lowest, 10 = highest */
@@ -22,79 +21,79 @@ export type YgoRarityDefinition = {
 export const YGO_RARITIES: YgoRarityDefinition[] = [
   {
     rarity: "Common",
-    zones: { nameplate_foil: "none", art_pattern: "none", border_state: "standard", icons_foiled: false, watermark: null },
-    scannerMarker: "No foil in any zone",
+    foilFeatures: { nameFoil: "none", artPattern: "none", borderFoil: false, watermark: false, embossTexture: false },
+    scannerMarker: "No foil detected in any zone",
     falsePositiveNotes: null,
     valueTier: 1,
   },
   {
     rarity: "Rare",
-    zones: { nameplate_foil: "silver", art_pattern: "none", border_state: "standard", icons_foiled: false, watermark: null },
-    scannerMarker: "Silver name plate only",
+    foilFeatures: { nameFoil: "silver", artPattern: "none", borderFoil: false, watermark: false, embossTexture: false },
+    scannerMarker: "Silver name foil only",
     falsePositiveNotes: null,
     valueTier: 2,
   },
   {
     rarity: "Super Rare",
-    zones: { nameplate_foil: "none", art_pattern: "rainbow", border_state: "standard", icons_foiled: false, watermark: null },
-    scannerMarker: "Rainbow art, non-foil name",
-    falsePositiveNotes: "Holo bleed misprints can mimic; verify structured pattern",
+    foilFeatures: { nameFoil: "none", artPattern: "foil", borderFoil: false, watermark: false, embossTexture: false },
+    scannerMarker: "Foil artwork, non-foil name",
+    falsePositiveNotes: "Holo bleed misprints can mimic; verify structured pattern vs random bleed",
     valueTier: 3,
   },
   {
     rarity: "Ultra Rare",
-    zones: { nameplate_foil: "gold", art_pattern: "rainbow", border_state: "standard", icons_foiled: false, watermark: null },
-    scannerMarker: "Gold name + rainbow art",
+    foilFeatures: { nameFoil: "silver", artPattern: "foil", borderFoil: true, watermark: false, embossTexture: false },
+    scannerMarker: "Silver name foil + foil border",
     falsePositiveNotes: null,
     valueTier: 5,
   },
   {
     rarity: "Secret Rare",
-    zones: { nameplate_foil: "rainbow", art_pattern: "diagonal_lines", border_state: "standard", icons_foiled: false, watermark: null },
-    scannerMarker: "45° diagonal foil lines",
-    falsePositiveNotes: "Verify structured diagonal lines, not random holo bleed",
+    foilFeatures: { nameFoil: "silver", artPattern: "secretDiagonal", borderFoil: true, watermark: false, embossTexture: false },
+    scannerMarker: "Diagonal holographic foil lines across artwork",
+    falsePositiveNotes: "Holo bleed can mimic; verify diagonal line pattern is structured, not random",
     valueTier: 6,
   },
   {
-    rarity: "Starlight Rare",
-    zones: { nameplate_foil: "rainbow", art_pattern: "horizontal_vertical_grid", border_state: "holographic_lattice", icons_foiled: true, watermark: null },
-    scannerMarker: "Full-card lattice grid pattern",
-    falsePositiveNotes: "Holo bleed is random; Starlight has structured lattice across ALL zones",
-    valueTier: 10,
-  },
-  {
-    rarity: "Ultimate Rare",
-    zones: { nameplate_foil: "gold", art_pattern: "embossed_3d", border_state: "standard", icons_foiled: true, watermark: null },
-    scannerMarker: "Embossed/raised surfaces",
+    rarity: "Quarter Century Secret Rare",
+    foilFeatures: { nameFoil: "rainbow", artPattern: "secretDiagonal", borderFoil: true, watermark: true, embossTexture: false },
+    scannerMarker: "Rainbow name foil + secret diagonal lines + 25th Anniversary watermark",
     falsePositiveNotes: null,
-    valueTier: 8,
-  },
-  {
-    rarity: "Ghost Rare",
-    zones: { nameplate_foil: "silver", art_pattern: "rainbow", border_state: "standard", icons_foiled: false, watermark: null },
-    scannerMarker: "Pale/washed-out art, silvery-white name",
-    falsePositiveNotes: "Ghost Rares fail standard recognition. Look for silvery-white name + blank art",
     valueTier: 9,
   },
   {
     rarity: "Collector's Rare",
-    zones: { nameplate_foil: "rainbow", art_pattern: "speckled_varnish", border_state: "textured", icons_foiled: false, watermark: null },
-    scannerMarker: "Fingerprint/speckled texture on borders",
+    foilFeatures: { nameFoil: "rainbow", artPattern: "lattice", borderFoil: true, watermark: false, embossTexture: true },
+    scannerMarker: "Lattice/grid foil artwork with embossed texture",
     falsePositiveNotes: null,
     valueTier: 7,
   },
   {
     rarity: "Gold Rare",
-    zones: { nameplate_foil: "gold", art_pattern: "rainbow", border_state: "gold", icons_foiled: true, watermark: null },
-    scannerMarker: "Gold borders matching name plate foil",
+    foilFeatures: { nameFoil: "gold", artPattern: "foil", borderFoil: true, watermark: false, embossTexture: false },
+    scannerMarker: "Gold name + gold foil border",
     falsePositiveNotes: "Flag if border reflectivity matches name plate gold",
     valueTier: 6,
   },
   {
-    rarity: "Quarter Century Secret Rare",
-    zones: { nameplate_foil: "rainbow", art_pattern: "diagonal_lines", border_state: "standard", icons_foiled: false, watermark: "25th Anniversary" },
-    scannerMarker: "Secret Rare + 25th Anniversary watermark",
+    rarity: "Starlight Rare",
+    foilFeatures: { nameFoil: "rainbow", artPattern: "starlight", borderFoil: true, watermark: false, embossTexture: false },
+    scannerMarker: "Dense star sparkle foil across artwork and background",
+    falsePositiveNotes: "Holo bleed is random; Starlight has structured star sparkle across ALL zones",
+    valueTier: 10,
+  },
+  {
+    rarity: "Ultimate Rare",
+    foilFeatures: { nameFoil: "gold", artPattern: "foil", borderFoil: false, watermark: false, embossTexture: true },
+    scannerMarker: "Embossed foil artwork with raised surfaces",
     falsePositiveNotes: null,
+    valueTier: 8,
+  },
+  {
+    rarity: "Ghost Rare",
+    foilFeatures: { nameFoil: "silver", artPattern: "ghost", borderFoil: false, watermark: false, embossTexture: false },
+    scannerMarker: "Ghost holographic artwork — faded, monochrome, mirror-like shine",
+    falsePositiveNotes: "Ghost Rares are pale/washed out; standard recognition fails. Look for monochrome holographic reflection",
     valueTier: 9,
   },
 ];
@@ -111,42 +110,40 @@ export function getRaritiesByValue(): YgoRarityDefinition[] {
 }
 
 /**
- * Validate detected zone data against the rarity matrix.
+ * Match detected foil features against the rarity matrix.
  * Returns the best-matching rarity and a confidence score.
  */
-export function matchRarityFromZones(zones: Partial<YgoZoneProfile>): {
+export function matchRarityFromFeatures(features: Partial<FoilFeatures>): {
   matchedRarity: string;
   confidence: number;
   falsePositiveWarning: string | null;
 } {
-  let bestMatch: YgoRarityDefinition = YGO_RARITIES[0]; // default Common
+  let bestMatch: YgoRarityDefinition = YGO_RARITIES[0];
   let bestScore = 0;
 
   for (const entry of YGO_RARITIES) {
     let score = 0;
     let total = 0;
 
-    if (zones.nameplate_foil !== undefined) {
+    if (features.nameFoil !== undefined) {
       total++;
-      if (zones.nameplate_foil === entry.zones.nameplate_foil) score++;
+      if (features.nameFoil === entry.foilFeatures.nameFoil) score++;
     }
-    if (zones.art_pattern !== undefined) {
+    if (features.artPattern !== undefined) {
       total++;
-      if (zones.art_pattern === entry.zones.art_pattern) score++;
+      if (features.artPattern === entry.foilFeatures.artPattern) score++;
     }
-    if (zones.border_state !== undefined) {
+    if (features.borderFoil !== undefined) {
       total++;
-      if (zones.border_state === entry.zones.border_state) score++;
+      if (features.borderFoil === entry.foilFeatures.borderFoil) score++;
     }
-    if (zones.icons_foiled !== undefined) {
+    if (features.watermark !== undefined) {
       total++;
-      if (zones.icons_foiled === entry.zones.icons_foiled) score++;
+      if (features.watermark === entry.foilFeatures.watermark) score++;
     }
-    if (zones.watermark !== undefined) {
+    if (features.embossTexture !== undefined) {
       total++;
-      const hasWatermark = !!zones.watermark;
-      const expectsWatermark = !!entry.zones.watermark;
-      if (hasWatermark === expectsWatermark) score++;
+      if (features.embossTexture === entry.foilFeatures.embossTexture) score++;
     }
 
     const pct = total > 0 ? score / total : 0;
@@ -162,3 +159,7 @@ export function matchRarityFromZones(zones: Partial<YgoZoneProfile>): {
     falsePositiveWarning: bestMatch.falsePositiveNotes,
   };
 }
+
+// Backward compatibility alias
+export type YgoZoneProfile = FoilFeatures;
+export const matchRarityFromZones = matchRarityFromFeatures;
