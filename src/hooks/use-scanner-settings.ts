@@ -4,6 +4,8 @@ const SCANNER_SETTINGS_KEY = "card-scanner-settings";
 
 export type ScanMode = "SAVE" | "SCAN_ONLY" | "REMOVE";
 
+export type GpuServerType = "auto" | "mac" | "jetson";
+
 export interface ScannerSettings {
   autoConfirmEnabled: boolean;
   autoConfirmThreshold: number;
@@ -25,6 +27,7 @@ export interface ScannerSettings {
 
   gpuOffloadEnabled: boolean;
   gpuServerBaseUrl: string;
+  gpuServerType: GpuServerType;
   gpuPreferForQueue: boolean;
   gpuPreferForLive: boolean;
   gpuStreamMaxFps: number;
@@ -53,6 +56,7 @@ const DEFAULT_SETTINGS: ScannerSettings = {
 
   gpuOffloadEnabled: false,
   gpuServerBaseUrl: "",
+  gpuServerType: "auto",
   gpuPreferForQueue: true,
   gpuPreferForLive: true,
   gpuStreamMaxFps: 12,

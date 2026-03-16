@@ -1,0 +1,26 @@
+# Core server
+fastapi==0.115.6
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+python-multipart==0.0.12
+
+# Image processing
+numpy==2.0.2
+Pillow==10.4.0
+opencv-python==4.10.0.84
+requests==2.32.3
+
+# OCR - PaddleOCR (GPU-accelerated on Jetson)
+paddlepaddle-gpu>=2.6.0
+paddleocr>=2.7.0
+
+# Pricing
+openpyxl==3.1.5
+rapidfuzz==3.10.1
+
+# mDNS discovery
+zeroconf>=0.131.0
+
+# TensorRT / CUDA (provided by JetPack, not pip-installable)
+# tensorrt
+# pycuda

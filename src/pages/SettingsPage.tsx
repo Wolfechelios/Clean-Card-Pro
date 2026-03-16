@@ -18,7 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { LogOut, Trash2, User, Lock, ImageOff, Clock, RefreshCw, Database, ScanLine, ImageIcon, Wand2, Cpu, Key, Monitor } from "lucide-react";
+import { LogOut, Trash2, User, Lock, ImageOff, Clock, RefreshCw, Database, ScanLine, ImageIcon, Wand2, Cpu, Key, Monitor, Search, Zap } from "lucide-react";
 import { useDisplayScale } from "@/hooks/use-display-scale";
 
 import ServiceImportExport from "@/components/settings/ServiceImportExport";
@@ -61,6 +61,8 @@ export default function Settings() {
   const [unknownCardCount, setUnknownCardCount] = useState(0);
   const [nullRarityCount, setNullRarityCount] = useState(0);
   const [showStressTest, setShowStressTest] = useState(false);
+  const [isDiscovering, setIsDiscovering] = useState(false);
+  const [discoveredServer, setDiscoveredServer] = useState<{ url: string; type: string; gpu?: any } | null>(null);
 
   useEffect(() => {
     loadUserData();
@@ -640,14 +642,14 @@ setNullRarityCount(missingRarity || 0);
             <div className="space-y-4">
               <h3 className="text-sm font-semibold flex items-center gap-2">
                 <Cpu className="h-4 w-4" />
-                Local Accelerator (Mac/PC)
+                Local Accelerator (Mac/PC/Jetson)
               </h3>
 
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label className="text-sm font-medium">Enable Local Accelerator</Label>
                   <p className="text-xs text-muted-foreground">
-                    Offload OCR/identify/pricing to a Mac/PC on your network for faster scanning.
+                    Offload OCR/identify/pricing to a Mac/PC or Jetson Orin on your network.
                   </p>
                 </div>
                 <Switch
@@ -658,16 +660,123 @@ setNullRarityCount(missingRarity || 0);
 
               {scannerSettings.gpuOffloadEnabled && (
                 <div className="space-y-4 pt-2 border-t border-border">
+                  {/* Server type badge */}
+                  {discoveredServer && (
+                    <div className="flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 p-2.5">
+                      <Zap className="h-4 w-4 text-primary" />
+                      <span className="text-sm font-medium">
+                        {discoveredServer.type === "jetson" ? "Jetson Orin" : "Mac/PC"} connected
+                      </span>
+                      {discoveredServer.gpu?.gpu_temp_c && (
+                        <span className="text-xs text-muted-foreground ml-auto">
+                          GPU {discoveredServer.gpu.gpu_temp_c.toFixed(0)}°C
+                        </span>
+                      )}
+                    </div>
+                  )}
+
                   <div className="grid gap-2">
                     <Label className="text-sm font-medium">Server Base URL</Label>
-                    <Input
-                      value={scannerSettings.gpuServerBaseUrl}
-                      onChange={(e) => updateScannerSettings({ gpuServerBaseUrl: e.target.value })}
-                      placeholder="192.168.1.5:8000"
-                    />
+                    <div className="flex gap-2">
+                      <Input
+                        value={scannerSettings.gpuServerBaseUrl}
+                        onChange={(e) => updateScannerSettings({ gpuServerBaseUrl: e.target.value })}
+                        placeholder="192.168.1.5:8000"
+                        className="flex-1"
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={isDiscovering}
+                        onClick={async () => {
+                          setIsDiscovering(true);
+                          setDiscoveredServer(null);
+                          try {
+                            // Subnet sweep: try common local IPs on port 8000
+                            const candidates: string[] = [];
+                            // If URL already set, check it first
+                            if (scannerSettings.gpuServerBaseUrl) {
+                              candidates.push(scannerSettings.gpuServerBaseUrl);
+                            }
+                            // Common local ranges
+                            for (let i = 1; i <= 254; i++) {
+                              candidates.push(`192.168.1.${i}:8000`);
+                              candidates.push(`192.168.0.${i}:8000`);
+                              if (candidates.length > 60) break; // Limit sweep
+                            }
+                            // Try in batches
+                            const check = async (host: string) => {
+                              const url = host.startsWith("http") ? host : `http://${host}`;
+                              try {
+                                const ctrl = new AbortController();
+                                const timer = setTimeout(() => ctrl.abort(), 1500);
+                                const res = await fetch(`${url}/health`, { signal: ctrl.signal });
+                                clearTimeout(timer);
+                                if (res.ok) {
+                                  const data = await res.json();
+                                  const caps = data?.capabilities ?? {};
+                                  return { url: host, type: caps.platform ?? "mac", gpu: data?.gpu };
+                                }
+                              } catch { /* skip */ }
+                              return null;
+                            };
+                            // Check 20 at a time
+                            for (let i = 0; i < candidates.length; i += 20) {
+                              const batch = candidates.slice(i, i + 20);
+                              const results = await Promise.all(batch.map(check));
+                              const found = results.find(r => r !== null);
+                              if (found) {
+                                setDiscoveredServer(found);
+                                updateScannerSettings({
+                                  gpuServerBaseUrl: found.url,
+                                  gpuServerType: found.type === "jetson" ? "jetson" : "mac",
+                                });
+                                // Auto-tune for Jetson
+                                if (found.type === "jetson") {
+                                  updateScannerSettings({
+                                    gpuStreamMaxFps: 24,
+                                    gpuStreamTargetWidth: 1080,
+                                    gpuStreamJpegQuality: 0.75,
+                                  });
+                                }
+                                toast.success(`Found ${found.type === "jetson" ? "Jetson Orin" : "Mac/PC"} server at ${found.url}`);
+                                break;
+                              }
+                            }
+                            if (!discoveredServer) {
+                              toast.error("No servers found on local network");
+                            }
+                          } catch {
+                            toast.error("Discovery failed");
+                          } finally {
+                            setIsDiscovering(false);
+                          }
+                        }}
+                      >
+                        <Search className="h-4 w-4 mr-1" />
+                        {isDiscovering ? "Scanning..." : "Discover"}
+                      </Button>
+                    </div>
                     <p className="text-xs text-muted-foreground">
-                      Example: <span className="font-mono">192.168.1.5:8000</span> or <span className="font-mono">http://192.168.1.5:8000</span>
+                      Click Discover to auto-find servers, or manually enter an IP.
                     </p>
+                  </div>
+
+                  {/* Server type selector */}
+                  <div className="grid gap-2">
+                    <Label className="text-sm font-medium">Server Type</Label>
+                    <div className="flex gap-2">
+                      {(["auto", "mac", "jetson"] as const).map(t => (
+                        <Button
+                          key={t}
+                          variant={scannerSettings.gpuServerType === t ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => updateScannerSettings({ gpuServerType: t })}
+                        >
+                          {t === "auto" ? "Auto-detect" : t === "jetson" ? "Jetson Orin" : "Mac/PC"}
+                        </Button>
+                      ))}
+                    </div>
                   </div>
 
                   <div className="grid md:grid-cols-2 gap-4">
@@ -746,7 +855,7 @@ setNullRarityCount(missingRarity || 0);
                   </div>
 
                   <div className="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground">
-                    Tip: For Android over USB, run <span className="font-mono">adb reverse tcp:8000 tcp:8000</span> and set base URL to <span className="font-mono">127.0.0.1:8000</span>.
+                    Tip: For Jetson Orin, run <span className="font-mono">sudo bash bootstrap.sh</span> to set up the server. It will auto-announce via mDNS.
                   </div>
                 </div>
               )}

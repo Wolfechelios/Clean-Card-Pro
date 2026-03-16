@@ -12,7 +12,8 @@ export type GpuServerCapabilities = {
   ocr: boolean;
   identify: boolean;
   pricing: boolean;
-  platform?: string;
+  platform?: string;        // "local" | "jetson"
+  accelerator?: string;     // "tensorrt" | undefined
   version?: string;
 };
 
