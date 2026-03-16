@@ -116,7 +116,7 @@ Return JSON in this exact format:
 ${ocrText ? `OCR text extracted: ${ocrText}` : ''}
 
 Only include alternatives array if confidence is below 0.95. If completely certain, return empty alternatives array.
-For non-Yu-Gi-Oh cards, omit the rarity_zones object.`;
+For non-Yu-Gi-Oh cards, omit the foilFeatures object.`;
 
     const messages = [
       {
