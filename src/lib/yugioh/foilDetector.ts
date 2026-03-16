@@ -1,10 +1,10 @@
 // src/lib/yugioh/foilDetector.ts
-// Local Yu-Gi-Oh foil rarity detector — runs entirely on CPU via canvas
-// No network calls, no GPU inference, no external dependencies
+// High-accuracy local Yu-Gi-Oh foil rarity detector — CPU only
+// 4-stage pipeline: normalize → segment → extract → classify
+// Target: ~90-95% accuracy, 15-40ms per card
 
 import { loadAndNormalize, segmentCardZones } from "./zoneSegmenter";
 import {
-  analyzeBrightness,
   sparkleDensity,
   detectDiagonalLines,
   detectLatticePattern,
@@ -29,27 +29,34 @@ export interface FoilDetectionResult {
     artLattice: number;
     artGhost: number;
     artEmboss: number;
-    artSparkle: number;
+    artSparkleDensity: number;
+    artSparkleClusterCount: number;
+    artSparkleAvgClusterSize: number;
     borderFoilPresence: number;
     borderMetalColor: MetalColor;
+    /** Individual detector scores used in weighted confidence */
+    patternScore: number;
+    sparkleScore: number;
+    foilScore: number;
+    textureScore: number;
     processingMs: number;
   };
 }
 
-// ─── Thresholds (tunable) ───────────────────────────────
+// ─── Tuned Thresholds ───────────────────────────────────
 
 const T = {
-  foilPresence: 0.25,      // min score to consider a zone "foiled"
-  diagonalStrong: 0.35,    // diagonal line strength for Secret Rare
-  latticeStrong: 0.4,      // lattice pattern strength for Collector's Rare
-  ghostStrong: 0.45,       // ghost pattern strength
-  embossStrong: 0.35,      // emboss texture strength for Ultimate Rare
-  sparkleHigh: 0.008,      // sparkle density for Starlight Rare
-  sparkleMod: 0.003,       // moderate sparkle (Secret Rare range)
-  borderFoil: 0.2,         // border foil presence threshold
+  foilPresence: 0.22,       // min score to consider a zone "foiled"
+  diagonalStrong: 0.30,     // diagonal line strength for Secret Rare
+  latticeStrong: 0.35,      // lattice pattern for Collector's Rare
+  ghostStrong: 0.40,        // ghost pattern
+  embossStrong: 0.30,       // emboss texture for Ultimate Rare
+  sparkleHighDensity: 0.006, // sparkle density for Starlight Rare
+  sparkleHighClusters: 15,   // min cluster count for Starlight
+  borderFoil: 0.18,         // border foil presence
 };
 
-// ─── Rarity Classification ──────────────────────────────
+// ─── Rarity Classification Rules ────────────────────────
 
 interface RarityRule {
   rarity: string;
@@ -62,7 +69,9 @@ const RARITY_RULES: RarityRule[] = [
     match: (f, d) => {
       if (f.artPattern !== "starlight") return 0;
       if (f.nameFoil !== "rainbow") return 0;
-      return 0.7 + (d.artSparkle > T.sparkleHigh ? 0.2 : 0) + (f.borderFoil ? 0.1 : 0);
+      // Dense small sparkle clusters + rainbow name = Starlight
+      const clusterBonus = d.artSparkleAvgClusterSize < 8 ? 0.1 : 0;
+      return 0.72 + (d.artSparkleDensity > T.sparkleHighDensity ? 0.15 : 0) + (f.borderFoil ? 0.08 : 0) + clusterBonus;
     },
   },
   {
@@ -70,7 +79,7 @@ const RARITY_RULES: RarityRule[] = [
     match: (f, d) => {
       if (f.artPattern !== "ghost") return 0;
       if (f.nameFoil !== "silver") return 0;
-      return 0.7 + (d.artGhost > 0.6 ? 0.2 : 0) + (!f.borderFoil ? 0.1 : 0);
+      return 0.72 + (d.artGhost > 0.55 ? 0.18 : 0) + (!f.borderFoil ? 0.08 : 0);
     },
   },
   {
@@ -78,8 +87,8 @@ const RARITY_RULES: RarityRule[] = [
     match: (f) => {
       if (f.artPattern !== "secretDiagonal") return 0;
       if (f.nameFoil !== "rainbow") return 0;
-      // Would need watermark detection — give moderate confidence without it
-      return 0.65 + (f.borderFoil ? 0.1 : 0);
+      // Watermark detection is OCR-based; pixel analysis gives moderate confidence
+      return 0.68 + (f.borderFoil ? 0.08 : 0);
     },
   },
   {
@@ -87,14 +96,15 @@ const RARITY_RULES: RarityRule[] = [
     match: (f, d) => {
       if (!f.embossTexture) return 0;
       if (f.nameFoil !== "gold") return 0;
-      return 0.65 + (d.artEmboss > 0.5 ? 0.2 : 0) + (!f.borderFoil ? 0.1 : 0.05);
+      const embossBonus = d.artEmboss > 0.5 ? 0.15 : 0;
+      return 0.68 + embossBonus + (!f.borderFoil ? 0.08 : 0.04);
     },
   },
   {
     rarity: "Collector's Rare",
     match: (f, d) => {
       if (f.artPattern !== "lattice") return 0;
-      return 0.6 + (f.nameFoil === "rainbow" ? 0.15 : 0) + (f.embossTexture ? 0.15 : 0) + (f.borderFoil ? 0.1 : 0);
+      return 0.62 + (f.nameFoil === "rainbow" ? 0.12 : 0) + (f.embossTexture ? 0.12 : 0) + (f.borderFoil ? 0.08 : 0);
     },
   },
   {
@@ -103,22 +113,23 @@ const RARITY_RULES: RarityRule[] = [
       if (f.nameFoil !== "gold") return 0;
       if (!f.borderFoil) return 0;
       if (d.borderMetalColor !== "gold") return 0;
-      return 0.7 + (d.artFoilPresence > T.foilPresence ? 0.15 : 0);
+      return 0.72 + (d.artFoilPresence > T.foilPresence ? 0.12 : 0);
     },
   },
   {
     rarity: "Secret Rare",
     match: (f, d) => {
       if (f.artPattern !== "secretDiagonal") return 0;
-      return 0.65 + (f.borderFoil ? 0.1 : 0) + (d.artDiagonal > 0.5 ? 0.15 : 0);
+      return 0.67 + (f.borderFoil ? 0.08 : 0) + (d.artDiagonal > 0.5 ? 0.12 : 0) + (d.patternScore > 0.6 ? 0.08 : 0);
     },
   },
   {
     rarity: "Ultra Rare",
-    match: (f) => {
+    match: (f, d) => {
       if (f.nameFoil !== "silver" && f.nameFoil !== "gold") return 0;
       if (!f.borderFoil) return 0;
-      return 0.6 + (f.nameFoil === "gold" ? 0.1 : 0);
+      if (d.artFoilPresence < T.foilPresence) return 0; // needs foil art too
+      return 0.65 + (f.nameFoil === "gold" ? 0.08 : 0) + (d.foilScore > 0.4 ? 0.08 : 0);
     },
   },
   {
@@ -126,16 +137,16 @@ const RARITY_RULES: RarityRule[] = [
     match: (f, d) => {
       if (f.nameFoil !== "none") return 0;
       if (d.artFoilPresence < T.foilPresence) return 0;
-      return 0.6 + Math.min(0.3, d.artFoilPresence);
+      return 0.62 + Math.min(0.28, d.artFoilPresence * 0.5);
     },
   },
   {
     rarity: "Rare",
     match: (f, d) => {
       if (f.nameFoil !== "silver") return 0;
-      if (d.artFoilPresence > T.foilPresence) return 0; // has art foil → higher rarity
+      if (d.artFoilPresence > T.foilPresence) return 0;
       if (f.borderFoil) return 0;
-      return 0.7 + (d.nameFoilConfidence > 0.6 ? 0.2 : 0);
+      return 0.75 + (d.nameFoilConfidence > 0.6 ? 0.15 : 0);
     },
   },
   {
@@ -144,32 +155,61 @@ const RARITY_RULES: RarityRule[] = [
       if (f.nameFoil !== "none") return 0;
       if (d.artFoilPresence > T.foilPresence) return 0;
       if (f.borderFoil) return 0;
-      return 0.85;
+      return 0.88;
     },
   },
 ];
+
+// ─── Weighted Confidence Scoring ────────────────────────
+
+/**
+ * Compute final confidence using weighted combination of detector scores.
+ * Formula: 0.4 * patternScore + 0.3 * sparkleScore + 0.2 * foilScore + 0.1 * textureScore
+ */
+function computeWeightedConfidence(
+  patternScore: number,
+  sparkleScore: number,
+  foilScore: number,
+  textureScore: number,
+  ruleConfidence: number
+): number {
+  const weighted =
+    0.4 * patternScore +
+    0.3 * sparkleScore +
+    0.2 * foilScore +
+    0.1 * textureScore;
+
+  // Blend rule-based confidence with weighted detector confidence
+  // Rule confidence provides the base, weighted score provides refinement
+  return Math.min(1, ruleConfidence * 0.7 + weighted * 0.3);
+}
 
 // ─── Main Pipeline ──────────────────────────────────────
 
 /**
  * Detect Yu-Gi-Oh card rarity from foil characteristics.
- * Runs entirely locally using canvas pixel analysis.
  *
- * @param source - Image source (HTMLImageElement, ImageBitmap, Blob, or data URL string)
- * @returns Rarity classification with foil features and confidence
+ * Pipeline:
+ * 1. Load + normalize lighting (CLAHE + glare reduction)
+ * 2. Segment into zones (nameplate, artwork, border, lower)
+ * 3. Extract foil features per zone
+ * 4. Classify rarity via rule-based matching + weighted confidence
+ *
+ * @param source - HTMLImageElement, ImageBitmap, Blob, or data URL string
+ * @returns Rarity classification with foil features, confidence, and debug data
  */
 export async function detectFoilRarity(
   source: HTMLImageElement | ImageBitmap | Blob | string
 ): Promise<FoilDetectionResult> {
   const t0 = performance.now();
 
-  // 1. Load and normalize image (max 400px wide for speed)
+  // Stage 1: Load + normalize lighting (CLAHE + glare reduction happens in loadAndNormalize)
   const { imageData, width, height } = await loadAndNormalize(source, 400);
 
-  // 2. Segment into zones
+  // Stage 2: Segment into zones
   const zones = segmentCardZones(imageData, width, height);
 
-  // 3. Extract foil features per zone (run all in parallel conceptually, but sync for speed)
+  // Stage 3: Extract foil features per zone
 
   // Name plate analysis
   const nameMetalResult = classifyMetalColor(zones.nameplate);
@@ -181,22 +221,25 @@ export async function detectFoilRarity(
   const artLattice = detectLatticePattern(zones.artwork);
   const artGhost = detectGhostPattern(zones.artwork);
   const artEmboss = detectEmbossTexture(zones.artwork);
-  const artSparkle = sparkleDensity(zones.artwork, 230);
+  const artSparkleResult = sparkleDensity(zones.artwork, 230);
 
   // Border analysis
   const borderFoilPresence = detectFoilPresence(zones.border);
   const borderMetalResult = classifyMetalColor(zones.border);
 
-  // 4. Classify art pattern
+  // Stage 4: Classify art pattern
   let artPattern: FoilFeatures["artPattern"] = "none";
   const artScores = [
     { pattern: "secretDiagonal" as const, score: artDiagonal, threshold: T.diagonalStrong },
-    { pattern: "starlight" as const, score: artSparkle > T.sparkleHigh ? 0.6 : 0, threshold: 0.3 },
+    {
+      pattern: "starlight" as const,
+      score: (artSparkleResult.density > T.sparkleHighDensity && artSparkleResult.clusterCount > T.sparkleHighClusters) ? 0.65 : 0,
+      threshold: 0.3,
+    },
     { pattern: "lattice" as const, score: artLattice, threshold: T.latticeStrong },
     { pattern: "ghost" as const, score: artGhost, threshold: T.ghostStrong },
   ];
 
-  // Pick the strongest pattern above its threshold
   let bestPatternScore = 0;
   for (const { pattern, score, threshold } of artScores) {
     if (score > threshold && score > bestPatternScore) {
@@ -205,22 +248,27 @@ export async function detectFoilRarity(
     }
   }
 
-  // If no specific pattern but foil is present → general "foil"
   if (artPattern === "none" && artFoilPresence > T.foilPresence) {
     artPattern = "foil";
   }
 
-  // 5. Build foil features
+  // Build foil features
   const borderFoil = borderFoilPresence > T.borderFoil;
   const embossTexture = artEmboss > T.embossStrong;
+
+  // Compute individual detector scores for weighted confidence
+  const patternScore = Math.max(artDiagonal, artLattice, artGhost, bestPatternScore);
+  const sparkleScore = Math.min(1, artSparkleResult.density * 100);
+  const foilScore = artFoilPresence;
+  const textureScore = artEmboss;
 
   const foilFeatures: FoilFeatures & { sparkleDensity: number } = {
     nameFoil,
     artPattern,
     borderFoil,
-    watermark: false, // Watermark detection would require OCR — not in scope for pixel analysis
+    watermark: false,
     embossTexture,
-    sparkleDensity: Math.round(artSparkle * 10000) / 10000,
+    sparkleDensity: Math.round(artSparkleResult.density * 10000) / 10000,
   };
 
   const processingMs = performance.now() - t0;
@@ -233,27 +281,38 @@ export async function detectFoilRarity(
     artLattice,
     artGhost,
     artEmboss,
-    artSparkle,
+    artSparkleDensity: artSparkleResult.density,
+    artSparkleClusterCount: artSparkleResult.clusterCount,
+    artSparkleAvgClusterSize: artSparkleResult.avgClusterSize,
     borderFoilPresence,
     borderMetalColor: borderMetalResult.color,
+    patternScore,
+    sparkleScore,
+    foilScore,
+    textureScore,
     processingMs: Math.round(processingMs * 100) / 100,
   };
 
-  // 6. Classify rarity using rule-based matching
+  // Rule-based rarity matching
   let bestRarity = "Common";
-  let bestConfidence = 0;
+  let bestRuleConfidence = 0;
 
   for (const rule of RARITY_RULES) {
     const score = rule.match(foilFeatures, debug);
-    if (score > bestConfidence) {
-      bestConfidence = score;
+    if (score > bestRuleConfidence) {
+      bestRuleConfidence = score;
       bestRarity = rule.rarity;
     }
   }
 
+  // Weighted confidence blending
+  const finalConfidence = computeWeightedConfidence(
+    patternScore, sparkleScore, foilScore, textureScore, bestRuleConfidence
+  );
+
   return {
     rarity: bestRarity,
-    confidence: Math.round(bestConfidence * 100) / 100,
+    confidence: Math.round(finalConfidence * 100) / 100,
     foilFeatures,
     debug,
   };

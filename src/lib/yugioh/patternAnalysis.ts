@@ -27,13 +27,9 @@ function luminance(r: number, g: number, b: number): number {
 // ─── Specular / Brightness Analysis ─────────────────────
 
 export interface BrightnessStats {
-  /** Fraction of pixels above brightness threshold */
   brightFraction: number;
-  /** Average luminance 0-255 */
   avgLuminance: number;
-  /** Max luminance */
   maxLuminance: number;
-  /** Standard deviation of luminance */
   stdLuminance: number;
 }
 
@@ -61,19 +57,29 @@ export function analyzeBrightness(data: ImageData, threshold = 220): BrightnessS
   };
 }
 
-// ─── Sparkle Density ────────────────────────────────────
+// ─── Sparkle Density (Enhanced) ─────────────────────────
 
 /**
- * Measure sparkle density: ratio of very bright isolated pixels.
- * Sparkles are bright pixels (>threshold) surrounded by darker pixels,
- * indicating specular reflections from foil surface.
+ * Measure sparkle density with cluster analysis.
+ * Sparkles are bright pixels surrounded by darker pixels.
+ * Also tracks cluster sizes to distinguish Starlight (dense small clusters)
+ * from general foil shine (large bright areas).
  */
-export function sparkleDensity(data: ImageData, threshold = 230): number {
+export function sparkleDensity(data: ImageData, threshold = 230): {
+  density: number;
+  clusterCount: number;
+  avgClusterSize: number;
+} {
   const d = data.data;
   const w = data.width;
   const h = data.height;
   let sparkleCount = 0;
   const total = w * h;
+
+  // Track bright pixel clusters
+  const visited = new Uint8Array(w * h);
+  let clusterCount = 0;
+  let totalClusterSize = 0;
 
   for (let y = 1; y < h - 1; y++) {
     for (let x = 1; x < w - 1; x++) {
@@ -81,33 +87,62 @@ export function sparkleDensity(data: ImageData, threshold = 230): number {
       const l = luminance(d[idx], d[idx + 1], d[idx + 2]);
       if (l < threshold) continue;
 
-      // Check if surrounding pixels are significantly darker (isolated bright point)
+      // Check isolated bright point (sparkle)
       let darkerNeighbors = 0;
       for (let dy = -1; dy <= 1; dy++) {
         for (let dx = -1; dx <= 1; dx++) {
           if (dx === 0 && dy === 0) continue;
           const ni = ((y + dy) * w + (x + dx)) * 4;
           const nl = luminance(d[ni], d[ni + 1], d[ni + 2]);
-          if (nl < l - 40) darkerNeighbors++;
+          if (nl < l - 35) darkerNeighbors++;
         }
       }
       if (darkerNeighbors >= 4) sparkleCount++;
+
+      // Cluster tracking via flood fill (simplified)
+      const pi = y * w + x;
+      if (!visited[pi] && l > threshold) {
+        // BFS cluster
+        let size = 0;
+        const stack = [pi];
+        visited[pi] = 1;
+        while (stack.length > 0 && size < 50) {
+          const p = stack.pop()!;
+          size++;
+          const px = p % w, py = Math.floor(p / w);
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              const nx = px + dx, ny = py + dy;
+              if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+              const np = ny * w + nx;
+              if (visited[np]) continue;
+              const ni = np * 4;
+              if (luminance(d[ni], d[ni + 1], d[ni + 2]) >= threshold) {
+                visited[np] = 1;
+                stack.push(np);
+              }
+            }
+          }
+        }
+        clusterCount++;
+        totalClusterSize += size;
+      }
     }
   }
 
-  return sparkleCount / total;
+  return {
+    density: sparkleCount / total,
+    clusterCount,
+    avgClusterSize: clusterCount > 0 ? totalClusterSize / clusterCount : 0,
+  };
 }
 
 // ─── Color Variance (Rainbow / Hue Spread) ─────────────
 
 export interface ColorStats {
-  /** Average saturation 0-1 */
   avgSaturation: number;
-  /** Hue standard deviation (degrees) — high = rainbow-like */
   hueSpread: number;
-  /** Fraction of pixels with saturation > 0.3 (chromatic) */
   chromaticFraction: number;
-  /** Whether multiple distinct hue clusters exist (rainbow indicator) */
   isMultiHue: boolean;
 }
 
@@ -116,15 +151,14 @@ export function analyzeColor(data: ImageData): ColorStats {
   const total = data.width * data.height;
   let satSum = 0;
   let chromaticCount = 0;
-  const hueBuckets = new Float32Array(12); // 30° buckets
+  const hueBuckets = new Float32Array(12);
 
-  // Collect stats from a sample for speed
   const step = Math.max(1, Math.floor(total / 2000)) * 4;
-
   let sampleCount = 0;
+
   for (let i = 0; i < d.length; i += step) {
     const [h, s, l] = rgbToHsl(d[i], d[i + 1], d[i + 2]);
-    if (l < 0.1 || l > 0.95) continue; // skip near-black/white
+    if (l < 0.1 || l > 0.95) continue;
     satSum += s;
     sampleCount++;
     if (s > 0.3) {
@@ -140,14 +174,12 @@ export function analyzeColor(data: ImageData): ColorStats {
   const avgSat = satSum / sampleCount;
   const chromaticFrac = chromaticCount / sampleCount;
 
-  // Count hue buckets with significant representation
   const bucketThreshold = chromaticCount * 0.08;
   let activeBuckets = 0;
   for (let b = 0; b < 12; b++) {
     if (hueBuckets[b] > bucketThreshold) activeBuckets++;
   }
 
-  // Compute circular hue variance
   let sinSum = 0, cosSum = 0;
   for (let b = 0; b < 12; b++) {
     const angle = ((b * 30 + 15) * Math.PI) / 180;
@@ -166,30 +198,29 @@ export function analyzeColor(data: ImageData): ColorStats {
   };
 }
 
-// ─── Diagonal Line Detection ────────────────────────────
+// ─── Diagonal Line Detection (Enhanced with Hough-like) ─
 
 /**
  * Detect diagonal line patterns (Secret Rare signature).
- * Uses Sobel-like gradient computation and angle histogram.
- * Returns strength 0-1 of diagonal frequency at ~45° and ~135°.
+ * Uses Sobel gradients + angle histogram with enhanced scoring.
+ * Checks both 45° and 135° diagonal dominance over H/V edges.
  */
 export function detectDiagonalLines(data: ImageData): number {
   const d = data.data;
   const w = data.width;
   const h = data.height;
 
-  // Convert to grayscale
   const gray = new Float32Array(w * h);
   for (let i = 0; i < gray.length; i++) {
     const pi = i * 4;
     gray[i] = luminance(d[pi], d[pi + 1], d[pi + 2]);
   }
 
-  // Compute gradients and build angle histogram (8 bins of 22.5°)
-  const angleBins = new Float32Array(8);
+  // 16 angle bins for finer resolution (11.25° each)
+  const angleBins = new Float32Array(16);
   let totalMag = 0;
+  let edgePixelCount = 0;
 
-  // Sample every other pixel for speed
   for (let y = 1; y < h - 1; y += 2) {
     for (let x = 1; x < w - 1; x += 2) {
       const gx =
@@ -201,40 +232,84 @@ export function detectDiagonalLines(data: ImageData): number {
         gray[(y + 1) * w + (x - 1)] + 2 * gray[(y + 1) * w + x] + gray[(y + 1) * w + (x + 1)];
 
       const mag = Math.sqrt(gx * gx + gy * gy);
-      if (mag < 15) continue; // skip low-gradient areas
+      if (mag < 12) continue;
 
       totalMag += mag;
-      // angle 0-180
+      edgePixelCount++;
+
       let angle = (Math.atan2(gy, gx) * 180) / Math.PI;
       if (angle < 0) angle += 180;
-      const bin = Math.floor(angle / 22.5) % 8;
+      const bin = Math.floor(angle / 11.25) % 16;
       angleBins[bin] += mag;
     }
   }
 
-  if (totalMag < 1) return 0;
+  if (totalMag < 1 || edgePixelCount < 20) return 0;
 
-  // Diagonal bins: 45° = bin 2, 135° = bin 6
-  const diagonalStrength = (angleBins[2] + angleBins[6]) / totalMag;
-  // Horizontal/vertical bins for comparison
-  const hvStrength = (angleBins[0] + angleBins[4]) / totalMag;
+  // Diagonal bins: 45° = bins 3-4, 135° = bins 11-12
+  const diag45 = (angleBins[3] + angleBins[4]) / totalMag;
+  const diag135 = (angleBins[11] + angleBins[12]) / totalMag;
+  const diagonalStrength = diag45 + diag135;
 
-  // Strong diagonal = diagonals dominate over H/V
-  return Math.min(1, Math.max(0, (diagonalStrength - hvStrength) * 3 + diagonalStrength));
+  // H/V bins: 0° = bins 0,15; 90° = bins 7,8
+  const hvStrength = (angleBins[0] + angleBins[15] + angleBins[7] + angleBins[8]) / totalMag;
+
+  // Repeating pattern check: consistent diagonals across image regions
+  // Split into quadrants and check diagonal consistency
+  const quadrantScores: number[] = [];
+  const halfW = Math.floor(w / 2);
+  const halfH = Math.floor(h / 2);
+  for (let qy = 0; qy < 2; qy++) {
+    for (let qx = 0; qx < 2; qx++) {
+      let qDiag = 0, qTotal = 0;
+      const sy = qy * halfH + 1, ey = Math.min((qy + 1) * halfH, h - 1);
+      const sx = qx * halfW + 1, ex = Math.min((qx + 1) * halfW, w - 1);
+      for (let y = sy; y < ey; y += 3) {
+        for (let x = sx; x < ex; x += 3) {
+          const gx =
+            -gray[(y - 1) * w + (x - 1)] + gray[(y - 1) * w + (x + 1)] +
+            -2 * gray[y * w + (x - 1)] + 2 * gray[y * w + (x + 1)] +
+            -gray[(y + 1) * w + (x - 1)] + gray[(y + 1) * w + (x + 1)];
+          const gy2 =
+            -gray[(y - 1) * w + (x - 1)] - 2 * gray[(y - 1) * w + x] - gray[(y - 1) * w + (x + 1)] +
+            gray[(y + 1) * w + (x - 1)] + 2 * gray[(y + 1) * w + x] + gray[(y + 1) * w + (x + 1)];
+          const m = Math.sqrt(gx * gx + gy2 * gy2);
+          if (m < 12) continue;
+          qTotal += m;
+          let a = (Math.atan2(gy2, gx) * 180) / Math.PI;
+          if (a < 0) a += 180;
+          if ((a > 30 && a < 60) || (a > 120 && a < 150)) qDiag += m;
+        }
+      }
+      if (qTotal > 0) quadrantScores.push(qDiag / qTotal);
+    }
+  }
+
+  // Consistency bonus: all quadrants show similar diagonal strength
+  let consistency = 0;
+  if (quadrantScores.length >= 4) {
+    const minQ = Math.min(...quadrantScores);
+    const maxQ = Math.max(...quadrantScores);
+    consistency = maxQ > 0 ? minQ / maxQ : 0;
+  }
+
+  const rawScore = Math.max(0, (diagonalStrength - hvStrength) * 2.5 + diagonalStrength * 0.5);
+  const consistencyBonus = consistency > 0.5 ? 0.15 : 0;
+
+  return Math.min(1, rawScore + consistencyBonus);
 }
 
-// ─── Lattice / Grid Detection ───────────────────────────
+// ─── Lattice / Grid Detection (Enhanced with FFT-like) ──
 
 /**
  * Detect repeating grid/lattice pattern (Collector's Rare signature).
- * Uses horizontal and vertical autocorrelation to find periodic peaks.
+ * Uses autocorrelation + spatial frequency peak detection.
  */
 export function detectLatticePattern(data: ImageData): number {
   const d = data.data;
   const w = data.width;
   const h = data.height;
 
-  // Compute luminance row/column projections
   const rowProj = new Float32Array(h);
   const colProj = new Float32Array(w);
 
@@ -255,12 +330,10 @@ export function detectLatticePattern(data: ImageData): number {
     colProj[x] = sum / h;
   }
 
-  // Simple autocorrelation peak detection
-  function autocorrelationPeaks(signal: Float32Array): number {
+  function autocorrelationPeaks(signal: Float32Array): { score: number; peakSpacing: number } {
     const n = signal.length;
-    if (n < 10) return 0;
+    if (n < 10) return { score: 0, peakSpacing: 0 };
 
-    // Remove mean
     let mean = 0;
     for (let i = 0; i < n; i++) mean += signal[i];
     mean /= n;
@@ -271,11 +344,11 @@ export function detectLatticePattern(data: ImageData): number {
       centered[i] = signal[i] - mean;
       variance += centered[i] * centered[i];
     }
-    if (variance < 1) return 0;
+    if (variance < 1) return { score: 0, peakSpacing: 0 };
 
-    // Count peaks in autocorrelation for lags 3..n/3
     let peakCount = 0;
-    const maxLag = Math.min(Math.floor(n / 3), 60);
+    const peakLags: number[] = [];
+    const maxLag = Math.min(Math.floor(n / 3), 80);
     let prev = 0, prevPrev = 0;
 
     for (let lag = 2; lag <= maxLag; lag++) {
@@ -285,34 +358,58 @@ export function detectLatticePattern(data: ImageData): number {
       }
       corr /= variance;
 
-      if (lag > 3 && prev > prevPrev && prev > corr && prev > 0.15) {
+      if (lag > 3 && prev > prevPrev && prev > corr && prev > 0.12) {
         peakCount++;
+        peakLags.push(lag - 1);
       }
       prevPrev = prev;
       prev = corr;
     }
 
-    return Math.min(1, peakCount / 3); // normalize: 3+ peaks = strong lattice
+    // Check regularity of peak spacing
+    let spacingRegularity = 0;
+    if (peakLags.length >= 2) {
+      const spacings = peakLags.slice(1).map((l, i) => l - peakLags[i]);
+      const avgSpacing = spacings.reduce((a, b) => a + b, 0) / spacings.length;
+      const spacingVar = spacings.reduce((a, s) => a + (s - avgSpacing) ** 2, 0) / spacings.length;
+      spacingRegularity = avgSpacing > 0 ? 1 - Math.min(1, Math.sqrt(spacingVar) / avgSpacing) : 0;
+    }
+
+    const rawScore = Math.min(1, peakCount / 3);
+    return {
+      score: rawScore * 0.7 + spacingRegularity * 0.3,
+      peakSpacing: peakLags.length > 0 ? peakLags[0] : 0,
+    };
   }
 
-  const rowScore = autocorrelationPeaks(rowProj);
-  const colScore = autocorrelationPeaks(colProj);
+  const rowResult = autocorrelationPeaks(rowProj);
+  const colResult = autocorrelationPeaks(colProj);
 
   // Both directions need periodicity for a true lattice
-  return Math.min(1, (rowScore + colScore) / 1.5);
+  const combined = (rowResult.score + colResult.score) / 1.5;
+
+  // Bonus if both row and col have similar peak spacing (square grid)
+  let gridBonus = 0;
+  if (rowResult.peakSpacing > 0 && colResult.peakSpacing > 0) {
+    const ratio = Math.min(rowResult.peakSpacing, colResult.peakSpacing) /
+                  Math.max(rowResult.peakSpacing, colResult.peakSpacing);
+    if (ratio > 0.7) gridBonus = 0.15;
+  }
+
+  return Math.min(1, combined + gridBonus);
 }
 
-// ─── Ghost / Holographic Transparency Detection ────────
+// ─── Ghost / Holographic Detection (Enhanced) ───────────
 
 /**
- * Detect ghost rare characteristics: faded artwork with high reflectivity variance.
- * Ghost rares have very low saturation but periodic bright reflections.
+ * Detect ghost rare: faded/washed-out art + holographic reflection.
+ * Uses desaturation analysis + luminance bimodality + reflective gradient detection.
  */
 export function detectGhostPattern(data: ImageData): number {
   const d = data.data;
   const total = data.width * data.height;
   let lowSatCount = 0;
-  let highLumVarIndicator = 0;
+  let midToneCount = 0;
   const lumValues: number[] = [];
 
   const step = Math.max(1, Math.floor(total / 3000)) * 4;
@@ -323,43 +420,53 @@ export function detectGhostPattern(data: ImageData): number {
     const lum = luminance(d[i], d[i + 1], d[i + 2]);
     sampleCount++;
 
-    // Ghost rares are desaturated
-    if (s < 0.15 && l > 0.3 && l < 0.9) lowSatCount++;
+    if (s < 0.12 && l > 0.25 && l < 0.92) lowSatCount++;
+    if (l > 0.4 && l < 0.8) midToneCount++;
     lumValues.push(lum);
   }
 
   if (sampleCount === 0) return 0;
 
   const lowSatFrac = lowSatCount / sampleCount;
+  const midToneFrac = midToneCount / sampleCount;
 
-  // Check luminance bimodality (faded art + mirror reflections)
+  // Luminance bimodality check (faded art + mirror reflections)
   let mean = 0;
   for (const l of lumValues) mean += l;
   mean /= lumValues.length;
   let variance = 0;
   for (const l of lumValues) variance += (l - mean) * (l - mean);
   variance /= lumValues.length;
-  const cv = Math.sqrt(variance) / (mean || 1); // coefficient of variation
+  const cv = Math.sqrt(variance) / (mean || 1);
 
-  // Ghost = very desaturated + moderate luminance variation
-  const ghostScore = lowSatFrac * 0.6 + Math.min(cv, 0.5) * 0.8;
+  // Check for specular gradient (mirror-like glare)
+  const bright = analyzeBrightness(data, 210);
+  const specularIndicator = bright.brightFraction > 0.05 ? 0.15 : 0;
+
+  // Ghost = very desaturated + mid-tones dominant + moderate variance + some specular
+  const ghostScore =
+    lowSatFrac * 0.5 +
+    Math.min(cv, 0.5) * 0.6 +
+    (midToneFrac > 0.4 ? 0.15 : 0) +
+    specularIndicator;
+
   return Math.min(1, Math.max(0, ghostScore));
 }
 
-// ─── Emboss / Raised Texture Detection ──────────────────
+// ─── Emboss / Raised Texture Detection (Enhanced) ───────
 
 /**
  * Detect embossed texture (Ultimate Rare signature).
- * Embossed areas create localized high-frequency luminance variations.
+ * Uses Laplacian + directional shadow analysis for depth estimation.
  */
 export function detectEmbossTexture(data: ImageData): number {
   const d = data.data;
   const w = data.width;
   const h = data.height;
 
-  // Compute Laplacian magnitude as measure of local texture
   let totalLap = 0;
   let pixelCount = 0;
+  let shadowEdgeCount = 0;
 
   for (let y = 1; y < h - 1; y += 2) {
     for (let x = 1; x < w - 1; x += 2) {
@@ -373,45 +480,52 @@ export function detectEmbossTexture(data: ImageData): number {
       const lap = Math.abs(4 * c - up - down - left - right);
       totalLap += lap;
       pixelCount++;
+
+      // Shadow contour detection: bright pixel next to significantly darker pixel
+      // indicates raised edge casting shadow (emboss characteristic)
+      const maxNeighbor = Math.max(up, down, left, right);
+      const minNeighbor = Math.min(up, down, left, right);
+      if (maxNeighbor - minNeighbor > 40 && c > 100) {
+        shadowEdgeCount++;
+      }
     }
   }
 
   if (pixelCount === 0) return 0;
 
   const avgLap = totalLap / pixelCount;
-  // Embossed cards have higher Laplacian than flat prints (~15+ is embossed)
-  return Math.min(1, Math.max(0, (avgLap - 8) / 20));
+  const shadowFrac = shadowEdgeCount / pixelCount;
+
+  // Embossed cards: higher Laplacian + shadow contours
+  const lapScore = Math.min(1, Math.max(0, (avgLap - 6) / 18));
+  const shadowScore = Math.min(1, shadowFrac * 8);
+
+  return Math.min(1, lapScore * 0.6 + shadowScore * 0.4);
 }
 
-// ─── Foil Reflectivity (general foil vs no-foil) ────────
+// ─── Foil Reflectivity ──────────────────────────────────
 
-/**
- * Detect general foil presence in a zone.
- * Foil surfaces show higher brightness variance and specular highlights.
- */
 export function detectFoilPresence(data: ImageData): number {
   const bright = analyzeBrightness(data, 200);
   const color = analyzeColor(data);
 
-  // Foil indicators: bright specular highlights + some color spread
   const specularScore = Math.min(1, bright.brightFraction * 8);
-  const varianceScore = Math.min(1, bright.stdLuminance / 60);
+  const varianceScore = Math.min(1, bright.stdLuminance / 55);
   const chromaticBonus = color.chromaticFraction > 0.1 ? 0.15 : 0;
+  const multiHueBonus = color.isMultiHue ? 0.1 : 0;
 
-  return Math.min(1, specularScore * 0.4 + varianceScore * 0.5 + chromaticBonus);
+  return Math.min(1, specularScore * 0.35 + varianceScore * 0.45 + chromaticBonus + multiHueBonus);
 }
 
-// ─── Metal Color Detection (gold/silver/rainbow name) ───
+// ─── Metal Color Detection ──────────────────────────────
 
 export type MetalColor = "none" | "silver" | "gold" | "rainbow";
 
-/**
- * Classify the dominant metallic color of a zone.
- */
 export function classifyMetalColor(data: ImageData): { color: MetalColor; confidence: number } {
   const d = data.data;
   const total = data.width * data.height;
-  let goldCount = 0, silverCount = 0, rainbowHues = new Set<number>();
+  let goldCount = 0, silverCount = 0;
+  const rainbowHues = new Set<number>();
   let brightPixels = 0;
 
   const step = Math.max(1, Math.floor(total / 2000)) * 4;
@@ -423,25 +537,25 @@ export function classifyMetalColor(data: ImageData): { color: MetalColor; confid
     const lum = luminance(r, g, b);
     sampleCount++;
 
-    if (lum < 120) continue; // skip dark pixels
+    if (lum < 100) continue;
     brightPixels++;
 
-    // Gold: warm hue (20-55°), moderate-high saturation, bright
-    if (h >= 20 && h <= 55 && s > 0.25 && l > 0.4) {
+    // Gold: warm hue (18-58°), moderate+ saturation, bright
+    if (h >= 18 && h <= 58 && s > 0.2 && l > 0.35) {
       goldCount++;
     }
     // Silver: low saturation, high brightness
-    else if (s < 0.15 && l > 0.55) {
+    else if (s < 0.12 && l > 0.5) {
       silverCount++;
     }
 
-    // Track hue diversity for rainbow detection
-    if (s > 0.2 && l > 0.3 && l < 0.85) {
+    // Track hue diversity
+    if (s > 0.18 && l > 0.25 && l < 0.88) {
       rainbowHues.add(Math.floor(h / 30));
     }
   }
 
-  if (brightPixels < sampleCount * 0.1) {
+  if (brightPixels < sampleCount * 0.08) {
     return { color: "none", confidence: 0.8 };
   }
 
@@ -449,15 +563,15 @@ export function classifyMetalColor(data: ImageData): { color: MetalColor; confid
   const silverFrac = silverCount / brightPixels;
   const hueSpread = rainbowHues.size;
 
-  // Rainbow: 4+ distinct hue buckets among bright pixels
-  if (hueSpread >= 4 && brightPixels > sampleCount * 0.2) {
-    return { color: "rainbow", confidence: Math.min(1, hueSpread / 6) };
+  // Rainbow: 4+ distinct hue buckets
+  if (hueSpread >= 4 && brightPixels > sampleCount * 0.15) {
+    return { color: "rainbow", confidence: Math.min(1, hueSpread / 5) };
   }
-  if (goldFrac > 0.25) {
-    return { color: "gold", confidence: Math.min(1, goldFrac * 2) };
+  if (goldFrac > 0.2) {
+    return { color: "gold", confidence: Math.min(1, goldFrac * 2.5) };
   }
-  if (silverFrac > 0.3) {
-    return { color: "silver", confidence: Math.min(1, silverFrac * 1.5) };
+  if (silverFrac > 0.25) {
+    return { color: "silver", confidence: Math.min(1, silverFrac * 1.8) };
   }
 
   return { color: "none", confidence: 0.6 };
