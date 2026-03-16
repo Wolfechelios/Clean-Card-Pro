@@ -44,3 +44,14 @@ export function getGpuStreamPrefs(): { maxFps: number; jpegQuality: number; targ
     targetWidth: Number.isFinite(targetWidth) ? Math.max(320, Math.min(1280, targetWidth)) : 720,
   };
 }
+
+/** Return optimal stream prefs for a Jetson server (higher FPS/res). */
+export function getJetsonStreamPrefs(): { maxFps: number; jpegQuality: number; targetWidth: number } {
+  return { maxFps: 24, jpegQuality: 0.75, targetWidth: 1080 };
+}
+
+/** Get server type from settings. */
+export function getGpuServerType(): string {
+  const s = getScannerSettings() as any;
+  return String(s.gpuServerType ?? "auto");
+}

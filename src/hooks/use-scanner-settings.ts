@@ -56,6 +56,7 @@ const DEFAULT_SETTINGS: ScannerSettings = {
 
   gpuOffloadEnabled: false,
   gpuServerBaseUrl: "",
+  gpuServerType: "auto",
   gpuPreferForQueue: true,
   gpuPreferForLive: true,
   gpuStreamMaxFps: 12,
