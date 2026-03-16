@@ -80,7 +80,7 @@ serve(async (req) => {
   "team": "team name if sports card, else null",
   "manufacturer": "card manufacturer (Topps/Panini/Konami/WOTC/Pokemon Company/Upper Deck etc) or null",
   "confidence": 0.0-1.0,
-  "rarity_zones": { "only for Yu-Gi-Oh — see below" }
+  "foilFeatures": { "only for Yu-Gi-Oh — see foil rarity protocol below" }
 }
 
 CRITICAL NAME RULES:
