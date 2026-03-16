@@ -38,21 +38,9 @@ def load_image_from_data_url(data_url: str) -> LoadedImage:
     return LoadedImage(img, mime)
 
 
-def load_image_from_bytes(raw: bytes, mime: str = "image/jpeg") -> LoadedImage:
-    """Load an image from raw file bytes (e.g. multipart upload)."""
-    img = Image.open(io.BytesIO(raw)).convert("RGB")
-    return LoadedImage(img, mime)
-
-
-def load_image(
-    image_url: Optional[str] = None,
-    image_data_url: Optional[str] = None,
-    image_bytes: Optional[bytes] = None,
-) -> LoadedImage:
-    if image_bytes:
-        return load_image_from_bytes(image_bytes)
+def load_image(image_url: Optional[str] = None, image_data_url: Optional[str] = None) -> LoadedImage:
     if image_data_url:
         return load_image_from_data_url(image_data_url)
     if image_url:
         return load_image_from_url(image_url)
-    raise ValueError("imageUrl, imageDataUrl, or image_bytes required")
+    raise ValueError("imageUrl or imageDataUrl required")

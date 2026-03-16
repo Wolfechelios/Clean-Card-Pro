@@ -47,7 +47,7 @@ import {
   type QueueItemMeta,
 } from "@/lib/idbQueue";
 import { compressImageForQueue } from "@/lib/imageCompressor";
-import { applyFastAutofocus, applyAutoColorBalance, applyAntiGlare, compensateForStackHeight } from "@/lib/camera-optimizations";
+import { applyFastAutofocus, applyAutoColorBalance, applyAntiGlare } from "@/lib/camera-optimizations";
 import { DEFAULT_TUNING, nextAutoCaptureState, rgbaToGray, meanAbsDiff, type AutoCaptureState } from "@/lib/visionAutoCapture";
 import { useQueueProcessor } from "@/lib/queueProcessor";
 import { getRecentScans, clearAllRecentScans, removeRecentScan, updateRecentScan } from "@/lib/recentScans";
@@ -142,21 +142,6 @@ export default function RapidScanCamera() {
     refreshDevices,
   } = useCameraDevices();
 
-  // Extra safety filter for Rapid Scan: never show explicitly front-facing options.
-  const rearOnlyCameraDevices = useMemo(
-    () =>
-      cameraDevices.filter(
-        (device) => !/(^|\W)(front|facetime|selfie|user)(\W|$)/i.test(device.label)
-      ),
-    [cameraDevices]
-  );
-
-  useEffect(() => {
-    if (!rearOnlyCameraDevices.length) return;
-    if (!selectedDeviceId || rearOnlyCameraDevices.some((d) => d.deviceId === selectedDeviceId)) return;
-    setSelectedDeviceId(rearOnlyCameraDevices[0].deviceId);
-  }, [rearOnlyCameraDevices, selectedDeviceId, setSelectedDeviceId]);
-
   // Camera
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -172,11 +157,6 @@ export default function RapidScanCamera() {
   const autoCapturePrevGrayRef = useRef<Uint8Array | null>(null);
   const autoCaptureLastSampleAtRef = useRef<number>(0);
   const startingCameraRef = useRef(false);
-
-  // Stack Focus Assist state
-  const stackCaptureCountRef = useRef(0);
-  const stackCompensatingRef = useRef(false);
-  const lastStackCompensationRef = useRef(0);
 
   const [cameraOn, setCameraOn] = useState(false);
   const [support, setSupport] = useState<MediaSupport>({ torch: false, focus: false, zoom: false });
@@ -592,7 +572,6 @@ export default function RapidScanCamera() {
       setStatusLine("Camera live — tap Capture for each card");
       
       useGlobalProcessControl.getState().setScannerActive(true);
-      stackCaptureCountRef.current = 0;
 
       detectZoomCapabilities();
       clarityZoom.reset();
@@ -634,49 +613,7 @@ export default function RapidScanCamera() {
     }
   }
 
-  // ───────────────────────────────────────────────────────────────────────────
-  // STACK FOCUS ASSIST
-  // ───────────────────────────────────────────────────────────────────────────
-
-  const runStackCompensation = useCallback(async () => {
-    // Guards: don't run if already compensating, camera restarting, or too soon
-    if (stackCompensatingRef.current) return;
-    if (startingCameraRef.current) return;
-    if (busyCapture) return;
-
-    const now = Date.now();
-    const cooldownMs = (settings.stackFocusPulseMs || 120) * 4;
-    if (now - lastStackCompensationRef.current < cooldownMs) return;
-
-    stackCompensatingRef.current = true;
-    lastStackCompensationRef.current = now;
-    setStatusLine("Stack focus assist: refocusing…");
-
-    try {
-      const strategy = await compensateForStackHeight(
-        trackRef.current,
-        {
-          backoutCards: settings.stackFocusBackoutCards || 3,
-          pulseMs: settings.stackFocusPulseMs || 120,
-          zoomFallbackStep: settings.stackFocusZoomFallbackStep || 0.10,
-        },
-        zoomCapabilities.supported
-          ? { zoomLevel, zoomMin: zoomCapabilities.min, setZoom }
-          : undefined,
-        (video) => clarityZoom.analyzeAndAdjustZoom(video).then(() => {}),
-        videoRef.current,
-      );
-      console.log(`[StackFocusAssist] Completed via ${strategy}`);
-      setStatusLine(`Stack adjusted (${strategy}) — keep scanning`);
-    } catch (e) {
-      console.warn("[StackFocusAssist] Error:", e);
-      setStatusLine("Camera live — tap Capture for each card");
-    } finally {
-      stackCompensatingRef.current = false;
-    }
-  }, [busyCapture, settings, zoomCapabilities, zoomLevel, setZoom, clarityZoom]);
-
-
+  // Cleanup: stop camera & timers on unmount
   useEffect(() => {
     return () => {
       try {
@@ -841,13 +778,15 @@ export default function RapidScanCamera() {
       setStatusLine("Captured — processing in background");
       setOverlay({ label: "Captured…" });
 
-      // Stack Focus Assist — periodic compensation replaces per-shot zoom-out
-      if (settings.stackFocusAssistEnabled) {
-        stackCaptureCountRef.current += 1;
-        if (stackCaptureCountRef.current >= (settings.stackFocusEveryCards || 8)) {
-          stackCaptureCountRef.current = 0;
-          runStackCompensation();
+      // Progressive zoom-out after each snap to keep card in frame
+      try {
+        if (zoomCapabilities.supported && typeof zoomLevel === "number") {
+          const minZ = zoomCapabilities.min ?? 1;
+          const nextZ = Math.max(minZ, zoomLevel - 0.035);
+          if (nextZ !== zoomLevel) setZoom(nextZ);
         }
+      } catch {
+        // ignore zoom errors
       }
 
       requestRefreshMeta();
@@ -936,13 +875,15 @@ export default function RapidScanCamera() {
       setStatusLine("Captured — processing in background");
       setOverlay({ label: "Captured…" });
 
-      // Stack Focus Assist — periodic compensation replaces per-shot zoom-out
-      if (settings.stackFocusAssistEnabled) {
-        stackCaptureCountRef.current += 1;
-        if (stackCaptureCountRef.current >= (settings.stackFocusEveryCards || 8)) {
-          stackCaptureCountRef.current = 0;
-          runStackCompensation();
+      // Progressive zoom-out after each snap to keep card in frame
+      try {
+        if (zoomCapabilities.supported && typeof zoomLevel === "number") {
+          const minZ = zoomCapabilities.min ?? 1;
+          const nextZ = Math.max(minZ, zoomLevel - 0.035);
+          if (nextZ !== zoomLevel) setZoom(nextZ);
         }
+      } catch {
+        // ignore zoom errors
       }
 
       requestRefreshMeta();
@@ -1294,6 +1235,7 @@ export default function RapidScanCamera() {
                 className="rounded-none border-0 px-3 sm:px-4 h-11 sm:h-10"
                 onClick={() => {
                   updateSettings({ scanMode: "SAVE" });
+                  toast.info("Save Mode — cards added to collection");
                 }}
               >
                 <Save className="h-5 w-5 sm:h-4 sm:w-4 sm:mr-1.5" />
@@ -1305,6 +1247,7 @@ export default function RapidScanCamera() {
                 className="rounded-none border-0 border-x px-3 sm:px-4 h-11 sm:h-10"
                 onClick={() => {
                   updateSettings({ scanMode: "SCAN_ONLY" });
+                  toast.info("Scan & Price — preview only");
                 }}
               >
                 <Eye className="h-5 w-5 sm:h-4 sm:w-4 sm:mr-1.5" />
@@ -1316,6 +1259,7 @@ export default function RapidScanCamera() {
                 className="rounded-none border-0 px-3 sm:px-4 h-11 sm:h-10"
                 onClick={() => {
                   updateSettings({ scanMode: "REMOVE" });
+                  toast.info("Remove Mode — scan to delete cards");
                 }}
               >
                 <Trash2 className="h-5 w-5 sm:h-4 sm:w-4 sm:mr-1.5" />
@@ -1478,11 +1422,11 @@ export default function RapidScanCamera() {
 
               <div className="space-y-4">
                 {/* Camera/Optic selector */}
-                {!isNative && rearOnlyCameraDevices.length > 1 && (
+                {!isNative && cameraDevices.length > 1 && (
                   <div className="space-y-2">
                     <label className="text-sm text-muted-foreground">Select Camera/Lens</label>
                     <CameraDeviceSelector
-                      devices={rearOnlyCameraDevices}
+                      devices={cameraDevices}
                       selectedDeviceId={selectedDeviceId}
                       onDeviceChange={async (deviceId) => {
                         setSelectedDeviceId(deviceId);
@@ -1607,22 +1551,6 @@ export default function RapidScanCamera() {
                   </div>
                 )}
 
-                {/* Zoom/stack assist toggle */}
-                {!isNative && (
-                  <Button
-                    variant={settings.stackFocusAssistEnabled ? "secondary" : "outline"}
-                    size="default"
-                    onClick={() => {
-                      const next = !settings.stackFocusAssistEnabled;
-                      updateSettings({ stackFocusAssistEnabled: next });
-                      toast.info(`Stack focus assist ${next ? "enabled" : "disabled"}`);
-                    }}
-                    className="w-full h-12 text-base"
-                  >
-                    Stack Focus Assist: {settings.stackFocusAssistEnabled ? "On" : "Off"}
-                  </Button>
-                )}
-
                 {/* Zoom reset button */}
                 {!isNative && cameraOn && zoomLevel > 1 && (
                   <Button
@@ -1667,7 +1595,6 @@ export default function RapidScanCamera() {
                 Queued: {queueMeta.filter((q) => q.status === "queued").length} • Processing: {queueMeta.filter((q) => q.status === "processing").length}
               </div>
             </div>
-
           </div>
         </div>
       </Card>

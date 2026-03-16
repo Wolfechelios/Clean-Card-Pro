@@ -30,20 +30,6 @@ export interface ScannerSettings {
   gpuStreamMaxFps: number;
   gpuStreamTargetWidth: number;
   gpuStreamJpegQuality: number;
-
-  stackFocusAssistEnabled: boolean;
-  stackFocusEveryCards: number;
-  stackFocusBackoutCards: number;
-  stackFocusPulseMs: number;
-  stackFocusZoomFallbackStep: number;
-
-  visionProvider: "local" | "jetson";
-  orinEnabled: boolean;
-  orinServerUrl: string;
-  orinEndpoint: string;
-  orinTimeoutMs: number;
-  orinPreferForQueue: boolean;
-  orinPreferForLive: boolean;
 }
 
 const DEFAULT_SETTINGS: ScannerSettings = {
@@ -72,20 +58,6 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   gpuStreamMaxFps: 12,
   gpuStreamTargetWidth: 720,
   gpuStreamJpegQuality: 0.65,
-
-  stackFocusAssistEnabled: true,
-  stackFocusEveryCards: 8,
-  stackFocusBackoutCards: 3,
-  stackFocusPulseMs: 120,
-  stackFocusZoomFallbackStep: 0.10,
-
-  visionProvider: "local",
-  orinEnabled: false,
-  orinServerUrl: "192.168.1.37",
-  orinEndpoint: "/infer",
-  orinTimeoutMs: 15000,
-  orinPreferForQueue: true,
-  orinPreferForLive: true,
 };
 
 export function useScannerSettings() {

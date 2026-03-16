@@ -10,7 +10,7 @@ export type BatchJob = {
   preview?: string
   status: "pending" | "processing" | "completed" | "error"
   error?: string
-  source?: "local" | "cloud" | "gpu" | "orin" // Track which inference engine was used
+  source?: "local" | "cloud" | "gpu" // Track which inference engine was used
 }
 
 export function useBatchScanner() {
@@ -58,7 +58,7 @@ export function useBatchScanner() {
     setRunning(false)
   }
 
-  async function scanOne(job: BatchJob): Promise<{ source: "local" | "cloud" | "gpu" | "orin" }> {
+  async function scanOne(job: BatchJob): Promise<{ source: "local" | "cloud" | "gpu" }> {
     const path = `cards/${job.id}.jpg`
 
     await withRetry(() =>

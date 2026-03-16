@@ -189,11 +189,10 @@ export const applyFastAutofocus = async (stream: MediaStream, enableMacro: boole
       console.log(`Contrast set to: ${midHigh}`);
     }
 
-    // 7. Saturation — keep neutral to avoid color casts on some devices
+    // 7. Saturation — slight boost for vivid card art
     if (capabilities?.saturation) {
       const maxSat = capabilities.saturation.max ?? 100;
-      const minSat = capabilities.saturation.min ?? 0;
-      const target = Math.round((maxSat + minSat) / 2); // 50% — neutral default
+      const target = Math.round(maxSat * 0.6); // 60% — natural but vivid
       advancedBatch.push({ saturation: target });
     }
 
@@ -220,10 +219,23 @@ export const applyFastAutofocus = async (stream: MediaStream, enableMacro: boole
       }
     }
 
-    // 9. Color temperature — let continuous auto WB handle it
-    // Manual 5500K override removed: it fights the camera's own AWB on many
-    // devices (e.g. Red Magic 10 Pro) and introduces persistent color casts.
-    // Continuous WB (step 3) adapts to ambient lighting automatically.
+    // 9. Color temperature — try manual 5500K for neutral card colors
+    if (capabilities?.colorTemperature && capabilities?.whiteBalanceMode?.includes('manual')) {
+      const min = capabilities.colorTemperature.min || 2500;
+      const max = capabilities.colorTemperature.max || 10000;
+      const target = Math.min(Math.max(5500, min), max);
+      try {
+        await track.applyConstraints({
+          advanced: [
+            { whiteBalanceMode: 'manual' } as any,
+            { colorTemperature: target } as any,
+          ]
+        });
+        console.log(`Color temperature: ${target}K`);
+      } catch {
+        console.log('Manual color temp unavailable, using continuous WB');
+      }
+    }
 
   } catch (e) {
     console.log('Autofocus optimization not fully available:', e);
@@ -441,9 +453,6 @@ export const captureMaxQualityPhoto = async (
     if (applyAntiGlareFilter) {
       applyAntiGlare(ctx, canvas, 0.25);
     }
-
-    // Apply auto color balance to neutralize remaining color casts
-    applyAutoColorBalance(ctx, canvas, 0.4);
     
     // Enhance for OCR
     if (enhanceOCR) {
@@ -504,133 +513,3 @@ export const getMaxQualityStream = async (
 
   return stream;
 };
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Stack Focus Assist — compensate for growing card pile height
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface StackCompensationOptions {
-  /** How many card-thicknesses to "back away" */
-  backoutCards: number;
-  /** Dwell time in ms after adjustment before re-focusing */
-  pulseMs: number;
-  /** Zoom fallback step when focusDistance is unavailable */
-  zoomFallbackStep: number;
-}
-
-/**
- * Approximate focus-distance delta per card thickness.
- * A standard trading card is ~0.3 mm; at macro distances the focusDistance
- * unit is typically millimetres or a vendor-defined unit.  We use 0.3 as a
- * reasonable per-card increment — hardware will clamp to its own range.
- */
-const FOCUS_DISTANCE_PER_CARD = 0.3;
-
-/**
- * Compensate camera focus / zoom for a growing stack of scanned cards.
- *
- * Strategy priority:
- * 1. Manual focusDistance adjustment (if hardware exposes it)
- * 2. Hardware zoom-out pulse (if zoom supported)
- * 3. Center autofocus pulse only (fallback)
- *
- * Returns which strategy was used.
- */
-export async function compensateForStackHeight(
-  track: MediaStreamTrack | null,
-  opts: StackCompensationOptions,
-  zoomState?: {
-    zoomLevel: number;
-    zoomMin: number;
-    setZoom: (level: number) => Promise<boolean> | boolean;
-  },
-  clarityFallback?: (video: HTMLVideoElement) => Promise<any>,
-  videoEl?: HTMLVideoElement | null,
-): Promise<"focusDistance" | "zoom" | "autofocus" | "none"> {
-  if (!track) return "none";
-
-  const caps: any = track.getCapabilities?.() ?? {};
-  const { backoutCards, pulseMs, zoomFallbackStep } = opts;
-
-  // ── Strategy 1: focusDistance adjustment ──────────────────────────────────
-  const hasFocusDistance =
-    caps.focusDistance &&
-    typeof caps.focusDistance.min === "number" &&
-    typeof caps.focusDistance.max === "number";
-  const hasManualFocus = Array.isArray(caps.focusMode) && caps.focusMode.includes("manual");
-
-  if (hasFocusDistance && hasManualFocus) {
-    try {
-      const currentSettings: any = track.getSettings?.() ?? {};
-      const currentDist = currentSettings.focusDistance ?? caps.focusDistance.min;
-      const delta = backoutCards * FOCUS_DISTANCE_PER_CARD;
-      const newDist = Math.min(caps.focusDistance.max, currentDist + delta);
-
-      // Switch to manual, nudge distance outward
-      await track.applyConstraints({ advanced: [{ focusMode: "manual" } as any] });
-      await track.applyConstraints({ advanced: [{ focusDistance: newDist } as any] });
-
-      await new Promise((r) => setTimeout(r, pulseMs));
-
-      // Single-shot refocus then back to continuous
-      if (caps.focusMode?.includes("single-shot")) {
-        await track.applyConstraints({ advanced: [{ focusMode: "single-shot" } as any] });
-        await new Promise((r) => setTimeout(r, pulseMs));
-      }
-      if (caps.focusMode?.includes("continuous")) {
-        await track.applyConstraints({ advanced: [{ focusMode: "continuous" } as any] });
-      }
-
-      console.log(`[StackFocus] focusDistance ${currentDist.toFixed(2)} → ${newDist.toFixed(2)}`);
-      return "focusDistance";
-    } catch (e) {
-      console.warn("[StackFocus] focusDistance failed, trying zoom fallback:", e);
-    }
-  }
-
-  // ── Strategy 2: zoom-out pulse ────────────────────────────────────────────
-  if (zoomState && caps.zoom) {
-    try {
-      const newZoom = Math.max(zoomState.zoomMin, zoomState.zoomLevel - zoomFallbackStep);
-      if (newZoom !== zoomState.zoomLevel) {
-        await zoomState.setZoom(newZoom);
-      }
-      await new Promise((r) => setTimeout(r, pulseMs));
-
-      // Trigger focus pulse
-      if (caps.focusMode?.includes("single-shot")) {
-        await track.applyConstraints({ advanced: [{ focusMode: "single-shot" } as any] });
-        await new Promise((r) => setTimeout(r, 200));
-      }
-      if (caps.focusMode?.includes("continuous")) {
-        await track.applyConstraints({ advanced: [{ focusMode: "continuous" } as any] });
-      }
-
-      console.log(`[StackFocus] zoom ${zoomState.zoomLevel.toFixed(2)} → ${newZoom.toFixed(2)}`);
-      return "zoom";
-    } catch (e) {
-      console.warn("[StackFocus] zoom fallback failed:", e);
-    }
-  }
-
-  // ── Strategy 3: autofocus pulse only ──────────────────────────────────────
-  try {
-    if (caps.focusMode?.includes("single-shot")) {
-      await track.applyConstraints({ advanced: [{ focusMode: "single-shot" } as any] });
-      await new Promise((r) => setTimeout(r, 300));
-    }
-    if (caps.focusMode?.includes("continuous")) {
-      await track.applyConstraints({ advanced: [{ focusMode: "continuous" } as any] });
-    }
-
-    // Run clarity-based zoom as additional fallback
-    if (clarityFallback && videoEl) {
-      await clarityFallback(videoEl);
-    }
-
-    console.log("[StackFocus] autofocus pulse (fallback)");
-    return "autofocus";
-  } catch {
-    return "none";
-  }
-}

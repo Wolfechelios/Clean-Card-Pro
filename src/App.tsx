@@ -10,6 +10,7 @@ import AppLayout from "./components/layout/AppLayout";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { checkAndResumeQueue } from "@/lib/queueProcessor";
+import { QueueStatusIndicator } from "@/components/scanner/QueueStatusIndicator";
 import { SplashScreen } from "@/components/SplashScreen";
 import { OfflineIndicator } from "@/components/OfflineIndicator";
 import { PWAOnboarding } from "@/components/pwa/PWAOnboarding";
@@ -143,7 +144,7 @@ const App = () => {
               <AuthProvider>
                 <PWAWrapper>
                   <AppRoutes />
-                  
+                  <QueueStatusIndicator />
                   <OfflineIndicator />
                 </PWAWrapper>
               </AuthProvider>

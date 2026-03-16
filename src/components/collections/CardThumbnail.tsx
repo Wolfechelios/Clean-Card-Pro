@@ -225,10 +225,7 @@ export function CardThumbnail({
           {cardNumber ? `#${cardNumber}` : cardName.slice(0, 20)}
         </p>
         {price !== null && price > 0 && (
-          <p className={cn(
-            "text-[10px] font-semibold mt-0.5",
-            price >= 30 ? "text-red-500" : price >= 10 ? "text-blue-500" : "text-primary"
-          )}>
+          <p className="text-[10px] font-semibold text-primary mt-0.5">
             ${price.toFixed(2)}
           </p>
         )}

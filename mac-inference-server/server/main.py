@@ -4,17 +4,25 @@ import asyncio
 import time
 from typing import Any, Dict, Optional
 
-from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+<<<<<<< HEAD
+from pipeline.image_io import load_image
+from pipeline.card_detect import detect_card_region, crop_region
+from pipeline.ocr_backends import ocr_image
+from pipeline.parse_fields import parse_from_ocr
+from pipeline.pricing import lookup_price
+=======
 from server.pipeline.image_io import load_image
 from server.pipeline.card_detect import detect_card_region, crop_region
 from server.pipeline.ocr_backends import ocr_image
 from server.pipeline.parse_fields import parse_from_ocr
 from server.pipeline.pricing import lookup_price
+>>>>>>> test-
 
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.1.0"
 
 app = FastAPI(title="MintConditionMarket Local Accelerator", version=APP_VERSION)
 
@@ -42,17 +50,12 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
-def run_pipeline(
-    image_url: Optional[str] = None,
-    image_data_url: Optional[str] = None,
-    want_pricing: bool = True,
-    image_bytes: Optional[bytes] = None,
-) -> Dict[str, Any]:
+def run_pipeline(image_url: Optional[str] = None, image_data_url: Optional[str] = None, want_pricing: bool = True) -> Dict[str, Any]:
     t0 = time.perf_counter()
 
     stages: Dict[str, float] = {}
 
-    li = load_image(image_url=image_url, image_data_url=image_data_url, image_bytes=image_bytes)
+    li = load_image(image_url=image_url, image_data_url=image_data_url)
     stages["load_ms"] = (time.perf_counter() - t0) * 1000
 
     t1 = time.perf_counter()
@@ -114,8 +117,6 @@ def run_pipeline(
     }
 
 
-# ─── Endpoints ────────────────────────────────────────────────
-
 @app.get("/health")
 def health():
     return {
@@ -127,7 +128,6 @@ def health():
             "ocr": True,
             "identify": True,
             "pricing": True,
-            "scan": True,
             "platform": "local",
             "version": APP_VERSION,
         },
@@ -172,58 +172,6 @@ def identify_endpoint(req: IdentifyRequest):
         }
 
 
-@app.post("/scan")
-async def scan_endpoint(file: UploadFile = File(...)):
-    """
-    Multipart file upload endpoint for the Orin / hardware scanner integration.
-    Accepts a single image file as 'file', runs the full pipeline, and returns
-    flat card data (matches the IdentifiedCardData shape the frontend expects).
-    """
-    try:
-        raw = await file.read()
-        result = run_pipeline(image_bytes=raw, want_pricing=True)
-
-        card = result.get("cardData") or {}
-        pricing = result.get("pricing") or {}
-
-        # Return flat card data — the frontend orinScanner.ts maps these fields directly
-        return {
-            "success": True,
-            "card_name": card.get("card_name", "Unknown Card"),
-            "card_set": card.get("card_set"),
-            "card_number": card.get("card_number"),
-            "rarity": card.get("rarity"),
-            "edition": card.get("edition"),
-            "game_type": card.get("game_type"),
-            "sport_type": card.get("sport_type"),
-            "year": card.get("year"),
-            "manufacturer": card.get("manufacturer"),
-            "confidence": card.get("confidence", 0),
-            "description": card.get("description", ""),
-            "pricing": pricing,
-            "ocrText": result.get("ocrText", ""),
-            "metrics": result.get("metrics"),
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "card_name": "Unknown Card",
-            "card_set": None,
-            "card_number": None,
-            "rarity": None,
-            "edition": None,
-            "game_type": None,
-            "sport_type": None,
-            "year": None,
-            "manufacturer": None,
-            "confidence": 0,
-            "description": "",
-            "error": str(e),
-        }
-
-
-# ─── WebSocket streaming ─────────────────────────────────────
-
 @app.websocket("/ws/stream")
 async def ws_stream(ws: WebSocket):
     await ws.accept()
@@ -253,7 +201,6 @@ async def ws_stream(ws: WebSocket):
                             "ocr": True,
                             "identify": True,
                             "pricing": True,
-                            "scan": True,
                             "platform": "local",
                             "version": APP_VERSION,
                         },

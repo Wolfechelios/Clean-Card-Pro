@@ -59,106 +59,41 @@ function classifyLens(label: string, index: number, totalRear: number): { lensTy
   return { lensType: "standard", lensLabel: "Standard" };
 }
 
-type FacingModeGuess = "user" | "environment" | "unknown";
-
-function getFacingFromLabel(label: string): FacingModeGuess {
+function isRearCamera(label: string): boolean {
   const l = label.toLowerCase();
+  // Exclude front-facing
   if (l.includes("front") || l.includes("facetime") || l.includes("selfie") || l.includes("user")) {
-    return "user";
+    return false;
   }
-  if (l.includes("back") || l.includes("rear") || l.includes("environment") || l.includes("world")) {
-    return "environment";
+  // Explicitly rear
+  if (l.includes("back") || l.includes("rear") || l.includes("environment")) {
+    return true;
   }
-  return "unknown";
-}
-
-interface ProbeResult {
-  facing: FacingModeGuess;
-  maxResolution: number; // width * height from capabilities
-}
-
-async function probeDeviceFacingMode(deviceId: string): Promise<ProbeResult> {
-  let stream: MediaStream | null = null;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        deviceId: { exact: deviceId },
-        width: { ideal: 320 },
-        height: { ideal: 240 },
-      },
-      audio: false,
-    });
-
-    const track = stream.getVideoTracks()[0];
-    const settingsFacing = track?.getSettings?.().facingMode;
-
-    // Get max resolution from capabilities for heuristic use
-    const capabilities = (track as any)?.getCapabilities?.();
-    const maxWidth = capabilities?.width?.max ?? 0;
-    const maxHeight = capabilities?.height?.max ?? 0;
-    const maxResolution = maxWidth * maxHeight;
-
-    if (settingsFacing === "user" || settingsFacing === "environment") {
-      return { facing: settingsFacing, maxResolution };
-    }
-
-    const capFacingModes = Array.isArray(capabilities?.facingMode)
-      ? capabilities.facingMode
-      : [];
-
-    const hasEnvironment = capFacingModes.includes("environment");
-    const hasUser = capFacingModes.includes("user");
-
-    if (hasEnvironment && hasUser) return { facing: "unknown", maxResolution };
-    if (hasUser) return { facing: "user", maxResolution };
-    if (hasEnvironment) return { facing: "environment", maxResolution };
-
-    return { facing: "unknown", maxResolution };
-  } catch {
-    return { facing: "unknown", maxResolution: 0 };
-  } finally {
-    stream?.getTracks().forEach((track) => track.stop());
-  }
-}
-
-function isRearCamera(label: string, facingMode: FacingModeGuess = "unknown"): boolean {
-  if (facingMode === "environment") return true;
-  if (facingMode === "user") return false;
-  return getFacingFromLabel(label) === "environment";
+  // Default to rear if not identifiable as front
+  return true;
 }
 
 function isUSBDevice(label: string): boolean {
   const l = label.toLowerCase();
-
-  // Never classify explicitly front/back mobile lenses as USB cameras.
-  if (
-    l.includes("front") ||
-    l.includes("back") ||
-    l.includes("rear") ||
-    l.includes("facetime") ||
-    l.includes("selfie") ||
-    l.includes("user")
-  ) {
-    return false;
-  }
-
   return (
     l.includes("usb") ||
+    l.includes("phone") ||
+    l.includes("android") ||
+    l.includes("iphone") ||
     l.includes("webcam") ||
     l.includes("droidcam") ||
     l.includes("iriun") ||
     l.includes("camo") ||
     l.includes("epoccam") ||
-    l.includes("continuity camera") ||
-    (!l.includes("integrated") && !l.includes("camera"))
+    (!l.includes("front") &&
+      !l.includes("back") &&
+      !l.includes("facetime") &&
+      !l.includes("integrated") &&
+      !l.includes("camera"))
   );
 }
 
-interface UseCameraDevicesOptions {
-  allowUnknownAsRear?: boolean;
-}
-
-export const useCameraDevices = ({ allowUnknownAsRear }: UseCameraDevicesOptions = {}) => {
+export const useCameraDevices = () => {
   const [devices, setDevices] = useState<CameraDevice[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
@@ -178,50 +113,18 @@ export const useCameraDevices = ({ allowUnknownAsRear }: UseCameraDevicesOptions
       const allDevices = await navigator.mediaDevices.enumerateDevices();
       const videoInputs = allDevices.filter(device => device.kind === "videoinput");
 
-      const shouldAllowUnknownAsRear = allowUnknownAsRear !== false || videoInputs.length === 1;
-
-      // Probe each device to reliably remove front-facing cameras on multi-lens phones.
-      const probeResults = await Promise.all(
-        videoInputs.map(async (device) => {
-          const label = device.label || `Camera ${device.deviceId.slice(0, 8)}`;
-          const fromLabel = getFacingFromLabel(label);
-          if (fromLabel !== "unknown") return { facing: fromLabel, maxResolution: 0 } as ProbeResult;
-          return probeDeviceFacingMode(device.deviceId);
-        })
-      );
-
-      // Resolution-based heuristic: if ALL probed cameras are "unknown" facing,
-      // use resolution to discriminate front vs rear. Front cameras are typically
-      // much lower resolution than rear cameras (e.g. 5MP vs 50MP).
-      const unknownDevices = probeResults.filter(p => p.facing === "unknown" && p.maxResolution > 0);
-      if (unknownDevices.length >= 2) {
-        const maxRes = Math.max(...unknownDevices.map(p => p.maxResolution));
-        const FRONT_CAMERA_THRESHOLD = 0.35; // front cam is usually <35% of rear max resolution
-        for (const probe of probeResults) {
-          if (probe.facing === "unknown" && probe.maxResolution > 0) {
-            if (probe.maxResolution < maxRes * FRONT_CAMERA_THRESHOLD) {
-              probe.facing = "user"; // classify low-res unknown as front camera
-            }
-          }
-        }
-      }
-
       // Separate rear cameras for positional classification
       const rearIndices: number[] = [];
       videoInputs.forEach((d, i) => {
         const label = d.label || `Camera ${d.deviceId.slice(0, 8)}`;
-        const usb = isUSBDevice(label);
-        const facing = probeResults[i]?.facing ?? "unknown";
-        const rear = isRearCamera(label, facing) || (facing === "unknown" && shouldAllowUnknownAsRear);
-        if (rear && !usb) rearIndices.push(i);
+        if (isRearCamera(label)) rearIndices.push(i);
       });
 
       let rearCounter = 0;
       const videoDevices: CameraDevice[] = videoInputs.map((device, i) => {
         const label = device.label || `Camera ${device.deviceId.slice(0, 8)}`;
         const usb = isUSBDevice(label);
-        const facing = probeResults[i]?.facing ?? "unknown";
-        const rear = isRearCamera(label, facing) || (facing === "unknown" && shouldAllowUnknownAsRear);
+        const rear = isRearCamera(label);
 
         let lensType: LensType = "unknown";
         let lensLabel = label;
@@ -235,7 +138,6 @@ export const useCameraDevices = ({ allowUnknownAsRear }: UseCameraDevicesOptions
           lensLabel = classification.lensLabel;
           rearCounter++;
         }
-
         // Skip front cameras entirely
         if (!rear && !usb) {
           return null;
@@ -264,7 +166,7 @@ export const useCameraDevices = ({ allowUnknownAsRear }: UseCameraDevicesOptions
     } finally {
       setIsLoading(false);
     }
-  }, [allowUnknownAsRear]);
+  }, []);
 
   useEffect(() => {
     refreshDevices();
