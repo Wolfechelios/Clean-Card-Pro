@@ -146,6 +146,7 @@ const Scanner = ({ userId }: ScannerProps) => {
         <TabsContent value="upload">
           {pendingCard ? (
             <CardIdentificationEditor
+              userId={userId}
               primaryCard={pendingCard.identifiedCard}
               alternatives={pendingCard.alternatives}
               imageUrl={preview || undefined}
@@ -188,6 +189,7 @@ const Scanner = ({ userId }: ScannerProps) => {
         <TabsContent value="camera">
           {pendingCard ? (
             <CardIdentificationEditor
+              userId={userId}
               primaryCard={pendingCard.identifiedCard}
               alternatives={pendingCard.alternatives}
               imageUrl={preview || undefined}
@@ -220,6 +222,7 @@ const Scanner = ({ userId }: ScannerProps) => {
         <TabsContent value="usb">
           {pendingCard ? (
             <CardIdentificationEditor
+              userId={userId}
               primaryCard={pendingCard.identifiedCard}
               alternatives={pendingCard.alternatives}
               imageUrl={preview || undefined}
@@ -246,6 +249,7 @@ const Scanner = ({ userId }: ScannerProps) => {
         <TabsContent value="remote">
           {pendingCard ? (
             <CardIdentificationEditor
+              userId={userId}
               primaryCard={pendingCard.identifiedCard}
               alternatives={pendingCard.alternatives}
               imageUrl={preview || undefined}
