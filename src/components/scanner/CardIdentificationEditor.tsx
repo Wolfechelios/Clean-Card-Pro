@@ -59,6 +59,7 @@ export function CardIdentificationEditor({
   ownedCount = 0,
   isInLibrary = false,
   currentPriceRaw = null,
+  userId,
   onConfirm,
   onSelectAlternative,
   onCancel,
@@ -66,6 +67,24 @@ export function CardIdentificationEditor({
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(primaryCard.card_name);
   const [editedSet, setEditedSet] = useState(primaryCard.card_set || "");
+
+  // Foil Trainer evaluation
+  const foilEvaluation = useMemo(() => {
+    const foilResult = evaluateFoilScanResult(
+      primaryCard.rarity,
+      null, // finish not yet on CardData
+      primaryCard.game_type,
+      undefined, // foilDetectorConfidence
+    );
+    const triggerLevel = shouldShowFoilTrainer({
+      rarity: primaryCard.rarity,
+      finish: null,
+      gameType: primaryCard.game_type,
+      foilConfidence: foilResult.foilConfidence,
+      confidence: primaryCard.confidence,
+    });
+    return { foilResult, triggerLevel };
+  }, [primaryCard.rarity, primaryCard.game_type, primaryCard.confidence]);
 
   const handleConfirm = () => {
     onConfirm({
