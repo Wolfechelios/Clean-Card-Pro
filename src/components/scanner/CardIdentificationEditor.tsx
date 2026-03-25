@@ -44,6 +44,7 @@ interface CardIdentificationEditorProps {
   ownedCount?: number;
   isInLibrary?: boolean;
   currentPriceRaw?: number | null;
+  userId?: string;
 
   onConfirm: (editedCard: CardData) => void;
   onSelectAlternative: (alternative: Alternative) => void;
