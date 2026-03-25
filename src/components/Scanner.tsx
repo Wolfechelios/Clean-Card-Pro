@@ -271,6 +271,9 @@ const Scanner = ({ userId }: ScannerProps) => {
 
       {batch.jobs.length > 0 && <BatchQueue jobs={batch.jobs} onProcess={batch.start} />}
 
+      {/* Foil Review Queue — batch review for foil-uncertain rapid scans */}
+      <NeedsFoilReviewQueue userId={userId} />
+
       {/* Duplicate dialog remains ONLY for Save Mode behavior */}
       {duplicateCard && duplicateCard.existingCard && (
         <DuplicateCardDialog
