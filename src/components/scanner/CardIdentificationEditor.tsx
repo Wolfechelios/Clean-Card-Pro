@@ -242,6 +242,22 @@ export function CardIdentificationEditor({
           </CardContent>
         </Card>
       )}
+
+      {/* Foil Trainer — only shows for foil-sensitive cards */}
+      {userId && foilEvaluation.triggerLevel !== "none" && (
+        <FoilTrainerPanel
+          userId={userId}
+          scanId={crypto.randomUUID()}
+          cardName={editedName}
+          cardSet={editedSet || null}
+          cardNumber={primaryCard.card_number}
+          rarity={primaryCard.rarity}
+          gameType={primaryCard.game_type}
+          foilResult={foilEvaluation.foilResult}
+          triggerLevel={foilEvaluation.triggerLevel}
+          imageUrl={imageUrl}
+        />
+      )}
     </div>
   );
 }
