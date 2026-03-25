@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,6 +6,12 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle, Edit2, AlertCircle } from "lucide-react";
 import type { ScanMode } from "@/hooks/use-scanner-settings";
+import { FoilTrainerPanel } from "./FoilTrainerPanel";
+import {
+  shouldShowFoilTrainer,
+  evaluateFoilScanResult,
+} from "@/lib/foilTrainer/foilTrainerService";
+import { supabase } from "@/integrations/supabase/client";
 
 interface CardData {
   card_name: string;
@@ -38,6 +44,7 @@ interface CardIdentificationEditorProps {
   ownedCount?: number;
   isInLibrary?: boolean;
   currentPriceRaw?: number | null;
+  userId?: string;
 
   onConfirm: (editedCard: CardData) => void;
   onSelectAlternative: (alternative: Alternative) => void;
@@ -52,6 +59,7 @@ export function CardIdentificationEditor({
   ownedCount = 0,
   isInLibrary = false,
   currentPriceRaw = null,
+  userId,
   onConfirm,
   onSelectAlternative,
   onCancel,
@@ -59,6 +67,24 @@ export function CardIdentificationEditor({
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(primaryCard.card_name);
   const [editedSet, setEditedSet] = useState(primaryCard.card_set || "");
+
+  // Foil Trainer evaluation
+  const foilEvaluation = useMemo(() => {
+    const foilResult = evaluateFoilScanResult(
+      primaryCard.rarity,
+      null, // finish not yet on CardData
+      primaryCard.game_type,
+      undefined, // foilDetectorConfidence
+    );
+    const triggerLevel = shouldShowFoilTrainer({
+      rarity: primaryCard.rarity,
+      finish: null,
+      gameType: primaryCard.game_type,
+      foilConfidence: foilResult.foilConfidence,
+      confidence: primaryCard.confidence,
+    });
+    return { foilResult, triggerLevel };
+  }, [primaryCard.rarity, primaryCard.game_type, primaryCard.confidence]);
 
   const handleConfirm = () => {
     onConfirm({
@@ -215,6 +241,22 @@ export function CardIdentificationEditor({
             ))}
           </CardContent>
         </Card>
+      )}
+
+      {/* Foil Trainer — only shows for foil-sensitive cards */}
+      {userId && foilEvaluation.triggerLevel !== "none" && (
+        <FoilTrainerPanel
+          userId={userId}
+          scanId={crypto.randomUUID()}
+          cardName={editedName}
+          cardSet={editedSet || null}
+          cardNumber={primaryCard.card_number}
+          rarity={primaryCard.rarity}
+          gameType={primaryCard.game_type}
+          foilResult={foilEvaluation.foilResult}
+          triggerLevel={foilEvaluation.triggerLevel}
+          imageUrl={imageUrl}
+        />
       )}
     </div>
   );

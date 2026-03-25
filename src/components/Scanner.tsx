@@ -18,6 +18,7 @@ import { BatchProgress } from "./scanner/BatchProgress";
 import { CardIdentificationEditor } from "./scanner/CardIdentificationEditor";
 import { RemoteScanDesktop } from "./scanner/RemoteScanDesktop";
 import { RemoteScanMobile } from "./scanner/RemoteScanMobile";
+import { NeedsFoilReviewQueue } from "./scanner/NeedsFoilReviewQueue";
 import RapidScanCamera from "./scanner/RapidScanCamera";
 import { USBPhoneCameraScanner } from "./scanner/USBPhoneCameraScanner";
 import { USBBulkImport } from "./scanner/USBBulkImport";
@@ -145,6 +146,7 @@ const Scanner = ({ userId }: ScannerProps) => {
         <TabsContent value="upload">
           {pendingCard ? (
             <CardIdentificationEditor
+              userId={userId}
               primaryCard={pendingCard.identifiedCard}
               alternatives={pendingCard.alternatives}
               imageUrl={preview || undefined}
@@ -187,6 +189,7 @@ const Scanner = ({ userId }: ScannerProps) => {
         <TabsContent value="camera">
           {pendingCard ? (
             <CardIdentificationEditor
+              userId={userId}
               primaryCard={pendingCard.identifiedCard}
               alternatives={pendingCard.alternatives}
               imageUrl={preview || undefined}
@@ -219,6 +222,7 @@ const Scanner = ({ userId }: ScannerProps) => {
         <TabsContent value="usb">
           {pendingCard ? (
             <CardIdentificationEditor
+              userId={userId}
               primaryCard={pendingCard.identifiedCard}
               alternatives={pendingCard.alternatives}
               imageUrl={preview || undefined}
@@ -245,6 +249,7 @@ const Scanner = ({ userId }: ScannerProps) => {
         <TabsContent value="remote">
           {pendingCard ? (
             <CardIdentificationEditor
+              userId={userId}
               primaryCard={pendingCard.identifiedCard}
               alternatives={pendingCard.alternatives}
               imageUrl={preview || undefined}
@@ -265,6 +270,9 @@ const Scanner = ({ userId }: ScannerProps) => {
       </Tabs>
 
       {batch.jobs.length > 0 && <BatchQueue jobs={batch.jobs} onProcess={batch.start} />}
+
+      {/* Foil Review Queue — batch review for foil-uncertain rapid scans */}
+      <NeedsFoilReviewQueue userId={userId} />
 
       {/* Duplicate dialog remains ONLY for Save Mode behavior */}
       {duplicateCard && duplicateCard.existingCard && (
