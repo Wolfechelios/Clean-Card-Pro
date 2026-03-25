@@ -233,6 +233,150 @@ export type Database = {
         }
         Relationships: []
       }
+      foil_learning_memory: {
+        Row: {
+          confidence_weight: number
+          corrected_finish: string | null
+          corrected_rarity: string | null
+          created_at: string
+          game: string | null
+          id: string
+          key_type: string
+          key_value: string
+          last_seen_at: string
+          reject_count: number
+          support_count: number
+          user_id: string
+        }
+        Insert: {
+          confidence_weight?: number
+          corrected_finish?: string | null
+          corrected_rarity?: string | null
+          created_at?: string
+          game?: string | null
+          id?: string
+          key_type: string
+          key_value: string
+          last_seen_at?: string
+          reject_count?: number
+          support_count?: number
+          user_id: string
+        }
+        Update: {
+          confidence_weight?: number
+          corrected_finish?: string | null
+          corrected_rarity?: string | null
+          created_at?: string
+          game?: string | null
+          id?: string
+          key_type?: string
+          key_value?: string
+          last_seen_at?: string
+          reject_count?: number
+          support_count?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
+      foil_scan_corrections: {
+        Row: {
+          card_id: string | null
+          card_number: string | null
+          corrected_finish: string | null
+          corrected_rarity: string | null
+          created_at: string
+          device_info: Json | null
+          foil_confidence: number | null
+          game: string | null
+          id: string
+          image_hash: string | null
+          issue_tags: string[] | null
+          lighting_metadata: Json | null
+          ocr_snapshot: Json | null
+          original_image_uri: string | null
+          parallel_confidence: number | null
+          perceptual_hash: string | null
+          predicted_card_name: string | null
+          predicted_finish: string | null
+          predicted_rarity: string | null
+          processed_image_uri: string | null
+          reconditioned_image_uri: string | null
+          reflection_metadata: Json | null
+          roi_metadata: Json | null
+          scan_id: string | null
+          set_id: string | null
+          set_name: string | null
+          updated_at: string
+          user_confirmed_at: string | null
+          user_id: string
+          was_correct: boolean
+        }
+        Insert: {
+          card_id?: string | null
+          card_number?: string | null
+          corrected_finish?: string | null
+          corrected_rarity?: string | null
+          created_at?: string
+          device_info?: Json | null
+          foil_confidence?: number | null
+          game?: string | null
+          id?: string
+          image_hash?: string | null
+          issue_tags?: string[] | null
+          lighting_metadata?: Json | null
+          ocr_snapshot?: Json | null
+          original_image_uri?: string | null
+          parallel_confidence?: number | null
+          perceptual_hash?: string | null
+          predicted_card_name?: string | null
+          predicted_finish?: string | null
+          predicted_rarity?: string | null
+          processed_image_uri?: string | null
+          reconditioned_image_uri?: string | null
+          reflection_metadata?: Json | null
+          roi_metadata?: Json | null
+          scan_id?: string | null
+          set_id?: string | null
+          set_name?: string | null
+          updated_at?: string
+          user_confirmed_at?: string | null
+          user_id: string
+          was_correct?: boolean
+        }
+        Update: {
+          card_id?: string | null
+          card_number?: string | null
+          corrected_finish?: string | null
+          corrected_rarity?: string | null
+          created_at?: string
+          device_info?: Json | null
+          foil_confidence?: number | null
+          game?: string | null
+          id?: string
+          image_hash?: string | null
+          issue_tags?: string[] | null
+          lighting_metadata?: Json | null
+          ocr_snapshot?: Json | null
+          original_image_uri?: string | null
+          parallel_confidence?: number | null
+          perceptual_hash?: string | null
+          predicted_card_name?: string | null
+          predicted_finish?: string | null
+          predicted_rarity?: string | null
+          processed_image_uri?: string | null
+          reconditioned_image_uri?: string | null
+          reflection_metadata?: Json | null
+          roi_metadata?: Json | null
+          scan_id?: string | null
+          set_id?: string | null
+          set_name?: string | null
+          updated_at?: string
+          user_confirmed_at?: string | null
+          user_id?: string
+          was_correct?: boolean
+        }
+        Relationships: []
+      }
       graded_pricing_cache: {
         Row: {
           cache_key: string
