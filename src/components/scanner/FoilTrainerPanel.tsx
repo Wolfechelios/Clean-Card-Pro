@@ -184,7 +184,7 @@ export function FoilTrainerPanel({
           </div>
 
           {triggerLevel === "prominent" && (
-            <p className="text-xs text-yellow-600 dark:text-yellow-400">
+            <p className="text-xs text-destructive">
               Unsure about foil/rarity. Please verify or correct.
             </p>
           )}

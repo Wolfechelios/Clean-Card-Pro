@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,6 +6,12 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle, Edit2, AlertCircle } from "lucide-react";
 import type { ScanMode } from "@/hooks/use-scanner-settings";
+import { FoilTrainerPanel } from "./FoilTrainerPanel";
+import {
+  shouldShowFoilTrainer,
+  evaluateFoilScanResult,
+} from "@/lib/foilTrainer/foilTrainerService";
+import { supabase } from "@/integrations/supabase/client";
 
 interface CardData {
   card_name: string;
