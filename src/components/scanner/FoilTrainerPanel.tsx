@@ -162,7 +162,7 @@ export function FoilTrainerPanel({
 
   return (
     <>
-      <Card className={isSubtle ? "border-border/40" : "border-yellow-500/40 bg-yellow-500/5"}>
+      <Card className={isSubtle ? "border-border/40" : "border-destructive/30 bg-destructive/5"}>
         <CardHeader className="py-3 px-4">
           <CardTitle className="text-sm flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-primary" />
