@@ -18,6 +18,7 @@ import { BatchProgress } from "./scanner/BatchProgress";
 import { CardIdentificationEditor } from "./scanner/CardIdentificationEditor";
 import { RemoteScanDesktop } from "./scanner/RemoteScanDesktop";
 import { RemoteScanMobile } from "./scanner/RemoteScanMobile";
+import { NeedsFoilReviewQueue } from "./scanner/NeedsFoilReviewQueue";
 import RapidScanCamera from "./scanner/RapidScanCamera";
 import { USBPhoneCameraScanner } from "./scanner/USBPhoneCameraScanner";
 import { USBBulkImport } from "./scanner/USBBulkImport";
