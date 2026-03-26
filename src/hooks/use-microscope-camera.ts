@@ -3,6 +3,15 @@ import { toast } from "sonner";
 import { isMicroscopeDevice, measureSharpness, MicroscopeDevice } from "@/lib/microscope/types";
 import { getScannerSettings } from "@/hooks/use-scanner-settings";
 
+export type ResolutionPreset = "max" | "4k" | "1080p" | "720p";
+
+export const RESOLUTION_PRESETS: { value: ResolutionPreset; label: string; width: number; height: number }[] = [
+  { value: "max", label: "Max (10MP+)", width: 4000, height: 3000 },
+  { value: "4k", label: "4K UHD", width: 3840, height: 2160 },
+  { value: "1080p", label: "1080p", width: 1920, height: 1080 },
+  { value: "720p", label: "720p (Fast)", width: 1280, height: 720 },
+];
+
 export function useMicroscopeCamera() {
   const [devices, setDevices] = useState<MicroscopeDevice[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
@@ -11,6 +20,7 @@ export function useMicroscopeCamera() {
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [sharpness, setSharpness] = useState(0);
   const [resolution, setResolution] = useState({ width: 0, height: 0 });
+  const [resolutionPreset, setResolutionPreset] = useState<ResolutionPreset>("max");
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -52,7 +62,7 @@ export function useMicroscopeCamera() {
     }
   }, []);
 
-  const startCamera = useCallback(async (deviceId?: string) => {
+  const startCamera = useCallback(async (deviceId?: string, preset?: ResolutionPreset) => {
     try {
       setCameraError(null);
       setIsInitializing(true);
@@ -64,19 +74,18 @@ export function useMicroscopeCamera() {
       const targetId = deviceId || selectedDeviceId;
       if (!targetId) throw new Error("No device selected");
 
-      // Progressive fallback: request absolute max resolution first for 10MP+ microscopes
-      const constraintSets = [
-        // Try 1: Request maximum possible resolution (10MP ~3648x2736 or 4000x3000)
-        { video: { deviceId: { exact: targetId }, width: { ideal: 4000 }, height: { ideal: 3000 }, frameRate: { ideal: 15 } }, audio: false as const },
-        // Try 2: 4K UHD
-        { video: { deviceId: { exact: targetId }, width: { ideal: 3840 }, height: { ideal: 2160 }, frameRate: { ideal: 15 } }, audio: false as const },
-        // Try 3: Common 10MP sensor native (3648x2736)
-        { video: { deviceId: { exact: targetId }, width: { ideal: 3648 }, height: { ideal: 2736 } }, audio: false as const },
-        // Try 4: 1080p fallback
-        { video: { deviceId: { exact: targetId }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false as const },
-        // Try 5: Any resolution
-        { video: { deviceId: targetId }, audio: false as const },
-      ];
+      const activePreset = preset || resolutionPreset;
+      const presetConfig = RESOLUTION_PRESETS.find(p => p.value === activePreset) || RESOLUTION_PRESETS[0];
+
+      // Build constraint sets starting from the selected preset downward
+      const allPresets = RESOLUTION_PRESETS;
+      const startIdx = allPresets.findIndex(p => p.value === activePreset);
+      const constraintSets = allPresets.slice(startIdx >= 0 ? startIdx : 0).map(p => ({
+        video: { deviceId: { exact: targetId }, width: { ideal: p.width }, height: { ideal: p.height }, frameRate: { ideal: activePreset === "max" ? 15 : 30 } },
+        audio: false as const,
+      }));
+      // Always add a bare fallback
+      constraintSets.push({ video: { deviceId: targetId } as any, audio: false as const });
 
       let stream: MediaStream | null = null;
       for (const c of constraintSets) {
@@ -206,10 +215,12 @@ export function useMicroscopeCamera() {
     cameraError,
     sharpness,
     resolution,
+    resolutionPreset,
     videoRef,
     startCamera,
     stopCamera,
     capturePhoto,
     refreshDevices,
+    changeResolution,
   };
 }
