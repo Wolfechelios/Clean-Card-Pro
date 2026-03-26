@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Camera, Loader2, AlertCircle, RefreshCw, Microscope, Focus } from "lucide-react";
 import { toast } from "sonner";
-import { useMicroscopeCamera } from "@/hooks/use-microscope-camera";
+import { useMicroscopeCamera, RESOLUTION_PRESETS, ResolutionPreset } from "@/hooks/use-microscope-camera";
 import { MicroscopeCapture, MicroscopeCaptureType } from "@/lib/microscope/types";
 import { MicroscopeSharpnessIndicator } from "./MicroscopeSharpnessIndicator";
 import { MicroscopeReviewPanel } from "./MicroscopeReviewPanel";
@@ -41,11 +41,13 @@ export function MicroscopeDetailTab({ parentScanId, parentImageUrl, onCaptureCom
     cameraError,
     sharpness,
     resolution,
+    resolutionPreset,
     videoRef,
     startCamera,
     stopCamera,
     capturePhoto,
     refreshDevices,
+    changeResolution,
   } = useMicroscopeCamera();
 
   const microscopeDevices = devices.filter(d => d.isMicroscope);
@@ -164,6 +166,23 @@ export function MicroscopeDetailTab({ parentScanId, parentImageUrl, onCaptureCom
             <Button variant="ghost" size="icon" onClick={refreshDevices} className="shrink-0">
               <RefreshCw className="h-4 w-4" />
             </Button>
+          </div>
+
+          {/* Resolution selector */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground whitespace-nowrap">Resolution:</span>
+            <Select value={resolutionPreset} onValueChange={(v) => changeResolution(v as ResolutionPreset)}>
+              <SelectTrigger className="w-[160px] h-8 text-xs bg-background/80 backdrop-blur-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RESOLUTION_PRESETS.map(p => (
+                  <SelectItem key={p.value} value={p.value}>
+                    <span className="text-xs">{p.label} ({p.width}×{p.height})</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Capture type selector */}
