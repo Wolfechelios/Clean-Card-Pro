@@ -81,8 +81,15 @@ export function MicroscopeDetailTab({ parentScanId, parentImageUrl, onCaptureCom
     setCaptures(prev => [capture, ...prev]);
     setReviewCapture(capture);
     onCaptureComplete?.(capture);
-    toast.success(`${CAPTURE_TYPES.find(t => t.value === captureType)?.label} captured`);
-  }, [capturePhoto, captureType, parentScanId, devices, selectedDeviceId, sharpness, resolution, onCaptureComplete]);
+
+    // Full card scan mode: route through normal card identification pipeline
+    if (captureType === "full_card_scan" && onImageCaptured) {
+      onImageCaptured(file);
+      toast.success("Card captured via microscope — running identification...");
+    } else {
+      toast.success(`${CAPTURE_TYPES.find(t => t.value === captureType)?.label} captured`);
+    }
+  }, [capturePhoto, captureType, parentScanId, devices, selectedDeviceId, sharpness, resolution, onCaptureComplete, onImageCaptured]);
 
   // Keyboard capture
   useEffect(() => {
