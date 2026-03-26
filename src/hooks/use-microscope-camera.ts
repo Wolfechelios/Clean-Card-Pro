@@ -127,7 +127,14 @@ export function useMicroscopeCamera() {
       setCameraError(msg);
       toast.error(msg);
     }
-  }, [selectedDeviceId, devices]);
+  }, [selectedDeviceId, devices, resolutionPreset]);
+
+  const changeResolution = useCallback(async (preset: ResolutionPreset) => {
+    setResolutionPreset(preset);
+    if (cameraReady && selectedDeviceId) {
+      await startCamera(selectedDeviceId, preset);
+    }
+  }, [cameraReady, selectedDeviceId, startCamera]);
 
   const stopCamera = useCallback(() => {
     if (sharpnessIntervalRef.current) {
