@@ -251,6 +251,13 @@ const Scanner = ({ userId }: ScannerProps) => {
           <RapidScanCamera />
         </TabsContent>
 
+        <TabsContent value="microscope">
+          <MicroscopeDetailTab
+            parentScanId={null}
+            parentImageUrl={preview}
+          />
+        </TabsContent>
+
         <TabsContent value="remote">
           {pendingCard ? (
             <CardIdentificationEditor
