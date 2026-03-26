@@ -261,11 +261,22 @@ export function MicroscopeDetailTab({ parentScanId, parentImageUrl, onCaptureCom
             {cameraReady && <MicroscopeSharpnessIndicator sharpness={sharpness} />}
 
             {/* Resolution badge */}
-            {cameraReady && resolution.width > 0 && (
-              <div className="absolute top-2 right-2">
+            {cameraReady && actualResolution.width > 0 && (
+              <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
                 <Badge variant="secondary" className="bg-black/60 text-white text-[10px]">
-                  {resolution.width}×{resolution.height}
+                  {actualResolution.width}×{actualResolution.height}
+                  {fellBack && " (negotiated)"}
                 </Badge>
+                {fellBack && requestedResolution.width > 0 && (
+                  <Badge variant="outline" className="bg-black/40 text-yellow-300 text-[9px] border-yellow-400/40">
+                    Requested {requestedResolution.width}×{requestedResolution.height}
+                  </Badge>
+                )}
+                {deviceCapabilities && (
+                  <Badge variant="outline" className="bg-black/40 text-white/70 text-[9px] border-white/20">
+                    Max {deviceCapabilities.maxWidth}×{deviceCapabilities.maxHeight}
+                  </Badge>
+                )}
               </div>
             )}
           </div>
