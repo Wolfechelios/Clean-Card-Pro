@@ -1,4 +1,4 @@
-export type MicroscopeCaptureType = "foil_detail" | "surface_detail" | "corner_detail" | "text_detail";
+export type MicroscopeCaptureType = "full_card_scan" | "foil_detail" | "surface_detail" | "corner_detail" | "text_detail";
 
 export interface MicroscopeCapture {
   id: string;

@@ -15,17 +15,19 @@ interface MicroscopeDetailTabProps {
   parentScanId?: string | null;
   parentImageUrl?: string | null;
   onCaptureComplete?: (capture: MicroscopeCapture) => void;
+  onImageCaptured?: (imageFile: File) => void;
 }
 
 const CAPTURE_TYPES: { value: MicroscopeCaptureType; label: string; desc: string }[] = [
+  { value: "full_card_scan", label: "Full Card Scan", desc: "Use microscope as primary scanner for card identification" },
   { value: "foil_detail", label: "Foil / Holo Detail", desc: "Capture reflective patterns, holo shimmer, foil texture" },
   { value: "surface_detail", label: "Surface / Print", desc: "Capture surface texture, print quality, ink patterns" },
   { value: "corner_detail", label: "Corner / Edge", desc: "Capture corner wear, edge whitening, centering" },
   { value: "text_detail", label: "Text / Number", desc: "Capture card number, set symbol, fine text" },
 ];
 
-export function MicroscopeDetailTab({ parentScanId, parentImageUrl, onCaptureComplete }: MicroscopeDetailTabProps) {
-  const [captureType, setCaptureType] = useState<MicroscopeCaptureType>("foil_detail");
+export function MicroscopeDetailTab({ parentScanId, parentImageUrl, onCaptureComplete, onImageCaptured }: MicroscopeDetailTabProps) {
+  const [captureType, setCaptureType] = useState<MicroscopeCaptureType>("full_card_scan");
   const [captures, setCaptures] = useState<MicroscopeCapture[]>([]);
   const [reviewCapture, setReviewCapture] = useState<MicroscopeCapture | null>(null);
   const { updateSettings } = useScannerSettings();
@@ -79,8 +81,15 @@ export function MicroscopeDetailTab({ parentScanId, parentImageUrl, onCaptureCom
     setCaptures(prev => [capture, ...prev]);
     setReviewCapture(capture);
     onCaptureComplete?.(capture);
-    toast.success(`${CAPTURE_TYPES.find(t => t.value === captureType)?.label} captured`);
-  }, [capturePhoto, captureType, parentScanId, devices, selectedDeviceId, sharpness, resolution, onCaptureComplete]);
+
+    // Full card scan mode: route through normal card identification pipeline
+    if (captureType === "full_card_scan" && onImageCaptured) {
+      onImageCaptured(file);
+      toast.success("Card captured via microscope — running identification...");
+    } else {
+      toast.success(`${CAPTURE_TYPES.find(t => t.value === captureType)?.label} captured`);
+    }
+  }, [capturePhoto, captureType, parentScanId, devices, selectedDeviceId, sharpness, resolution, onCaptureComplete, onImageCaptured]);
 
   // Keyboard capture
   useEffect(() => {
