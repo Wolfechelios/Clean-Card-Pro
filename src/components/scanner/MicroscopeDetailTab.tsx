@@ -202,13 +202,14 @@ export function MicroscopeDetailTab({ parentScanId, parentImageUrl, onCaptureCom
           </div>
 
           {/* Camera preview */}
-          <div className="relative bg-black rounded-lg overflow-hidden mx-auto" style={{ aspectRatio: "4/3", maxWidth: "480px" }}>
+          <div className="relative bg-black rounded-lg overflow-hidden mx-auto w-full">
             <video
               ref={videoRef}
               autoPlay
               playsInline
               muted
-              className="w-full h-full object-contain"
+              className="w-full h-auto block"
+              style={{ maxHeight: "70vh" }}
             />
 
             {!cameraReady && !isInitializing && !cameraError && (
