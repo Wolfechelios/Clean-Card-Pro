@@ -15,9 +15,11 @@ interface MicroscopeDetailTabProps {
   parentScanId?: string | null;
   parentImageUrl?: string | null;
   onCaptureComplete?: (capture: MicroscopeCapture) => void;
+  onImageCaptured?: (imageFile: File) => void;
 }
 
 const CAPTURE_TYPES: { value: MicroscopeCaptureType; label: string; desc: string }[] = [
+  { value: "full_card_scan", label: "Full Card Scan", desc: "Use microscope as primary scanner for card identification" },
   { value: "foil_detail", label: "Foil / Holo Detail", desc: "Capture reflective patterns, holo shimmer, foil texture" },
   { value: "surface_detail", label: "Surface / Print", desc: "Capture surface texture, print quality, ink patterns" },
   { value: "corner_detail", label: "Corner / Edge", desc: "Capture corner wear, edge whitening, centering" },
