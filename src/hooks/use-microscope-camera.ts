@@ -64,9 +64,17 @@ export function useMicroscopeCamera() {
       const targetId = deviceId || selectedDeviceId;
       if (!targetId) throw new Error("No device selected");
 
+      // Progressive fallback: request absolute max resolution first for 10MP+ microscopes
       const constraintSets = [
-        { video: { deviceId: { exact: targetId }, width: { ideal: 3840 }, height: { ideal: 2160 } }, audio: false as const },
+        // Try 1: Request maximum possible resolution (10MP ~3648x2736 or 4000x3000)
+        { video: { deviceId: { exact: targetId }, width: { ideal: 4000 }, height: { ideal: 3000 }, frameRate: { ideal: 15 } }, audio: false as const },
+        // Try 2: 4K UHD
+        { video: { deviceId: { exact: targetId }, width: { ideal: 3840 }, height: { ideal: 2160 }, frameRate: { ideal: 15 } }, audio: false as const },
+        // Try 3: Common 10MP sensor native (3648x2736)
+        { video: { deviceId: { exact: targetId }, width: { ideal: 3648 }, height: { ideal: 2736 } }, audio: false as const },
+        // Try 4: 1080p fallback
         { video: { deviceId: { exact: targetId }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false as const },
+        // Try 5: Any resolution
         { video: { deviceId: targetId }, audio: false as const },
       ];
 
