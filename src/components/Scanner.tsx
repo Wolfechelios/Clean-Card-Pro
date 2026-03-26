@@ -127,7 +127,7 @@ const Scanner = ({ userId }: ScannerProps) => {
       </div>
 
       <Tabs defaultValue="upload" className="w-full">
-        <TabsList className="grid w-full grid-cols-5" role="tablist">
+        <TabsList className="grid w-full grid-cols-6" role="tablist">
           <TabsTrigger value="upload">Upload</TabsTrigger>
           <TabsTrigger value="camera">Camera</TabsTrigger>
           <TabsTrigger value="usb" className="flex items-center gap-2">
@@ -137,6 +137,10 @@ const Scanner = ({ userId }: ScannerProps) => {
           <TabsTrigger value="rapid" className="flex items-center gap-2">
             <Camera className="h-4 w-4" aria-hidden="true" />
             <span className="hidden sm:inline">Rapid Scan</span>
+          </TabsTrigger>
+          <TabsTrigger value="microscope" className="flex items-center gap-2">
+            <Microscope className="h-4 w-4" aria-hidden="true" />
+            <span className="hidden sm:inline">Microscope</span>
           </TabsTrigger>
           <TabsTrigger value="remote" className="flex items-center gap-2">
             <Smartphone className="h-4 w-4" aria-hidden="true" />
