@@ -26,8 +26,8 @@ const CAPTURE_TYPES: { value: MicroscopeCaptureType; label: string; desc: string
   { value: "text_detail", label: "Text / Number", desc: "Capture card number, set symbol, fine text" },
 ];
 
-export function MicroscopeDetailTab({ parentScanId, parentImageUrl, onCaptureComplete }: MicroscopeDetailTabProps) {
-  const [captureType, setCaptureType] = useState<MicroscopeCaptureType>("foil_detail");
+export function MicroscopeDetailTab({ parentScanId, parentImageUrl, onCaptureComplete, onImageCaptured }: MicroscopeDetailTabProps) {
+  const [captureType, setCaptureType] = useState<MicroscopeCaptureType>("full_card_scan");
   const [captures, setCaptures] = useState<MicroscopeCapture[]>([]);
   const [reviewCapture, setReviewCapture] = useState<MicroscopeCapture | null>(null);
   const { updateSettings } = useScannerSettings();
