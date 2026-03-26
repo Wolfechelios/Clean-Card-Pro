@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Camera, Smartphone, Usb, Trash2 } from "lucide-react";
+import { Camera, Smartphone, Usb, Trash2, Microscope } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 import { useCardScanner } from "@/hooks/use-card-scanner";
@@ -24,6 +24,7 @@ import { USBPhoneCameraScanner } from "./scanner/USBPhoneCameraScanner";
 import { USBBulkImport } from "./scanner/USBBulkImport";
 import { DuplicateCardDialog } from "./scanner/DuplicateCardDialog";
 import { RecentScansBox } from "./scanner/RecentScansBox";
+import { MicroscopeDetailTab } from "./scanner/MicroscopeDetailTab";
 
 interface ScannerProps {
   userId: string;
@@ -126,7 +127,7 @@ const Scanner = ({ userId }: ScannerProps) => {
       </div>
 
       <Tabs defaultValue="upload" className="w-full">
-        <TabsList className="grid w-full grid-cols-5" role="tablist">
+        <TabsList className="grid w-full grid-cols-6" role="tablist">
           <TabsTrigger value="upload">Upload</TabsTrigger>
           <TabsTrigger value="camera">Camera</TabsTrigger>
           <TabsTrigger value="usb" className="flex items-center gap-2">
@@ -136,6 +137,10 @@ const Scanner = ({ userId }: ScannerProps) => {
           <TabsTrigger value="rapid" className="flex items-center gap-2">
             <Camera className="h-4 w-4" aria-hidden="true" />
             <span className="hidden sm:inline">Rapid Scan</span>
+          </TabsTrigger>
+          <TabsTrigger value="microscope" className="flex items-center gap-2">
+            <Microscope className="h-4 w-4" aria-hidden="true" />
+            <span className="hidden sm:inline">Microscope</span>
           </TabsTrigger>
           <TabsTrigger value="remote" className="flex items-center gap-2">
             <Smartphone className="h-4 w-4" aria-hidden="true" />
@@ -244,6 +249,13 @@ const Scanner = ({ userId }: ScannerProps) => {
 
         <TabsContent value="rapid">
           <RapidScanCamera />
+        </TabsContent>
+
+        <TabsContent value="microscope">
+          <MicroscopeDetailTab
+            parentScanId={null}
+            parentImageUrl={preview}
+          />
         </TabsContent>
 
         <TabsContent value="remote">

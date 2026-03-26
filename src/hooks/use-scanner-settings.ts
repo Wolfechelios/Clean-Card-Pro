@@ -33,6 +33,9 @@ export interface ScannerSettings {
   gpuStreamMaxFps: number;
   gpuStreamTargetWidth: number;
   gpuStreamJpegQuality: number;
+
+  // Microscope settings
+  preferredMicroscopeDeviceId: string;
 }
 
 const DEFAULT_SETTINGS: ScannerSettings = {
@@ -62,6 +65,8 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   gpuStreamMaxFps: 12,
   gpuStreamTargetWidth: 720,
   gpuStreamJpegQuality: 0.65,
+
+  preferredMicroscopeDeviceId: "",
 };
 
 export function useScannerSettings() {
