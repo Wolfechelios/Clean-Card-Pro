@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Camera, Smartphone, Usb, Trash2 } from "lucide-react";
+import { Camera, Smartphone, Usb, Trash2, Microscope } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 import { useCardScanner } from "@/hooks/use-card-scanner";
@@ -24,6 +24,7 @@ import { USBPhoneCameraScanner } from "./scanner/USBPhoneCameraScanner";
 import { USBBulkImport } from "./scanner/USBBulkImport";
 import { DuplicateCardDialog } from "./scanner/DuplicateCardDialog";
 import { RecentScansBox } from "./scanner/RecentScansBox";
+import { MicroscopeDetailTab } from "./scanner/MicroscopeDetailTab";
 
 interface ScannerProps {
   userId: string;
