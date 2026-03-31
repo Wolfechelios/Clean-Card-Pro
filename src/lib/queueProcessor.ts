@@ -12,6 +12,7 @@ import { getScannerSettings } from "@/hooks/use-scanner-settings";
 import { canProcessFrame, markFrameStart, markFrameEnd } from "@/lib/performance/pipelineGuards";
 import { MEMORY_CONFIG } from "@/lib/performance/memoryConfig";
 import { hybridIdentifyCard, clearOfflineAttempt } from "@/lib/hybridCardIdentify";
+import { queueAnomalyDetector } from "@/lib/scanAnomalyDetector";
 import { addRecentScan } from "@/lib/recentScans";
 import { insertCardDual } from "@/lib/localCards";
 import {
@@ -489,6 +490,19 @@ async function processJob(item: QueueItem): Promise<void> {
   }
 
   const cardName: string = identify?.card_name || "Unknown Card";
+
+  // ─── Anomaly detection ───
+  const anomaly = queueAnomalyDetector.trackIdentification(cardName);
+  if (anomaly.consecutiveCount === 5) {
+    const { toast } = await import("sonner");
+    toast.warning(anomaly.message);
+    // Auto-pause the queue
+    store._setPaused(true);
+    console.warn(`[QueueProcessor] Auto-paused: ${anomaly.message}`);
+  } else if (anomaly.isAnomaly) {
+    const { toast } = await import("sonner");
+    toast.warning(anomaly.message);
+  }
   const cardSet: string | null = identify?.card_set ?? null;
   const cardNumber: string | null = identify?.card_number ?? null;
   const rarity: string | null = identify?.rarity ?? null;

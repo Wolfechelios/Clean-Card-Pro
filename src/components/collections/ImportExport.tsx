@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Download, Upload, FileSpreadsheet, AlertCircle, Cloud } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { checkImportAnomaly } from "@/lib/scanAnomalyDetector";
 import * as ExcelJS from "exceljs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
@@ -156,6 +157,23 @@ export default function ImportExport({ cards, onImportComplete }: ImportExportPr
 
       const jsonData = await readSpreadsheetFile(file);
       if (jsonData.length === 0) { toast.error("No data found in file"); setImporting(false); return; }
+
+      // ─── Pre-insert anomaly check ───
+      const parsedNames = jsonData.map((row: any) => row["Card Name"] || row["card_name"] || row["Name"] || "Unknown Card");
+      const anomaly = checkImportAnomaly(parsedNames);
+      if (anomaly.isCritical) {
+        toast.error(anomaly.message);
+        setImporting(false);
+        return;
+      }
+      if (anomaly.hasAnomaly) {
+        const proceed = window.confirm(`Warning: ${anomaly.message}\n\nContinue with import anyway?`);
+        if (!proceed) {
+          toast.info("Import cancelled");
+          setImporting(false);
+          return;
+        }
+      }
 
       const batchSize = 10;
       let imported = 0;
