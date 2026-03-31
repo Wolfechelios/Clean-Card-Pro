@@ -1,51 +1,55 @@
 
-Goal: fix microscope resolution selection so the app clearly shows the selected preset, negotiates the highest real stream the device/browser will allow, and removes any remaining preview crop/zoom ambiguity without changing the normal scanner flow.
 
-1. Fix the microscope stream negotiation
-- Update `src/hooks/use-microscope-camera.ts` so “Max” means “highest real native stream available”, not just a soft 4000×3000 request.
-- Replace the current `ideal`-only approach with a stronger fallback ladder for common microscope sizes (for example: 4000×3000, 3840×2880, 3648×2736, 3264×2448, 2592×1944, then lower presets).
-- Read the negotiated result from `track.getSettings()` after the stream starts instead of relying only on the initial `videoWidth/videoHeight`.
-- Keep the fallback behavior so unsupported devices still connect cleanly.
+## Plan: Fix Root Cause of Duplicate Names in Import and Scanning
 
-2. Separate requested resolution from actual resolution
-- Add distinct state for:
-  - selected preset
-  - actual negotiated stream size
-  - device max/capability range when available
-- If the browser falls back below the selected preset, surface that explicitly instead of making it look like the chosen preset succeeded.
-- Update capture metadata to use the actual negotiated resolution, not only the requested preset.
+### Root Cause Analysis
 
-3. Keep the microscope preview unzoomed and uncropped
-- Ensure the microscope `<video>` uses a strict no-crop render (`object-contain`, no transform scale, no forced aspect crop).
-- Keep the preview framed to fit the full feed so the microscope image is not artificially zoomed by layout.
-- Preserve the current full-width preview behavior, but make the rendering rules explicit so future UI changes do not reintroduce crop/zoom.
+1. **Import column matching is fragile**: The Collx `findColumn()` fuzzy matcher searches for any column containing keywords like "name", "card", "player". If the spreadsheet has unexpected column names, every row can match the same wrong column or fall through to a single hardcoded fallback, producing identical names for all rows.
 
-4. Improve the Microscope Detail UI so it matches what the device is doing
-- Update `src/components/scanner/MicroscopeDetailTab.tsx` to show:
-  - requested preset
-  - actual active stream resolution
-  - max/native device resolution if detectable
-- Change the existing resolution badge so it reflects the active stream, not just a stale value captured once.
-- Add a small fallback/status message when “Max” resolves to something lower than 4000×3000, so it’s obvious whether the limit is the device, driver, or browser negotiation.
+2. **No pre-insert validation**: Both `ImportExport.tsx` and `ServiceImportExport.tsx` insert cards without checking whether the parsed batch looks sane (e.g., 50+ cards all named "Vic Viper T301").
 
-5. Make resolution changes refresh reliably
-- Add a proper sync/update step after resolution changes so the UI refreshes when the track renegotiates.
-- Listen for post-start metadata/resize updates so the displayed resolution cannot stay stale after switching presets.
-- Keep the normal capture, identification, queueing, and microscope review flows unchanged.
+3. **Scan pipeline has no repeat guard**: The queue processor and single-scan hook will happily save the same card name repeatedly without flagging it.
 
-Technical details
-- Files to update:
-  - `src/hooks/use-microscope-camera.ts`
-  - `src/components/scanner/MicroscopeDetailTab.tsx`
-  - optionally `src/hooks/use-scanner-settings.ts` only if I persist the preferred microscope resolution preset too
-- I will not change the standard camera scanner, rapid scan, pricing, queueing, or card recognition behavior.
-- I’ll also fix the existing `Badge` ref warning separately if it blocks scanner stability, but the microscope resolution issue will remain the primary change.
+### Changes
 
-Validation
-- Verify “Max” negotiates the highest available microscope resolution and reports the real active size.
-- Verify switching between Max / 4K / 1080p / 720p updates the active resolution display correctly.
-- Verify the preview shows the full feed with no added crop/zoom.
-- Verify captures still route normally:
-  - `full_card_scan` goes through identification
-  - detail captures stay microscope-only
-- Verify no regressions in the other scanner tabs.
+**1. Fix the Collx column resolver (`ServiceImportExport.tsx`)**
+- After parsing the file but before inserting, run a **column validation step**: check each resolved column mapping and log which header mapped to which field.
+- If `findColumn` resolves `card_name` to a column where >80% of values are identical, reject the mapping and try the next keyword fallback instead.
+- Add explicit Collx header mappings for known export formats (Collx uses specific headers like "Player Name", "Card", "Title") so fuzzy matching is a last resort, not the default.
+
+**2. Add pre-insert anomaly check to both import flows**
+- In `ServiceImportExport.tsx` `handleFileUpload()` and `ImportExport.tsx` `handleFileUpload()`:
+  - After parsing all rows, compute a name frequency map.
+  - If any single card name accounts for >40% of rows (minimum 5 rows), show a **blocking confirmation dialog** with the suspicious name and count before inserting.
+  - If >90% share the same name, auto-reject the import with an error toast explaining the column mapping likely failed.
+
+**3. Add scan anomaly detector utility (`src/lib/scanAnomalyDetector.ts`)**
+- Track consecutive identifications during scan sessions (rapid scan, single scan, binder scan).
+- `trackIdentification(name)` returns `{ isAnomaly, consecutiveCount, message }`.
+- Thresholds: 3 consecutive = warning toast; 5 consecutive = auto-pause queue with prominent alert.
+- `resetSession()` and `getSessionReport()` for batch summary.
+
+**4. Integrate detector into queue processor (`src/lib/queueProcessor.ts`)**
+- After each successful identification in `processJob()`, call `trackIdentification()`.
+- On anomaly: emit warning toast; at 5+ consecutive, pause the queue automatically.
+
+**5. Integrate detector into single scan (`src/hooks/use-card-scanner.ts`)**
+- Track last 2 scan results; if both match, show a toast: "Same card detected twice in a row — check image quality".
+
+**6. Integrate detector into binder scan (`src/components/binder/BinderScan.tsx`)**
+- After processing a 9-pocket page, if >50% of cards got the same name, show an alert suggesting rescan.
+
+### Files
+
+| File | Action |
+|------|--------|
+| `src/lib/scanAnomalyDetector.ts` | New — anomaly tracking utility |
+| `src/components/settings/ServiceImportExport.tsx` | Edit — fix Collx column resolver, add pre-insert validation |
+| `src/components/collections/ImportExport.tsx` | Edit — add pre-insert validation |
+| `src/lib/queueProcessor.ts` | Edit — integrate anomaly detector |
+| `src/hooks/use-card-scanner.ts` | Edit — track repeat identifications |
+| `src/components/binder/BinderScan.tsx` | Edit — post-scan frequency check |
+
+### What stays unchanged
+All existing scanning, pricing, queueing, card recognition, library, history, microscope, foil trainer, and UI functionality remains intact.
+
