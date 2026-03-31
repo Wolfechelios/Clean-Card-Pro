@@ -372,7 +372,7 @@ export default function Collections() {
       if (fetchError) throw fetchError;
 
       if (!recentCards || recentCards.length === 0) {
-        toast.error("No recent imports found (last 5 minutes)");
+        toast.error(`No recent imports found (last ${recentTimeRange}h)`);
         setShowDeleteRecent(false);
         return;
       }
