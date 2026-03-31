@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Download, Upload, FileSpreadsheet, AlertCircle, Cloud } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { checkImportAnomaly } from "@/lib/scanAnomalyDetector";
 import * as ExcelJS from "exceljs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
