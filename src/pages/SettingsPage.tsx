@@ -235,12 +235,12 @@ setNullRarityCount(missingRarity || 0);
     if (!userId) return;
     
     try {
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const cutoff = new Date(Date.now() - recentTimeRange * 60 * 60 * 1000).toISOString();
       const { error } = await supabase
         .from("cards")
         .delete()
         .eq("user_id", userId)
-        .gte("created_at", fiveMinutesAgo);
+        .gte("created_at", cutoff);
 
       if (error) throw error;
 
