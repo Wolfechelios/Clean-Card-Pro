@@ -8,6 +8,7 @@ import { getScannerSettings, type ScanMode } from "./use-scanner-settings";
 import { addRecentScan } from "@/lib/recentScans";
 import { checkGpuServerAvailable } from "@/lib/gpuOffload/gpuAvailability";
 import { gpuIdentifyByImageUrl, gpuOcrByImageUrl } from "@/lib/gpuOffload/gpuHttpClient";
+import { singleScanDetector } from "@/lib/scanAnomalyDetector";
 
 export interface OCRResult {
   cardName: string;
