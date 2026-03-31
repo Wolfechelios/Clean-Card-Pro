@@ -753,14 +753,25 @@ export default function Collections() {
         
         <div className="flex items-center gap-2 flex-wrap">
           {recentImportCount > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowDeleteRecent(true)}
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Delete Recent Import ({recentImportCount})
-            </Button>
+            <div className="flex items-center gap-1">
+              <select
+                value={recentTimeRange}
+                onChange={(e) => setRecentTimeRange(Number(e.target.value))}
+                className="h-8 rounded-md border border-border bg-card text-sm px-2"
+              >
+                <option value={2}>2h</option>
+                <option value={4}>4h</option>
+                <option value={6}>6h</option>
+              </select>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowDeleteRecent(true)}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete Recent Import ({recentImportCount})
+              </Button>
+            </div>
           )}
 
           {noImageCount > 0 && (
