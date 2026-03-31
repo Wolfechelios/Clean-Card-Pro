@@ -962,17 +962,28 @@ setNullRarityCount(missingRarity || 0);
             <div>
               <p className="text-sm text-muted-foreground mb-2">
                 {recentImportCount > 0
-                  ? `Delete ${recentImportCount} card(s) imported in the last 5 minutes`
-                  : 'No recent imports found (last 5 minutes)'}
+                  ? `Delete ${recentImportCount} card(s) imported in the last ${recentTimeRange} hours`
+                  : `No recent imports found (last ${recentTimeRange} hours)`}
               </p>
-              <Button 
-                variant="outline"
-                onClick={() => setShowDeleteRecent(true)}
-                disabled={recentImportCount === 0}
-              >
-                <Clock className="h-4 w-4 mr-2" />
-                Delete Recent Import {recentImportCount > 0 ? `(${recentImportCount})` : ''}
-              </Button>
+              <div className="flex items-center gap-2">
+                <select
+                  value={recentTimeRange}
+                  onChange={(e) => setRecentTimeRange(Number(e.target.value))}
+                  className="h-9 rounded-md border border-border bg-card text-sm px-2"
+                >
+                  <option value={2}>2 hours</option>
+                  <option value={4}>4 hours</option>
+                  <option value={6}>6 hours</option>
+                </select>
+                <Button 
+                  variant="outline"
+                  onClick={() => setShowDeleteRecent(true)}
+                  disabled={recentImportCount === 0}
+                >
+                  <Clock className="h-4 w-4 mr-2" />
+                  Delete Recent Import {recentImportCount > 0 ? `(${recentImportCount})` : ''}
+                </Button>
+              </div>
             </div>
 
             <Separator />
