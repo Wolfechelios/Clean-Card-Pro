@@ -405,7 +405,7 @@ export default function Collections() {
         .from("cards")
         .select("*", { count: 'exact', head: true })
         .eq("user_id", userId)
-        .gte("created_at", fiveMinutesAgo);
+        .gte("created_at", cutoff);
 
       if (!error && count !== null) {
         setRecentImportCount(count);
