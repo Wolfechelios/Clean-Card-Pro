@@ -73,6 +73,7 @@ export default function Collections() {
   const [isUpdatingPrices, setIsUpdatingPrices] = useState(false);
   const [showDeleteRecent, setShowDeleteRecent] = useState(false);
   const [recentImportCount, setRecentImportCount] = useState(0);
+  const [recentTimeRange, setRecentTimeRange] = useState(2); // hours
   const [showDeleteNoImage, setShowDeleteNoImage] = useState(false);
   const [noImageCount, setNoImageCount] = useState(0);
   const [placeholderCount, setPlaceholderCount] = useState(0);

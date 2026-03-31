@@ -54,6 +54,7 @@ export default function Settings() {
   const [noImageCount, setNoImageCount] = useState(0);
   const [showDeleteRecent, setShowDeleteRecent] = useState(false);
   const [recentImportCount, setRecentImportCount] = useState(0);
+  const [recentTimeRange, setRecentTimeRange] = useState(2); // hours
   const [showClearAll, setShowClearAll] = useState(false);
   const [totalCards, setTotalCards] = useState(0);
   const [isUpdatingPrices, setIsUpdatingPrices] = useState(false);
