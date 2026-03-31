@@ -1209,7 +1209,7 @@ setNullRarityCount(missingRarity || 0);
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Recent Import</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete {recentImportCount} card(s) imported in the last 5 minutes? This action cannot be undone.
+              Are you sure you want to delete {recentImportCount} card(s) imported in the last {recentTimeRange} hours? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
