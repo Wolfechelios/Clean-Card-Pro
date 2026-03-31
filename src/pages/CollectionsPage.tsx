@@ -399,7 +399,7 @@ export default function Collections() {
     if (!userId) return;
     
     try {
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const cutoff = new Date(Date.now() - recentTimeRange * 60 * 60 * 1000).toISOString();
       
       const { count, error } = await supabase
         .from("cards")
