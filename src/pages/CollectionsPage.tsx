@@ -160,6 +160,11 @@ export default function Collections() {
   }, [userId]);
 
   useEffect(() => {
+    if (userId) checkRecentImports();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recentTimeRange]);
+
+  useEffect(() => {
     applyFilters();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery, cards, activeFilters]);
