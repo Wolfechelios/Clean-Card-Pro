@@ -73,6 +73,7 @@ export default function Collections() {
   const [isUpdatingPrices, setIsUpdatingPrices] = useState(false);
   const [showDeleteRecent, setShowDeleteRecent] = useState(false);
   const [recentImportCount, setRecentImportCount] = useState(0);
+  const [recentTimeRange, setRecentTimeRange] = useState(2); // hours
   const [showDeleteNoImage, setShowDeleteNoImage] = useState(false);
   const [noImageCount, setNoImageCount] = useState(0);
   const [placeholderCount, setPlaceholderCount] = useState(0);
@@ -157,6 +158,11 @@ export default function Collections() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
+
+  useEffect(() => {
+    if (userId) checkRecentImports();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recentTimeRange]);
 
   useEffect(() => {
     applyFilters();
@@ -360,19 +366,18 @@ export default function Collections() {
     if (!userId) return;
     
     try {
-      // Get cards created in the last 5 minutes
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const cutoff = new Date(Date.now() - recentTimeRange * 60 * 60 * 1000).toISOString();
       
       const { data: recentCards, error: fetchError } = await supabase
         .from("cards")
         .select("id")
         .eq("user_id", userId)
-        .gte("created_at", fiveMinutesAgo);
+        .gte("created_at", cutoff);
 
       if (fetchError) throw fetchError;
 
       if (!recentCards || recentCards.length === 0) {
-        toast.error("No recent imports found (last 5 minutes)");
+        toast.error(`No recent imports found (last ${recentTimeRange}h)`);
         setShowDeleteRecent(false);
         return;
       }
@@ -381,7 +386,7 @@ export default function Collections() {
         .from("cards")
         .delete()
         .eq("user_id", userId)
-        .gte("created_at", fiveMinutesAgo);
+        .gte("created_at", cutoff);
 
       if (error) throw error;
 
@@ -399,13 +404,13 @@ export default function Collections() {
     if (!userId) return;
     
     try {
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const cutoff = new Date(Date.now() - recentTimeRange * 60 * 60 * 1000).toISOString();
       
       const { count, error } = await supabase
         .from("cards")
         .select("*", { count: 'exact', head: true })
         .eq("user_id", userId)
-        .gte("created_at", fiveMinutesAgo);
+        .gte("created_at", cutoff);
 
       if (!error && count !== null) {
         setRecentImportCount(count);
@@ -753,14 +758,25 @@ export default function Collections() {
         
         <div className="flex items-center gap-2 flex-wrap">
           {recentImportCount > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowDeleteRecent(true)}
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Delete Recent Import ({recentImportCount})
-            </Button>
+            <div className="flex items-center gap-1">
+              <select
+                value={recentTimeRange}
+                onChange={(e) => setRecentTimeRange(Number(e.target.value))}
+                className="h-8 rounded-md border border-border bg-card text-sm px-2"
+              >
+                <option value={2}>2h</option>
+                <option value={4}>4h</option>
+                <option value={6}>6h</option>
+              </select>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowDeleteRecent(true)}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete Recent Import ({recentImportCount})
+              </Button>
+            </div>
           )}
 
           {noImageCount > 0 && (
@@ -979,7 +995,7 @@ export default function Collections() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Recent Import</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete {recentImportCount} card(s) imported in the last 5 minutes? This action cannot be undone.
+              Are you sure you want to delete {recentImportCount} card(s) imported in the last {recentTimeRange} hours? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
