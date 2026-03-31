@@ -367,7 +367,7 @@ export default function Collections() {
         .from("cards")
         .select("id")
         .eq("user_id", userId)
-        .gte("created_at", fiveMinutesAgo);
+        .gte("created_at", cutoff);
 
       if (fetchError) throw fetchError;
 
