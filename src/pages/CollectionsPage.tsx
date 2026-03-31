@@ -381,7 +381,7 @@ export default function Collections() {
         .from("cards")
         .delete()
         .eq("user_id", userId)
-        .gte("created_at", fiveMinutesAgo);
+        .gte("created_at", cutoff);
 
       if (error) throw error;
 
