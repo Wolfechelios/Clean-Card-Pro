@@ -361,8 +361,7 @@ export default function Collections() {
     if (!userId) return;
     
     try {
-      // Get cards created in the last 5 minutes
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const cutoff = new Date(Date.now() - recentTimeRange * 60 * 60 * 1000).toISOString();
       
       const { data: recentCards, error: fetchError } = await supabase
         .from("cards")
