@@ -432,9 +432,20 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
       case "sportscardpro": return { user_id: userId, card_name: row["Player/Card Name"] || row["Player"] || row["Card Name"] || "Unknown Card", card_set: row["Set"] || row["Brand"] || null, card_number: row["Card Number"] || row["#"] || null, rarity: row["Variation"] || null, edition: row["Variation"] || null, condition: row["Grade"] ? `PSA ${row["Grade"]}` : "ungraded", sport_type: row["Sport"] || null, notes: row["Notes"] || null, image_url: "" };
       case "pricecharting": return { user_id: userId, card_name: row["product-name"] || row["Product Name"] || "Unknown Card", card_set: null, card_number: row["upc"] || null, rarity: null, condition: mapConditionFromPriceCharting(row["condition"] || "Loose"), game_type: row["console-name"] || row["Console"] || null, notes: row["notes"] || row["Notes"] || null, image_url: "" };
       case "collx": {
+        // Explicit Collx header mappings first, fuzzy as fallback
+        const COLLX_NAME_HEADERS = ["Player Name", "Card Name", "Title", "Name", "Card"];
+        const COLLX_SET_HEADERS = ["Set Name", "Set", "Product", "Brand", "Year"];
         const findColumn = (row: any, ...keywords: string[]): string | null => { const keys = Object.keys(row); for (const keyword of keywords) { const found = keys.find(k => k.toLowerCase().includes(keyword.toLowerCase())); if (found && row[found]) return row[found]; } return null; };
-        const cardName = findColumn(row, "player", "name", "title", "card") || row["Player Name"] || row["Card Name"] || row["Title"] || row["Name"] || "Unknown Card";
-        const cardSet = findColumn(row, "set", "product", "brand", "year") || row["Set Name"] || row["Set"] || null;
+        const findExplicit = (row: any, explicitHeaders: string[]): string | null => {
+          const keys = Object.keys(row);
+          for (const header of explicitHeaders) {
+            const found = keys.find(k => k === header);
+            if (found && row[found]) return row[found];
+          }
+          return null;
+        };
+        const cardName = findExplicit(row, COLLX_NAME_HEADERS) || findColumn(row, "player", "name", "title", "card") || "Unknown Card";
+        const cardSet = findExplicit(row, COLLX_SET_HEADERS) || findColumn(row, "set", "product", "brand", "year") || null;
         const cardNumber = findColumn(row, "number", "card #", "#") || row["Card Number"] || row["Card #"] || null;
         const parallel = findColumn(row, "parallel", "variation", "variant", "rarity") || row["Parallel"] || null;
         const condition = findColumn(row, "condition", "grade") || row["Condition"] || "";
