@@ -12,6 +12,7 @@ import { getScannerSettings } from "@/hooks/use-scanner-settings";
 import { canProcessFrame, markFrameStart, markFrameEnd } from "@/lib/performance/pipelineGuards";
 import { MEMORY_CONFIG } from "@/lib/performance/memoryConfig";
 import { hybridIdentifyCard, clearOfflineAttempt } from "@/lib/hybridCardIdentify";
+import { queueAnomalyDetector } from "@/lib/scanAnomalyDetector";
 import { addRecentScan } from "@/lib/recentScans";
 import { insertCardDual } from "@/lib/localCards";
 import {
