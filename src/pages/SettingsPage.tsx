@@ -70,6 +70,11 @@ export default function Settings() {
     loadCollectionStats();
   }, []);
 
+  useEffect(() => {
+    if (userId) loadCollectionStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recentTimeRange]);
+
   const loadUserData = async () => {
     if (!userId) {
       setIsLoading(false);
