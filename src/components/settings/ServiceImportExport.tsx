@@ -381,6 +381,24 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
       }
 
       if (jsonData.length === 0) { toast.error("No data found in file"); setImporting(false); return; }
+
+      // ─── Pre-insert anomaly check ───
+      const parsedCards = jsonData.map((row: any) => parseRowByFormat(row, importFormat, userId));
+      const parsedNames = parsedCards.map((c: any) => c.card_name || "Unknown Card");
+      const anomaly = checkImportAnomaly(parsedNames);
+      if (anomaly.isCritical) {
+        toast.error(anomaly.message);
+        setImporting(false);
+        return;
+      }
+      if (anomaly.hasAnomaly) {
+        const proceed = window.confirm(`Warning: ${anomaly.message}\n\nContinue with import anyway?`);
+        if (!proceed) {
+          toast.info("Import cancelled");
+          setImporting(false);
+          return;
+        }
+      }
       const columnNames = Object.keys(jsonData[0]);
       console.log("CSV Columns found:", columnNames);
 

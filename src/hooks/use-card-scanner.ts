@@ -361,6 +361,12 @@ export function useCardScanner({
 
       const dup = await checkForDuplicate(identifiedCard.card_name, identifiedCard.card_set);
 
+      // ─── Anomaly detection for single scan ───
+      const anomaly = singleScanDetector.trackIdentification(identifiedCard.card_name);
+      if (anomaly.consecutiveCount >= 2) {
+        toast.warning("Same card detected twice in a row — check image quality or try a different angle.");
+      }
+
       // SAVE MODE: keep existing duplicate dialog behavior
       if (scanMode === "SAVE" && dup.isDuplicate && dup.existingCard) {
         setDuplicateCard({

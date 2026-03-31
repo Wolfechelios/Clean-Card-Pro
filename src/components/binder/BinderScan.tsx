@@ -354,6 +354,24 @@ export function BinderScan({ binderName, onComplete }: BinderScanProps) {
       const successCount = results.filter(r => r?.success).length;
       const failCount = results.filter(r => r && !r.success).length;
 
+      // ─── Binder anomaly check: flag if >50% of cards got the same name ───
+      const successNames = results.filter(r => r?.success).map(r => r!.card_name);
+      if (successNames.length >= 4) {
+        const freq = new Map<string, number>();
+        for (const n of successNames) {
+          const key = n.trim().toLowerCase();
+          freq.set(key, (freq.get(key) || 0) + 1);
+        }
+        for (const [name, count] of freq) {
+          if (count / successNames.length > 0.5) {
+            toast.warning(
+              `${count} of ${successNames.length} cards were identified as "${name}". Image quality may be too low — consider rescanning.`
+            );
+            break;
+          }
+        }
+      }
+
       if (successCount > 0) {
         toast.success(
           `Successfully identified and added ${successCount} card${successCount !== 1 ? 's' : ''} to your collection!${
