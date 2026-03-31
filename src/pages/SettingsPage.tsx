@@ -177,13 +177,13 @@ export default function Settings() {
       
       setNoImageCount(noImage || 0);
 
-      // Get recent imports count (last 5 minutes)
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      // Get recent imports count
+      const cutoff = new Date(Date.now() - recentTimeRange * 60 * 60 * 1000).toISOString();
       const { count: recent } = await supabase
         .from("cards")
         .select("*", { count: 'exact', head: true })
         .eq("user_id", userId)
-        .gte("created_at", fiveMinutesAgo);
+        .gte("created_at", cutoff);
       
       setRecentImportCount(recent || 0);
 
