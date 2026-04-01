@@ -196,7 +196,8 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   },
 
   resume: () => {
-    set({ isPaused: false });
+    queueAnomalyDetector.resetSession();
+    set({ isPaused: false, isPausedByAnomaly: false });
   },
 
   refreshQueue: async () => {
