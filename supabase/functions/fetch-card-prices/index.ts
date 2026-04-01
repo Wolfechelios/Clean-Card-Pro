@@ -7,7 +7,8 @@ interface PricingResult {
   cgc9: number | null;
   cgc10: number | null;
   suggested: number | null;
-  // Original median values (before highest raw adjustment)
+  highestSold: number | null;
+  // Original median values
   medianRaw: number | null;
   medianPsa9: number | null;
   medianPsa10: number | null;
