@@ -677,16 +677,32 @@ function getMedian(prices: number[]): number | null {
 
 function extractPricesFromHtml(html: string): number[] {
   const prices: number[] = [];
-  const pricePatterns = [
-    /\$([0-9,]+\.\d{2})/g,
-    /data-price="([0-9.]+)"/g,
-  ];
 
-  for (const pattern of pricePatterns) {
-    let match;
-    while ((match = pattern.exec(html)) !== null) {
+  // Strategy 1: Target eBay sold-listing price spans (s-item__price)
+  const itemPricePattern = /s-item__price[^>]*>\s*\$([0-9,]+\.\d{2})/gi;
+  let match;
+  while ((match = itemPricePattern.exec(html)) !== null) {
+    const price = parseFloat(match[1].replace(/,/g, ""));
+    if (price > 0.01 && price < 100000) {
+      prices.push(price);
+    }
+  }
+
+  // Strategy 2: data-price attributes
+  const dataPricePattern = /data-price="([0-9.]+)"/g;
+  while ((match = dataPricePattern.exec(html)) !== null) {
+    const price = parseFloat(match[1]);
+    if (price > 0.01 && price < 100000) {
+      prices.push(price);
+    }
+  }
+
+  // Strategy 3: Fallback generic $XX.XX if nothing found from targeted patterns
+  if (prices.length === 0) {
+    const genericPattern = /\$([0-9,]+\.\d{2})/g;
+    while ((match = genericPattern.exec(html)) !== null) {
       const price = parseFloat(match[1].replace(/,/g, ""));
-      if (price > 0.01 && price < 100000) {
+      if (price > 0.50 && price < 100000) {
         prices.push(price);
       }
     }
