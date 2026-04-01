@@ -53,6 +53,7 @@ export type ProcessedCard = {
 export type ProcessorState = {
   isRunning: boolean;
   isPaused: boolean;
+  isPausedByAnomaly: boolean;
   queueCount: number;
   processedCount: number;
   errorCount: number;
