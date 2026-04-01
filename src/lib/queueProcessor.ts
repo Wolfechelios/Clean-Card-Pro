@@ -655,6 +655,7 @@ async function processJob(item: QueueItem): Promise<void> {
     player_name: playerName || (sportType ? cardName : null),
     image_url: imageUrl,
     price: rawPrice,
+    psa10Price,
     confidence,
     rarity,
     gameType,
