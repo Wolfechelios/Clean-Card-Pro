@@ -964,6 +964,7 @@ export default function RapidScanCamera() {
       gameType: card.gameType,
       sportType: card.sportType,
       value: card.value,
+      psa10Price: card.psa10Price,
       imageUrl: card.imageUrl,
       isInLibrary: card.isInLibrary,
       libraryQuantity: card.libraryQuantity,
