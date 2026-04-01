@@ -586,6 +586,7 @@ async function processJob(item: QueueItem): Promise<void> {
     sportType: sportType || undefined,
     value: rawPrice,
     psa10Price,
+    imageUrl,
     isInLibrary,
     libraryQuantity: ownedCount,
     dbId: existingId,
