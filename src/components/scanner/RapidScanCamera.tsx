@@ -1008,6 +1008,7 @@ export default function RapidScanCamera() {
           gameType: scan.gameType || undefined,
           sportType: scan.sportType || undefined,
           value: scan.price ?? undefined,
+          psa10Price: scan.psa10Price ?? undefined,
           imageUrl: scan.image_url,
           isInLibrary: scan.isInLibrary,
           libraryQuantity: scan.libraryQuantity,
