@@ -533,10 +533,14 @@ async function processJob(item: QueueItem): Promise<void> {
 
   // Fetch price (cached + timeout-protected)
   let rawPrice: number | null = null;
+  let psa10Price: number | null = null;
   try {
-    rawPrice = await cachedFetchPrice({ cardName, cardSet, cardNumber, gameType, sportType });
+    const priceResult = await cachedFetchPrice({ cardName, cardSet, cardNumber, gameType, sportType });
+    rawPrice = priceResult.raw;
+    psa10Price = priceResult.psa10;
   } catch {
     rawPrice = null;
+    psa10Price = null;
   }
 
   // Check library ownership
