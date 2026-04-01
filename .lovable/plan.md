@@ -1,52 +1,45 @@
 
 
-## Plan: Fix Pricing Pipeline and Add PSA10 to Rapid Scan
+## Plan: Fix Recent Scans Cap and Strengthen Anomaly Detection
 
-### Problem Analysis
+### Problems
 
-**Pricing pipeline** — The `fetch-card-prices` edge function already queries eBay sold listings, TCGPlayer, and PriceCharting in parallel. However:
-- A blanket 30% markup is applied to ALL source prices (eBay, TCGPlayer, PriceCharting), inflating results
-- The eBay "median" is computed from a generic `$XX.XX` regex across all HTML, which picks up non-sale prices (shipping, listing prices, etc.)
-- The response includes `medianRaw` and `raw` (highest) fields but the queue processor ignores them — it only takes `raw` or `suggested`
-- No clear separation between "median sold" and "highest sold" in the final result
+1. **Recent scans capped at 100**: `recentScans.ts` line 79 does `.slice(0, 100)`, so scanning 164 cards loses 64 entries when you navigate away and back.
 
-**Rapid scan PSA10** — The `ProcessedCard` type has no PSA10 field. The queue processor's `cachedFetchPrice` returns only the raw price. The `ScannedCard` interface and `ScannedCardList` UI have no PSA10 rendering.
+2. **Same name repeating despite anomaly detector**: The detector pauses at 5 consecutive, but:
+   - `checkAndResumeQueue()` calls `start()` which resets `isPaused: false`, so navigating away and back auto-resumes the broken queue
+   - The detector never calls `resetSession()` anywhere, so state accumulates but the pause is easily overridden
+   - After pause, the queue still has 100+ images queued with the same bad result — resuming just repeats the problem
 
 ### Changes
 
-**1. Improve pricing accuracy in `fetch-card-prices` edge function**
-- Remove the 30% markup from eBay sold prices — eBay sold listings ARE the market, no inflation needed
-- Remove the 30% markup from TCGPlayer market/lastSold prices — these are already accurate market values
-- Keep PriceCharting values as-is (no markup)
-- Fix the eBay price extraction to better target actual sold prices (look for `s-item__price` pattern used by eBay's sold listings page)
-- Add explicit `highestSold` field to the response: the max price from extracted sold prices
-- Ensure `medianRaw` represents the true median of sold prices across all sources
+**1. Increase recent scans cap (`src/lib/recentScans.ts`)**
+- Change `.slice(0, 100)` to `.slice(0, 500)` so large rapid scan sessions are fully preserved
 
-**2. Return PSA10 price through the queue processor**
-- Update `cachedFetchPrice` in `queueProcessor.ts` to return `{ raw, psa10 }` instead of just a number
-- Store the PSA10 value alongside the raw value in `ProcessedCard`
+**2. Make anomaly auto-pause stick across navigation (`src/lib/queueProcessor.ts`)**
+- Add a `isPausedByAnomaly: boolean` flag to the store
+- When anomaly detector triggers at 5+, set both `isPaused` and `isPausedByAnomaly` to true
+- Normal `resume()` clears both flags (user explicitly chose to resume)
 
-**3. Add PSA10 to rapid scan card display**
-- Add `psa10Price?: number | null` to `ProcessedCard` type in `queueProcessor.ts`
-- Add `psa10Price?: number | null` to `ScannedCard` interface in `ScannedCardList.tsx`
-- Update the `RapidScanCamera` sync `useEffect` to pass `psa10Price` from processed card to the card list
-- Also pass `psa10Price` through the `recent-scan-added` event sync path
-- Update `ScannedCardList` card row rendering to show PSA10 price next to the raw value (e.g., "PSA 10: $XX.XX" in a small badge below the main price)
+**3. Prevent auto-resume from overriding anomaly pause (`src/hooks/use-queue-auto-resume.ts`)**
+- Before calling `start()`, check if `isPausedByAnomaly` is true
+- If so, resume in paused state (set `isRunning: true` but keep `isPaused: true`) and show a toast explaining why
 
-**4. Update `recentScans` to carry PSA10**
-- Add `psa10Price` field to the recent scan data stored in `addRecentScan`
-- Read it back in the sync handler
+**4. Auto-stop (not just pause) after 10 consecutive same name (`src/lib/queueProcessor.ts`)**
+- At 10 consecutive identical identifications, call `stop()` instead of just pausing, and show an error toast
+- Mark remaining queued items as "error" status so they don't auto-resume
+
+**5. Reset anomaly detector on explicit queue start (`src/lib/queueProcessor.ts`)**
+- Call `queueAnomalyDetector.resetSession()` inside `start()` so a fresh scan session gets a clean slate
 
 ### Files
 
 | File | Action |
 |------|--------|
-| `supabase/functions/fetch-card-prices/index.ts` | Edit — remove 30% markups, improve eBay sold price extraction, add `highestSold` |
-| `src/lib/queueProcessor.ts` | Edit — extract PSA10 from price response, add to ProcessedCard |
-| `src/components/scanner/ScannedCardList.tsx` | Edit — add `psa10Price` to interface, render next to value |
-| `src/components/scanner/RapidScanCamera.tsx` | Edit — pass `psa10Price` through both sync paths |
-| `src/lib/recentScans.ts` | Edit — add `psa10Price` to recent scan data |
+| `src/lib/recentScans.ts` | Increase cap from 100 to 500 |
+| `src/lib/queueProcessor.ts` | Add `isPausedByAnomaly` flag, auto-stop at 10 consecutive, reset detector on start |
+| `src/hooks/use-queue-auto-resume.ts` | Respect anomaly pause on auto-resume |
 
 ### What stays unchanged
-All existing scanning, card recognition, library, history, microscope, foil trainer, import anomaly detection, and UI functionality remains intact.
+All scanning, pricing, camera, microscope, import, and UI functionality remains intact.
 
