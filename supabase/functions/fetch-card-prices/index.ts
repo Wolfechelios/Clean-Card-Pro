@@ -348,23 +348,21 @@ async function fetchPriceChartingPrices(cardName: string, cardSet: string | null
     const median = getMedian(prices);
     const baseRaw = gradedPrices.ungraded ?? median;
     
-    // Apply 30% for highest raw values
-    const markup = 1.30;
-    const applyMarkup = (val: number | null) => val ? parseFloat((val * markup).toFixed(2)) : null;
+    // No markup — use actual PriceCharting values
+    const round = (val: number | null) => val ? parseFloat(val.toFixed(2)) : null;
     
     return {
-      raw: applyMarkup(baseRaw),
-      psa9: applyMarkup(gradedPrices.psa9),
-      psa10: applyMarkup(gradedPrices.psa10),
-      cgc9: applyMarkup(gradedPrices.cgc9),
-      cgc10: applyMarkup(gradedPrices.cgc10),
-      suggested: applyMarkup(baseRaw),
-      // Original median values
-      medianRaw: baseRaw ? parseFloat(baseRaw.toFixed(2)) : null,
-      medianPsa9: gradedPrices.psa9 ? parseFloat(gradedPrices.psa9.toFixed(2)) : null,
-      medianPsa10: gradedPrices.psa10 ? parseFloat(gradedPrices.psa10.toFixed(2)) : null,
-      medianCgc9: gradedPrices.cgc9 ? parseFloat(gradedPrices.cgc9.toFixed(2)) : null,
-      medianCgc10: gradedPrices.cgc10 ? parseFloat(gradedPrices.cgc10.toFixed(2)) : null,
+      raw: round(baseRaw),
+      psa9: round(gradedPrices.psa9),
+      psa10: round(gradedPrices.psa10),
+      cgc9: round(gradedPrices.cgc9),
+      cgc10: round(gradedPrices.cgc10),
+      suggested: round(baseRaw),
+      medianRaw: round(baseRaw),
+      medianPsa9: round(gradedPrices.psa9),
+      medianPsa10: round(gradedPrices.psa10),
+      medianCgc9: round(gradedPrices.cgc9),
+      medianCgc10: round(gradedPrices.cgc10),
     };
   } catch (error) {
     console.error("Error fetching PriceCharting prices:", error);
