@@ -505,11 +505,25 @@ async function processJob(item: QueueItem): Promise<void> {
 
   // ─── Anomaly detection ───
   const anomaly = queueAnomalyDetector.trackIdentification(cardName);
-  if (anomaly.consecutiveCount === 5) {
+  if (anomaly.consecutiveCount >= 10) {
+    const { toast } = await import("sonner");
+    toast.error(`"${cardName}" identified 10+ times in a row — OCR is stuck. Queue stopped.`);
+    console.error(`[QueueProcessor] Auto-stopped: ${anomaly.message}`);
+    // Hard stop — mark remaining queued items as error
+    const remaining = await idbListMetaFast(1000);
+    for (const meta of remaining) {
+      if (meta.status === "queued") {
+        await idbUpdateMeta(meta.id, { status: "error", error: "Anomaly: repeated OCR failure" });
+      }
+    }
+    useQueueProcessor.getState().stop();
+    useQueueProcessor.setState({ isPausedByAnomaly: true });
+    return;
+  } else if (anomaly.consecutiveCount >= 5) {
     const { toast } = await import("sonner");
     toast.warning(anomaly.message);
-    // Auto-pause the queue
     store._setPaused(true);
+    useQueueProcessor.setState({ isPausedByAnomaly: true });
     console.warn(`[QueueProcessor] Auto-paused: ${anomaly.message}`);
   } else if (anomaly.isAnomaly) {
     const { toast } = await import("sonner");
