@@ -26,6 +26,7 @@ interface ScannedCard {
   gameType?: string;
   sportType?: string;
   value?: number | null;
+  psa10Price?: number | null;
   error?: string;
   dbId?: string;
   priceFetching?: boolean;
