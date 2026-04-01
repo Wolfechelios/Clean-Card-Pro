@@ -701,10 +701,16 @@ export async function checkAndResumeQueue(): Promise<void> {
   if (autoResumeChecked) return;
   autoResumeChecked = true;
 
+  const state = useQueueProcessor.getState();
+  if (state.isPausedByAnomaly) {
+    console.log(`[QueueProcessor] Skipping auto-resume — paused by anomaly detection`);
+    return;
+  }
+
   const queuedCount = await idbCountQueued();
   if (queuedCount > 0) {
     console.log(`[QueueProcessor] Found ${queuedCount} queued items, auto-resuming...`);
-    useQueueProcessor.getState().start();
+    state.start();
   }
 }
 

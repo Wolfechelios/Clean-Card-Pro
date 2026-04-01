@@ -8,9 +8,13 @@ import { checkAndResumeQueue, useQueueProcessor } from "@/lib/queueProcessor";
 import { toast } from "sonner";
 
 export function useQueueAutoResume() {
-  const { queueCount, isRunning, processedCount, errorCount } = useQueueProcessor();
+  const { queueCount, isRunning, processedCount, errorCount, isPausedByAnomaly } = useQueueProcessor();
 
   useEffect(() => {
+    if (isPausedByAnomaly) {
+      toast.warning("Scan queue paused — repeated OCR anomaly detected. Resume manually if needed.");
+      return;
+    }
     // Silently resume any pending items on mount (no popup)
     checkAndResumeQueue();
   }, []);
