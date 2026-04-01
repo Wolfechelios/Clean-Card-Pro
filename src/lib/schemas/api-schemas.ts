@@ -9,6 +9,7 @@ export const CardPricingSchema = z.object({
   cgc9: z.number().nullable(),
   cgc10: z.number().nullable(),
   suggested: z.number().nullable(),
+  highestSold: z.number().nullable().optional(),
   medianRaw: z.number().nullable(),
   medianPsa9: z.number().nullable(),
   medianPsa10: z.number().nullable(),
