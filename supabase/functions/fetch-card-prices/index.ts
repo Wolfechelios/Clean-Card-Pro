@@ -150,6 +150,10 @@ Deno.serve(async (req) => {
         ? (secondaryPrices.cgc10 ?? parseFloat((primaryRaw * 3.5).toFixed(2)))
         : secondaryPrices.cgc10,
       suggested: primaryRaw ?? secondaryPrices.suggested ?? secondaryPrices.raw,
+      // Highest sold across all sources
+      highestSold: Math.max(
+        ...[ebayPrices.raw, secondaryPrices.raw, tcgPlayerPrices.lastSold, tcgPlayerPrices.high].filter((v): v is number => v != null && v > 0)
+      ) || null,
       // Median values
       medianRaw: isTCG && primarySource === "TCGPlayer"
         ? tcgPlayerPrices.market ?? tcgPlayerPrices.lastSold
