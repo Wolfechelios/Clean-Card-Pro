@@ -242,19 +242,14 @@ async function fetchEbayPrices(searchQuery: string): Promise<PriceData> {
     const medianCgc9 = gradedPrices.cgc9 ?? parseFloat((median * 2.2).toFixed(2));
     const medianCgc10 = gradedPrices.cgc10 ?? parseFloat((median * 3.5).toFixed(2));
     
-    // Apply 30% for highest raw values
-    const markup = 1.30;
-    const adjustedMedian = median * markup;
-    
-    // Use extracted graded prices if available (with highest raw adjustment), otherwise estimate from adjusted raw
+    // No markup — eBay sold prices ARE the market
     return {
-      raw: parseFloat(adjustedMedian.toFixed(2)),
-      psa9: parseFloat((medianPsa9 * markup).toFixed(2)),
-      psa10: parseFloat((medianPsa10 * markup).toFixed(2)),
-      cgc9: parseFloat((medianCgc9 * markup).toFixed(2)),
-      cgc10: parseFloat((medianCgc10 * markup).toFixed(2)),
-      suggested: parseFloat(adjustedMedian.toFixed(2)),
-      // Original median values
+      raw: parseFloat(median.toFixed(2)),
+      psa9: parseFloat(medianPsa9.toFixed(2)),
+      psa10: parseFloat(medianPsa10.toFixed(2)),
+      cgc9: parseFloat(medianCgc9.toFixed(2)),
+      cgc10: parseFloat(medianCgc10.toFixed(2)),
+      suggested: parseFloat(median.toFixed(2)),
       medianRaw: parseFloat(median.toFixed(2)),
       medianPsa9: parseFloat(medianPsa9.toFixed(2)),
       medianPsa10: parseFloat(medianPsa10.toFixed(2)),
