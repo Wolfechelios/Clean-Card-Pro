@@ -19,7 +19,7 @@ export interface RecentScan {
   player_name: string | null;
   image_url: string;
   price: number | null;
-  psa10Price: number | null;
+  psa10Price?: number | null;
   confidence: number | null;
   scanned_at: number;
   isHighValue: boolean;
