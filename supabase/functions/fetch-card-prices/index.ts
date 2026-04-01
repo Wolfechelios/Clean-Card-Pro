@@ -664,17 +664,8 @@ function extractTCGPlayerPrices(html: string): {
   // If no last sold, use market price as fallback
   if (!lastSold && market) lastSold = market;
   
-  // Apply 30% markup to all TCGPlayer prices
-  const markup = 1.30;
-  const applyMarkup = (val: number | null) => val ? parseFloat((val * markup).toFixed(2)) : null;
-
-  return {
-    lastSold: applyMarkup(lastSold),
-    low: applyMarkup(low),
-    mid: applyMarkup(mid),
-    high: applyMarkup(high),
-    market: applyMarkup(market),
-  };
+  // No markup — return actual extracted prices
+  return { lastSold, low, mid, high, market };
 }
 
 function getMedian(prices: number[]): number | null {
