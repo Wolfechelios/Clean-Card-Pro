@@ -496,20 +496,17 @@ async function fetchTCGPlayerAPI(cardName: string, cardSet: string | null, cardN
     const marketPrice = first?.marketPrice ?? first?.lowestPrice ?? null;
     const lowPrice = first?.lowestPrice ?? first?.lowestListingPrice ?? null;
     
-    // Apply 30% markup
-    const markup = 1.30;
-    const applyMarkup = (val: number | null) => val ? parseFloat((val * markup).toFixed(2)) : null;
-
+    // No markup — use actual TCGPlayer values
     const productUrl = first?.productId 
       ? `https://www.tcgplayer.com/product/${first.productId}` 
       : fallbackUrl;
 
     return {
-      lastSold: applyMarkup(marketPrice),
-      low: applyMarkup(lowPrice),
-      mid: applyMarkup(first?.midPrice ?? null),
-      high: applyMarkup(first?.highPrice ?? null),
-      market: applyMarkup(marketPrice),
+      lastSold: marketPrice,
+      low: lowPrice,
+      mid: first?.midPrice ?? null,
+      high: first?.highPrice ?? null,
+      market: marketPrice,
       url: productUrl,
     };
   } catch (error) {
