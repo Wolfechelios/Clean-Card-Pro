@@ -53,6 +53,7 @@ export type ProcessedCard = {
 export type ProcessorState = {
   isRunning: boolean;
   isPaused: boolean;
+  isPausedByAnomaly: boolean;
   queueCount: number;
   processedCount: number;
   errorCount: number;
@@ -167,6 +168,7 @@ function scheduleQueueRefresh() {
 export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   isRunning: false,
   isPaused: false,
+  isPausedByAnomaly: false,
   queueCount: 0,
   processedCount: 0,
   errorCount: 0,
@@ -176,7 +178,8 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
 
   start: () => {
     if (get().isRunning) return;
-    set({ isRunning: true, isPaused: false });
+    queueAnomalyDetector.resetSession();
+    set({ isRunning: true, isPaused: false, isPausedByAnomaly: false });
     startWorkers();
   },
 
@@ -194,7 +197,8 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   },
 
   resume: () => {
-    set({ isPaused: false });
+    queueAnomalyDetector.resetSession();
+    set({ isPaused: false, isPausedByAnomaly: false });
   },
 
   refreshQueue: async () => {
@@ -501,11 +505,25 @@ async function processJob(item: QueueItem): Promise<void> {
 
   // ─── Anomaly detection ───
   const anomaly = queueAnomalyDetector.trackIdentification(cardName);
-  if (anomaly.consecutiveCount === 5) {
+  if (anomaly.consecutiveCount >= 10) {
+    const { toast } = await import("sonner");
+    toast.error(`"${cardName}" identified 10+ times in a row — OCR is stuck. Queue stopped.`);
+    console.error(`[QueueProcessor] Auto-stopped: ${anomaly.message}`);
+    // Hard stop — mark remaining queued items as error
+    const remaining = await idbListMetaFast(1000);
+    for (const meta of remaining) {
+      if (meta.status === "queued") {
+        await idbUpdateMeta(meta.id, { status: "error", error: "Anomaly: repeated OCR failure" });
+      }
+    }
+    useQueueProcessor.getState().stop();
+    useQueueProcessor.setState({ isPausedByAnomaly: true });
+    return;
+  } else if (anomaly.consecutiveCount >= 5) {
     const { toast } = await import("sonner");
     toast.warning(anomaly.message);
-    // Auto-pause the queue
     store._setPaused(true);
+    useQueueProcessor.setState({ isPausedByAnomaly: true });
     console.warn(`[QueueProcessor] Auto-paused: ${anomaly.message}`);
   } else if (anomaly.isAnomaly) {
     const { toast } = await import("sonner");
@@ -683,10 +701,16 @@ export async function checkAndResumeQueue(): Promise<void> {
   if (autoResumeChecked) return;
   autoResumeChecked = true;
 
+  const state = useQueueProcessor.getState();
+  if (state.isPausedByAnomaly) {
+    console.log(`[QueueProcessor] Skipping auto-resume — paused by anomaly detection`);
+    return;
+  }
+
   const queuedCount = await idbCountQueued();
   if (queuedCount > 0) {
     console.log(`[QueueProcessor] Found ${queuedCount} queued items, auto-resuming...`);
-    useQueueProcessor.getState().start();
+    state.start();
   }
 }
 

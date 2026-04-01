@@ -76,7 +76,7 @@ export function addRecentScan(scan: Omit<RecentScan, "scanned_at" | "isHighValue
       playJackpotSound();
     }
     
-    const updated = [newScan, ...existing].slice(0, 100);
+    const updated = [newScan, ...existing].slice(0, 500);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     return true;
   } catch (e) {
