@@ -39,6 +39,7 @@ export type ProcessedCard = {
   gameType?: string;
   sportType?: string;
   value: number | null;
+  psa10Price: number | null;
   imageUrl: string;
   isInLibrary: boolean;
   libraryQuantity: number;
