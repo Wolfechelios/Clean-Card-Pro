@@ -167,6 +167,7 @@ function scheduleQueueRefresh() {
 export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   isRunning: false,
   isPaused: false,
+  isPausedByAnomaly: false,
   queueCount: 0,
   processedCount: 0,
   errorCount: 0,
