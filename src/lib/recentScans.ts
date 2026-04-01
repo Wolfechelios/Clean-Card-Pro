@@ -4,7 +4,7 @@ import { playJackpotBeep } from "@/lib/audioBeeps";
 
 const STORAGE_KEY = "recent_scans";
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
-const VALUE_THRESHOLD = 20; // USD
+const VALUE_THRESHOLD = 15; // USD
 const JACKPOT_THRESHOLD = 50; // USD - plays special sound
 
 export function playJackpotSound(): void {

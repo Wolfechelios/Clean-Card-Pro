@@ -66,7 +66,7 @@ import { CameraDeviceSelector } from "./CameraDeviceSelector";
 import { WhiteBalanceControl } from "./WhiteBalanceControl";
 import { useGpuOffloadStream } from "@/hooks/use-gpu-offload-stream";
 import { makeVideoFrameEncoder } from "@/lib/gpuOffload/frameEncoder";
-import { playKachingBeep, playShutterBeep } from "@/lib/audioBeeps";
+import { playKachingBeep, playShutterBeep, playJackpotBeep } from "@/lib/audioBeeps";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TUNING
@@ -974,8 +974,10 @@ export default function RapidScanCamera() {
       manufacturer: card.manufacturer,
     });
 
-    // Play ka-ching sound for cards worth $10+
-    if (typeof card.value === "number" && card.value >= 10) {
+    // Play sound for high-value cards
+    if (typeof card.value === "number" && card.value >= 50) {
+      playJackpotBeep();
+    } else if (typeof card.value === "number" && card.value >= 15) {
       playKachingBeep();
     }
 
@@ -988,6 +990,42 @@ export default function RapidScanCamera() {
 
     requestRefreshMeta();
   }, [queueProcessor.lastProcessedCard, updateCard, requestRefreshMeta]);
+
+  // Sync cards from recent-scan-added events (background queue processing)
+  useEffect(() => {
+    const handleRecentScanAdded = () => {
+      const recentScans = getRecentScans();
+      recentScans.forEach((scan) => {
+        updateCard(scan.id, {
+          status: "completed",
+          cardName: scan.card_name,
+          cardSet: scan.card_set || undefined,
+          cardNumber: scan.card_number || undefined,
+          playerName: scan.player_name || undefined,
+          rarity: scan.rarity || undefined,
+          gameType: scan.gameType || undefined,
+          sportType: scan.sportType || undefined,
+          value: scan.price ?? undefined,
+          imageUrl: scan.image_url,
+          isInLibrary: scan.isInLibrary,
+          libraryQuantity: scan.libraryQuantity,
+          dbId: scan.dbId || undefined,
+          priceFetching: false,
+          year: scan.year || undefined,
+          team: scan.team || undefined,
+          manufacturer: scan.manufacturer || undefined,
+        });
+      });
+    };
+
+    window.addEventListener("recent-scan-added", handleRecentScanAdded);
+    // Also hydrate on mount from any scans processed while unmounted
+    handleRecentScanAdded();
+
+    return () => {
+      window.removeEventListener("recent-scan-added", handleRecentScanAdded);
+    };
+  }, [updateCard]);
 
   // Sync processing state from global processor
   useEffect(() => {
