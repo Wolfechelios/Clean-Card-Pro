@@ -974,8 +974,10 @@ export default function RapidScanCamera() {
       manufacturer: card.manufacturer,
     });
 
-    // Play ka-ching sound for cards worth $10+
-    if (typeof card.value === "number" && card.value >= 10) {
+    // Play sound for high-value cards
+    if (typeof card.value === "number" && card.value >= 50) {
+      playJackpotBeep();
+    } else if (typeof card.value === "number" && card.value >= 15) {
       playKachingBeep();
     }
 
