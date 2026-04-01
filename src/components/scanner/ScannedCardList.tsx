@@ -26,6 +26,7 @@ interface ScannedCard {
   gameType?: string;
   sportType?: string;
   value?: number | null;
+  psa10Price?: number | null;
   error?: string;
   dbId?: string;
   priceFetching?: boolean;
@@ -462,9 +463,16 @@ export const ScannedCardList = ({
             {card.priceFetching ? (
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             ) : card.value != null && card.value > 0 ? (
-              <p className={`font-bold text-base ${card.value >= 20 ? "text-primary" : "text-success"}`}>
-                ${card.value.toFixed(2)}
-              </p>
+              <div className="flex flex-col items-end">
+                <p className={`font-bold text-base ${card.value >= 20 ? "text-primary" : "text-success"}`}>
+                  ${card.value.toFixed(2)}
+                </p>
+                {card.psa10Price != null && card.psa10Price > 0 && (
+                  <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 mt-0.5 font-mono text-muted-foreground">
+                    PSA 10: ${card.psa10Price.toFixed(2)}
+                  </Badge>
+                )}
+              </div>
             ) : (
               <p className="text-[11px] text-muted-foreground">—</p>
             )}

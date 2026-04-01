@@ -86,6 +86,7 @@ type ScannedCard = {
   gameType?: string;
   sportType?: string;
   value?: number | null;
+  psa10Price?: number | null;
   error?: string;
   dbId?: string;
   priceFetching?: boolean;
@@ -964,6 +965,7 @@ export default function RapidScanCamera() {
       gameType: card.gameType,
       sportType: card.sportType,
       value: card.value,
+      psa10Price: card.psa10Price,
       imageUrl: card.imageUrl,
       isInLibrary: card.isInLibrary,
       libraryQuantity: card.libraryQuantity,
@@ -1006,6 +1008,7 @@ export default function RapidScanCamera() {
           gameType: scan.gameType || undefined,
           sportType: scan.sportType || undefined,
           value: scan.price ?? undefined,
+          psa10Price: scan.psa10Price ?? undefined,
           imageUrl: scan.image_url,
           isInLibrary: scan.isInLibrary,
           libraryQuantity: scan.libraryQuantity,

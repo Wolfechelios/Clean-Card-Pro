@@ -39,6 +39,7 @@ export type ProcessedCard = {
   gameType?: string;
   sportType?: string;
   value: number | null;
+  psa10Price: number | null;
   imageUrl: string;
   isInLibrary: boolean;
   libraryQuantity: number;
@@ -262,14 +263,19 @@ async function cachedFetchPrice(args: {
   cardNumber: string | null;
   gameType: string | null;
   sportType: string | null;
-}): Promise<number | null> {
+}): Promise<{ raw: number | null; psa10: number | null }> {
   const key = priceKey(args);
 
   const cached = getCachedPrice(key);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) return { raw: cached, psa10: null };
 
   const existing = priceInFlight.get(key);
-  if (existing) return existing;
+  if (existing) {
+    const raw = await existing;
+    return { raw, psa10: null };
+  }
+
+  let psa10Value: number | null = null;
 
   const p = (async () => {
     const res = await invokeEdgeFunction<any>(
@@ -287,6 +293,7 @@ async function cachedFetchPrice(args: {
     let v: number | null = null;
     if (!res.error && res.data) {
       v = money((res.data as any).raw ?? (res.data as any).suggested ?? null);
+      psa10Value = money((res.data as any).psa10 ?? null);
     }
 
     priceCache.set(key, { ts: Date.now(), value: v });
@@ -296,7 +303,8 @@ async function cachedFetchPrice(args: {
   });
 
   priceInFlight.set(key, p);
-  return p;
+  const raw = await p;
+  return { raw, psa10: psa10Value };
 }
 
 async function getUserId(): Promise<string | null> {
@@ -525,10 +533,14 @@ async function processJob(item: QueueItem): Promise<void> {
 
   // Fetch price (cached + timeout-protected)
   let rawPrice: number | null = null;
+  let psa10Price: number | null = null;
   try {
-    rawPrice = await cachedFetchPrice({ cardName, cardSet, cardNumber, gameType, sportType });
+    const priceResult = await cachedFetchPrice({ cardName, cardSet, cardNumber, gameType, sportType });
+    rawPrice = priceResult.raw;
+    psa10Price = priceResult.psa10;
   } catch {
     rawPrice = null;
+    psa10Price = null;
   }
 
   // Check library ownership
@@ -573,6 +585,7 @@ async function processJob(item: QueueItem): Promise<void> {
     gameType: gameType || undefined,
     sportType: sportType || undefined,
     value: rawPrice,
+    psa10Price,
     imageUrl,
     isInLibrary,
     libraryQuantity: ownedCount,
@@ -642,6 +655,7 @@ async function processJob(item: QueueItem): Promise<void> {
     player_name: playerName || (sportType ? cardName : null),
     image_url: imageUrl,
     price: rawPrice,
+    psa10Price,
     confidence,
     rarity,
     gameType,
