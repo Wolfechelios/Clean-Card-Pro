@@ -99,7 +99,8 @@ export function RecentScansBox() {
               key={scan.id}
               className={cn(
                 "flex items-center gap-3 text-sm p-2 rounded",
-                scan.isHighValue && "bg-primary/10 border border-primary/20"
+                scan.isHighValue && "bg-primary/10 border border-primary/20",
+                isPremiumYugiohSet(scan.card_set) && "border-amber-400 bg-amber-500/10 ring-1 ring-amber-400/50"
               )}
             >
               {scan.image_url && (

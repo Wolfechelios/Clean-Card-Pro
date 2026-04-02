@@ -498,6 +498,13 @@ export const ScannedCardList = ({
             </Badge>
           )}
 
+          {isPremiumYugiohSet(card.cardSet) && (
+            <Badge className="text-[10px] px-1.5 py-0 h-5 bg-amber-500 text-white border-0">
+              <Crown className="h-2.5 w-2.5 mr-0.5" />
+              TOP SET
+            </Badge>
+          )}
+
           {card.gameType && (
             <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 text-muted-foreground">
               <Gamepad2 className="h-2.5 w-2.5 mr-0.5" />
