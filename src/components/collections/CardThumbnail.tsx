@@ -55,6 +55,7 @@ export function CardThumbnail({
   const [isLookingUp, setIsLookingUp] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [currentImageUrl, setCurrentImageUrl] = useState(thumbnailUrl || imageUrl);
+  const isPremium = isPremiumYugiohSet(cardSet);
 
   useEffect(() => {
     const newUrl = thumbnailUrl || imageUrl;
