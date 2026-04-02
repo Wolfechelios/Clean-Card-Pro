@@ -7,6 +7,8 @@ import { toast } from "sonner";
 import { getLocalImageUrl } from "@/lib/offlineManager";
 import { GradedPriceChip } from "@/components/pricing/GradedPriceChip";
 import { TCGPlayerPriceChip } from "@/components/pricing/TCGPlayerPriceChip";
+import { isPremiumYugiohSet } from "@/lib/premiumSets";
+import { Crown } from "lucide-react";
 
 interface CardThumbnailProps {
   id: string;

@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Clock, DollarSign, TrendingUp } from "lucide-react";
 import { getRecentScans, getHighValueScans, getRecentScanStats, type RecentScan } from "@/lib/recentScans";
 import { cn } from "@/lib/utils";
+import { isPremiumYugiohSet } from "@/lib/premiumSets";
 
 export function RecentScansBox() {
   const [scans, setScans] = useState<RecentScan[]>([]);
