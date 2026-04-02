@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Clock, DollarSign, TrendingUp } from "lucide-react";
 import { getRecentScans, getHighValueScans, getRecentScanStats, type RecentScan } from "@/lib/recentScans";
 import { cn } from "@/lib/utils";
+import { isPremiumYugiohSet } from "@/lib/premiumSets";
 
 export function RecentScansBox() {
   const [scans, setScans] = useState<RecentScan[]>([]);
@@ -98,7 +99,8 @@ export function RecentScansBox() {
               key={scan.id}
               className={cn(
                 "flex items-center gap-3 text-sm p-2 rounded",
-                scan.isHighValue && "bg-primary/10 border border-primary/20"
+                scan.isHighValue && "bg-primary/10 border border-primary/20",
+                isPremiumYugiohSet(scan.card_set) && "border-amber-400 bg-amber-500/10 ring-1 ring-amber-400/50"
               )}
             >
               {scan.image_url && (

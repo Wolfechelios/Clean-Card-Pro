@@ -7,6 +7,8 @@ import { toast } from "sonner";
 import { getLocalImageUrl } from "@/lib/offlineManager";
 import { GradedPriceChip } from "@/components/pricing/GradedPriceChip";
 import { TCGPlayerPriceChip } from "@/components/pricing/TCGPlayerPriceChip";
+import { isPremiumYugiohSet } from "@/lib/premiumSets";
+import { Crown } from "lucide-react";
 
 interface CardThumbnailProps {
   id: string;
@@ -53,6 +55,7 @@ export function CardThumbnail({
   const [isLookingUp, setIsLookingUp] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [currentImageUrl, setCurrentImageUrl] = useState(thumbnailUrl || imageUrl);
+  const isPremium = isPremiumYugiohSet(cardSet);
 
   useEffect(() => {
     const newUrl = thumbnailUrl || imageUrl;
@@ -130,10 +133,20 @@ export function CardThumbnail({
         "bg-card border border-border",
         "transition-all duration-200",
         "hover:shadow-lg hover:border-primary/40 hover:-translate-y-0.5 active:scale-95",
-        isSelected && "ring-2 ring-primary border-primary"
+        isSelected && "ring-2 ring-primary border-primary",
+        isPremium && !isSelected && "ring-2 ring-amber-400 border-amber-400 shadow-[0_0_12px_-2px_hsl(45,93%,47%,0.3)]"
       )}
       onClick={onClick}
     >
+      {/* Premium set badge */}
+      {isPremium && (
+        <div className="absolute top-1.5 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+          <div className="flex items-center gap-0.5 bg-amber-500/90 text-white text-[8px] font-bold px-1.5 py-[1px] rounded-full shadow">
+            <Crown className="h-2.5 w-2.5" />
+            TOP SET
+          </div>
+        </div>
+      )}
       {/* Selection checkbox */}
       <div className="absolute top-1.5 left-1.5 z-10" onClick={(e) => e.stopPropagation()}>
         <Checkbox

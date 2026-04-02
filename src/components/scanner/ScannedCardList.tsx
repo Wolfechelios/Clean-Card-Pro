@@ -8,11 +8,13 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Edit2, DollarSign, Hash, Sparkles, Trash2, Loader2, Library, Plus, List, Copy, Check, User, Gamepad2, Download, ImageIcon, Package } from "lucide-react";
+import { Edit2, DollarSign, Hash, Sparkles, Trash2, Loader2, Library, Plus, List, Copy, Check, User, Gamepad2, Download, ImageIcon, Package, Crown } from "lucide-react";
+import { isPremiumYugiohSet } from "@/lib/premiumSets";
 import JSZip from "jszip";
 import { toPublicImageUrl } from "@/lib/storage/getPublicImageUrl";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 interface ScannedCard {
   id: string;
@@ -419,9 +421,11 @@ export const ScannedCardList = ({
         onReorder(next);
         setDragId(null);
       }}
-      className={`flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors ${
-        scanMode && !card.dbId ? "border-amber-400 dark:border-amber-600" : ""
-      }`}
+      className={cn(
+        "flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors",
+        scanMode && !card.dbId && "border-amber-400 dark:border-amber-600",
+        isPremiumYugiohSet(card.cardSet) && "border-amber-400 bg-amber-500/5 shadow-[0_0_8px_-2px_hsl(45,93%,47%,0.25)]"
+      )}
     >
       <Checkbox
         checked={selectedIds.has(card.id)}
@@ -491,6 +495,13 @@ export const ScannedCardList = ({
             <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5">
               <Sparkles className="h-2.5 w-2.5 mr-0.5" />
               {card.rarity}
+            </Badge>
+          )}
+
+          {isPremiumYugiohSet(card.cardSet) && (
+            <Badge className="text-[10px] px-1.5 py-0 h-5 bg-amber-500 text-white border-0">
+              <Crown className="h-2.5 w-2.5 mr-0.5" />
+              TOP SET
             </Badge>
           )}
 
