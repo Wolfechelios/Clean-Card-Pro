@@ -420,9 +420,11 @@ export const ScannedCardList = ({
         onReorder(next);
         setDragId(null);
       }}
-      className={`flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors ${
-        scanMode && !card.dbId ? "border-amber-400 dark:border-amber-600" : ""
-      }`}
+      className={cn(
+        "flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors",
+        scanMode && !card.dbId && "border-amber-400 dark:border-amber-600",
+        isPremiumYugiohSet(card.cardSet) && "border-amber-400 bg-amber-500/5 shadow-[0_0_8px_-2px_hsl(45,93%,47%,0.25)]"
+      )}
     >
       <Checkbox
         checked={selectedIds.has(card.id)}
