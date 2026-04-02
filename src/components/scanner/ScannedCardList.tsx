@@ -14,6 +14,7 @@ import JSZip from "jszip";
 import { toPublicImageUrl } from "@/lib/storage/getPublicImageUrl";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 interface ScannedCard {
   id: string;
