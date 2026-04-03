@@ -196,7 +196,8 @@ export async function hybridIdentifyCard(
     forceCloud?: boolean;
     forceGpu?: boolean;
     skipOfflineGuard?: boolean;
-    usePaddleOCR?: boolean; // Enable PaddleOCR preprocessing for enhanced accuracy
+    usePaddleOCR?: boolean;
+    ocrText?: string; // Pre-extracted OCR text from Z.AI or other source
   } = {}
 ): Promise<HybridIdentifyResult> {
   const {
@@ -206,11 +207,12 @@ export async function hybridIdentifyCard(
     forceGpu = false,
     skipOfflineGuard = false,
     usePaddleOCR = false,
+    ocrText: preOcrText,
   } = options;
 
   // Optional PaddleOCR preprocessing
-  let ocrText: string | null = null;
-  if (usePaddleOCR) {
+  let ocrText: string | null = preOcrText || null;
+  if (!ocrText && usePaddleOCR) {
     ocrText = await runPaddleOCRPreprocess(imageUrl);
   }
 

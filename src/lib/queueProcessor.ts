@@ -485,14 +485,58 @@ async function processJob(item: QueueItem): Promise<void> {
     .getPublicUrl(filePath);
   const imageUrl = publicUrlData.publicUrl;
 
+  // ─── Z.AI OCR pre-processing (Tier 2: focused text extraction) ───
+  let ocrText: string | null = null;
+  let ocrSetCode: string | null = null;
+  let ocrCardNumber: string | null = null;
+  let ocrConfidence = 0;
+
+  try {
+    const ocrResult = await withTimeout(
+      supabase.functions.invoke("zai-ocr", {
+        body: { imageUrl, mode: "meta" },
+      }),
+      8000,
+      "Z.AI OCR"
+    );
+
+    if (ocrResult.data && !ocrResult.error) {
+      const ocr = ocrResult.data;
+      ocrText = ocr.text || null;
+      ocrSetCode = ocr.setCode || null;
+      ocrCardNumber = ocr.cardNumber || null;
+      ocrConfidence = ocr.confidence || 0;
+      console.log(`[QueueProcessor] Z.AI OCR: "${ocrText?.substring(0, 60)}" conf=${ocrConfidence} set=${ocrSetCode} num=${ocrCardNumber}`);
+    }
+  } catch (ocrErr) {
+    console.warn("[QueueProcessor] Z.AI OCR skipped:", ocrErr);
+    // Non-fatal — proceed with existing flow
+  }
+
   // Identify card using hybrid routing (cloud or local LLM)
+  // Pass OCR text to boost identification accuracy
   let identify: any;
   try {
     const result = await hybridIdentifyCard(imageUrl, {
       cloudFunction: "rapid-card-identify",
       skipOfflineGuard: false,
+      ocrText: ocrText || undefined,
     });
     identify = result.cardData;
+
+    // If Z.AI OCR found structured data, enrich/override low-confidence AI fields
+    if (ocrConfidence >= 0.5) {
+      if (ocrCardNumber && (!identify?.card_number || identify.confidence < 0.7)) {
+        identify.card_number = ocrCardNumber;
+      }
+      if (ocrSetCode && (!identify?.card_set || identify.confidence < 0.7)) {
+        // Only set if the AI didn't already find a set
+        if (!identify?.card_set) {
+          identify.card_set = ocrSetCode;
+        }
+      }
+    }
+
     console.log(`[QueueProcessor] Card identified via ${result.source}:`, identify?.card_name);
   } catch (e: any) {
     if (e?.message?.includes("max attempts reached")) {
