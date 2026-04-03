@@ -1,40 +1,79 @@
 
 
-## Plan: Highlight Cards from Top 10 Yu-Gi-Oh! Sets
+## Plan: Add Z.AI OCR as a Server-Side Pipeline Stage
 
-### What
-Create a shared constant list of premium Yu-Gi-Oh! set codes and apply a gold/amber highlight border + badge to any card matching those sets across all card display surfaces.
+### Overview
 
-### Premium Sets List
-LOB, PGD, IOC, DCR (Dark Crisis), MRD, BCTP, FET (Flaming Eternity), DB1, DB2, STOR (Storm of Ragnarok), SOI
+Add Z.AI's `glm-ocr` model as a focused OCR pre-processing step in the card identification pipeline. It runs server-side via a new edge function, called on cropped title/metadata regions before the main AI identification pass. This gives higher-quality OCR text to the identification model, reducing misidentifications (the root cause of repeated same-name results).
 
-Will match both set codes and full set names via case-insensitive substring matching (e.g. "Legend of Blue-Eyes" or "LOB").
+### Architecture
+
+```text
+Capture image
+  │
+  ▼
+Upload to storage
+  │
+  ▼
+NEW: Edge function "zai-ocr" — crops title + bottom metadata,
+     calls Z.AI layout_parsing, returns structured text + confidence
+  │
+  ▼
+Pass OCR text into rapid-card-identify / enhanced-card-identify
+  │
+  ▼
+If confidence still low → existing multimodal AI fallback
+  │
+  ▼
+Price lookup → save
+```
 
 ### Changes
 
-**1. New utility file `src/lib/premiumSets.ts`**
-- Export a `PREMIUM_YUGIOH_SETS` array of `{ code, name }` objects for all 10 sets
-- Export `isPremiumYugiohSet(cardSet: string | null | undefined): boolean` — checks if the card set matches any code or name (case-insensitive substring)
+**1. Store Z.AI API key as a secret**
+- Use `add_secret` tool to request `ZAI_API_KEY` from user
+- Key is used only server-side in the edge function
 
-**2. `src/components/collections/CardThumbnail.tsx`**
-- Import `isPremiumYugiohSet`
-- Add a gold/amber ring + subtle gradient glow when `isPremiumYugiohSet(cardSet)` is true
-- Add a small "TOP SET" or crown badge in the corner
+**2. New edge function `supabase/functions/zai-ocr/index.ts`**
+- Accepts `{ imageUrl, mode: "title" | "meta" | "full" }`
+- Fetches the image, converts to base64
+- Calls `https://api.z.ai/api/paas/v4/layout_parsing` with `model: "glm-ocr"`
+- Extracts text from `md_results`, layout boxes from `layout_details`
+- Normalizes OCR text (collapse whitespace, fix common misreads like `|` → `I`)
+- Extracts structured fields via regex: collector number (`\d{1,3}/\d{1,3}`), set code (`[A-Z]{2,5}-[A-Z]{0,2}\d{3}`)
+- Returns `{ text, lines, boxes, collectorNumber, setCode, confidence, requestId }`
 
-**3. `src/components/scanner/ScannedCardList.tsx`**
-- Import `isPremiumYugiohSet`
-- In `renderCardRow`, add gold left-border or background tint + a "Premium Set" badge when matched
+**3. Update `src/lib/queueProcessor.ts` — processJob()**
+- After upload, before `hybridIdentifyCard`, call `supabase.functions.invoke("zai-ocr", { body: { imageUrl, mode: "meta" } })`
+- If Z.AI returns a collector number + set code with high confidence, skip the expensive multimodal AI call entirely and go straight to DB matching + pricing
+- If Z.AI returns partial text, pass it as `ocrText` to `hybridIdentifyCard` to boost the AI's accuracy
+- If Z.AI fails or returns empty, proceed with the existing flow (no regression)
 
-**4. `src/components/scanner/RecentScansBox.tsx`**
-- Import `isPremiumYugiohSet`
-- Add gold highlight to matching scan rows
+**4. Update `src/lib/hybridCardIdentify.ts`**
+- Already accepts `ocrText` parameter and passes it to cloud functions — no change needed
+
+**5. Update `supabase/functions/rapid-card-identify/index.ts`**
+- Already accepts `ocrText` in request body and includes it in the AI prompt — no change needed
+
+### Confidence-based routing logic (in queueProcessor)
+
+```text
+Z.AI OCR result:
+  ├─ collectorNumber + setCode found → DB lookup directly (skip AI) → confidence = "strong"
+  ├─ partial text (name visible, no number) → pass ocrText to hybridIdentifyCard → confidence = "medium"
+  └─ empty / error → proceed with existing flow unchanged → confidence = "none"
+```
 
 ### Files
 
 | File | Action |
 |------|--------|
-| `src/lib/premiumSets.ts` | Create — set list + matcher function |
-| `src/components/collections/CardThumbnail.tsx` | Edit — gold border + badge |
-| `src/components/scanner/ScannedCardList.tsx` | Edit — gold row highlight + badge |
-| `src/components/scanner/RecentScansBox.tsx` | Edit — gold row highlight |
+| `supabase/functions/zai-ocr/index.ts` | Create — Z.AI OCR proxy with text normalization |
+| `src/lib/queueProcessor.ts` | Edit — call zai-ocr before identification, use structured results for direct DB match |
+
+### What stays unchanged
+All existing scanning, pricing, camera, microscope, anomaly detection, premium set highlighting, and UI functionality remains intact. The Z.AI OCR is additive — if it fails, the existing pipeline runs unmodified.
+
+### Prerequisites
+- User must provide `ZAI_API_KEY` secret before the edge function can work
 
