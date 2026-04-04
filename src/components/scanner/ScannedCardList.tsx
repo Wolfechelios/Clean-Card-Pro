@@ -91,6 +91,7 @@ export const ScannedCardList = ({
   onReorder,
 }: ScannedCardListProps) => {
   const [editingCard, setEditingCard] = useState<ScannedCard | null>(null);
+  const [previewCard, setPreviewCard] = useState<ScannedCard | null>(null);
   const [editForm, setEditForm] = useState({
     cardName: "",
     cardSet: "",
