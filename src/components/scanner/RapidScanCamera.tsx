@@ -1544,6 +1544,8 @@ export default function RapidScanCamera() {
                 {!isNative && cameraOn && (
                   <div className="flex gap-3">
                     <Button
+                      onTouchStart={() => warmUpAudio()}
+                      onMouseDown={() => warmUpAudio()}
                       onClick={captureAndEnqueue}
                       disabled={!cameraOn || busyCapture || autoTimerActive}
                       size="lg"
