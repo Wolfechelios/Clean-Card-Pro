@@ -1,29 +1,34 @@
 
 
-## Plan: Fix Shutter Sound Not Playing During Rapid Scan
+## Plan: Add Large Card Image Preview on Tap in Rapid Scan List
 
-### Root Cause
+### Problem
+When you tap a card in the scanned card list at the bottom of rapid scan, there's no way to see a larger version of the card image. The thumbnail is only 56×80px (`w-14 h-20`).
 
-Mobile browsers require `AudioContext.resume()` to complete (it returns a Promise) during a direct user gesture before any sound can play. The current code calls `resume()` but doesn't `await` it — the oscillator is scheduled immediately while the context is still suspended, so the first capture (and often subsequent ones) produces no sound. Additionally, the gain (0.25) is very quiet on phone speakers.
+### Solution
+Add a tap-to-preview behavior: tapping the card thumbnail opens a full-screen overlay/dialog showing the card image at a much larger size, along with the card name and key details.
 
 ### Changes
 
-**1. `src/lib/audioBeeps.ts` — warm-up + async resume + louder sound**
+**`src/components/scanner/ScannedCardList.tsx`**
 
-- Add an exported `warmUpAudio()` function that creates and resumes the AudioContext (called once on first user tap)
-- Make `ensureResumed()` synchronous-safe by checking state and scheduling a silent buffer to "unlock" the context
-- Increase shutter gain from 0.25 → 0.5 and extend duration from 100ms → 150ms for audibility on phone speakers
-- Add a silent "unlock" oscillator trick: play a zero-gain oscillator immediately on warm-up to satisfy the browser's gesture requirement
+1. Add a `previewCard` state (`ScannedCard | null`) to track which card's image is being previewed
+2. Make the thumbnail image clickable — on tap, set `previewCard` to that card
+3. Add a Dialog/overlay at the bottom of the component that renders:
+   - The card image at near-full-screen size (max-w-sm, max-h-[80vh], object-contain)
+   - Card name, set, number, and price as a small overlay caption
+   - Tap anywhere or X button to dismiss
+4. Keep the existing checkbox, edit, and delete interactions unchanged — only the image itself triggers the preview
 
-**2. `src/components/scanner/RapidScanCamera.tsx` — warm up audio on first interaction**
-
-- Call `warmUpAudio()` inside the "Start Camera" button handler (this is a direct user gesture, satisfying browser autoplay policy)
-- Also call `warmUpAudio()` on the capture button's `onTouchStart`/`onMouseDown` (before the async capture logic runs) to ensure the context is resumed by the time the shutter beep fires
+### Technical Details
+- New state: `const [previewCard, setPreviewCard] = useState<ScannedCard | null>(null)`
+- The thumbnail `<img>` gets an `onClick={() => setPreviewCard(card)}` with `cursor-pointer`
+- Preview renders inside a `<Dialog>` with `DialogContent` sized for large image display
+- Image source uses same logic: `card.imageUrl ? toPublicImageUrl(card.imageUrl) : card.preview`
 
 ### Files
 
 | File | Action |
 |------|--------|
-| `src/lib/audioBeeps.ts` | Edit — add `warmUpAudio()`, increase gain, await resume |
-| `src/components/scanner/RapidScanCamera.tsx` | Edit — call `warmUpAudio()` on camera start and capture touch |
+| `src/components/scanner/ScannedCardList.tsx` | Edit — add preview state, clickable thumbnail, large image dialog |
 
