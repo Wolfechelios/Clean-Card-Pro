@@ -492,6 +492,7 @@ export default function RapidScanCamera() {
   // ───────────────────────────────────────────────────────────────────────────
 
   async function startCamera() {
+    warmUpAudio(); // unlock AudioContext on user gesture
     if (cameraOn || startingCameraRef.current) return;
     
     startingCameraRef.current = true;
