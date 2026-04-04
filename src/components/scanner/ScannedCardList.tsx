@@ -436,7 +436,7 @@ export const ScannedCardList = ({
       />
 
       <div className="relative shrink-0">
-        <img src={card.imageUrl ? toPublicImageUrl(card.imageUrl) : card.preview} alt={card.cardName || "Scanned card"} className={LIST_THUMB_CLASS} onError={(e) => { if (card.preview && (e.target as HTMLImageElement).src !== card.preview) (e.target as HTMLImageElement).src = card.preview; }} />
+        <img src={card.imageUrl ? toPublicImageUrl(card.imageUrl) : card.preview} alt={card.cardName || "Scanned card"} className={cn(LIST_THUMB_CLASS, "cursor-pointer hover:opacity-80 transition-opacity")} onClick={() => setPreviewCard(card)} onError={(e) => { if (card.preview && (e.target as HTMLImageElement).src !== card.preview) (e.target as HTMLImageElement).src = card.preview; }} />
 
         {card.libraryQuantity !== undefined && card.libraryQuantity > 0 && (
           <div className="absolute -top-1.5 -right-1.5 bg-primary text-primary-foreground text-[9px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 shadow-sm">
