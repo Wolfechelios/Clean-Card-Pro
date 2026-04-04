@@ -66,7 +66,7 @@ import { CameraDeviceSelector } from "./CameraDeviceSelector";
 import { WhiteBalanceControl } from "./WhiteBalanceControl";
 import { useGpuOffloadStream } from "@/hooks/use-gpu-offload-stream";
 import { makeVideoFrameEncoder } from "@/lib/gpuOffload/frameEncoder";
-import { playKachingBeep, playShutterBeep, playJackpotBeep } from "@/lib/audioBeeps";
+import { playKachingBeep, playShutterBeep, playJackpotBeep, warmUpAudio } from "@/lib/audioBeeps";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TUNING
@@ -492,6 +492,7 @@ export default function RapidScanCamera() {
   // ───────────────────────────────────────────────────────────────────────────
 
   async function startCamera() {
+    warmUpAudio(); // unlock AudioContext on user gesture
     if (cameraOn || startingCameraRef.current) return;
     
     startingCameraRef.current = true;
@@ -1543,6 +1544,8 @@ export default function RapidScanCamera() {
                 {!isNative && cameraOn && (
                   <div className="flex gap-3">
                     <Button
+                      onTouchStart={() => warmUpAudio()}
+                      onMouseDown={() => warmUpAudio()}
                       onClick={captureAndEnqueue}
                       disabled={!cameraOn || busyCapture || autoTimerActive}
                       size="lg"

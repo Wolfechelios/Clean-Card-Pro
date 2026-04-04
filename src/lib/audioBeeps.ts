@@ -4,13 +4,39 @@
  */
 
 let audioCtx: AudioContext | null = null;
+let warmedUp = false;
 
 function ctx(): AudioContext {
   if (!audioCtx) audioCtx = new AudioContext();
   return audioCtx;
 }
 
-/** Resume AudioContext after user gesture (required by browsers). */
+/**
+ * Call during a direct user gesture (tap / click) to unlock AudioContext.
+ * Safe to call multiple times — only does real work once.
+ */
+export async function warmUpAudio(): Promise<void> {
+  try {
+    const c = ctx();
+    if (c.state === "suspended") {
+      await c.resume();
+    }
+    if (!warmedUp) {
+      // Play a silent oscillator to fully "prime" the audio pipeline
+      const osc = c.createOscillator();
+      const gain = c.createGain();
+      gain.gain.value = 0; // silent
+      osc.connect(gain).connect(c.destination);
+      osc.start();
+      osc.stop(c.currentTime + 0.01);
+      warmedUp = true;
+    }
+  } catch {
+    // Ignore — audio not critical
+  }
+}
+
+/** Resume AudioContext (sync best-effort). */
 function ensureResumed() {
   const c = ctx();
   if (c.state === "suspended") c.resume().catch(() => {});
@@ -25,12 +51,12 @@ export function playShutterBeep() {
     const gain = c.createGain();
     osc.type = "sine";
     osc.frequency.setValueAtTime(1800, c.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(600, c.currentTime + 0.08);
-    gain.gain.setValueAtTime(0.25, c.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.1);
+    osc.frequency.exponentialRampToValueAtTime(600, c.currentTime + 0.12);
+    gain.gain.setValueAtTime(0.5, c.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.15);
     osc.connect(gain).connect(c.destination);
     osc.start(c.currentTime);
-    osc.stop(c.currentTime + 0.1);
+    osc.stop(c.currentTime + 0.15);
   } catch {
     // Ignore — audio not critical
   }
