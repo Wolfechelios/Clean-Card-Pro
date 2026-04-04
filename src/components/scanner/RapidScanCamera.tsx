@@ -66,7 +66,7 @@ import { CameraDeviceSelector } from "./CameraDeviceSelector";
 import { WhiteBalanceControl } from "./WhiteBalanceControl";
 import { useGpuOffloadStream } from "@/hooks/use-gpu-offload-stream";
 import { makeVideoFrameEncoder } from "@/lib/gpuOffload/frameEncoder";
-import { playKachingBeep, playShutterBeep, playJackpotBeep } from "@/lib/audioBeeps";
+import { playKachingBeep, playShutterBeep, playJackpotBeep, warmUpAudio } from "@/lib/audioBeeps";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TUNING
