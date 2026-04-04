@@ -822,6 +822,37 @@ export const ScannedCardList = ({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Large Card Image Preview Dialog */}
+      <Dialog open={!!previewCard} onOpenChange={(open) => { if (!open) setPreviewCard(null); }}>
+        <DialogContent className="max-w-sm p-2 bg-background/95 backdrop-blur-sm border-border">
+          <DialogHeader className="pb-1">
+            <DialogTitle className="text-sm font-semibold truncate">
+              {previewCard?.cardName || "Card Preview"}
+            </DialogTitle>
+          </DialogHeader>
+          {previewCard && (
+            <div className="flex flex-col items-center gap-2">
+              <img
+                src={previewCard.imageUrl ? toPublicImageUrl(previewCard.imageUrl) : previewCard.preview}
+                alt={previewCard.cardName || "Card"}
+                className="w-full max-h-[70vh] object-contain rounded-lg"
+                onError={(e) => {
+                  if (previewCard.preview && (e.target as HTMLImageElement).src !== previewCard.preview)
+                    (e.target as HTMLImageElement).src = previewCard.preview;
+                }}
+              />
+              <div className="w-full text-xs text-muted-foreground space-y-0.5 px-1 pb-1">
+                {previewCard.cardSet && <p>Set: {previewCard.cardSet}</p>}
+                {previewCard.cardNumber && <p>#{previewCard.cardNumber}</p>}
+                {previewCard.value != null && (
+                  <p className="text-foreground font-semibold">${previewCard.value.toFixed(2)}</p>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 };
