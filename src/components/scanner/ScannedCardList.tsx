@@ -91,6 +91,7 @@ export const ScannedCardList = ({
   onReorder,
 }: ScannedCardListProps) => {
   const [editingCard, setEditingCard] = useState<ScannedCard | null>(null);
+  const [previewCard, setPreviewCard] = useState<ScannedCard | null>(null);
   const [editForm, setEditForm] = useState({
     cardName: "",
     cardSet: "",
@@ -435,7 +436,7 @@ export const ScannedCardList = ({
       />
 
       <div className="relative shrink-0">
-        <img src={card.imageUrl ? toPublicImageUrl(card.imageUrl) : card.preview} alt={card.cardName || "Scanned card"} className={LIST_THUMB_CLASS} onError={(e) => { if (card.preview && (e.target as HTMLImageElement).src !== card.preview) (e.target as HTMLImageElement).src = card.preview; }} />
+        <img src={card.imageUrl ? toPublicImageUrl(card.imageUrl) : card.preview} alt={card.cardName || "Scanned card"} className={cn(LIST_THUMB_CLASS, "cursor-pointer hover:opacity-80 transition-opacity")} onClick={() => setPreviewCard(card)} onError={(e) => { if (card.preview && (e.target as HTMLImageElement).src !== card.preview) (e.target as HTMLImageElement).src = card.preview; }} />
 
         {card.libraryQuantity !== undefined && card.libraryQuantity > 0 && (
           <div className="absolute -top-1.5 -right-1.5 bg-primary text-primary-foreground text-[9px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 shadow-sm">
@@ -819,6 +820,37 @@ export const ScannedCardList = ({
               {isSaving ? "Saving..." : "Save Changes"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Large Card Image Preview Dialog */}
+      <Dialog open={!!previewCard} onOpenChange={(open) => { if (!open) setPreviewCard(null); }}>
+        <DialogContent className="max-w-sm p-2 bg-background/95 backdrop-blur-sm border-border">
+          <DialogHeader className="pb-1">
+            <DialogTitle className="text-sm font-semibold truncate">
+              {previewCard?.cardName || "Card Preview"}
+            </DialogTitle>
+          </DialogHeader>
+          {previewCard && (
+            <div className="flex flex-col items-center gap-2">
+              <img
+                src={previewCard.imageUrl ? toPublicImageUrl(previewCard.imageUrl) : previewCard.preview}
+                alt={previewCard.cardName || "Card"}
+                className="w-full max-h-[70vh] object-contain rounded-lg"
+                onError={(e) => {
+                  if (previewCard.preview && (e.target as HTMLImageElement).src !== previewCard.preview)
+                    (e.target as HTMLImageElement).src = previewCard.preview;
+                }}
+              />
+              <div className="w-full text-xs text-muted-foreground space-y-0.5 px-1 pb-1">
+                {previewCard.cardSet && <p>Set: {previewCard.cardSet}</p>}
+                {previewCard.cardNumber && <p>#{previewCard.cardNumber}</p>}
+                {previewCard.value != null && (
+                  <p className="text-foreground font-semibold">${previewCard.value.toFixed(2)}</p>
+                )}
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </>
