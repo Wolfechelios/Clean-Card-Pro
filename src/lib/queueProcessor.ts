@@ -89,6 +89,30 @@ type ProcessorStore = ProcessorState & {
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
 const WORKER_SCALE_INTERVAL_MS = 500;
 const QUEUE_REFRESH_INTERVAL_MS = 2000;
+const MIN_SERIAL_JOB_DELAY_MS = 2000;
+const ANOMALY_PAUSE_STORAGE_KEY = "rapid-scan-anomaly-paused";
+
+function readAnomalyPauseFlag(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(ANOMALY_PAUSE_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeAnomalyPauseFlag(isPaused: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (isPaused) {
+      window.localStorage.setItem(ANOMALY_PAUSE_STORAGE_KEY, "1");
+    } else {
+      window.localStorage.removeItem(ANOMALY_PAUSE_STORAGE_KEY);
+    }
+  } catch {
+    // ignore storage failures
+  }
+}
 
 // Pricing cache: reduces repeated edge-function calls during rapid scanning
 const PRICE_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
@@ -124,14 +148,12 @@ function getCachedPrice(key: string): number | null | undefined {
 // Dynamic config from device tier
 import { getDeviceTier } from "@/lib/performance/deviceTier";
 
-function getJobDelayMs(): number { return getDeviceTier().jobDelayMs; }
+function getJobDelayMs(): number { return Math.max(getDeviceTier().jobDelayMs, MIN_SERIAL_JOB_DELAY_MS); }
 function getPollIntervalMs(): number { return getDeviceTier().pollIntervalMs; }
 
 function getMaxWorkerCount(): number {
-  const tier = getDeviceTier();
-  const userSetting = getScannerSettings().batchScanSize || tier.maxWorkers;
-  // Never allow more workers than the pipeline in-flight guard
-  return Math.min(userSetting, tier.maxWorkers, tier.maxInFlightFrames);
+  // Rapid queue must stay serialized to avoid cross-card result collapse.
+  return 1;
 }
 
 // Adaptive scaling
@@ -165,10 +187,12 @@ function scheduleQueueRefresh() {
 // ZUSTAND STORE
 // ─────────────────────────────────────────────────────────────────────────────
 
+const initialAnomalyPause = readAnomalyPauseFlag();
+
 export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   isRunning: false,
-  isPaused: false,
-  isPausedByAnomaly: false,
+  isPaused: initialAnomalyPause,
+  isPausedByAnomaly: initialAnomalyPause,
   queueCount: 0,
   processedCount: 0,
   errorCount: 0,
@@ -178,13 +202,17 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
 
   start: () => {
     if (get().isRunning) return;
+    if (readAnomalyPauseFlag()) {
+      set({ isPaused: true, isPausedByAnomaly: true });
+      return;
+    }
     queueAnomalyDetector.resetSession();
     set({ isRunning: true, isPaused: false, isPausedByAnomaly: false });
     startWorkers();
   },
 
   stop: () => {
-    set({ isRunning: false, isPaused: false });
+    set({ isRunning: false, isPaused: false, currentItem: null });
     workersActive = 0;
     if (scalingInterval) {
       clearInterval(scalingInterval);
@@ -197,8 +225,25 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   },
 
   resume: () => {
-    queueAnomalyDetector.resetSession();
+    writeAnomalyPauseFlag(false);
     set({ isPaused: false, isPausedByAnomaly: false });
+
+    if (!get().isRunning) {
+      idbCountQueued()
+        .then((queuedCount) => {
+          if (queuedCount > 0 && !get().isRunning) {
+            set({ isRunning: true });
+            startWorkers();
+          }
+          scheduleQueueRefresh();
+        })
+        .catch(() => {
+          if (!get().isRunning) {
+            set({ isRunning: true });
+            startWorkers();
+          }
+        });
+    }
   },
 
   refreshQueue: async () => {
@@ -441,6 +486,8 @@ async function workerLoop(workerId: number) {
         store()._incrementError();
         await idbUpdateMeta(next.id, { status: "error", error: msg });
       }
+
+      store()._setCurrentItem(null);
     }
 
     scheduleQueueRefresh();
@@ -550,25 +597,32 @@ async function processJob(item: QueueItem): Promise<void> {
   // ─── Anomaly detection ───
   const anomaly = queueAnomalyDetector.trackIdentification(cardName);
   if (anomaly.consecutiveCount >= 10) {
+    writeAnomalyPauseFlag(true);
     const { toast } = await import("sonner");
-    toast.error(`"${cardName}" identified 10+ times in a row — OCR is stuck. Queue stopped.`);
+    toast.error(`Rapid scan stopped — "${cardName}" repeated 10 times. Clear the bad batch before continuing.`);
     console.error(`[QueueProcessor] Auto-stopped: ${anomaly.message}`);
     // Hard stop — mark remaining queued items as error
     const remaining = await idbListMetaFast(1000);
-    for (const meta of remaining) {
-      if (meta.status === "queued") {
-        await idbUpdateMeta(meta.id, { status: "error", error: "Anomaly: repeated OCR failure" });
-      }
-    }
+    await Promise.all(
+      remaining
+        .filter((meta) => meta.status === "queued")
+        .map((meta) =>
+          idbUpdateMeta(meta.id, {
+            status: "error",
+            error: `Anomaly: repeated identification "${cardName}"`,
+          })
+        )
+    );
     useQueueProcessor.getState().stop();
-    useQueueProcessor.setState({ isPausedByAnomaly: true });
-    return;
+    useQueueProcessor.setState({ isPaused: true, isPausedByAnomaly: true });
+    throw new Error(`Rapid scan stopped after repeated "${cardName}" identifications`);
   } else if (anomaly.consecutiveCount >= 5) {
+    writeAnomalyPauseFlag(true);
     const { toast } = await import("sonner");
-    toast.warning(anomaly.message);
-    store._setPaused(true);
-    useQueueProcessor.setState({ isPausedByAnomaly: true });
+    toast.warning(`Rapid scan paused — "${cardName}" keeps repeating. Resume manually or clear the bad batch.`);
+    useQueueProcessor.setState({ isPaused: true, isPausedByAnomaly: true });
     console.warn(`[QueueProcessor] Auto-paused: ${anomaly.message}`);
+    throw new Error(`Rapid scan paused after repeated "${cardName}" identifications`);
   } else if (anomaly.isAnomaly) {
     const { toast } = await import("sonner");
     toast.warning(anomaly.message);
@@ -746,7 +800,9 @@ export async function checkAndResumeQueue(): Promise<void> {
   autoResumeChecked = true;
 
   const state = useQueueProcessor.getState();
-  if (state.isPausedByAnomaly) {
+  const anomalyPaused = state.isPausedByAnomaly || readAnomalyPauseFlag();
+  if (anomalyPaused) {
+    useQueueProcessor.setState({ isPaused: true, isPausedByAnomaly: true });
     console.log(`[QueueProcessor] Skipping auto-resume — paused by anomaly detection`);
     return;
   }

@@ -403,6 +403,10 @@ export default function RapidScanCamera() {
   
   // Queue meta from processor (single source of truth - no local duplicate state)
   const queueMeta = queueProcessor.queueMeta;
+  const isAnomalyPaused = queueProcessor.isPausedByAnomaly;
+  const queuedItemsCount = useMemo(() => queueMeta.filter((q) => q.status === "queued").length, [queueMeta]);
+  const processingItemsCount = useMemo(() => queueMeta.filter((q) => q.status === "processing").length, [queueMeta]);
+  const bufferedItemsCount = queuedItemsCount + processingItemsCount;
 
   // ───────────────────────────────────────────────────────────────────────────
   // INIT
@@ -730,6 +734,10 @@ export default function RapidScanCamera() {
   // ───────────────────────────────────────────────────────────────────────────
 
   async function captureWithNativeCamera() {
+    if (isAnomalyPaused) {
+      toast.error("Rapid scan is paused — resume or clear the bad batch first.");
+      return;
+    }
     if (busyCapture) return;
     setBusyCapture(true);
     triggerFlash();
@@ -805,6 +813,10 @@ export default function RapidScanCamera() {
   // WEB CAMERA CAPTURE (MANUAL)
 
   async function captureAndEnqueue() {
+    if (isAnomalyPaused) {
+      toast.error("Rapid scan is paused — resume or clear the bad batch first.");
+      return;
+    }
     if (!cameraOn) return;
     if (busyCapture) return;
     setBusyCapture(true);
@@ -903,6 +915,10 @@ export default function RapidScanCamera() {
   // ───────────────────────────────────────────────────────────────────────────
 
   const startAutoTimer = useCallback(() => {
+    if (isAnomalyPaused) {
+      toast.error("Rapid scan is paused — resume or clear the bad batch first.");
+      return;
+    }
     if (!cameraOn || isNative) return;
     setAutoTimerActive(true);
     setAutoTimerCountdown(autoTimerSeconds);
@@ -918,7 +934,7 @@ export default function RapidScanCamera() {
         return prev - 1;
       });
     }, 1000);
-  }, [cameraOn, isNative, autoTimerSeconds]);
+  }, [cameraOn, isNative, autoTimerSeconds, isAnomalyPaused]);
 
   const stopAutoTimer = useCallback(() => {
     setAutoTimerActive(false);
@@ -942,6 +958,15 @@ export default function RapidScanCamera() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!isAnomalyPaused) return;
+    if (autoTimerActive) {
+      stopAutoTimer();
+    }
+    setStatusLine("Queue paused — repeated identical identifications detected");
+    setOverlay({ label: "Rapid scan paused" });
+  }, [isAnomalyPaused, autoTimerActive, stopAutoTimer]);
 
   // ───────────────────────────────────────────────────────────────────────────
   // QUEUE PROCESSING (delegated to standalone processor)
@@ -1215,6 +1240,7 @@ export default function RapidScanCamera() {
   // ───────────────────────────────────────────────────────────────────────────
 
   const clearAll = useCallback(async () => {
+    queueProcessor.stop();
     setCards((prev) => {
       prev.forEach((p) => {
         try {
@@ -1225,10 +1251,24 @@ export default function RapidScanCamera() {
     });
     clearAllRecentScans();
     await idbClear();
+    queueProcessor.resume();
     await refreshMeta();
     setOverlay(null);
     toast.success("Cleared");
-  }, [refreshMeta]);
+  }, [queueProcessor, refreshMeta]);
+
+  const handleResumeAfterAnomaly = useCallback(async () => {
+    queueProcessor.resume();
+    queueProcessor.start();
+    setStatusLine("Queue resumed — processing queued cards");
+    toast.success("Rapid scan resumed");
+    await refreshMeta();
+  }, [queueProcessor, refreshMeta]);
+
+  const handleClearBadBatch = useCallback(async () => {
+    await clearAll();
+    setStatusLine("Bad batch cleared — ready for new scans");
+  }, [clearAll]);
 
   // ───────────────────────────────────────────────────────────────────────────
   // RENDER
@@ -1309,11 +1349,42 @@ export default function RapidScanCamera() {
               </Button>
             </div>
             <Badge variant="outline" className="hidden sm:inline-flex text-sm py-1.5 px-3">
-              Buffer: {queueMeta.filter((q) => q.status === "queued" || q.status === "processing").length}/{QUEUE_MAX}
+              Buffer: {bufferedItemsCount}/{QUEUE_MAX}
             </Badge>
             <Badge variant="outline" className="text-sm py-1.5 px-3">Total: ${totalValue.toFixed(2)}</Badge>
           </div>
         </div>
+
+        {isAnomalyPaused && (
+          <div className="mt-4 rounded-xl border border-destructive/40 bg-destructive/10 p-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="space-y-1">
+                <div className="text-sm font-semibold text-foreground">Rapid scan paused</div>
+                <p className="text-sm text-muted-foreground">
+                  Repeated identical card names were detected, so the queue was paused before more bad results were saved.
+                </p>
+                <div className="text-xs text-muted-foreground">
+                  Queued: {queuedItemsCount} • Processing: {processingItemsCount} • Saved cards in your collection are untouched.
+                </div>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button onClick={() => void handleResumeAfterAnomaly()}>
+                  Resume Queue
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    if (window.confirm("Clear the current rapid scan batch from local history and queue? Your saved collection cards will not be deleted.")) {
+                      void handleClearBadBatch();
+                    }
+                  }}
+                >
+                  Clear Bad Batch
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_300px] landscape:grid-cols-[1fr_260px]">
           {/* Camera preview */}
@@ -1489,6 +1560,7 @@ export default function RapidScanCamera() {
                     variant={cameraOn ? "secondary" : "default"}
                     size="lg"
                     className="w-full h-14 text-base"
+                    disabled={isNative && isAnomalyPaused}
                   >
                     {isNative ? (
                       <>
@@ -1547,7 +1619,7 @@ export default function RapidScanCamera() {
                       onTouchStart={() => warmUpAudio()}
                       onMouseDown={() => warmUpAudio()}
                       onClick={captureAndEnqueue}
-                      disabled={!cameraOn || busyCapture || autoTimerActive}
+                      disabled={!cameraOn || busyCapture || autoTimerActive || isAnomalyPaused}
                       size="lg"
                       className="flex-1 h-20 text-xl font-bold"
                     >
@@ -1559,6 +1631,7 @@ export default function RapidScanCamera() {
                       variant={autoTimerActive ? "destructive" : "secondary"}
                       size="lg"
                       className="h-20 w-20"
+                      disabled={isAnomalyPaused}
                       title={autoTimerActive ? "Stop auto-capture" : `Start auto-capture every ${autoTimerSeconds}s`}
                     >
                       {autoTimerActive ? (
@@ -1578,7 +1651,7 @@ export default function RapidScanCamera() {
                       variant="outline"
                       size="lg"
                       className="h-20 w-20"
-                      disabled={autoTimerActive}
+                      disabled={autoTimerActive || isAnomalyPaused}
                       onClick={() => {
                         const current = settings.autoTimerIntervalSeconds;
                         const next = current === 1 ? 1.5 : current === 1.5 ? 2 : current === 2 ? 5 : 1;
@@ -1636,7 +1709,7 @@ export default function RapidScanCamera() {
             <div className="rounded-xl border p-4">
               <div className="text-base font-semibold">Buffer status</div>
               <div className="mt-2 text-sm text-muted-foreground">
-                Queued: {queueMeta.filter((q) => q.status === "queued").length} • Processing: {queueMeta.filter((q) => q.status === "processing").length}
+                Queued: {queuedItemsCount} • Processing: {processingItemsCount}
               </div>
             </div>
           </div>
