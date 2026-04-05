@@ -16,11 +16,13 @@ serve(async (req) => {
   }
 
   try {
-    const { imageUrl } = await req.json();
+    const { imageUrl, ocrText } = await req.json();
 
     if (!imageUrl) {
       throw new Error('imageUrl is required');
     }
+
+    const normalizedOcrText = normalizeOcrText(ocrText);
 
     // Get user ID from auth header for user-specific keys
     const authHeader = req.headers.get('authorization');
@@ -66,6 +68,20 @@ serve(async (req) => {
     console.log(`Rapid card identification using ${useGeminiDirect ? 'Gemini Direct (user key)' : 'Lovable AI'}...`);
 
     const ygoRaritySection = buildYgoRarityPromptSection();
+    const ocrEvidenceSection = normalizedOcrText
+      ? `
+OCR EVIDENCE (server-side extracted text, prioritize this over visual guessing when it contains a title, set code, or collector number):
+${normalizedOcrText}
+
+OCR PRIORITY RULES:
+- Use OCR evidence first for card_name, card_number, and set code when it looks readable.
+- Preserve OCR text exactly when copying set codes or collector numbers.
+- If the image is ambiguous, lower confidence instead of guessing a famous card.
+- Never default to a common classic card unless the printed evidence supports it.
+`
+      : `
+No OCR evidence was provided. Use only printed text visible in the image.
+`;
 
     const prompt = `Identify this trading card. Return JSON only:
 {
@@ -86,6 +102,7 @@ serve(async (req) => {
 CRITICAL NAME RULES:
 - Never invent, paraphrase, or auto-correct names.
 - Prefer exact printed card name text.
+- If OCR evidence contains the title strip or bottom metadata, use that before guessing from artwork.
 - If card_number/set code is readable, extract it exactly (keep hyphens/slashes).
 - If uncertain, keep the printed name text and LOWER confidence.
 
@@ -101,6 +118,8 @@ RARITY RULES (non-YGO):
 - MTG: Black symbol=Common, Silver=Uncommon, Gold=Rare, Orange=Mythic Rare
 - If holographic/prismatic/numbered - NOT Common
 - NEVER return null for rarity
+
+${ocrEvidenceSection}
 
 ${ygoRaritySection}
 
@@ -248,7 +267,7 @@ JSON only.`;
     }
 
     try {
-      cardData = await resolveOfficialCardIdentity(cardData);
+      cardData = await resolveOfficialCardIdentity(cardData, { ocrText: normalizedOcrText ?? undefined });
     } catch (verifyError) {
       console.warn('Official name verification skipped:', verifyError);
     }
@@ -286,4 +305,11 @@ async function fetchImageAsBase64(url: string): Promise<string> {
     binary += String.fromCharCode(uint8Array[i]);
   }
   return btoa(binary);
+}
+
+function normalizeOcrText(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (!normalized) return null;
+  return normalized.slice(0, 2000);
 }

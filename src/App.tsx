@@ -7,9 +7,8 @@ import { Loader2 } from "lucide-react";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import AppLayout from "./components/layout/AppLayout";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
-import { checkAndResumeQueue } from "@/lib/queueProcessor";
 import { QueueStatusIndicator } from "@/components/scanner/QueueStatusIndicator";
 import { SplashScreen } from "@/components/SplashScreen";
 import { OfflineIndicator } from "@/components/OfflineIndicator";
@@ -17,6 +16,7 @@ import { PWAOnboarding } from "@/components/pwa/PWAOnboarding";
 import { PWAInstallBanner } from "@/components/pwa/PWAInstallBanner";
 import { PwaUpdateBanner } from "@/components/pwa/PwaUpdateBanner";
 import { usePWAOnboarding } from "@/hooks/use-pwa-onboarding";
+import { useQueueAutoResume } from "@/hooks/use-queue-auto-resume";
 
 const Auth = lazy(() => import("./pages/Auth"));
 const NewDashboard = lazy(() => import("./pages/NewDashboard"));
@@ -127,10 +127,7 @@ const App = () => {
       document.referrer.includes('android-app://');
     return isStandalone;
   });
-
-  useEffect(() => {
-    checkAndResumeQueue();
-  }, []);
+  useQueueAutoResume();
 
   return (
     <QueryClientProvider client={queryClient}>
