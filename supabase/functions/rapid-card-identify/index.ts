@@ -3,6 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getUserApiKey, API_KEY_NAMES } from "../_shared/getUserApiKey.ts";
 import { resolveOfficialCardIdentity } from "../_shared/officialNameResolver.ts";
 import { buildYgoRarityPromptSection } from "../_shared/ygoRarityMatrix.ts";
+import { validateImageUrl, SSRFError } from "../_shared/validateUrl.ts";
+import { rateLimitResponse } from "../_shared/rateLimiter.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
