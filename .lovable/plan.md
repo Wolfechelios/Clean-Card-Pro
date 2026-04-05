@@ -1,37 +1,77 @@
 
-Do I know what the issue is? Yes.
 
-What I found
-- I do not see leftover binder imports causing the blank page.
-- I also do not see current runtime errors in the snapshot.
-- The strongest issue in the code is the PWA setup: `src/main.tsx` always calls `registerPWA()`, `src/pwa.ts` always registers `/sw.js`, and `public/sw.js` cache-firsts JS/CSS.
-- That is a known bad pattern for Lovable preview/iframe environments and it can produce a persistent white screen by serving stale assets after recent code/file changes.
+## Plan: Fix Storage Policies, Realtime RLS, and API Key Encryption
 
-Plan
-1. Make preview mode service-worker safe
-- Add preview/iframe detection in `src/pwa.ts`.
-- Skip service worker registration entirely when running on the Lovable preview host or inside an iframe.
+### Issue 1: Storage Write/Delete Policies
 
-2. Clean up already-broken preview state
-- In `src/pwa.ts`, add a cleanup path that unregisters any existing service workers and clears old `cleancards` caches when the app is in preview mode.
-- If the page is already controlled by an old worker, trigger one guarded reload after cleanup so the preview boots cleanly.
+**Current state:** The previous migration added ownership-scoped UPDATE and DELETE policies that check `cards.image_storage_path = objects.name`, but INSERT is still wide open (`bucket_id = 'card-images'`). The UPDATE `with_check` is also not ownership-scoped.
 
-3. Run cleanup before normal app startup
-- Update `src/main.tsx` so the preview cleanup happens before the app finishes booting.
-- Keep the rest of the React mount flow unchanged.
+**Problem with path-based ownership:** Edge functions use service role key (bypasses RLS), so their uploads work regardless. Client-side uploads use paths like `cards/{uuid}.jpg` — these don't include user ID in the path, so folder-based ownership (`foldername[1] = auth.uid()`) won't work without refactoring all upload paths.
 
-4. Add a second safety net in the worker
-- Update `public/sw.js` so it becomes passive in preview contexts and bump the cache version once to flush stale asset caches.
+**Fix:** Since edge functions use service role (bypass RLS) and client-side uploads are the concern:
+- Tighten INSERT policy: client uploads always go to `cards/{cardId}.ext` — we can't restrict by user folder without a major path migration. Instead, we keep INSERT open for authenticated users (they need to upload their own scans) but tighten UPDATE/DELETE with the existing cards-table join.
+- Fix the UPDATE `with_check` to also be ownership-scoped (currently it's just `bucket_id`).
 
-5. Preserve production install behavior
-- Keep the current PWA install/update flow for real published usage outside preview mode.
+**Migration SQL:**
+```sql
+-- Fix UPDATE with_check to be ownership-scoped too
+DROP POLICY IF EXISTS "card_images_owner_update" ON storage.objects;
+CREATE POLICY "card_images_owner_update" ON storage.objects
+FOR UPDATE TO authenticated
+USING (
+  bucket_id = 'card-images' AND EXISTS (
+    SELECT 1 FROM public.cards
+    WHERE cards.user_id = auth.uid() AND cards.image_storage_path = name
+  )
+)
+WITH CHECK (
+  bucket_id = 'card-images' AND EXISTS (
+    SELECT 1 FROM public.cards
+    WHERE cards.user_id = auth.uid() AND cards.image_storage_path = name
+  )
+);
+```
 
-Files
-- `src/pwa.ts` — preview detection, unregister/clear-cache cleanup, conditional registration
-- `src/main.tsx` — run cleanup before boot and only register PWA in safe contexts
-- `public/sw.js` — preview no-op guard and cache version bump
+### Issue 2: Realtime Channel RLS
 
-Validation
-- Open the preview URL and confirm the app renders instead of staying white.
-- Refresh the preview multiple times and confirm it no longer serves stale code.
-- Verify the published app still keeps install/update behavior outside preview.
+**Current state:** `cards` and `remote_scan_sessions` are in `supabase_realtime` publication. No policies on `realtime.messages`.
+
+**Problem:** We cannot add RLS policies to `realtime.messages` — it's a Supabase-reserved schema. Modifying reserved schemas (`realtime`) can cause service degradation.
+
+**Actual fix:** Supabase Realtime already respects the RLS policies on the source tables (`cards`, `remote_scan_sessions`). Both tables have user-scoped RLS (`auth.uid() = user_id`). So users can only receive change events for their own rows. The security scanner finding is misleading — this is already secure through table-level RLS. We should dismiss this finding.
+
+### Issue 3: API Key Encryption (Vault)
+
+**Problem:** Supabase Vault (`supabase_vault` extension) is not available in the Lovable Cloud environment. We cannot create or use vault functions.
+
+**Alternative:** The keys are already protected by user-scoped RLS policies. To add defense-in-depth without Vault, we can encrypt keys at the application level using `pgcrypto` with a server-side secret before storing, and decrypt when reading in edge functions.
+
+**Migration:**
+```sql
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+```
+
+**Edge function changes (`getUserApiKey.ts`):**
+- When reading: decrypt using `pgp_sym_decrypt(key_value::bytea, secret)`
+- When writing (via edge function or client): encrypt using `pgp_sym_encrypt(value, secret)`
+
+**However** — this requires changing the `key_value` column type and updating all read/write paths. The encryption key would be the `SUPABASE_SERVICE_ROLE_KEY` (already a secret). This is moderate effort.
+
+**Pragmatic recommendation:** The RLS is already tight. Application-level encryption adds marginal security for significant complexity. I recommend marking this as accepted risk with a note, unless you want me to implement pgcrypto encryption.
+
+---
+
+### Summary of changes
+
+| Issue | Action |
+|-------|--------|
+| Storage UPDATE `with_check` not scoped | Migration: fix policy |
+| Realtime messages RLS | No action needed — table-level RLS already protects realtime events |
+| API key encryption | Implement pgcrypto-based encryption OR accept risk (your choice) |
+
+### Files
+
+| File | Action |
+|------|--------|
+| Migration SQL | Fix UPDATE policy `with_check` clause |
+
