@@ -285,7 +285,7 @@ async function invokeEdgeFunction<T = any>(
   body: any,
   opts?: { timeoutMs?: number; retries?: number; retryDelayMs?: number }
 ): Promise<{ data?: T; error?: any }> {
-  const timeoutMs = opts?.timeoutMs ?? 8000;
+  const timeoutMs = opts?.timeoutMs ?? 6000;
   const retries = Math.max(0, Math.min(opts?.retries ?? 2, 3));
   const retryDelayMs = opts?.retryDelayMs ?? 250;
 
