@@ -60,8 +60,28 @@ serve(async (req: Request): Promise<Response> => {
       throw new Error("LOVABLE_API_KEY is not set");
     }
 
+    // Rate limit: extract user from auth header
+    const authHeader = req.headers.get('authorization');
+    if (authHeader) {
+      const sb = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_ANON_KEY') ?? '', { global: { headers: { Authorization: authHeader } } });
+      const { data: { user } } = await sb.auth.getUser();
+      if (user) {
+        const rl = rateLimitResponse(user.id, "analyze-card-full", corsHeaders, 20, 60_000);
+        if (rl) return rl;
+      }
+    }
+
     const body: RequestBody = await req.json();
-    let image_url = body.image_url;
+    let image_url: string;
+
+    try {
+      image_url = validateImageUrl(body.image_url);
+    } catch (e) {
+      if (e instanceof SSRFError) {
+        return new Response(JSON.stringify({ error: e.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      throw e;
+    }
 
     if (!image_url) {
       return new Response(

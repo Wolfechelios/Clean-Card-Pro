@@ -12,9 +12,15 @@ serve(async (req) => {
   }
 
   try {
-    const { imageUrl } = await req.json();
+    const { imageUrl: rawImageUrl } = await req.json();
 
-    if (!imageUrl) {
+    let imageUrl: string;
+    try {
+      imageUrl = validateImageUrl(rawImageUrl);
+    } catch (e) {
+      if (e instanceof SSRFError) {
+        return new Response(JSON.stringify({ error: e.message }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       return new Response(JSON.stringify({ error: "Image URL required" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

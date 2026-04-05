@@ -15,10 +15,16 @@ serve(async (req) => {
   }
 
   try {
-    const { imageUrl, ocrText } = await req.json();
+    const { imageUrl: rawImageUrl, ocrText } = await req.json();
 
-    if (!imageUrl) {
-      throw new Error('imageUrl is required');
+    let imageUrl: string;
+    try {
+      imageUrl = validateImageUrl(rawImageUrl);
+    } catch (e) {
+      if (e instanceof SSRFError) {
+        return new Response(JSON.stringify({ success: false, error: e.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      throw e;
     }
 
     // Reject placeholder URLs - they can't be analyzed
