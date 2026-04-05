@@ -212,31 +212,6 @@ const helpSections: HelpSection[] = [
     ],
   },
   {
-    id: "binders",
-    title: "Binders",
-    icon: BookOpen,
-    description: "Organize cards into virtual binders with 9-pocket page layouts.",
-    features: [
-      {
-        name: "Create Binder",
-        description: "Create named binders to organize your collection (e.g., 'Pokemon Base Set', 'Vintage Basketball').",
-      },
-      {
-        name: "Binder Page Scan",
-        description: "Photograph entire 9-pocket binder pages. AI detects and splits into individual cards.",
-        tips: ["Lay page flat with even lighting", "All 9 slots will be processed automatically"],
-      },
-      {
-        name: "Page View",
-        description: "View binder pages in the classic 3x3 grid layout.",
-      },
-      {
-        name: "Slot Management",
-        description: "Assign cards to specific slots, rearrange, or leave slots empty.",
-      },
-    ],
-  },
-  {
     id: "visual-search",
     title: "Visual Search",
     icon: Search,
