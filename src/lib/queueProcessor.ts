@@ -88,8 +88,8 @@ type ProcessorStore = ProcessorState & {
 
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
 const WORKER_SCALE_INTERVAL_MS = 500;
-const QUEUE_REFRESH_INTERVAL_MS = 2000;
-const MIN_SERIAL_JOB_DELAY_MS = 2000;
+const QUEUE_REFRESH_INTERVAL_MS = 1000;
+const MIN_SERIAL_JOB_DELAY_MS = 800;
 const ANOMALY_PAUSE_STORAGE_KEY = "rapid-scan-anomaly-paused";
 
 function readAnomalyPauseFlag(): boolean {
