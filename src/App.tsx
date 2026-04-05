@@ -79,7 +79,7 @@ function AppRoutes() {
         <Route path="/dashboard" element={session ? <Authed><NewDashboard /></Authed> : <Navigate to="/auth" />} />
         <Route path="/scan" element={session ? <Authed><ScanPage /></Authed> : <Navigate to="/auth" />} />
         <Route path="/collections" element={session ? <Authed><CollectionsPage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/binders" element={session ? <Authed><BindersPage /></Authed> : <Navigate to="/auth" />} />
+        
         <Route path="/settings" element={session ? <Authed><SettingsPage /></Authed> : <Navigate to="/auth" />} />
         <Route path="/insights" element={session ? <Authed><InsightsPage /></Authed> : <Navigate to="/auth" />} />
         <Route path="/performance" element={session ? <Authed><PerformancePage /></Authed> : <Navigate to="/auth" />} />
