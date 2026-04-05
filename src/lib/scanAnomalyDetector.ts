@@ -84,8 +84,6 @@ export const queueAnomalyDetector = new ScanAnomalyDetector();
 /** Singleton for single-scan hook */
 export const singleScanDetector = new ScanAnomalyDetector();
 
-/** Singleton for binder scan */
-export const binderScanDetector = new ScanAnomalyDetector();
 
 // ─── Import anomaly check ───────────────────────────────────────────
 

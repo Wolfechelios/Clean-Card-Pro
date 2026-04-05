@@ -22,7 +22,7 @@ const Auth = lazy(() => import("./pages/Auth"));
 const NewDashboard = lazy(() => import("./pages/NewDashboard"));
 const ScanPage = lazy(() => import("./pages/ScanPage"));
 const CollectionsPage = lazy(() => import("./pages/CollectionsPage"));
-const BindersPage = lazy(() => import("./pages/BindersPage"));
+
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const InsightsPage = lazy(() => import("./pages/InsightsPage"));
 const PerformancePage = lazy(() => import("./pages/PerformancePage"));
@@ -44,7 +44,7 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 30_000,
+      staleTime: 10_000,
       gcTime: 10 * 60_000,
       refetchOnWindowFocus: false,
       retry: 2,
@@ -79,7 +79,7 @@ function AppRoutes() {
         <Route path="/dashboard" element={session ? <Authed><NewDashboard /></Authed> : <Navigate to="/auth" />} />
         <Route path="/scan" element={session ? <Authed><ScanPage /></Authed> : <Navigate to="/auth" />} />
         <Route path="/collections" element={session ? <Authed><CollectionsPage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/binders" element={session ? <Authed><BindersPage /></Authed> : <Navigate to="/auth" />} />
+        
         <Route path="/settings" element={session ? <Authed><SettingsPage /></Authed> : <Navigate to="/auth" />} />
         <Route path="/insights" element={session ? <Authed><InsightsPage /></Authed> : <Navigate to="/auth" />} />
         <Route path="/performance" element={session ? <Authed><PerformancePage /></Authed> : <Navigate to="/auth" />} />

@@ -521,10 +521,6 @@ export default function NewDashboard() {
             <Camera className="h-4 w-4 mr-1.5 xs:mr-2" aria-hidden="true" />
             <span className="xs:inline">Scan</span>
           </Button>
-          <Button onClick={() => navigate("/binders")} variant="outline" size="sm" className="flex-1 xs:flex-none text-sm" aria-label="View binders">
-            <BookOpen className="h-4 w-4 mr-1.5 xs:mr-2" aria-hidden="true" />
-            <span className="xs:inline">Binders</span>
-          </Button>
           <Button onClick={fetchDashboardData} variant="outline" size="icon-sm" disabled={isRefreshing} aria-label="Refresh dashboard" className="shrink-0">
             <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} aria-hidden="true" />
           </Button>

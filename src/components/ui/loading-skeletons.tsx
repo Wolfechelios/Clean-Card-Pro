@@ -58,23 +58,6 @@ export function DashboardSkeleton() {
   );
 }
 
-export function BinderSkeleton() {
-  return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="space-y-3">
-        <Skeleton className="h-10 w-48" />
-        <Skeleton className="h-4 w-80" />
-      </div>
-      <Card className="p-6">
-        <div className="grid grid-cols-3 gap-4">
-          {[...Array(9)].map((_, i) => (
-            <Skeleton key={i} className="aspect-[5/7] rounded-lg" />
-          ))}
-        </div>
-      </Card>
-    </div>
-  );
-}
 
 export function InsightsSkeleton() {
   return (

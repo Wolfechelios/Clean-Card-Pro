@@ -73,7 +73,7 @@ const helpSections: HelpSection[] = [
       },
       {
         name: "Scan Center",
-        description: "Quick access buttons to scan single cards, binder pages, or bulk upload multiple images.",
+        description: "Quick access buttons to scan single cards or bulk upload multiple images.",
       },
       {
         name: "AI Collection Advisor",
@@ -208,31 +208,6 @@ const helpSections: HelpSection[] = [
       {
         name: "Export Collection",
         description: "Download your collection data as CSV or Excel for backup or external analysis.",
-      },
-    ],
-  },
-  {
-    id: "binders",
-    title: "Binders",
-    icon: BookOpen,
-    description: "Organize cards into virtual binders with 9-pocket page layouts.",
-    features: [
-      {
-        name: "Create Binder",
-        description: "Create named binders to organize your collection (e.g., 'Pokemon Base Set', 'Vintage Basketball').",
-      },
-      {
-        name: "Binder Page Scan",
-        description: "Photograph entire 9-pocket binder pages. AI detects and splits into individual cards.",
-        tips: ["Lay page flat with even lighting", "All 9 slots will be processed automatically"],
-      },
-      {
-        name: "Page View",
-        description: "View binder pages in the classic 3x3 grid layout.",
-      },
-      {
-        name: "Slot Management",
-        description: "Assign cards to specific slots, rearrange, or leave slots empty.",
       },
     ],
   },

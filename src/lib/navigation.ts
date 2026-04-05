@@ -40,7 +40,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard", keywords: ["home"] },
       { icon: ScanLine, label: "Scan", path: "/scan", keywords: ["camera", "ocr", "rapid"] },
       { icon: FolderOpen, label: "Collections", path: "/collections", keywords: ["library", "cards"] },
-      { icon: BookOpen, label: "Binders", path: "/binders", keywords: ["binder", "pages"] },
+      
     ],
   },
   {

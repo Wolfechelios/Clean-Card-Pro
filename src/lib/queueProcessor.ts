@@ -88,8 +88,8 @@ type ProcessorStore = ProcessorState & {
 
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
 const WORKER_SCALE_INTERVAL_MS = 500;
-const QUEUE_REFRESH_INTERVAL_MS = 2000;
-const MIN_SERIAL_JOB_DELAY_MS = 2000;
+const QUEUE_REFRESH_INTERVAL_MS = 1000;
+const MIN_SERIAL_JOB_DELAY_MS = 800;
 const ANOMALY_PAUSE_STORAGE_KEY = "rapid-scan-anomaly-paused";
 
 function readAnomalyPauseFlag(): boolean {
@@ -285,7 +285,7 @@ async function invokeEdgeFunction<T = any>(
   body: any,
   opts?: { timeoutMs?: number; retries?: number; retryDelayMs?: number }
 ): Promise<{ data?: T; error?: any }> {
-  const timeoutMs = opts?.timeoutMs ?? 8000;
+  const timeoutMs = opts?.timeoutMs ?? 6000;
   const retries = Math.max(0, Math.min(opts?.retries ?? 2, 3));
   const retryDelayMs = opts?.retryDelayMs ?? 250;
 
@@ -336,7 +336,7 @@ async function cachedFetchPrice(args: {
         gameType: args.gameType,
         sportType: args.sportType,
       },
-      { timeoutMs: 8000, retries: 1, retryDelayMs: 300 }
+      { timeoutMs: 6000, retries: 1, retryDelayMs: 200 }
     );
 
     let v: number | null = null;
@@ -522,7 +522,7 @@ async function processJob(item: QueueItem): Promise<void> {
       if (res.error) throw new Error(res.error.message);
       return res.data;
     }),
-    15000,
+    10000,
     "Storage upload"
   );
 
@@ -647,49 +647,42 @@ async function processJob(item: QueueItem): Promise<void> {
     return;
   }
 
-  // Fetch price (cached + timeout-protected)
-  let rawPrice: number | null = null;
-  let psa10Price: number | null = null;
-  try {
-    const priceResult = await cachedFetchPrice({ cardName, cardSet, cardNumber, gameType, sportType });
-    rawPrice = priceResult.raw;
-    psa10Price = priceResult.psa10;
-  } catch {
-    rawPrice = null;
-    psa10Price = null;
-  }
-
-  // Check library ownership
+  // Fetch price + check library ownership in parallel
   const userId = await getUserId();
-  let ownedCount = 0;
-  let isInLibrary = false;
-  let existingId: string | undefined = undefined;
 
-  if (userId) {
-    try {
-      const { count } = await supabase
-        .from("cards")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", userId)
-        .ilike("card_name", cardName);
-
-      ownedCount = count || 0;
-      isInLibrary = ownedCount > 0;
-
-      if (isInLibrary) {
-        const { data } = await supabase
+  const [priceResult, ownershipResult] = await Promise.all([
+    cachedFetchPrice({ cardName, cardSet, cardNumber, gameType, sportType })
+      .catch(() => ({ raw: null as number | null, psa10: null as number | null })),
+    (async () => {
+      if (!userId) return { ownedCount: 0, isInLibrary: false, existingId: undefined as string | undefined };
+      try {
+        const { count } = await supabase
           .from("cards")
-          .select("id")
+          .select("id", { count: "exact", head: true })
           .eq("user_id", userId)
-          .ilike("card_name", cardName)
-          .limit(1);
-        existingId = data?.[0]?.id;
+          .ilike("card_name", cardName);
+        const ownedCount = count || 0;
+        const isInLibrary = ownedCount > 0;
+        let existingId: string | undefined = undefined;
+        if (isInLibrary) {
+          const { data } = await supabase
+            .from("cards")
+            .select("id")
+            .eq("user_id", userId)
+            .ilike("card_name", cardName)
+            .limit(1);
+          existingId = data?.[0]?.id;
+        }
+        return { ownedCount, isInLibrary, existingId };
+      } catch {
+        return { ownedCount: 0, isInLibrary: false, existingId: undefined as string | undefined };
       }
-    } catch {
-      ownedCount = 0;
-      isInLibrary = false;
-    }
-  }
+    })(),
+  ]);
+
+  const rawPrice = priceResult.raw;
+  const psa10Price = priceResult.psa10;
+  const { ownedCount, isInLibrary, existingId } = ownershipResult;
 
   // Store processed result
   const processedCard: ProcessedCard = {
