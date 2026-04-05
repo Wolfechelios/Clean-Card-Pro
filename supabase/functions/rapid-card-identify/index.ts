@@ -3,6 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getUserApiKey, API_KEY_NAMES } from "../_shared/getUserApiKey.ts";
 import { resolveOfficialCardIdentity } from "../_shared/officialNameResolver.ts";
 import { buildYgoRarityPromptSection } from "../_shared/ygoRarityMatrix.ts";
+import { validateImageUrl, SSRFError } from "../_shared/validateUrl.ts";
+import { rateLimitResponse } from "../_shared/rateLimiter.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -16,10 +18,16 @@ serve(async (req) => {
   }
 
   try {
-    const { imageUrl, ocrText } = await req.json();
+    const { imageUrl: rawImageUrl, ocrText } = await req.json();
 
-    if (!imageUrl) {
-      throw new Error('imageUrl is required');
+    let imageUrl: string;
+    try {
+      imageUrl = validateImageUrl(rawImageUrl);
+    } catch (e) {
+      if (e instanceof SSRFError) {
+        return new Response(JSON.stringify({ success: false, error: e.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      throw e;
     }
 
     const normalizedOcrText = normalizeOcrText(ocrText);
@@ -38,6 +46,12 @@ serve(async (req) => {
       
       const { data: { user } } = await supabaseClient.auth.getUser();
       userId = user?.id ?? null;
+
+      // Rate limit: 60 requests/minute for rapid scan
+      if (userId) {
+        const rl = rateLimitResponse(userId, "rapid-card-identify", corsHeaders, 60, 60_000);
+        if (rl) return rl;
+      }
     }
 
     // Try to get user-specific Gemini key, fall back to system key

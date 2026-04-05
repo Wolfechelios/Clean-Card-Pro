@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+import { validateImageUrl, SSRFError } from "../_shared/validateUrl.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,7 +13,19 @@ serve(async (req) => {
   }
 
   try {
-    const { imageUrl, ocrText } = await req.json();
+    const { imageUrl: rawImageUrl, ocrText } = await req.json();
+
+    let imageUrl: string | undefined;
+    if (rawImageUrl) {
+      try {
+        imageUrl = validateImageUrl(rawImageUrl);
+      } catch (e) {
+        if (e instanceof SSRFError) {
+          return new Response(JSON.stringify({ error: e.message }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        throw e;
+      }
+    }
     
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     const GOOGLE_VISION_API_KEY = Deno.env.get("GOOGLE_VISION_API_KEY");

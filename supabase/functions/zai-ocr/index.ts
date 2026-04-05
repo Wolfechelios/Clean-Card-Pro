@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { validateImageUrl, SSRFError } from "../_shared/validateUrl.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -11,11 +12,17 @@ serve(async (req) => {
   }
 
   try {
-    const { imageUrl, mode = "meta" } = await req.json();
+    const { imageUrl: rawImageUrl, mode = "meta" } = await req.json();
 
-    if (!imageUrl) {
+    let imageUrl: string;
+    try {
+      imageUrl = validateImageUrl(rawImageUrl);
+    } catch (e) {
+      if (e instanceof SSRFError) {
+        return new Response(JSON.stringify({ error: e.message, text: "", confidence: 0 }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
       return new Response(
-        JSON.stringify({ error: "imageUrl is required" }),
+        JSON.stringify({ error: "imageUrl is required", text: "", confidence: 0 }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
