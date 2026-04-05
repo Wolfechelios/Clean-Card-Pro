@@ -522,7 +522,7 @@ async function processJob(item: QueueItem): Promise<void> {
       if (res.error) throw new Error(res.error.message);
       return res.data;
     }),
-    15000,
+    10000,
     "Storage upload"
   );
 
