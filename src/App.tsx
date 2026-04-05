@@ -22,7 +22,7 @@ const Auth = lazy(() => import("./pages/Auth"));
 const NewDashboard = lazy(() => import("./pages/NewDashboard"));
 const ScanPage = lazy(() => import("./pages/ScanPage"));
 const CollectionsPage = lazy(() => import("./pages/CollectionsPage"));
-const BindersPage = lazy(() => import("./pages/BindersPage"));
+
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const InsightsPage = lazy(() => import("./pages/InsightsPage"));
 const PerformancePage = lazy(() => import("./pages/PerformancePage"));
