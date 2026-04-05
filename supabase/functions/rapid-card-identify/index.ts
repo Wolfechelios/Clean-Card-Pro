@@ -46,6 +46,12 @@ serve(async (req) => {
       
       const { data: { user } } = await supabaseClient.auth.getUser();
       userId = user?.id ?? null;
+
+      // Rate limit: 60 requests/minute for rapid scan
+      if (userId) {
+        const rl = rateLimitResponse(userId, "rapid-card-identify", corsHeaders, 60, 60_000);
+        if (rl) return rl;
+      }
     }
 
     // Try to get user-specific Gemini key, fall back to system key

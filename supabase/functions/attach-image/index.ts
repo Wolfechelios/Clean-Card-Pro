@@ -108,10 +108,23 @@ serve(async (req) => {
       });
     }
 
-    const { cardId, remoteImageUrl } = await req.json();
+    const { cardId, remoteImageUrl: rawUrl } = await req.json();
 
-    if (!cardId || !remoteImageUrl) {
-      return new Response(JSON.stringify({ error: 'cardId and remoteImageUrl are required' }), {
+    if (!cardId) {
+      return new Response(JSON.stringify({ error: 'cardId is required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    let remoteImageUrl: string;
+    try {
+      remoteImageUrl = validateImageUrl(rawUrl);
+    } catch (e) {
+      if (e instanceof SSRFError) {
+        return new Response(JSON.stringify({ error: e.message }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({ error: 'remoteImageUrl is required' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
