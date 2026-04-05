@@ -1,58 +1,37 @@
 
+Do I know what the issue is? Yes.
 
-## Plan: Remove Binder Scan + Speed Up App Reactivity
+What I found
+- I do not see leftover binder imports causing the blank page.
+- I also do not see current runtime errors in the snapshot.
+- The strongest issue in the code is the PWA setup: `src/main.tsx` always calls `registerPWA()`, `src/pwa.ts` always registers `/sw.js`, and `public/sw.js` cache-firsts JS/CSS.
+- That is a known bad pattern for Lovable preview/iframe environments and it can produce a persistent white screen by serving stale assets after recent code/file changes.
 
-### 1. Remove Binder Scan Feature
+Plan
+1. Make preview mode service-worker safe
+- Add preview/iframe detection in `src/pwa.ts`.
+- Skip service worker registration entirely when running on the Lovable preview host or inside an iframe.
 
-Delete or disconnect all binder-related code:
+2. Clean up already-broken preview state
+- In `src/pwa.ts`, add a cleanup path that unregisters any existing service workers and clears old `cleancards` caches when the app is in preview mode.
+- If the page is already controlled by an old worker, trigger one guarded reload after cleanup so the preview boots cleanly.
 
-**Delete files:**
-- `src/pages/BindersPage.tsx`
-- `src/components/binder/BinderScan.tsx`
-- `src/components/binder/BinderEditor.tsx`
-- `src/components/binder/SlotCard.tsx`
-- `src/components/binder/SlotGrid.tsx`
-- `src/components/binder/SlotProgress.tsx`
-- `src/lib/binder/preprocess.ts`
+3. Run cleanup before normal app startup
+- Update `src/main.tsx` so the preview cleanup happens before the app finishes booting.
+- Keep the rest of the React mount flow unchanged.
 
-**Edit files:**
-- `src/App.tsx` — remove `BindersPage` lazy import and `/binders` route
-- `src/lib/scanAnomalyDetector.ts` — remove `binderScanDetector` export
-- `src/components/ui/loading-skeletons.tsx` — remove `BinderSkeleton` export
+4. Add a second safety net in the worker
+- Update `public/sw.js` so it becomes passive in preview contexts and bump the cache version once to flush stale asset caches.
 
-### 2. Speed Up Queue Processing
+5. Preserve production install behavior
+- Keep the current PWA install/update flow for real published usage outside preview mode.
 
-Currently the queue enforces a 2-second minimum delay between jobs (`MIN_SERIAL_JOB_DELAY_MS = 2000`). This was added to prevent the "same card name" bug, but with OCR integration and anomaly detection now in place, we can safely reduce it.
+Files
+- `src/pwa.ts` — preview detection, unregister/clear-cache cleanup, conditional registration
+- `src/main.tsx` — run cleanup before boot and only register PWA in safe contexts
+- `public/sw.js` — preview no-op guard and cache version bump
 
-**`src/lib/queueProcessor.ts`:**
-- Reduce `MIN_SERIAL_JOB_DELAY_MS` from `2000` → `800`
-- Reduce `QUEUE_REFRESH_INTERVAL_MS` from `2000` → `1000`
-- Reduce edge function timeout from `8000` → `6000` for `rapid-card-identify` and `fetch-card-prices`
-- Reduce storage upload timeout from `15000` → `10000`
-- Parallelize price fetch and library ownership check (currently sequential — run both with `Promise.all`)
-
-### 3. Speed Up React Query + UI Reactivity
-
-**`src/App.tsx`:**
-- Reduce `staleTime` from `30_000` → `10_000` for fresher data on navigation
-- Add `suspense: false` to prevent unnecessary loading states
-
-**`src/lib/performance/deviceTier.ts`:**
-- Reduce HIGH tier `bulkApiDelayMs` from `50` → `20`
-- Reduce HIGH tier `jobDelayMs` from `10` → `5`
-- Reduce HIGH tier `pollIntervalMs` from `30` → `15`
-- Reduce MID tier delays proportionally
-
-### Files Summary
-
-| File | Action |
-|------|--------|
-| `src/pages/BindersPage.tsx` | Delete |
-| `src/components/binder/*` (5 files) | Delete |
-| `src/lib/binder/preprocess.ts` | Delete |
-| `src/App.tsx` | Remove binder route + reduce staleTime |
-| `src/lib/queueProcessor.ts` | Reduce delays, parallelize price+ownership |
-| `src/lib/performance/deviceTier.ts` | Reduce tier delays |
-| `src/lib/scanAnomalyDetector.ts` | Remove binderScanDetector |
-| `src/components/ui/loading-skeletons.tsx` | Remove BinderSkeleton |
-
+Validation
+- Open the preview URL and confirm the app renders instead of staying white.
+- Refresh the preview multiple times and confirm it no longer serves stale code.
+- Verify the published app still keeps install/update behavior outside preview.
