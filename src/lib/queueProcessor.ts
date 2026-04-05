@@ -647,49 +647,42 @@ async function processJob(item: QueueItem): Promise<void> {
     return;
   }
 
-  // Fetch price (cached + timeout-protected)
-  let rawPrice: number | null = null;
-  let psa10Price: number | null = null;
-  try {
-    const priceResult = await cachedFetchPrice({ cardName, cardSet, cardNumber, gameType, sportType });
-    rawPrice = priceResult.raw;
-    psa10Price = priceResult.psa10;
-  } catch {
-    rawPrice = null;
-    psa10Price = null;
-  }
-
-  // Check library ownership
+  // Fetch price + check library ownership in parallel
   const userId = await getUserId();
-  let ownedCount = 0;
-  let isInLibrary = false;
-  let existingId: string | undefined = undefined;
 
-  if (userId) {
-    try {
-      const { count } = await supabase
-        .from("cards")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", userId)
-        .ilike("card_name", cardName);
-
-      ownedCount = count || 0;
-      isInLibrary = ownedCount > 0;
-
-      if (isInLibrary) {
-        const { data } = await supabase
+  const [priceResult, ownershipResult] = await Promise.all([
+    cachedFetchPrice({ cardName, cardSet, cardNumber, gameType, sportType })
+      .catch(() => ({ raw: null as number | null, psa10: null as number | null })),
+    (async () => {
+      if (!userId) return { ownedCount: 0, isInLibrary: false, existingId: undefined as string | undefined };
+      try {
+        const { count } = await supabase
           .from("cards")
-          .select("id")
+          .select("id", { count: "exact", head: true })
           .eq("user_id", userId)
-          .ilike("card_name", cardName)
-          .limit(1);
-        existingId = data?.[0]?.id;
+          .ilike("card_name", cardName);
+        const ownedCount = count || 0;
+        const isInLibrary = ownedCount > 0;
+        let existingId: string | undefined = undefined;
+        if (isInLibrary) {
+          const { data } = await supabase
+            .from("cards")
+            .select("id")
+            .eq("user_id", userId)
+            .ilike("card_name", cardName)
+            .limit(1);
+          existingId = data?.[0]?.id;
+        }
+        return { ownedCount, isInLibrary, existingId };
+      } catch {
+        return { ownedCount: 0, isInLibrary: false, existingId: undefined as string | undefined };
       }
-    } catch {
-      ownedCount = 0;
-      isInLibrary = false;
-    }
-  }
+    })(),
+  ]);
+
+  const rawPrice = priceResult.raw;
+  const psa10Price = priceResult.psa10;
+  const { ownedCount, isInLibrary, existingId } = ownershipResult;
 
   // Store processed result
   const processedCard: ProcessedCard = {
