@@ -73,7 +73,7 @@ const helpSections: HelpSection[] = [
       },
       {
         name: "Scan Center",
-        description: "Quick access buttons to scan single cards, binder pages, or bulk upload multiple images.",
+        description: "Quick access buttons to scan single cards or bulk upload multiple images.",
       },
       {
         name: "AI Collection Advisor",
