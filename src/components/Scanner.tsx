@@ -24,7 +24,6 @@ interface ScannerProps {
 }
 
 const Scanner = ({ userId }: ScannerProps) => {
-  const isMobile = useIsMobile();
   const { settings, updateSettings } = useScannerSettings();
 
   const {
@@ -49,26 +48,12 @@ const Scanner = ({ userId }: ScannerProps) => {
 
   const batch = useBatchScanner();
 
-  const camera = useCameraCapture({
-    onCapture: (capturedFile) => {
-      setFileWithPreview(capturedFile);
-    },
-  });
-
   const { handleFileSelect, handleDrop, handleDragOver } = useFileUpload({
     onSingleFile: setFileWithPreview,
     onMultipleFiles: batch.addFiles,
   });
 
   const handleUSBCapture = useCallback(
-    (imageFile: File) => {
-      setFileWithPreview(imageFile);
-      setTimeout(() => handleScan(), 100);
-    },
-    [setFileWithPreview, handleScan]
-  );
-
-  const handleRemoteCapture = useCallback(
     (imageFile: File) => {
       setFileWithPreview(imageFile);
       setTimeout(() => handleScan(), 100);
@@ -119,27 +104,48 @@ const Scanner = ({ userId }: ScannerProps) => {
         </Button>
       </div>
 
-      <Tabs defaultValue="upload" className="w-full">
-        <TabsList className="grid w-full grid-cols-6" role="tablist">
-          <TabsTrigger value="upload">Upload</TabsTrigger>
-          <TabsTrigger value="camera">Camera</TabsTrigger>
-          <TabsTrigger value="usb" className="flex items-center gap-2">
-            <Usb className="h-4 w-4" aria-hidden="true" />
-            <span className="hidden sm:inline">USB Phone</span>
-          </TabsTrigger>
+      <Tabs defaultValue="rapid" className="w-full">
+        <TabsList className="grid w-full grid-cols-3" role="tablist">
           <TabsTrigger value="rapid" className="flex items-center gap-2">
             <Camera className="h-4 w-4" aria-hidden="true" />
-            <span className="hidden sm:inline">Rapid Scan</span>
+            Rapid Scan
           </TabsTrigger>
-          <TabsTrigger value="microscope" className="flex items-center gap-2">
-            <Microscope className="h-4 w-4" aria-hidden="true" />
-            <span className="hidden sm:inline">Microscope</span>
+          <TabsTrigger value="usb" className="flex items-center gap-2">
+            <Usb className="h-4 w-4" aria-hidden="true" />
+            USB
           </TabsTrigger>
-          <TabsTrigger value="remote" className="flex items-center gap-2">
-            <Smartphone className="h-4 w-4" aria-hidden="true" />
-            <span className="hidden sm:inline">Remote</span>
+          <TabsTrigger value="upload" className="flex items-center gap-2">
+            <Upload className="h-4 w-4" aria-hidden="true" />
+            Upload
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="rapid">
+          <RapidScanCamera />
+        </TabsContent>
+
+        <TabsContent value="usb">
+          {pendingCard ? (
+            <CardIdentificationEditor
+              userId={userId}
+              primaryCard={pendingCard.identifiedCard}
+              alternatives={pendingCard.alternatives}
+              imageUrl={preview || undefined}
+              scanMode={pendingCard.scanMode}
+              ownedCount={pendingCard.ownedCount}
+              isInLibrary={pendingCard.isInLibrary}
+              currentPriceRaw={pendingCard.fallbackData?.currentPriceRaw ?? null}
+              onConfirm={handleConfirmCard}
+              onSelectAlternative={handleSelectAlternative}
+              onCancel={handleCancelCard}
+            />
+          ) : (
+            <div className="space-y-6">
+              <USBBulkImport />
+              <USBPhoneCameraScanner onImageCaptured={handleUSBCapture} />
+            </div>
+          )}
+        </TabsContent>
 
         <TabsContent value="upload">
           {pendingCard ? (
@@ -181,112 +187,6 @@ const Scanner = ({ userId }: ScannerProps) => {
                 completed={batch.jobs.filter((c) => c.status === "completed").length}
               />
             </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="camera">
-          {pendingCard ? (
-            <CardIdentificationEditor
-              userId={userId}
-              primaryCard={pendingCard.identifiedCard}
-              alternatives={pendingCard.alternatives}
-              imageUrl={preview || undefined}
-              scanMode={pendingCard.scanMode}
-              ownedCount={pendingCard.ownedCount}
-              isInLibrary={pendingCard.isInLibrary}
-              currentPriceRaw={pendingCard.fallbackData?.currentPriceRaw ?? null}
-              onConfirm={handleConfirmCard}
-              onSelectAlternative={handleSelectAlternative}
-              onCancel={handleCancelCard}
-            />
-          ) : (
-            <CameraTab
-              isCameraActive={camera.isCameraActive}
-              videoRef={camera.videoRef}
-              onStart={() => camera.startCamera()}
-              onStop={camera.stopCamera}
-              onToggle={camera.toggleCamera}
-              onCapture={camera.capturePhoto}
-              zoomLevel={camera.zoomLevel}
-              zoomCapabilities={camera.zoomCapabilities}
-              onZoomIn={camera.zoomIn}
-              onZoomOut={camera.zoomOut}
-              onZoomChange={camera.setZoom}
-              onZoomReset={camera.resetZoom}
-            />
-          )}
-        </TabsContent>
-
-        <TabsContent value="usb">
-          {pendingCard ? (
-            <CardIdentificationEditor
-              userId={userId}
-              primaryCard={pendingCard.identifiedCard}
-              alternatives={pendingCard.alternatives}
-              imageUrl={preview || undefined}
-              scanMode={pendingCard.scanMode}
-              ownedCount={pendingCard.ownedCount}
-              isInLibrary={pendingCard.isInLibrary}
-              currentPriceRaw={pendingCard.fallbackData?.currentPriceRaw ?? null}
-              onConfirm={handleConfirmCard}
-              onSelectAlternative={handleSelectAlternative}
-              onCancel={handleCancelCard}
-            />
-          ) : (
-            <div className="space-y-6">
-              <USBBulkImport />
-              <USBPhoneCameraScanner onImageCaptured={handleUSBCapture} />
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="rapid">
-          <RapidScanCamera />
-        </TabsContent>
-
-        <TabsContent value="microscope">
-          {pendingCard ? (
-            <CardIdentificationEditor
-              userId={userId}
-              primaryCard={pendingCard.identifiedCard}
-              alternatives={pendingCard.alternatives}
-              imageUrl={preview || undefined}
-              scanMode={pendingCard.scanMode}
-              ownedCount={pendingCard.ownedCount}
-              isInLibrary={pendingCard.isInLibrary}
-              currentPriceRaw={pendingCard.fallbackData?.currentPriceRaw ?? null}
-              onConfirm={handleConfirmCard}
-              onSelectAlternative={handleSelectAlternative}
-              onCancel={handleCancelCard}
-            />
-          ) : (
-            <MicroscopeDetailTab
-              parentScanId={null}
-              parentImageUrl={preview}
-              onImageCaptured={handleUSBCapture}
-            />
-          )}
-        </TabsContent>
-
-        <TabsContent value="remote">
-          {pendingCard ? (
-            <CardIdentificationEditor
-              userId={userId}
-              primaryCard={pendingCard.identifiedCard}
-              alternatives={pendingCard.alternatives}
-              imageUrl={preview || undefined}
-              scanMode={pendingCard.scanMode}
-              ownedCount={pendingCard.ownedCount}
-              isInLibrary={pendingCard.isInLibrary}
-              currentPriceRaw={pendingCard.fallbackData?.currentPriceRaw ?? null}
-              onConfirm={handleConfirmCard}
-              onSelectAlternative={handleSelectAlternative}
-              onCancel={handleCancelCard}
-            />
-          ) : isMobile ? (
-            <RemoteScanMobile userId={userId} />
-          ) : (
-            <RemoteScanDesktop userId={userId} onImageReceived={handleRemoteCapture} />
           )}
         </TabsContent>
       </Tabs>
