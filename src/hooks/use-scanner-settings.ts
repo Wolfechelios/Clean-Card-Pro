@@ -4,8 +4,6 @@ const SCANNER_SETTINGS_KEY = "card-scanner-settings";
 
 export type ScanMode = "SAVE" | "SCAN_ONLY" | "REMOVE";
 
-export type GpuServerType = "auto" | "mac" | "jetson";
-
 export interface ScannerSettings {
   autoConfirmEnabled: boolean;
   autoConfirmThreshold: number;
@@ -24,15 +22,6 @@ export interface ScannerSettings {
   autoCaptureEnabled: boolean;
 
   batchScanSize: number;
-
-  gpuOffloadEnabled: boolean;
-  gpuServerBaseUrl: string;
-  gpuServerType: GpuServerType;
-  gpuPreferForQueue: boolean;
-  gpuPreferForLive: boolean;
-  gpuStreamMaxFps: number;
-  gpuStreamTargetWidth: number;
-  gpuStreamJpegQuality: number;
 
   // Microscope settings
   preferredMicroscopeDeviceId: string;
@@ -56,15 +45,6 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   autoCaptureEnabled: false,
 
   batchScanSize: 3,
-
-  gpuOffloadEnabled: false,
-  gpuServerBaseUrl: "",
-  gpuServerType: "auto",
-  gpuPreferForQueue: true,
-  gpuPreferForLive: true,
-  gpuStreamMaxFps: 12,
-  gpuStreamTargetWidth: 720,
-  gpuStreamJpegQuality: 0.65,
 
   preferredMicroscopeDeviceId: "",
 };

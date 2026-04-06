@@ -6,8 +6,6 @@ import { analyzeCardFull } from "@/lib/analyzeCardFull";
 import { withRetry } from "@/lib/retry";
 import { getScannerSettings, type ScanMode } from "./use-scanner-settings";
 import { addRecentScan } from "@/lib/recentScans";
-import { checkGpuServerAvailable } from "@/lib/gpuOffload/gpuAvailability";
-import { gpuIdentifyByImageUrl, gpuOcrByImageUrl } from "@/lib/gpuOffload/gpuHttpClient";
 import { singleScanDetector } from "@/lib/scanAnomalyDetector";
 
 export interface OCRResult {
@@ -167,27 +165,11 @@ export function useCardScanner({
 
   const performOCR = async (imageUrl: string): Promise<OCRResult> => {
     setScanProgress(10);
-    const scanner = getScannerSettings() as any;
-    const gpuEnabled = scanner.gpuOffloadEnabled === true;
     let ocrText = "";
 
-    // Prefer local accelerator OCR if available
-    if (gpuEnabled && (await checkGpuServerAvailable()).ok) {
-      try {
-        const local = await gpuOcrByImageUrl(imageUrl);
-        if (local?.success && local.text?.trim()) {
-          ocrText = local.text;
-        }
-      } catch {
-        // fallback below
-      }
-    }
-
-    // Cloud fallback
-    if (!ocrText) {
-      const analysis = await analyzeCardFull(imageUrl);
-      ocrText = analysis.vision.ocr_text;
-    }
+    // Cloud OCR
+    const analysis = await analyzeCardFull(imageUrl);
+    ocrText = analysis.vision.ocr_text;
 
     setScanProgress(80);
     const lines = ocrText.split("\n").filter((line) => line.trim());
@@ -249,36 +231,6 @@ export function useCardScanner({
 
       let enhancedData: any;
       let alternatives: Alternative[] = [];
-      let gpuPricing: any = null;
-
-      // Priority: Local accelerator (Mac/PC) if enabled
-      const scanner = getScannerSettings() as any;
-      const gpuEnabled = scanner.gpuOffloadEnabled === true;
-      if (gpuEnabled && (await checkGpuServerAvailable()).ok) {
-        try {
-          const gpu = await gpuIdentifyByImageUrl(imageUrl, { wantPricing: true });
-          if (gpu?.success) {
-            enhancedData = {
-              card_name: gpu.cardData.card_name,
-              card_set: gpu.cardData.card_set,
-              card_number: gpu.cardData.card_number,
-              rarity: gpu.cardData.rarity,
-              edition: gpu.cardData.edition,
-              game_type: gpu.cardData.game_type,
-              sport_type: gpu.cardData.sport_type,
-              year: gpu.cardData.year,
-              manufacturer: gpu.cardData.manufacturer,
-              confidence: gpu.cardData.confidence,
-              description: gpu.cardData.description ?? "",
-            };
-            // If GPU server returned pricing, map to existing pricingData shape
-            if (gpu.pricing) gpuPricing = gpu.pricing;
-            toast.success(`Local accelerator: ${enhancedData.card_name}`);
-          }
-        } catch (e) {
-          console.warn("GPU identify failed, falling back:", e);
-        }
-      }
 
       try {
         const enhancedResult = await withRetry(
@@ -311,20 +263,6 @@ export function useCardScanner({
 
       let pricingData: any;
       try {
-        // If GPU pricing was populated, use it first.
-        if (gpuPricing) {
-          pricingData = {
-            currentPriceRaw: gpuPricing.currentPriceRaw ?? null,
-            currentPricePsa9: gpuPricing.currentPricePsa9 ?? null,
-            currentPricePsa10: gpuPricing.currentPricePsa10 ?? null,
-            suggestedPrice: gpuPricing.suggestedPrice ?? null,
-            ebayListingUrl: gpuPricing.ebayListingUrl ?? null,
-          };
-        }
-
-        if (pricingData) {
-          // done
-        } else {
         const cardIdentification = await withRetry(
           async () => {
             const { data, error } = await supabase.functions.invoke("identify-card", {
@@ -337,7 +275,6 @@ export function useCardScanner({
         );
 
         if (cardIdentification) pricingData = cardIdentification;
-        }
       } catch (error) {
         console.error("Pricing fetch error:", error);
         toast.warning("Could not fetch pricing data");
