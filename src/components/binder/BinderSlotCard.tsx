@@ -26,6 +26,7 @@ function getFoilGlow(variant: string): string {
 
 export function BinderSlotCard({ slot, showPrices, heatmapMode, onClick }: BinderSlotCardProps) {
   const heatClass = heatmapMode ? getHeatGlow(slot.rawPrice) : "";
+  const foilClass = slot.owned ? getFoilGlow(slot.variant) : "";
 
   return (
     <button
