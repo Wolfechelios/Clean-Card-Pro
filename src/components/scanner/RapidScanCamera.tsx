@@ -58,6 +58,8 @@ import { ScannedCardList } from "./ScannedCardList";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useNativeCamera } from "@/hooks/use-native-camera";
 import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
+import { getMultiFrameAnalyzer, resetMultiFrameAnalyzer, type MultiFrameResult } from "@/lib/foilTrainer/multiFrameAnalyzer";
+import { FoilDetectionOverlay } from "./FoilDetectionOverlay";
 import { getScannerSettings, useScannerSettings } from "@/hooks/use-scanner-settings";
 import { hapticTap } from "@/lib/haptics";
 import { useVoiceCommand } from "@/hooks/use-voice-command";
@@ -155,11 +157,14 @@ export default function RapidScanCamera() {
   const [cameraOn, setCameraOn] = useState(false);
   const [support, setSupport] = useState<MediaSupport>({ torch: false, focus: false, zoom: false });
   const [torchOn, setTorchOn] = useState(false);
-  const [torchDimmer, setTorchDimmer] = useState(100); // 100 = full brightness, 0 = max dimming overlay
+  const [torchDimmer, setTorchDimmer] = useState(100);
   const [statusLine, setStatusLine] = useState("Tap Start to begin");
   const [busyCapture, setBusyCapture] = useState(false);
-  // Capture UX
   const [flashActive, setFlashActive] = useState(false);
+
+  // Foil detection
+  const [foilResult, setFoilResult] = useState<MultiFrameResult | null>(null);
+  const foilAnalyzerRef = useRef(getMultiFrameAnalyzer());
 
   // Auto-timer
   const [autoTimerActive, setAutoTimerActive] = useState(false);
@@ -268,6 +273,35 @@ export default function RapidScanCamera() {
       autoCapturePrevGrayRef.current = null;
     };
   }, [isNative, settings.autoCaptureEnabled, cameraOn, busyCapture, captureNow]);
+
+  // Background foil detection — sample frames every ~500ms during camera use
+  useEffect(() => {
+    if (isNative || !cameraOn || !settings.foilDetectionEnabled) return;
+    const analyzer = foilAnalyzerRef.current;
+    let raf = 0;
+    let lastSample = 0;
+
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      const v = videoRef.current;
+      if (!v || v.readyState < 2) return;
+      const now = performance.now();
+      if (now - lastSample < 500) return;
+      lastSample = now;
+
+      analyzer.addFrame(v);
+      const result = analyzer.analyze();
+      setFoilResult(result);
+    };
+
+    analyzer.reset();
+    setFoilResult(null);
+    raf = requestAnimationFrame(tick);
+
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [isNative, cameraOn, settings.foilDetectionEnabled]);
 
   // Zoom
   const {
@@ -1349,6 +1383,15 @@ export default function RapidScanCamera() {
             <div className="absolute -bottom-1.5 -right-1.5 w-8 h-8 border-b-[3px] border-r-[3px] border-primary/80 rounded-br-lg" />
           </div>
         </div>
+
+        {/* Foil detection overlay */}
+        {settings.foilDetectionEnabled && cameraOn && (
+          <FoilDetectionOverlay
+            result={foilResult}
+            frameCount={foilAnalyzerRef.current.frameCount}
+            visible={true}
+          />
+        )}
 
         <canvas ref={canvasRef} className="hidden" />
         {flashActive && <div className="capture-flash" />}

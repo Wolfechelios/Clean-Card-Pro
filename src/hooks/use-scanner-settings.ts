@@ -25,6 +25,10 @@ export interface ScannerSettings {
 
   // Microscope settings
   preferredMicroscopeDeviceId: string;
+
+  // Foil detection
+  foilDetectionEnabled: boolean;
+  foilDetectionMode: "fast" | "accurate";
 }
 
 const DEFAULT_SETTINGS: ScannerSettings = {
@@ -47,6 +51,9 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   batchScanSize: 3,
 
   preferredMicroscopeDeviceId: "",
+
+  foilDetectionEnabled: true,
+  foilDetectionMode: "fast",
 };
 
 export function useScannerSettings() {
