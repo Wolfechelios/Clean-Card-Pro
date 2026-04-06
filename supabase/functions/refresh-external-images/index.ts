@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { validateImageUrl, SSRFError } from "../_shared/validateUrl.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -15,7 +16,9 @@ async function downloadAndUploadImage(
   try {
     console.log(`Downloading: ${remoteUrl}`);
     
-    const response = await fetch(remoteUrl, {
+    // SSRF protection on URLs from database records
+    const safeUrl = validateImageUrl(remoteUrl);
+    const response = await fetch(safeUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; CardScanner/1.0)',
       },

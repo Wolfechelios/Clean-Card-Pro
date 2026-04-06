@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { validateImageUrl, SSRFError } from "../_shared/validateUrl.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -249,7 +250,9 @@ async function downloadAndStore(
   try {
     console.log(`Downloading image: ${imageUrl}`);
     
-    const resp = await fetch(imageUrl);
+    // SSRF protection on downloaded URLs (may come from AI results)
+    const safeUrl = validateImageUrl(imageUrl);
+    const resp = await fetch(safeUrl);
     if (!resp.ok) {
       console.error(`Failed to download image: ${resp.status}`);
       return null;
