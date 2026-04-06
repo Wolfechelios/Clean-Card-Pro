@@ -539,6 +539,7 @@ setNullRarityCount(missingRarity || 0);
                 onChange={(e) => updateScannerSettings({ autoTimerIntervalSeconds: Number(e.target.value) as any })}
               >
                 <option value={1}>1 second</option>
+                <option value={1.25}>1.25 seconds</option>
                 <option value={1.5}>1.5 seconds</option>
                 <option value={2}>2 seconds</option>
                 <option value={5}>5 seconds</option>
