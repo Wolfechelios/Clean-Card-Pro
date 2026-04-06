@@ -58,6 +58,8 @@ import { ScannedCardList } from "./ScannedCardList";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useNativeCamera } from "@/hooks/use-native-camera";
 import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
+import { getMultiFrameAnalyzer, resetMultiFrameAnalyzer, type MultiFrameResult } from "@/lib/foilTrainer/multiFrameAnalyzer";
+import { FoilDetectionOverlay } from "./FoilDetectionOverlay";
 import { getScannerSettings, useScannerSettings } from "@/hooks/use-scanner-settings";
 import { hapticTap } from "@/lib/haptics";
 import { useVoiceCommand } from "@/hooks/use-voice-command";
