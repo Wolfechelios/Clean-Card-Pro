@@ -427,3 +427,21 @@ select:focus {
 .animate-fade-in-delayed {
   animation: fade-in-delayed 1s ease-out forwards;
 }
+
+/* Binder page-flip animations */
+@keyframes slideOutLeft {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(-8%); opacity: 0; }
+}
+@keyframes slideOutRight {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(8%); opacity: 0; }
+}
+@keyframes pageTurnRight {
+  from { transform: rotateY(0deg); opacity: 1; }
+  to { transform: rotateY(-12deg); opacity: 0; }
+}
+@keyframes pageTurnLeft {
+  from { transform: rotateY(0deg); opacity: 1; }
+  to { transform: rotateY(12deg); opacity: 0; }
+}
