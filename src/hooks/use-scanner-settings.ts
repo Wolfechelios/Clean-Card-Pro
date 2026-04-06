@@ -25,6 +25,10 @@ export interface ScannerSettings {
 
   // Microscope settings
   preferredMicroscopeDeviceId: string;
+
+  // Foil detection
+  foilDetectionEnabled: boolean;
+  foilDetectionMode: "fast" | "accurate";
 }
 
 const DEFAULT_SETTINGS: ScannerSettings = {
