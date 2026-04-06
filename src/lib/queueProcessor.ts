@@ -275,6 +275,15 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function blobToBase64DataUrl(blob: Blob, mime: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(new Blob([blob], { type: mime }));
+  });
+}
+
 function money(n: number | null | undefined) {
   if (n == null || Number.isNaN(n)) return null;
   return Math.round(n * 100) / 100;
