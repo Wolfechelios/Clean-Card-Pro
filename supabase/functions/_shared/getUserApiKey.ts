@@ -1,15 +1,13 @@
 import { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { decryptValue } from "./apiKeyCrypto.ts";
 
 interface ApiKeyRow {
   key_value: string;
 }
 
 /**
- * Gets a user-specific API key, falling back to system environment variable
- * @param supabaseClient - Authenticated Supabase client
- * @param userId - The user's ID
- * @param keyName - The name of the key (e.g., "GEMINI_API_KEY", "GOOGLE_VISION_API_KEY")
- * @param envFallback - The environment variable name to fall back to
+ * Gets a user-specific API key (decrypting if encrypted),
+ * falling back to system environment variable.
  */
 export async function getUserApiKey(
   supabaseClient: SupabaseClient,
@@ -18,7 +16,6 @@ export async function getUserApiKey(
   envFallback: string
 ): Promise<string | null> {
   try {
-    // First, try to get user-specific key
     const { data, error } = await supabaseClient
       .from("user_api_keys")
       .select("key_value")
@@ -30,12 +27,17 @@ export async function getUserApiKey(
     if (!error && data) {
       const row = data as ApiKeyRow;
       if (row.key_value) {
+        let value = row.key_value;
+        try {
+          value = await decryptValue(row.key_value);
+        } catch {
+          // Legacy plaintext value — use as-is
+        }
         console.log(`Using user-specific ${keyName}`);
-        return row.key_value;
+        return value;
       }
     }
 
-    // Fall back to system environment variable
     const envValue = Deno.env.get(envFallback);
     if (envValue) {
       console.log(`Falling back to system ${envFallback}`);
@@ -45,14 +47,10 @@ export async function getUserApiKey(
     return null;
   } catch (err) {
     console.error(`Error fetching API key ${keyName}:`, err);
-    // Fall back to system environment variable on error
     return Deno.env.get(envFallback) || null;
   }
 }
 
-/**
- * Standard key name mappings
- */
 export const API_KEY_NAMES = {
   GEMINI: "GEMINI_API_KEY",
   GOOGLE_VISION: "GOOGLE_VISION_API_KEY",

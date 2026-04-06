@@ -7,13 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { Key, Plus, Trash2, Eye, EyeOff, Loader2 } from "lucide-react";
+import { Key, Plus, Trash2, Loader2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
-interface UserApiKey {
+interface DisplayKey {
   id: string;
   key_name: string;
-  key_value: string;
+  masked_value: string;
   is_active: boolean;
   created_at: string;
 }
@@ -26,27 +26,25 @@ const SUPPORTED_KEYS = [
 
 export function UserApiKeysManager() {
   const { userId } = useAuth();
-  const [keys, setKeys] = useState<UserApiKey[]>([]);
+  const [keys, setKeys] = useState<DisplayKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
-  const [showValues, setShowValues] = useState<Record<string, boolean>>({});
   const [newKeyValues, setNewKeyValues] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (userId) {
-      fetchKeys();
-    }
+    if (userId) fetchKeys();
   }, [userId]);
+
+  const callApi = async (body: Record<string, unknown>) => {
+    const { data, error } = await supabase.functions.invoke("manage-api-keys", { body });
+    if (error) throw error;
+    return data;
+  };
 
   const fetchKeys = async () => {
     try {
-      const { data, error } = await supabase
-        .from("user_api_keys")
-        .select("*")
-        .order("key_name");
-
-      if (error) throw error;
-      setKeys(data || []);
+      const data = await callApi({ action: "list" });
+      setKeys(data.keys || []);
     } catch (err) {
       console.error("Error fetching API keys:", err);
       toast.error("Failed to load API keys");
@@ -61,34 +59,11 @@ export function UserApiKeysManager() {
       toast.error("Please enter a key value");
       return;
     }
-
     setSaving(keyName);
     try {
-      const existingKey = keys.find(k => k.key_name === keyName);
-
-      if (existingKey) {
-        const { error } = await supabase
-          .from("user_api_keys")
-          .update({ key_value: value.trim(), is_active: true })
-          .eq("id", existingKey.id);
-
-        if (error) throw error;
-        toast.success(`${keyName} updated`);
-      } else {
-        const { error } = await supabase
-          .from("user_api_keys")
-          .insert({
-            user_id: userId,
-            key_name: keyName,
-            key_value: value.trim(),
-            is_active: true,
-          });
-
-        if (error) throw error;
-        toast.success(`${keyName} added`);
-      }
-
-      setNewKeyValues(prev => ({ ...prev, [keyName]: "" }));
+      await callApi({ action: "save", key_name: keyName, key_value: value.trim() });
+      toast.success(`${keyName} saved (encrypted)`);
+      setNewKeyValues((prev) => ({ ...prev, [keyName]: "" }));
       fetchKeys();
     } catch (err) {
       console.error("Error saving API key:", err);
@@ -98,14 +73,9 @@ export function UserApiKeysManager() {
     }
   };
 
-  const toggleKey = async (key: UserApiKey) => {
+  const toggleKey = async (key: DisplayKey) => {
     try {
-      const { error } = await supabase
-        .from("user_api_keys")
-        .update({ is_active: !key.is_active })
-        .eq("id", key.id);
-
-      if (error) throw error;
+      await callApi({ action: "toggle", key_id: key.id, is_active: !key.is_active });
       toast.success(`${key.key_name} ${key.is_active ? "disabled" : "enabled"}`);
       fetchKeys();
     } catch (err) {
@@ -114,25 +84,15 @@ export function UserApiKeysManager() {
     }
   };
 
-  const deleteKey = async (key: UserApiKey) => {
+  const deleteKey = async (key: DisplayKey) => {
     try {
-      const { error } = await supabase
-        .from("user_api_keys")
-        .delete()
-        .eq("id", key.id);
-
-      if (error) throw error;
+      await callApi({ action: "delete", key_id: key.id });
       toast.success(`${key.key_name} deleted`);
       fetchKeys();
     } catch (err) {
       console.error("Error deleting API key:", err);
       toast.error("Failed to delete API key");
     }
-  };
-
-  const maskValue = (value: string) => {
-    if (value.length <= 8) return "••••••••";
-    return value.slice(0, 4) + "••••••••" + value.slice(-4);
   };
 
   if (loading) {
@@ -153,20 +113,19 @@ export function UserApiKeysManager() {
           Your API Keys
         </CardTitle>
         <CardDescription>
-          Add your own API keys to use instead of shared system keys. Your keys are encrypted and only accessible by you.
+          Add your own API keys to use instead of shared system keys. Your keys are encrypted at rest and only accessible by you.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <Alert>
           <AlertDescription>
-            When you add your own API keys, they'll be used for your scans instead of shared keys. 
+            When you add your own API keys, they'll be used for your scans instead of shared keys.
             This gives you higher rate limits and ensures your usage is separate from other users.
           </AlertDescription>
         </Alert>
 
         {SUPPORTED_KEYS.map(({ name, label, description }) => {
-          const existingKey = keys.find(k => k.key_name === name);
-          const isShowingValue = showValues[name];
+          const existingKey = keys.find((k) => k.key_name === name);
 
           return (
             <div key={name} className="space-y-3 p-4 border rounded-lg">
@@ -177,10 +136,7 @@ export function UserApiKeysManager() {
                 </div>
                 {existingKey && (
                   <div className="flex items-center gap-2">
-                    <Switch
-                      checked={existingKey.is_active}
-                      onCheckedChange={() => toggleKey(existingKey)}
-                    />
+                    <Switch checked={existingKey.is_active} onCheckedChange={() => toggleKey(existingKey)} />
                     <Button
                       variant="ghost"
                       size="icon"
@@ -196,15 +152,8 @@ export function UserApiKeysManager() {
               {existingKey ? (
                 <div className="flex items-center gap-2">
                   <div className="flex-1 font-mono text-sm bg-muted px-3 py-2 rounded">
-                    {isShowingValue ? existingKey.key_value : maskValue(existingKey.key_value)}
+                    {existingKey.masked_value}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setShowValues(prev => ({ ...prev, [name]: !prev[name] }))}
-                  >
-                    {isShowingValue ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
                 </div>
               ) : (
                 <div className="flex gap-2">
@@ -212,17 +161,10 @@ export function UserApiKeysManager() {
                     type="password"
                     placeholder={`Enter your ${label}`}
                     value={newKeyValues[name] || ""}
-                    onChange={(e) => setNewKeyValues(prev => ({ ...prev, [name]: e.target.value }))}
+                    onChange={(e) => setNewKeyValues((prev) => ({ ...prev, [name]: e.target.value }))}
                   />
-                  <Button
-                    onClick={() => saveKey(name)}
-                    disabled={saving === name || !newKeyValues[name]?.trim()}
-                  >
-                    {saving === name ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Plus className="h-4 w-4" />
-                    )}
+                  <Button onClick={() => saveKey(name)} disabled={saving === name || !newKeyValues[name]?.trim()}>
+                    {saving === name ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                     Add
                   </Button>
                 </div>
@@ -230,7 +172,7 @@ export function UserApiKeysManager() {
 
               {existingKey && (
                 <p className="text-xs text-muted-foreground">
-                  {existingKey.is_active ? "✓ Active - using your key" : "○ Disabled - using system key"}
+                  {existingKey.is_active ? "✓ Active - using your key (encrypted)" : "○ Disabled - using system key"}
                 </p>
               )}
             </div>
