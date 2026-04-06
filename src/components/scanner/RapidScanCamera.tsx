@@ -338,59 +338,6 @@ export default function RapidScanCamera() {
 
   const [overlay, setOverlay] = useState<LastOverlay | null>(null);
 
-  // Initialize frame encoder once (browser-only)
-  useEffect(() => {
-    try {
-      frameEncoderRef.current = makeVideoFrameEncoder();
-    } catch {
-      frameEncoderRef.current = null;
-    }
-  }, []);
-
-  // Auto connect/disconnect based on settings + camera state
-  useEffect(() => {
-    const shouldUse = cameraOn && settings.gpuOffloadEnabled && settings.gpuPreferForLive;
-    if (shouldUse) gpu.connect();
-    else gpu.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cameraOn, settings.gpuOffloadEnabled, settings.gpuPreferForLive]);
-
-  // Streaming loop (throttled) for live preview overlay
-  useEffect(() => {
-    const shouldStream =
-      cameraOn &&
-      settings.gpuOffloadEnabled &&
-      settings.gpuPreferForLive &&
-      gpu.status === "connected";
-
-    if (!shouldStream) {
-      if (streamRafRef.current) cancelAnimationFrame(streamRafRef.current);
-      streamRafRef.current = null;
-      return;
-    }
-
-    const v = videoRef.current;
-    if (!v) return;
-
-    const encoder = frameEncoderRef.current ?? (frameEncoderRef.current = makeVideoFrameEncoder());
-    const minGap = 1000 / Math.max(2, Math.min(30, settings.gpuStreamMaxFps || 12));
-
-    const tick = () => {
-      const now = Date.now();
-      if (now - lastEncodeAtRef.current >= minGap) {
-        lastEncodeAtRef.current = now;
-        const jpeg = encoder(v);
-        if (jpeg) gpu.sendFrame(jpeg);
-      }
-      streamRafRef.current = requestAnimationFrame(tick);
-    };
-
-    streamRafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (streamRafRef.current) cancelAnimationFrame(streamRafRef.current);
-      streamRafRef.current = null;
-    };
-  }, [cameraOn, gpu.status, settings.gpuOffloadEnabled, settings.gpuPreferForLive, settings.gpuStreamMaxFps]);
 
   // Global queue processor - single source of truth for queue state
   const queueProcessor = useQueueProcessor();
