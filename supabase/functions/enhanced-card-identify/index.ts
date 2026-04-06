@@ -14,6 +14,19 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Rate limit by user (extract sub from JWT)
+  try {
+    const authHeader = req.headers.get('Authorization') || '';
+    const token = authHeader.replace('Bearer ', '');
+    if (token) {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      if (payload.sub) {
+        const rl = rateLimitResponse(payload.sub, "enhanced-card-identify", corsHeaders, 30, 60_000);
+        if (rl) return rl;
+      }
+    }
+  } catch { /* continue without rate limiting if JWT parse fails */ }
+
   try {
     const { imageUrl: rawImageUrl, ocrText } = await req.json();
 

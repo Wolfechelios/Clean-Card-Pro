@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { rateLimitResponse } from "../_shared/rateLimiter.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,6 +10,19 @@ serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+
+  // Rate limit by user
+  try {
+    const authHeader = req.headers.get('Authorization') || '';
+    const token = authHeader.replace('Bearer ', '');
+    if (token) {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      if (payload.sub) {
+        const rl = rateLimitResponse(payload.sub, "collection-advisor", corsHeaders, 5, 60_000);
+        if (rl) return rl;
+      }
+    }
+  } catch { /* continue */ }
 
   try {
     const { collectionSummary } = await req.json();
