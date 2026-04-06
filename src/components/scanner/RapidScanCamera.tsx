@@ -157,11 +157,14 @@ export default function RapidScanCamera() {
   const [cameraOn, setCameraOn] = useState(false);
   const [support, setSupport] = useState<MediaSupport>({ torch: false, focus: false, zoom: false });
   const [torchOn, setTorchOn] = useState(false);
-  const [torchDimmer, setTorchDimmer] = useState(100); // 100 = full brightness, 0 = max dimming overlay
+  const [torchDimmer, setTorchDimmer] = useState(100);
   const [statusLine, setStatusLine] = useState("Tap Start to begin");
   const [busyCapture, setBusyCapture] = useState(false);
-  // Capture UX
   const [flashActive, setFlashActive] = useState(false);
+
+  // Foil detection
+  const [foilResult, setFoilResult] = useState<MultiFrameResult | null>(null);
+  const foilAnalyzerRef = useRef(getMultiFrameAnalyzer());
 
   // Auto-timer
   const [autoTimerActive, setAutoTimerActive] = useState(false);
