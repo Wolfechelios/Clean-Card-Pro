@@ -1,7 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getUserApiKey, API_KEY_NAMES } from "../_shared/getUserApiKey.ts";
-import { resolveOfficialCardIdentity } from "../_shared/officialNameResolver.ts";
 import { buildYgoRarityPromptSection } from "../_shared/ygoRarityMatrix.ts";
 import { validateImageUrl, SSRFError } from "../_shared/validateUrl.ts";
 import { rateLimitResponse } from "../_shared/rateLimiter.ts";
@@ -11,7 +10,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Uses user's own API keys when available, falls back to system keys
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -32,7 +30,6 @@ serve(async (req) => {
 
     const normalizedOcrText = normalizeOcrText(ocrText);
 
-    // Get user ID from auth header for user-specific keys
     const authHeader = req.headers.get('authorization');
     let userId: string | null = null;
     let supabaseClient: ReturnType<typeof createClient> | null = null;
@@ -47,14 +44,12 @@ serve(async (req) => {
       const { data: { user } } = await supabaseClient.auth.getUser();
       userId = user?.id ?? null;
 
-      // Rate limit: 60 requests/minute for rapid scan
       if (userId) {
         const rl = rateLimitResponse(userId, "rapid-card-identify", corsHeaders, 60, 60_000);
         if (rl) return rl;
       }
     }
 
-    // Try to get user-specific Gemini key, fall back to system key
     let GEMINI_API_KEY: string | null = null;
     if (userId && supabaseClient) {
       GEMINI_API_KEY = await getUserApiKey(
@@ -69,7 +64,6 @@ serve(async (req) => {
     
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     
-    // Only use Gemini if key looks valid (not empty, not placeholder)
     const useGeminiDirect = GEMINI_API_KEY && 
       GEMINI_API_KEY.length > 10 && 
       !GEMINI_API_KEY.startsWith('your_') &&
@@ -145,10 +139,10 @@ JSON only.`;
     let lastError: Error | null = null;
     let lovableExhausted = false;
 
-    // Try Lovable AI FIRST (always available, no user key needed)
+    // Try Lovable AI FIRST — reduced to 2 retries for speed
     if (LOVABLE_API_KEY) {
       console.log('Trying Lovable AI...');
-      for (let attempt = 0; attempt < 5; attempt++) {
+      for (let attempt = 0; attempt < 2; attempt++) {
         try {
           const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
             method: 'POST',
@@ -166,18 +160,17 @@ JSON only.`;
                 ]
               }],
               temperature: 0.1,
-              max_tokens: 300,
+              max_tokens: 200,
+              response_format: { type: "json_object" },
             }),
           });
 
           if (!response.ok) {
             if (response.status === 429) {
-              const delay = Math.min(10_000, 1000 * Math.pow(2, attempt));
-              console.log(`Lovable AI rate limited, waiting ${delay}ms (attempt ${attempt + 1}/5)`);
+              const delay = Math.min(5000, 1000 * Math.pow(2, attempt));
+              console.log(`Lovable AI rate limited, waiting ${delay}ms (attempt ${attempt + 1}/2)`);
               await new Promise(r => setTimeout(r, delay));
-              if (attempt === 4) {
-                lovableExhausted = true;
-              }
+              if (attempt === 1) lovableExhausted = true;
               continue;
             }
             if (response.status === 402) {
@@ -197,8 +190,8 @@ JSON only.`;
         } catch (err) {
           lastError = err as Error;
           console.log(`Lovable AI error: ${err}`);
-          if (attempt < 4) {
-            await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+          if (attempt < 1) {
+            await new Promise(r => setTimeout(r, 500));
           }
         }
       }
@@ -209,7 +202,6 @@ JSON only.`;
       console.log('Falling back to Gemini Direct (user key)...');
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          console.log(`Gemini attempt ${attempt + 1}/2...`);
           const response = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
             {
@@ -224,7 +216,7 @@ JSON only.`;
                 }],
                 generationConfig: {
                   temperature: 0.1,
-                  maxOutputTokens: 300,
+                  maxOutputTokens: 200,
                 }
               }),
             }
@@ -280,11 +272,8 @@ JSON only.`;
       cardData = { card_name: 'Unknown Card', confidence: 0 };
     }
 
-    try {
-      cardData = await resolveOfficialCardIdentity(cardData, { ocrText: normalizedOcrText ?? undefined });
-    } catch (verifyError) {
-      console.warn('Official name verification skipped:', verifyError);
-    }
+    // NOTE: resolveOfficialCardIdentity removed from hot path for speed.
+    // Name resolution is now done as a background enrichment step client-side.
 
     console.log('Identified:', cardData.card_name);
 
@@ -309,7 +298,6 @@ JSON only.`;
   }
 });
 
-// Helper to fetch image and convert to base64 for Gemini direct API
 async function fetchImageAsBase64(url: string): Promise<string> {
   const response = await fetch(url);
   const arrayBuffer = await response.arrayBuffer();

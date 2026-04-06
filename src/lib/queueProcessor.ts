@@ -275,6 +275,15 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function blobToBase64DataUrl(blob: Blob, mime: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(new Blob([blob], { type: mime }));
+  });
+}
+
 function money(n: number | null | undefined) {
   if (n == null || Number.isNaN(n)) return null;
   return Math.round(n * 100) / 100;
@@ -510,11 +519,14 @@ async function processJob(item: QueueItem): Promise<void> {
 
   await idbUpdateMeta(item.id, { status: "processing" });
 
-  // Upload to storage
   const filePath = `cards/${item.id}.jpg`;
   const file = new File([item.blob], item.filename, { type: item.mime });
 
-  await withTimeout(
+  // Create a base64 data URL for immediate AI identification
+  const base64 = await blobToBase64DataUrl(item.blob, item.mime);
+
+  // ─── PARALLEL: Upload + OCR + Identify all at once ───
+  const uploadPromise = withTimeout(
     withRetry(async () => {
       const res = await supabase.storage
         .from("card-images")
@@ -524,72 +536,91 @@ async function processJob(item: QueueItem): Promise<void> {
     }),
     10000,
     "Storage upload"
-  );
+  ).catch((e: any) => {
+    console.warn("[QueueProcessor] Upload failed, will retry later:", e);
+    return null;
+  });
 
-  // Get public URL (bucket is public, no signed token needed)
+  const ocrPromise = withTimeout(
+    supabase.functions.invoke("zai-ocr", {
+      body: { imageUrl: base64, mode: "meta" },
+    }),
+    4000,
+    "Z.AI OCR"
+  ).catch((e: any) => {
+    console.warn("[QueueProcessor] Z.AI OCR skipped:", e);
+    return { data: null, error: e };
+  });
+
+  // Start identification immediately with base64 (no need to wait for upload)
+  const identifyPromise = hybridIdentifyCard(base64, {
+    cloudFunction: "rapid-card-identify",
+    skipOfflineGuard: false,
+  }).catch((e: any) => ({ success: false, cardData: null, source: "cloud" as const, error: e }));
+
+  // Wait for all three in parallel
+  const [_uploadResult, ocrResult, identifyResult] = await Promise.all([
+    uploadPromise,
+    ocrPromise,
+    identifyPromise,
+  ]);
+
+  // Get public URL for storage
   const { data: publicUrlData } = supabase.storage
     .from("card-images")
     .getPublicUrl(filePath);
   const imageUrl = publicUrlData.publicUrl;
 
-  // ─── Z.AI OCR pre-processing (Tier 2: focused text extraction) ───
+  // Extract OCR data
   let ocrText: string | null = null;
   let ocrSetCode: string | null = null;
   let ocrCardNumber: string | null = null;
   let ocrConfidence = 0;
 
-  try {
-    const ocrResult = await withTimeout(
-      supabase.functions.invoke("zai-ocr", {
-        body: { imageUrl, mode: "meta" },
-      }),
-      8000,
-      "Z.AI OCR"
-    );
-
-    if (ocrResult.data && !ocrResult.error) {
-      const ocr = ocrResult.data;
-      ocrText = ocr.text || null;
-      ocrSetCode = ocr.setCode || null;
-      ocrCardNumber = ocr.cardNumber || null;
-      ocrConfidence = ocr.confidence || 0;
-      console.log(`[QueueProcessor] Z.AI OCR: "${ocrText?.substring(0, 60)}" conf=${ocrConfidence} set=${ocrSetCode} num=${ocrCardNumber}`);
-    }
-  } catch (ocrErr) {
-    console.warn("[QueueProcessor] Z.AI OCR skipped:", ocrErr);
-    // Non-fatal — proceed with existing flow
+  if (ocrResult && (ocrResult as any).data && !(ocrResult as any).error) {
+    const ocr = (ocrResult as any).data;
+    ocrText = ocr.text || null;
+    ocrSetCode = ocr.setCode || null;
+    ocrCardNumber = ocr.cardNumber || null;
+    ocrConfidence = ocr.confidence || 0;
+    console.log(`[QueueProcessor] Z.AI OCR: "${ocrText?.substring(0, 60)}" conf=${ocrConfidence} set=${ocrSetCode} num=${ocrCardNumber}`);
   }
 
-  // Identify card using hybrid routing (cloud or local LLM)
-  // Pass OCR text to boost identification accuracy
+  // Process identification result
   let identify: any;
-  try {
-    const result = await hybridIdentifyCard(imageUrl, {
-      cloudFunction: "rapid-card-identify",
-      skipOfflineGuard: false,
-      ocrText: ocrText || undefined,
-    });
-    identify = result.cardData;
 
-    // If Z.AI OCR found structured data, enrich/override low-confidence AI fields
-    if (ocrConfidence >= 0.5) {
-      if (ocrCardNumber && (!identify?.card_number || identify.confidence < 0.7)) {
-        identify.card_number = ocrCardNumber;
-      }
-      if (ocrSetCode && (!identify?.card_set || identify.confidence < 0.7)) {
-        // Only set if the AI didn't already find a set
-        if (!identify?.card_set) {
-          identify.card_set = ocrSetCode;
-        }
-      }
-    }
-
-    console.log(`[QueueProcessor] Card identified via ${result.source}:`, identify?.card_name);
-  } catch (e: any) {
-    if (e?.message?.includes("max attempts reached")) {
+  if ((identifyResult as any).error || !(identifyResult as any).success) {
+    const err = (identifyResult as any).error;
+    if (err?.message?.includes("max attempts reached")) {
       throw new Error("Offline: requires internet connection to identify this card");
     }
-    throw e;
+    // If first attempt failed and we now have OCR, retry with OCR text
+    if (ocrText) {
+      const retryResult = await hybridIdentifyCard(base64, {
+        cloudFunction: "rapid-card-identify",
+        skipOfflineGuard: false,
+        ocrText,
+      });
+      identify = retryResult.cardData;
+      console.log(`[QueueProcessor] Card identified via ${retryResult.source} (OCR retry):`, identify?.card_name);
+    } else {
+      throw err || new Error("Card identification failed");
+    }
+  } else {
+    identify = (identifyResult as any).cardData;
+    console.log(`[QueueProcessor] Card identified via ${(identifyResult as any).source}:`, identify?.card_name);
+  }
+
+  // Enrich with OCR structured data
+  if (ocrConfidence >= 0.5) {
+    if (ocrCardNumber && (!identify?.card_number || identify.confidence < 0.7)) {
+      identify.card_number = ocrCardNumber;
+    }
+    if (ocrSetCode && (!identify?.card_set || identify.confidence < 0.7)) {
+      if (!identify?.card_set) {
+        identify.card_set = ocrSetCode;
+      }
+    }
   }
 
   const cardName: string = identify?.card_name || "Unknown Card";
