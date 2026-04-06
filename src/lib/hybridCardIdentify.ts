@@ -204,7 +204,7 @@ export async function hybridIdentifyCard(
   if (forceCloud && online) {
     const cardData = await withRetry(
       () => identifyWithCloud(imageUrl, cloudFunction, ocrText || undefined),
-      { retries: 2, baseMs: 1000, maxMs: 5000 }
+      { retries: 1, baseMs: 800, maxMs: 3000 }
     );
     return { success: true, cardData, source: "cloud" };
   }
