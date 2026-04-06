@@ -38,7 +38,8 @@ export function BinderSlotCard({ slot, showPrices, heatmapMode, onClick }: Binde
         slot.owned
           ? "border-border/60 bg-card"
           : "border-border/30 bg-muted/30",
-        heatClass
+        heatClass,
+        foilClass
       )}
     >
       {slot.owned && slot.imageUrl ? (
