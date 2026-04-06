@@ -231,36 +231,6 @@ export function useCardScanner({
 
       let enhancedData: any;
       let alternatives: Alternative[] = [];
-      let gpuPricing: any = null;
-
-      // Priority: Local accelerator (Mac/PC) if enabled
-      const scanner = getScannerSettings() as any;
-      const gpuEnabled = scanner.gpuOffloadEnabled === true;
-      if (gpuEnabled && (await checkGpuServerAvailable()).ok) {
-        try {
-          const gpu = await gpuIdentifyByImageUrl(imageUrl, { wantPricing: true });
-          if (gpu?.success) {
-            enhancedData = {
-              card_name: gpu.cardData.card_name,
-              card_set: gpu.cardData.card_set,
-              card_number: gpu.cardData.card_number,
-              rarity: gpu.cardData.rarity,
-              edition: gpu.cardData.edition,
-              game_type: gpu.cardData.game_type,
-              sport_type: gpu.cardData.sport_type,
-              year: gpu.cardData.year,
-              manufacturer: gpu.cardData.manufacturer,
-              confidence: gpu.cardData.confidence,
-              description: gpu.cardData.description ?? "",
-            };
-            // If GPU server returned pricing, map to existing pricingData shape
-            if (gpu.pricing) gpuPricing = gpu.pricing;
-            toast.success(`Local accelerator: ${enhancedData.card_name}`);
-          }
-        } catch (e) {
-          console.warn("GPU identify failed, falling back:", e);
-        }
-      }
 
       try {
         const enhancedResult = await withRetry(
