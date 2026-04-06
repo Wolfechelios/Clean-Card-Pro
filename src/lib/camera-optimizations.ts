@@ -7,7 +7,6 @@
  * - Buffer reuse for memory efficiency
  */
 
-import { GPU_CONFIG } from "@/lib/performance/gpuConfig";
 import { MEMORY_CONFIG } from "@/lib/performance/memoryConfig";
 import { canProcessFrame, markFrameStart, markFrameEnd } from "@/lib/performance/pipelineGuards";
 
