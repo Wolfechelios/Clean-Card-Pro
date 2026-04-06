@@ -138,26 +138,6 @@ async function identifyWithCloud(
   };
 }
 
-async function identifyWithGpuServer(imageUrl: string): Promise<IdentifiedCardData> {
-  const result = await gpuIdentifyByImageUrl(imageUrl, { wantPricing: false });
-  if (!result?.success) {
-    throw new Error(result?.error || "GPU server identification failed");
-  }
-  return {
-    card_name: result.cardData.card_name || "Unknown Card",
-    card_set: result.cardData.card_set || null,
-    card_number: result.cardData.card_number || null,
-    rarity: result.cardData.rarity || null,
-    edition: result.cardData.edition || null,
-    game_type: result.cardData.game_type || null,
-    sport_type: result.cardData.sport_type || null,
-    year: result.cardData.year || null,
-    manufacturer: result.cardData.manufacturer || null,
-    confidence: result.cardData.confidence || 80,
-    description: result.cardData.description,
-  };
-}
-
 /**
  * Run PaddleOCR preprocessing on an image URL
  * Returns extracted text or null if OCR fails/unavailable
