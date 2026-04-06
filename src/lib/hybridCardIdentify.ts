@@ -180,7 +180,6 @@ export async function hybridIdentifyCard(
     cloudFunction = "rapid-card-identify",
     forceLocal = false,
     forceCloud = false,
-    forceGpu = false,
     skipOfflineGuard = false,
     usePaddleOCR = false,
     ocrText: preOcrText,
