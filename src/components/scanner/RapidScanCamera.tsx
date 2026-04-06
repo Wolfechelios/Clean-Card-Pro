@@ -274,6 +274,35 @@ export default function RapidScanCamera() {
     };
   }, [isNative, settings.autoCaptureEnabled, cameraOn, busyCapture, captureNow]);
 
+  // Background foil detection — sample frames every ~500ms during camera use
+  useEffect(() => {
+    if (isNative || !cameraOn || !settings.foilDetectionEnabled) return;
+    const analyzer = foilAnalyzerRef.current;
+    let raf = 0;
+    let lastSample = 0;
+
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      const v = videoRef.current;
+      if (!v || v.readyState < 2) return;
+      const now = performance.now();
+      if (now - lastSample < 500) return;
+      lastSample = now;
+
+      analyzer.addFrame(v);
+      const result = analyzer.analyze();
+      setFoilResult(result);
+    };
+
+    analyzer.reset();
+    setFoilResult(null);
+    raf = requestAnimationFrame(tick);
+
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [isNative, cameraOn, settings.foilDetectionEnabled]);
+
   // Zoom
   const {
     zoomLevel,
