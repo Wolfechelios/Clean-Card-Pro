@@ -8,9 +8,6 @@ import { isLocalLLMAvailable, isOnline } from "./inferenceMode";
 import { callLocalVisionLLM } from "./localLLM";
 import { withRetry } from "./retry";
 import { runPaddleOCR, isPaddleOCRReady } from "./paddleOCR";
-import { getScannerSettings } from "@/hooks/use-scanner-settings";
-import { checkGpuServerAvailable } from "@/lib/gpuOffload/gpuAvailability";
-import { gpuIdentifyByImageUrl } from "@/lib/gpuOffload/gpuHttpClient";
 
 export interface IdentifiedCardData {
   card_name: string;
