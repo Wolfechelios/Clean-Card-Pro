@@ -39,6 +39,7 @@ const SellAssistPage = lazy(() => import("./pages/SellAssistPage"));
 const InstallPage = lazy(() => import("./pages/InstallPage"));
 const DeckBuilderPage = lazy(() => import("./pages/DeckBuilderPage"));
 const PriceDatabasePage = lazy(() => import("./pages/PriceDatabasePage"));
+const BinderPage = lazy(() => import("./pages/BinderPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient({
