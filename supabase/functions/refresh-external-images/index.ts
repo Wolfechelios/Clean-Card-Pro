@@ -16,7 +16,9 @@ async function downloadAndUploadImage(
   try {
     console.log(`Downloading: ${remoteUrl}`);
     
-    const response = await fetch(remoteUrl, {
+    // SSRF protection on URLs from database records
+    const safeUrl = validateImageUrl(remoteUrl);
+    const response = await fetch(safeUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; CardScanner/1.0)',
       },

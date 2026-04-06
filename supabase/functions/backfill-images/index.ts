@@ -127,7 +127,9 @@ async function downloadAndUploadImage(
   try {
     console.log(`Downloading image from: ${remoteUrl}`);
     
-    const response = await fetch(remoteUrl);
+    // SSRF protection on URLs from external APIs
+    const safeUrl = validateImageUrl(remoteUrl);
+    const response = await fetch(safeUrl);
     if (!response.ok) {
       throw new Error(`Failed to download: ${response.status}`);
     }

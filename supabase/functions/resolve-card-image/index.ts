@@ -250,7 +250,9 @@ async function downloadAndStore(
   try {
     console.log(`Downloading image: ${imageUrl}`);
     
-    const resp = await fetch(imageUrl);
+    // SSRF protection on downloaded URLs (may come from AI results)
+    const safeUrl = validateImageUrl(imageUrl);
+    const resp = await fetch(safeUrl);
     if (!resp.ok) {
       console.error(`Failed to download image: ${resp.status}`);
       return null;
