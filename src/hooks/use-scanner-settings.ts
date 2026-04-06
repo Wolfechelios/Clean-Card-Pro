@@ -11,7 +11,7 @@ export interface ScannerSettings {
 
   hapticsOnCapture: boolean;
   flashOnCapture: boolean;
-  autoTimerIntervalSeconds: 1 | 1.5 | 2 | 5;
+  autoTimerIntervalSeconds: 1 | 1.25 | 1.5 | 2 | 5;
   voiceCaptureEnabled: boolean;
   voiceCaptureKeyword: string;
   manualFocusLock: boolean;
