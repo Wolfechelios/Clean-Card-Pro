@@ -165,27 +165,11 @@ export function useCardScanner({
 
   const performOCR = async (imageUrl: string): Promise<OCRResult> => {
     setScanProgress(10);
-    const scanner = getScannerSettings() as any;
-    const gpuEnabled = scanner.gpuOffloadEnabled === true;
     let ocrText = "";
 
-    // Prefer local accelerator OCR if available
-    if (gpuEnabled && (await checkGpuServerAvailable()).ok) {
-      try {
-        const local = await gpuOcrByImageUrl(imageUrl);
-        if (local?.success && local.text?.trim()) {
-          ocrText = local.text;
-        }
-      } catch {
-        // fallback below
-      }
-    }
-
-    // Cloud fallback
-    if (!ocrText) {
-      const analysis = await analyzeCardFull(imageUrl);
-      ocrText = analysis.vision.ocr_text;
-    }
+    // Cloud OCR
+    const analysis = await analyzeCardFull(imageUrl);
+    ocrText = analysis.vision.ocr_text;
 
     setScanProgress(80);
     const lines = ocrText.split("\n").filter((line) => line.trim());
