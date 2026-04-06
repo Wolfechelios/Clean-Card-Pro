@@ -1,52 +1,64 @@
 
 
-## Plan: Improve Rapid Scan Camera UI
+## Plan: Speed Up Rapid Scan Card Recognition
 
-### What changes
+### Root cause analysis
 
-Restructure the RapidScanCamera render layout from a side-panel control design to an integrated viewfinder-first layout with controls overlaid on and below the camera feed. The goal is faster scanning with fewer visual distractions.
+Each card goes through **4 sequential network calls**, each with generous timeouts and retries. On a typical scan, total per-card time is 8–20 seconds:
 
-### Layout redesign
+```text
+Current pipeline (serial):
+  Upload to Storage ──► Z.AI OCR ──► rapid-card-identify ──► Price fetch
+       ~2s                ~5s              ~5s                   ~2s
+                                    (includes officialNameResolver
+                                     which makes ANOTHER external API call)
+```
 
-**Current:** Grid layout with camera on the left and a separate controls panel on the right (300px sidebar with Camera heading, start/stop, torch, white balance, capture button, auto-timer, zoom reset, clear, tips, buffer status).
+### Optimizations (5 changes)
 
-**New:** Single-column, viewfinder-dominant layout:
+**1. Parallelize OCR + Identification (biggest win)**
+Currently Z.AI OCR runs first (8s timeout), then its output feeds into `rapid-card-identify`. The OCR text is helpful but not required — the AI model already reads the card image. Run both in parallel; if OCR finishes first, great, otherwise the AI identifies without it.
 
-1. **Compact top bar** -- mode badge + total value + buffer count (single row, no mode toggle buttons visible by default; mode selector moves into a small dropdown or stays compact)
+**2. Make official name resolution async / non-blocking**
+Inside `rapid-card-identify`, `resolveOfficialCardIdentity` makes external HTTP calls to ygoprodeck, pokemontcg.io, or scryfall APIs. This adds 1–5s per card. Move this to a post-processing step that enriches the result after returning the initial identification.
 
-2. **Viewfinder** -- full-width, taller, with improved alignment frame (thicker corners, subtle gradient glow on corners, centered card silhouette). Remove the side panel entirely.
+**3. Reduce edge function timeouts and retries**
+- `invokeEdgeFunction` default timeout: 6s → 10s (one call, fewer retries)
+- `rapid-card-identify` Lovable AI retries: 5 → 2 (with shorter backoff)
+- Z.AI OCR timeout: 8s → 4s (it's supplementary, not critical)
 
-3. **Overlay controls on viewfinder** -- torch toggle and zoom indicator stay as small floating pills (top-right). Camera selector as a small pill (top-left) when multiple cameras exist.
+**4. Upload + Identify in parallel**
+Currently the image is uploaded to Storage, then the public URL is used for identification. Instead, start the upload and identification concurrently — the AI can use a base64 data URL while the storage upload proceeds in the background.
 
-4. **Bottom capture bar (below viewfinder)** -- a horizontal strip containing:
-   - Large circular capture button (80px, centered, primary color, pulsing ring when ready)
-   - Auto-timer toggle (left of capture)
-   - Torch toggle (right of capture) 
-   - This mimics native camera app UX
+**5. Switch to faster AI model for rapid mode**
+Already using `gemini-2.5-flash-lite` which is the fastest. Reduce `max_tokens` from 300 → 200 (JSON response is ~150 tokens). Add `response_format: { type: "json_object" }` to skip markdown wrapping.
 
-5. **Status strip** -- below capture bar: one-line status text + queue counts (queued/processing)
+### Expected improvement
 
-6. **Scanned cards list** -- unchanged, below everything
+```text
+Optimized pipeline (parallel):
+  ┌─ Upload to Storage ─────────┐
+  ├─ Z.AI OCR (4s cap) ─────────┤──► Merge ──► Price fetch
+  └─ rapid-card-identify (no    │       ~0s        ~2s
+     name resolver) ────────────┘
+           ~3-5s total
 
-### Technical details
-
-**File:** `src/components/scanner/RapidScanCamera.tsx` (render section, lines ~1217-1665)
-
-Changes to the render return:
-- Remove the `lg:grid-cols-[1fr_300px]` grid layout
-- Move capture button into a centered bottom bar below the viewfinder with a large round button (w-20 h-20 rounded-full)
-- Move start/stop camera into the capture button itself (tap to start, then tap to capture)
-- Keep torch, auto-timer as smaller icon buttons flanking the main capture button
-- Move camera device selector into a compact overlay pill on the viewfinder
-- Move white balance control into a collapsible section or remove from main view (move to settings)
-- Move buffer status into a small badge inline with the status line
-- Remove the separate "Camera" panel card entirely
-- Keep the mode toggle compact (already has icon-only on mobile)
-- Improve alignment frame: thicker corner brackets (w-8 h-8, border-3), add subtle animation
+Before: ~14s per card
+After:  ~5-7s per card
+```
 
 ### Files to edit
 
 | File | Changes |
 |------|---------|
-| `src/components/scanner/RapidScanCamera.tsx` | Restructure render layout: remove side panel grid, add bottom capture bar with large round button, overlay controls on viewfinder, compact status line |
+| `src/lib/queueProcessor.ts` | Parallelize upload + OCR + identify; pass base64 to identify; make name resolution a background enrichment step |
+| `supabase/functions/rapid-card-identify/index.ts` | Remove `resolveOfficialCardIdentity` call (move to post-process); reduce retries 5→2; reduce max_tokens 300→200; add `response_format` |
+| `src/lib/hybridCardIdentify.ts` | Reduce cloud retry count from 2→1; tighten timeout |
+
+### What stays unchanged
+- Card identification accuracy (same AI model and prompt)
+- Offline fallback logic
+- Anomaly detection
+- Price fetching (already parallelized with ownership check)
+- All scanner UI components
 
