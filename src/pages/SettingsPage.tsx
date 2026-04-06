@@ -62,8 +62,6 @@ export default function Settings() {
   const [unknownCardCount, setUnknownCardCount] = useState(0);
   const [nullRarityCount, setNullRarityCount] = useState(0);
   const [showStressTest, setShowStressTest] = useState(false);
-  const [isDiscovering, setIsDiscovering] = useState(false);
-  const [discoveredServer, setDiscoveredServer] = useState<{ url: string; type: string; gpu?: any } | null>(null);
 
   useEffect(() => {
     loadUserData();
