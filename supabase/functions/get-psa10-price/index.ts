@@ -165,6 +165,19 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Rate limit by user
+  try {
+    const authHeader = req.headers.get('Authorization') || '';
+    const token = authHeader.replace('Bearer ', '');
+    if (token) {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      if (payload.sub) {
+        const rl = rateLimitResponse(payload.sub, "get-psa10-price", corsHeaders, 20, 60_000);
+        if (rl) return rl;
+      }
+    }
+  } catch { /* continue */ }
+
   try {
     const { card_id, skip_api } = await req.json();
     
