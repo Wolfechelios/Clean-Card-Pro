@@ -1,30 +1,23 @@
 import { useCallback } from "react";
-import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Camera, Smartphone, Usb, Trash2, Microscope } from "lucide-react";
+import { Camera, Usb, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 import { useCardScanner } from "@/hooks/use-card-scanner";
-import { useCameraCapture } from "@/hooks/use-camera-capture";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import { useBatchScanner } from "@/hooks/use-batch-scanner";
-import { useIsMobile } from "@/hooks/use-mobile";
 import { useScannerSettings } from "@/hooks/use-scanner-settings";
 
 import { UploadTab } from "./scanner/UploadTab";
-import { CameraTab } from "./scanner/CameraTab";
 import { BatchQueue } from "./scanner/BatchQueue";
 import { BatchProgress } from "./scanner/BatchProgress";
 import { CardIdentificationEditor } from "./scanner/CardIdentificationEditor";
-import { RemoteScanDesktop } from "./scanner/RemoteScanDesktop";
-import { RemoteScanMobile } from "./scanner/RemoteScanMobile";
 import { NeedsFoilReviewQueue } from "./scanner/NeedsFoilReviewQueue";
 import RapidScanCamera from "./scanner/RapidScanCamera";
 import { USBPhoneCameraScanner } from "./scanner/USBPhoneCameraScanner";
 import { USBBulkImport } from "./scanner/USBBulkImport";
 import { DuplicateCardDialog } from "./scanner/DuplicateCardDialog";
 import { RecentScansBox } from "./scanner/RecentScansBox";
-import { MicroscopeDetailTab } from "./scanner/MicroscopeDetailTab";
 
 interface ScannerProps {
   userId: string;
