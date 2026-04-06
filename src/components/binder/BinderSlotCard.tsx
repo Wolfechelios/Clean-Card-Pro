@@ -16,6 +16,14 @@ function getHeatGlow(price: number | null): string {
   return "shadow-[0_0_24px_hsl(197,80%,50%,0.6)]";
 }
 
+function getFoilGlow(variant: string): string {
+  const v = variant.toLowerCase();
+  if (v.includes("secret") || v.includes("prismatic")) return "ring-2 ring-amber-400/50 shadow-[0_0_16px_hsl(45,90%,50%,0.3)]";
+  if (v.includes("holo") || v.includes("foil")) return "ring-1 ring-primary/40 shadow-[0_0_12px_hsl(var(--primary)/0.25)]";
+  if (v.includes("reverse")) return "ring-1 ring-sky-400/30 shadow-[0_0_10px_hsl(200,80%,50%,0.2)]";
+  return "";
+}
+
 export function BinderSlotCard({ slot, showPrices, heatmapMode, onClick }: BinderSlotCardProps) {
   const heatClass = heatmapMode ? getHeatGlow(slot.rawPrice) : "";
 
