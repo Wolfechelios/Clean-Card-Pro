@@ -194,27 +194,6 @@ export async function hybridIdentifyCard(
   const localAvailable = await isLocalLLMAvailable();
   const online = isOnline();
 
-  const scanner = getScannerSettings() as any;
-  const gpuEnabled = scanner.gpuOffloadEnabled === true && scanner.gpuPreferForQueue !== false;
-
-  const gpuAvailable = (forceGpu || gpuEnabled) ? (await checkGpuServerAvailable()).ok : false;
-
-  // Force GPU mode
-  if (forceGpu && gpuAvailable) {
-    const cardData = await identifyWithGpuServer(imageUrl);
-    return { success: true, cardData, source: "gpu" };
-  }
-
-  // Priority 0: GPU server (if enabled)
-  if (gpuEnabled && gpuAvailable) {
-    try {
-      const cardData = await identifyWithGpuServer(imageUrl);
-      return { success: true, cardData, source: "gpu" };
-    } catch (e) {
-      console.warn("GPU server identification failed, falling back:", e);
-    }
-  }
-
   // Force local mode
   if (forceLocal && localAvailable) {
     const cardData = await identifyWithLocalLLM(imageUrl);

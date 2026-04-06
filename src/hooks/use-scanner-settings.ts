@@ -46,15 +46,6 @@ const DEFAULT_SETTINGS: ScannerSettings = {
 
   batchScanSize: 3,
 
-  gpuOffloadEnabled: false,
-  gpuServerBaseUrl: "",
-  gpuServerType: "auto",
-  gpuPreferForQueue: true,
-  gpuPreferForLive: true,
-  gpuStreamMaxFps: 12,
-  gpuStreamTargetWidth: 720,
-  gpuStreamJpegQuality: 0.65,
-
   preferredMicroscopeDeviceId: "",
 };
 

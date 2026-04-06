@@ -35,7 +35,7 @@ function getReusableCanvas(width: number, height: number): { canvas: HTMLCanvasE
   // Use GPU-first rendering hints when available
   const ctxOptions: CanvasRenderingContext2DSettings = {
     alpha: false,
-    desynchronized: GPU_CONFIG.execution === "gpu-first",
+    desynchronized: true,
     willReadFrequently: false,
   };
 
