@@ -1477,28 +1477,46 @@ export default function RapidScanCamera() {
 
       {/* ── Bottom capture bar ── */}
       <div className="flex items-center justify-center gap-4 py-2">
-        {/* Left: Auto-timer toggle */}
+        {/* Left: Auto-timer toggle + speed selector */}
         {!isNative && cameraOn ? (
-          <Button
-            onClick={autoTimerActive ? stopAutoTimer : startAutoTimer}
-            variant={autoTimerActive ? "destructive" : "outline"}
-            size="icon"
-            className="h-14 w-14 rounded-full shrink-0"
-            disabled={isAnomalyPaused}
-            title={autoTimerActive ? "Stop auto-capture" : `Auto every ${autoTimerSeconds}s`}
-          >
-            {autoTimerActive ? (
-              <div className="flex flex-col items-center">
-                <TimerOff className="h-5 w-5" />
-                <span className="text-[10px] mt-0.5 font-semibold">{autoTimerCountdown}s</span>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center">
-                <Timer className="h-5 w-5" />
-                <span className="text-[10px] mt-0.5">{autoTimerSeconds}s</span>
-              </div>
+          <div className="relative shrink-0">
+            <Button
+              onClick={autoTimerActive ? stopAutoTimer : startAutoTimer}
+              variant={autoTimerActive ? "destructive" : "outline"}
+              size="icon"
+              className="h-14 w-14 rounded-full"
+              disabled={isAnomalyPaused}
+              title={autoTimerActive ? "Stop auto-capture" : `Auto every ${autoTimerSeconds}s`}
+            >
+              {autoTimerActive ? (
+                <div className="flex flex-col items-center">
+                  <TimerOff className="h-5 w-5" />
+                  <span className="text-[10px] mt-0.5 font-semibold">{autoTimerCountdown}s</span>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center">
+                  <Timer className="h-5 w-5" />
+                  <span className="text-[10px] mt-0.5">{autoTimerSeconds}s</span>
+                </div>
+              )}
+            </Button>
+            {/* Speed selector badge — tap to cycle */}
+            {!autoTimerActive && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const speeds: Array<1 | 1.25 | 1.5 | 2 | 5> = [1, 1.25, 1.5, 2, 5];
+                  const idx = speeds.indexOf(autoTimerSeconds as any);
+                  const next = speeds[(idx + 1) % speeds.length];
+                  updateSettings({ autoTimerIntervalSeconds: next });
+                }}
+                className="absolute -top-1 -right-1 bg-primary text-primary-foreground rounded-full h-5 min-w-5 px-1 text-[9px] font-bold flex items-center justify-center shadow-md"
+                title="Tap to change speed"
+              >
+                {autoTimerSeconds}s
+              </button>
             )}
-          </Button>
+          </div>
         ) : <div className="w-14" />}
 
         {/* Center: Large capture / start button */}
