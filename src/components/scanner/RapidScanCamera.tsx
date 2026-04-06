@@ -1384,6 +1384,15 @@ export default function RapidScanCamera() {
           </div>
         </div>
 
+        {/* Foil detection overlay */}
+        {settings.foilDetectionEnabled && cameraOn && (
+          <FoilDetectionOverlay
+            result={foilResult}
+            frameCount={foilAnalyzerRef.current.frameCount}
+            visible={true}
+          />
+        )}
+
         <canvas ref={canvasRef} className="hidden" />
         {flashActive && <div className="capture-flash" />}
 
