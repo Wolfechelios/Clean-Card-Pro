@@ -171,7 +171,6 @@ export async function hybridIdentifyCard(
     cloudFunction?: string;
     forceLocal?: boolean;
     forceCloud?: boolean;
-    forceGpu?: boolean;
     skipOfflineGuard?: boolean;
     usePaddleOCR?: boolean;
     ocrText?: string; // Pre-extracted OCR text from Z.AI or other source
