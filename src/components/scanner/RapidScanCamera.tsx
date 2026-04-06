@@ -127,11 +127,6 @@ export default function RapidScanCamera() {
   const { settings, updateSettings } = useScannerSettings();
   const isMobile = useIsMobile();
 
-  // Local Accelerator (Mac/PC) live overlay
-  const gpu = useGpuOffloadStream({ autoConnect: false });
-  const frameEncoderRef = useRef<ReturnType<typeof makeVideoFrameEncoder> | null>(null);
-  const streamRafRef = useRef<number | null>(null);
-  const lastEncodeAtRef = useRef(0);
 
   // Camera devices (for selecting different lenses/optics)
   const {
