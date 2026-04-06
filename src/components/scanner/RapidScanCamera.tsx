@@ -1221,400 +1221,323 @@ export default function RapidScanCamera() {
         settings.fullscreenScanMode && "fixed inset-0 z-50 bg-background p-2 sm:p-4 overflow-auto"
       )}
     >
-      <Card className={cn("p-4", settings.scanMode === "REMOVE" && "border-destructive/50")}>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2">
-            <Badge 
-              variant={
-                settings.scanMode === "REMOVE" 
-                  ? "destructive" 
-                  : settings.scanMode === "SAVE" 
-                  ? "default" 
-                  : "secondary"
-              }
-            >
-              {settings.scanMode === "REMOVE" 
-                ? "Remove Mode" 
+      {/* ── Compact top bar ── */}
+      <div className="flex items-center justify-between gap-2 px-1">
+        <div className="flex items-center gap-2">
+          <Badge 
+            variant={
+              settings.scanMode === "REMOVE" 
+                ? "destructive" 
                 : settings.scanMode === "SAVE" 
-                ? "Save Mode" 
-                : "Scan & Price"}
-            </Badge>
-            <span className="text-sm text-muted-foreground">
-              {settings.scanMode === "REMOVE" 
-                ? "Scan cards to find and remove from collection" 
-                : settings.scanMode === "SAVE"
-                ? "Scans are saved to your collection"
-                : "Preview only, nothing saved"}
-            </span>
-          </div>
+                ? "default" 
+                : "secondary"
+            }
+          >
+            {settings.scanMode === "REMOVE" 
+              ? "Remove" 
+              : settings.scanMode === "SAVE" 
+              ? "Save" 
+              : "Price"}
+          </Badge>
+          <Badge variant="outline" className="text-xs py-1 px-2">
+            ${totalValue.toFixed(2)}
+          </Badge>
+          <Badge variant="outline" className="text-xs py-1 px-2 text-muted-foreground">
+            {bufferedItemsCount} buffered
+          </Badge>
+        </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
-            {/* 3-way mode toggle */}
-            <div className="flex rounded-lg border overflow-hidden">
+        <div className="flex rounded-lg border overflow-hidden">
+          <Button
+            variant={settings.scanMode === "SAVE" ? "default" : "ghost"}
+            size="sm"
+            className="rounded-none border-0 px-2.5 h-8"
+            onClick={() => {
+              updateSettings({ scanMode: "SAVE" });
+              toast.info("Save Mode");
+            }}
+          >
+            <Save className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={settings.scanMode === "SCAN_ONLY" ? "secondary" : "ghost"}
+            size="sm"
+            className="rounded-none border-0 border-x px-2.5 h-8"
+            onClick={() => {
+              updateSettings({ scanMode: "SCAN_ONLY" });
+              toast.info("Price Mode");
+            }}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={settings.scanMode === "REMOVE" ? "destructive" : "ghost"}
+            size="sm"
+            className="rounded-none border-0 px-2.5 h-8"
+            onClick={() => {
+              updateSettings({ scanMode: "REMOVE" });
+              toast.info("Remove Mode");
+            }}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Anomaly alert */}
+      {isAnomalyPaused && (
+        <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-0.5">
+              <div className="text-sm font-semibold text-foreground">Rapid scan paused</div>
+              <p className="text-xs text-muted-foreground">
+                Repeated identical cards detected. Queue paused.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => void handleResumeAfterAnomaly()}>Resume</Button>
               <Button
-                variant={settings.scanMode === "SAVE" ? "default" : "ghost"}
-                size="default"
-                className="rounded-none border-0 px-3 sm:px-4 h-11 sm:h-10"
+                variant="outline"
+                size="sm"
                 onClick={() => {
-                  updateSettings({ scanMode: "SAVE" });
-                  toast.info("Save Mode — cards added to collection");
+                  if (window.confirm("Clear the current rapid scan batch?")) {
+                    void handleClearBadBatch();
+                  }
                 }}
               >
-                <Save className="h-5 w-5 sm:h-4 sm:w-4 sm:mr-1.5" />
-                <span className="hidden sm:inline">Save</span>
-              </Button>
-              <Button
-                variant={settings.scanMode === "SCAN_ONLY" ? "secondary" : "ghost"}
-                size="default"
-                className="rounded-none border-0 border-x px-3 sm:px-4 h-11 sm:h-10"
-                onClick={() => {
-                  updateSettings({ scanMode: "SCAN_ONLY" });
-                  toast.info("Scan & Price — preview only");
-                }}
-              >
-                <Eye className="h-5 w-5 sm:h-4 sm:w-4 sm:mr-1.5" />
-                <span className="hidden sm:inline">Price</span>
-              </Button>
-              <Button
-                variant={settings.scanMode === "REMOVE" ? "destructive" : "ghost"}
-                size="default"
-                className="rounded-none border-0 px-3 sm:px-4 h-11 sm:h-10"
-                onClick={() => {
-                  updateSettings({ scanMode: "REMOVE" });
-                  toast.info("Remove Mode — scan to delete cards");
-                }}
-              >
-                <Trash2 className="h-5 w-5 sm:h-4 sm:w-4 sm:mr-1.5" />
-                <span className="hidden sm:inline">Remove</span>
+                Clear Batch
               </Button>
             </div>
-            <Badge variant="outline" className="hidden sm:inline-flex text-sm py-1.5 px-3">
-              Buffer: {bufferedItemsCount}/{QUEUE_MAX}
-            </Badge>
-            <Badge variant="outline" className="text-sm py-1.5 px-3">Total: ${totalValue.toFixed(2)}</Badge>
+          </div>
+        </div>
+      )}
+
+      {/* ── Viewfinder ── */}
+      <div className={cn(
+        "relative overflow-hidden rounded-2xl bg-black shadow-xl",
+        settings.scanMode === "REMOVE" ? "ring-2 ring-destructive/50" : "ring-1 ring-primary/20"
+      )}>
+        <video
+          ref={videoRef}
+          className={cn(
+            "w-full object-contain",
+            "h-[60vh] min-h-[350px] max-h-[600px]",
+            "sm:h-[55vh] sm:min-h-[400px] sm:max-h-[580px]",
+            "md:h-[520px] md:min-h-0 md:max-h-none",
+            "lg:h-[560px]",
+            "landscape:h-[65vh] landscape:min-h-[280px] landscape:max-h-[480px]",
+            usingDigitalZoom && zoomLevel > 1 && "transition-transform duration-100"
+          )}
+          style={usingDigitalZoom && zoomLevel > 1 ? { transform: `scale(${zoomLevel})` } : undefined}
+          onClick={handleVideoTap}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          playsInline
+          muted
+        />
+
+        {/* Alignment frame */}
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div 
+            className="border-2 border-dashed border-white/30 rounded-lg relative"
+            style={{ width: "min(80%, 320px)", aspectRatio: "5/7" }}
+          >
+            <div className="absolute -top-1.5 -left-1.5 w-8 h-8 border-t-[3px] border-l-[3px] border-primary/80 rounded-tl-lg" />
+            <div className="absolute -top-1.5 -right-1.5 w-8 h-8 border-t-[3px] border-r-[3px] border-primary/80 rounded-tr-lg" />
+            <div className="absolute -bottom-1.5 -left-1.5 w-8 h-8 border-b-[3px] border-l-[3px] border-primary/80 rounded-bl-lg" />
+            <div className="absolute -bottom-1.5 -right-1.5 w-8 h-8 border-b-[3px] border-r-[3px] border-primary/80 rounded-br-lg" />
           </div>
         </div>
 
-        {isAnomalyPaused && (
-          <div className="mt-4 rounded-xl border border-destructive/40 bg-destructive/10 p-4">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div className="space-y-1">
-                <div className="text-sm font-semibold text-foreground">Rapid scan paused</div>
-                <p className="text-sm text-muted-foreground">
-                  Repeated identical card names were detected, so the queue was paused before more bad results were saved.
-                </p>
-                <div className="text-xs text-muted-foreground">
-                  Queued: {queuedItemsCount} • Processing: {processingItemsCount} • Saved cards in your collection are untouched.
-                </div>
-              </div>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Button onClick={() => void handleResumeAfterAnomaly()}>
-                  Resume Queue
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    if (window.confirm("Clear the current rapid scan batch from local history and queue? Your saved collection cards will not be deleted.")) {
-                      void handleClearBadBatch();
-                    }
-                  }}
-                >
-                  Clear Bad Batch
-                </Button>
-              </div>
+        <canvas ref={canvasRef} className="hidden" />
+        {flashActive && <div className="capture-flash" />}
+
+        {/* Torch dimmer overlay */}
+        {torchOn && torchDimmer < 100 && (
+          <div 
+            className="pointer-events-none absolute inset-0 bg-black/80 transition-opacity duration-200"
+            style={{ opacity: (100 - torchDimmer) / 100 * 0.7 }}
+          />
+        )}
+
+        {/* ── Overlay: top-left camera selector pill ── */}
+        {!isNative && cameraDevices.length > 1 && cameraOn && (
+          <div className="absolute top-3 left-3 z-10">
+            <CameraDeviceSelector
+              devices={cameraDevices}
+              selectedDeviceId={selectedDeviceId}
+              onDeviceChange={async (deviceId) => {
+                setSelectedDeviceId(deviceId);
+                if (cameraOn) {
+                  await stopCamera();
+                  setTimeout(() => startCamera(), 100);
+                }
+              }}
+              onRefresh={refreshDevices}
+              isLoading={devicesLoading}
+              className="bg-black/60 backdrop-blur-sm rounded-full"
+            />
+          </div>
+        )}
+
+        {/* ── Overlay: top-right zoom pill ── */}
+        {cameraOn && zoomCapabilities.supported && zoomLevel > 1 && (
+          <div className="absolute top-3 right-3 z-10">
+            <button
+              onClick={() => setZoom(1)}
+              className="bg-black/60 backdrop-blur-sm rounded-full px-3 py-1.5 flex items-center gap-1.5 hover:bg-black/80 transition-colors"
+            >
+              <span className="text-xs text-white font-medium">
+                {zoomLevel.toFixed(1)}×
+              </span>
+              {usingDigitalZoom && (
+                <span className="text-[10px] text-white/50">digital</span>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* Voice capture pill */}
+        {settings.voiceCaptureEnabled && (
+          <div className="absolute top-3 left-3 z-10" style={{ left: !isNative && cameraDevices.length > 1 ? 'auto' : undefined, right: !isNative && cameraDevices.length > 1 ? '3.5rem' : undefined }}>
+            <div className="bg-black/60 backdrop-blur-sm rounded-full px-3 py-1.5 flex items-center gap-1.5">
+              <span className="text-xs text-white font-medium">Voice</span>
+              <span className={cn("text-[10px]", voice.listening ? "text-emerald-300" : "text-white/50")}>
+                {voice.supported ? (voice.listening ? "●" : "○") : "—"}
+              </span>
             </div>
           </div>
         )}
 
-        <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_300px] landscape:grid-cols-[1fr_260px]">
-          {/* Camera preview */}
-          <div className="relative overflow-hidden rounded-xl border-2 border-primary/30 bg-black touch-none shadow-lg">
-            <video
-              ref={videoRef}
-              className={cn(
-                "w-full object-contain cursor-crosshair",
-                "h-[65vh] min-h-[400px] max-h-[700px]",
-                "sm:h-[60vh] sm:min-h-[420px] sm:max-h-[650px]",
-                "md:h-[560px] md:min-h-0 md:max-h-none",
-                "lg:h-[600px]",
-                "landscape:h-[70vh] landscape:min-h-[300px] landscape:max-h-[500px]",
-                usingDigitalZoom && zoomLevel > 1 && "transition-transform duration-100"
+        {/* ── Overlay: bottom status gradient ── */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-3 pt-8">
+          <div className="flex items-end justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-xs text-white/70">{statusLine}</div>
+              <div className="truncate text-sm font-semibold text-white">
+                {overlay?.label ? overlay.label : ""}
+              </div>
+              {overlay?.value != null && (
+                <div className="text-xs text-white/80">
+                  ${overlay.value.toFixed(2)}{" "}
+                  {overlay.isInLibrary ? `• In library ×${Math.max(overlay.libraryQuantity || 1, 1)}` : "• New"}
+                </div>
               )}
-              style={usingDigitalZoom && zoomLevel > 1 ? { transform: `scale(${zoomLevel})` } : undefined}
-              onClick={handleVideoTap}
-              onTouchStart={handleTouchStart}
-              onTouchMove={handleTouchMove}
-              onTouchEnd={handleTouchEnd}
-              playsInline
-              muted
-            />
-            
-            {/* Trading card alignment frame overlay */}
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div 
-                className="border-2 border-dashed border-white/40 rounded-lg relative"
-                style={{
-                  width: "min(85%, 340px)",
-                  aspectRatio: "5/7",
-                }}
-              >
-                <div className="absolute -top-1 -left-1 w-6 h-6 border-t-2 border-l-2 border-white/70 rounded-tl" />
-                <div className="absolute -top-1 -right-1 w-6 h-6 border-t-2 border-r-2 border-white/70 rounded-tr" />
-                <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-2 border-l-2 border-white/70 rounded-bl" />
-                <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-2 border-r-2 border-white/70 rounded-br" />
-              </div>
             </div>
-            <canvas ref={canvasRef} className="hidden" />
-
-            {flashActive && <div className="capture-flash" />}
-
-            {/* Torch dimmer overlay */}
-            {torchOn && torchDimmer < 100 && (
-              <div 
-                className="pointer-events-none absolute inset-0 bg-black/80 transition-opacity duration-200"
-                style={{ opacity: (100 - torchDimmer) / 100 * 0.7 }}
-              />
-            )}
-
-            {/* Pinch zoom indicator */}
-            {cameraOn && zoomCapabilities.supported && zoomLevel > 1 && (
-              <div className="absolute top-3 right-3 z-10">
-                <div className="bg-black/70 rounded-full px-3 py-1.5 flex items-center gap-2">
-                  <span className="text-xs text-white font-medium">
-                    {zoomLevel.toFixed(1)}×
-                  </span>
-                  {usingDigitalZoom && (
-                    <span className="text-[10px] text-white/60">digital</span>
-                  )}
-                </div>
-              </div>
-            )}
-
-
-            {/* Voice capture */}
-            {settings.voiceCaptureEnabled && (
-              <div className="absolute top-3 left-3 z-10">
-                <div className="bg-black/70 rounded-full px-3 py-1.5 flex items-center gap-2">
-                  <span className="text-xs text-white font-medium">Voice</span>
-                  <span className={cn("text-[10px]", voice.listening ? "text-emerald-300" : "text-white/60")}>
-                    {voice.supported ? (voice.listening ? "listening" : "idle") : "unsupported"}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {/* Overlay */}
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3">
-              <div className="flex items-end justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="text-xs text-white/80">{statusLine}</div>
-                  <div className="truncate text-sm font-semibold text-white">
-                    {overlay?.label ? overlay.label : ""}
-                  </div>
-                  {overlay?.value != null && (
-                    <div className="text-xs text-white/90">
-                      ${overlay.value.toFixed(2)}{" "}
-                      {overlay.isInLibrary ? `• In library ×${Math.max(overlay.libraryQuantity || 1, 1)}` : "• Not in library"}
-                    </div>
-                  )}
-                </div>
-
-                <div className="text-right text-[10px] text-white/60">
-                  {cameraOn && "Pinch to zoom • Tap to focus"}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Controls */}
-          <div className="space-y-4">
-            <div className="rounded-xl border p-4">
-              <div className="text-base font-semibold mb-4">Camera</div>
-
-              <div className="space-y-4">
-                {/* Camera/Optic selector */}
-                {!isNative && cameraDevices.length > 1 && (
-                  <div className="space-y-2">
-                    <label className="text-sm text-muted-foreground">Select Camera/Lens</label>
-                    <CameraDeviceSelector
-                      devices={cameraDevices}
-                      selectedDeviceId={selectedDeviceId}
-                      onDeviceChange={async (deviceId) => {
-                        setSelectedDeviceId(deviceId);
-                        if (cameraOn) {
-                          await stopCamera();
-                          setTimeout(() => startCamera(), 100);
-                        }
-                      }}
-                      onRefresh={refreshDevices}
-                      isLoading={devicesLoading}
-                    />
-                  </div>
-                )}
-                
-                <div className="flex items-center gap-3">
-                  <Button
-                    onClick={isNative ? captureWithNativeCamera : (cameraOn ? stopCamera : startCamera)}
-                    variant={cameraOn ? "secondary" : "default"}
-                    size="lg"
-                    className="w-full h-14 text-base"
-                    disabled={isNative && isAnomalyPaused}
-                  >
-                    {isNative ? (
-                      <>
-                        <Camera className="mr-2 h-6 w-6" /> Capture with Native Camera
-                      </>
-                    ) : cameraOn ? (
-                      <>
-                        <CameraOff className="mr-2 h-6 w-6" /> Stop
-                      </>
-                    ) : (
-                      <>
-                        <Camera className="mr-2 h-6 w-6" /> Start
-                      </>
-                    )}
-                  </Button>
-
-                  {!isNative && (
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="lg"
-                        className="h-14 w-14"
-                        onClick={toggleTorch}
-                        disabled={!cameraOn || !support.torch}
-                        title={support.torch ? "Toggle flash" : "Flash not supported"}
-                      >
-                        {torchOn ? <FlashlightOff className="h-6 w-6" /> : <Flashlight className="h-6 w-6" />}
-                      </Button>
-                      {/* Torch dimmer slider */}
-                      {torchOn && support.torch && (
-                        <div className="flex items-center gap-2 bg-muted/50 rounded-lg px-3 py-2 h-14">
-                          <SunDim className="h-4 w-4 text-muted-foreground shrink-0" />
-                          <Slider
-                            value={[torchDimmer]}
-                            onValueChange={([v]) => setTorchDimmer(v)}
-                            min={20}
-                            max={100}
-                            step={5}
-                            className="w-20"
-                          />
-                          <span className="text-xs text-muted-foreground w-8">{torchDimmer}%</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* White Balance */}
-                {!isNative && cameraOn && (
-                  <WhiteBalanceControl streamRef={streamRef} variant="panel" />
-                )}
-
-                {!isNative && cameraOn && (
-                  <div className="flex gap-3">
-                    <Button
-                      onTouchStart={() => warmUpAudio()}
-                      onMouseDown={() => warmUpAudio()}
-                      onClick={captureAndEnqueue}
-                      disabled={!cameraOn || busyCapture || autoTimerActive || isAnomalyPaused}
-                      size="lg"
-                      className="flex-1 h-20 text-xl font-bold"
-                    >
-                      {busyCapture ? <Loader2 className="mr-3 h-8 w-8 animate-spin" /> : <Camera className="mr-3 h-8 w-8" />}
-                      CAPTURE
-                    </Button>
-                    <Button
-                      onClick={autoTimerActive ? stopAutoTimer : startAutoTimer}
-                      variant={autoTimerActive ? "destructive" : "secondary"}
-                      size="lg"
-                      className="h-20 w-20"
-                      disabled={isAnomalyPaused}
-                      title={autoTimerActive ? "Stop auto-capture" : `Start auto-capture every ${autoTimerSeconds}s`}
-                    >
-                      {autoTimerActive ? (
-                        <div className="flex flex-col items-center">
-                          <TimerOff className="h-7 w-7" />
-                          <span className="text-sm mt-1 font-semibold">{autoTimerCountdown}s</span>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col items-center">
-                          <Timer className="h-7 w-7" />
-                          <span className="text-sm mt-1 font-semibold">{autoTimerSeconds}s</span>
-                        </div>
-                      )}
-                    </Button>
-
-                    <Button
-                      variant="outline"
-                      size="lg"
-                      className="h-20 w-20"
-                      disabled={autoTimerActive || isAnomalyPaused}
-                      onClick={() => {
-                        const current = settings.autoTimerIntervalSeconds;
-                        const next = current === 1 ? 1.5 : current === 1.5 ? 2 : current === 2 ? 5 : 1;
-                        updateSettings({ autoTimerIntervalSeconds: next });
-                        toast.info(`Auto-timer set to ${next}s`);
-                      }}
-                      title="Change auto-timer interval"
-                    >
-                      <div className="flex flex-col items-center">
-                        <span className="text-sm font-semibold">Interval</span>
-                        <span className="text-lg font-bold">{autoTimerSeconds}s</span>
-                      </div>
-                    </Button>
-                  </div>
-                )}
-
-                {/* Zoom reset button */}
-                {!isNative && cameraOn && zoomLevel > 1 && (
-                  <Button
-                    variant="outline"
-                    size="default"
-                    onClick={() => setZoom(1)}
-                    className="w-full h-12 text-base"
-                  >
-                    Reset Zoom ({zoomLevel.toFixed(1)}×)
-                  </Button>
-                )}
-
-                {/* Clear button with double confirmation */}
-                <div className="pt-4 mt-4 border-t flex justify-end">
-                  <Button 
-                    variant="ghost" 
-                    size="sm"
-                    onClick={() => {
-                      if (window.confirm("Clear all queued cards?")) {
-                        if (window.confirm("Are you SURE? This cannot be undone.")) {
-                          clearAll();
-                        }
-                      }
-                    }} 
-                    className="h-10 px-4 text-sm text-muted-foreground hover:text-destructive"
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" /> Clear All
-                  </Button>
-                </div>
-
-                <div className="text-sm text-muted-foreground mt-3">
-                  {isNative 
-                    ? "Tap capture to use your device's native camera for best quality." 
-                    : "Tip: Tap the video to focus (if supported). Zoom in a bit for sharp text. Keep the card steady and fill the frame."}
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-xl border p-4">
-              <div className="text-base font-semibold">Buffer status</div>
-              <div className="mt-2 text-sm text-muted-foreground">
-                Queued: {queuedItemsCount} • Processing: {processingItemsCount}
-              </div>
+            <div className="text-right text-[10px] text-white/50 shrink-0">
+              {cameraOn && "Pinch to zoom • Tap to focus"}
             </div>
           </div>
         </div>
-      </Card>
+      </div>
 
-      {/* Scanned list */}
+      {/* ── Bottom capture bar ── */}
+      <div className="flex items-center justify-center gap-4 py-2">
+        {/* Left: Auto-timer toggle */}
+        {!isNative && cameraOn ? (
+          <Button
+            onClick={autoTimerActive ? stopAutoTimer : startAutoTimer}
+            variant={autoTimerActive ? "destructive" : "outline"}
+            size="icon"
+            className="h-14 w-14 rounded-full shrink-0"
+            disabled={isAnomalyPaused}
+            title={autoTimerActive ? "Stop auto-capture" : `Auto every ${autoTimerSeconds}s`}
+          >
+            {autoTimerActive ? (
+              <div className="flex flex-col items-center">
+                <TimerOff className="h-5 w-5" />
+                <span className="text-[10px] mt-0.5 font-semibold">{autoTimerCountdown}s</span>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center">
+                <Timer className="h-5 w-5" />
+                <span className="text-[10px] mt-0.5">{autoTimerSeconds}s</span>
+              </div>
+            )}
+          </Button>
+        ) : <div className="w-14" />}
+
+        {/* Center: Large capture / start button */}
+        <button
+          onTouchStart={() => warmUpAudio()}
+          onMouseDown={() => warmUpAudio()}
+          onClick={isNative ? captureWithNativeCamera : (cameraOn ? captureAndEnqueue : startCamera)}
+          disabled={isNative ? isAnomalyPaused : (cameraOn ? (busyCapture || autoTimerActive || isAnomalyPaused) : false)}
+          className={cn(
+            "relative h-20 w-20 rounded-full transition-all duration-200 shrink-0",
+            "flex items-center justify-center",
+            "disabled:opacity-40 disabled:cursor-not-allowed",
+            "active:scale-95",
+            cameraOn
+              ? "bg-primary text-primary-foreground shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40"
+              : "bg-secondary text-secondary-foreground border-2 border-primary/50 hover:border-primary"
+          )}
+        >
+          {/* Pulsing ring when camera is ready */}
+          {cameraOn && !busyCapture && !autoTimerActive && (
+            <span className="absolute inset-0 rounded-full border-2 border-primary/60 animate-pulse" />
+          )}
+          {busyCapture ? (
+            <Loader2 className="h-8 w-8 animate-spin" />
+          ) : cameraOn ? (
+            <Camera className="h-8 w-8" />
+          ) : (
+            <Camera className="h-8 w-8" />
+          )}
+        </button>
+
+        {/* Right: Torch toggle */}
+        {!isNative && cameraOn ? (
+          <Button
+            variant={torchOn ? "secondary" : "outline"}
+            size="icon"
+            className="h-14 w-14 rounded-full shrink-0"
+            onClick={toggleTorch}
+            disabled={!support.torch}
+            title={support.torch ? "Toggle flash" : "Flash not supported"}
+          >
+            {torchOn ? <FlashlightOff className="h-5 w-5" /> : <Flashlight className="h-5 w-5" />}
+          </Button>
+        ) : <div className="w-14" />}
+      </div>
+
+      {/* Start/stop label */}
+      {!cameraOn && !isNative && (
+        <div className="text-center text-sm text-muted-foreground -mt-2">
+          Tap to start camera
+        </div>
+      )}
+
+      {/* ── Status strip ── */}
+      <div className="flex items-center justify-between px-2 text-xs text-muted-foreground">
+        <span>
+          Queued: {queuedItemsCount} • Processing: {processingItemsCount}
+        </span>
+        <div className="flex items-center gap-2">
+          {!isNative && cameraOn && zoomLevel > 1 && (
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => setZoom(1)}>
+              Reset {zoomLevel.toFixed(1)}×
+            </Button>
+          )}
+          <Button 
+            variant="ghost" 
+            size="sm"
+            className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
+            onClick={() => {
+              if (window.confirm("Clear all queued cards?")) {
+                if (window.confirm("Are you SURE? This cannot be undone.")) {
+                  clearAll();
+                }
+              }
+            }}
+          >
+            <Trash2 className="h-3 w-3 mr-1" /> Clear
+          </Button>
+        </div>
+      </div>
+
+      {/* ── Scanned cards list ── */}
       {cards.length > CARD_LIST_RENDER_LIMIT && (
         <div className="mb-2 flex items-center justify-between">
           <div className="text-xs text-muted-foreground">
