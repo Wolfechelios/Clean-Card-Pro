@@ -18,7 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { LogOut, Trash2, User, Lock, ImageOff, Clock, RefreshCw, Database, ScanLine, ImageIcon, Wand2, Cpu, Key, Monitor, Search, Zap } from "lucide-react";
+import { LogOut, Trash2, User, Lock, ImageOff, Clock, RefreshCw, Database, ScanLine, ImageIcon, Wand2, Key, Monitor, Search } from "lucide-react";
 import { useDisplayScale } from "@/hooks/use-display-scale";
 
 import ServiceImportExport from "@/components/settings/ServiceImportExport";
