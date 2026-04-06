@@ -1391,48 +1391,6 @@ export default function RapidScanCamera() {
               </div>
             )}
 
-            {/* Local Accelerator status */}
-            {settings.gpuOffloadEnabled && settings.gpuPreferForLive && (
-              <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10">
-                <div className="bg-black/70 rounded-lg px-3 py-2 min-w-[240px]">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={cn(
-                          "h-2 w-2 rounded-full",
-                          gpu.status === "connected" && "bg-emerald-400",
-                          gpu.status === "connecting" && "bg-yellow-400",
-                          (gpu.status === "disconnected" || gpu.status === "error") && "bg-red-400"
-                        )}
-                      />
-                      <span className="text-[10px] text-white/90 font-semibold">BOOST</span>
-                      <span className="text-[10px] text-white/70">{gpu.status}</span>
-                    </div>
-                    <div className="text-[10px] text-white/70">
-                      {gpu.perf.rttMs != null ? `${Math.round(gpu.perf.rttMs)}ms` : "—"}
-                    </div>
-                  </div>
-
-                  <div className="mt-1 flex items-center justify-between text-[10px] text-white/70">
-                    <span>out {gpu.perf.fpsOut}fps • in {gpu.perf.fpsIn}fps</span>
-                    <span>dropped {gpu.perf.dropped}</span>
-                  </div>
-
-                  {gpu.lastResult?.card?.name && (
-                    <div className="mt-1">
-                      <div className="truncate text-[11px] text-white font-medium">
-                        {gpu.lastResult.card.name}
-                      </div>
-                      <div className="text-[10px] text-white/80">
-                        {gpu.lastResult.card.value != null ? `$${Number(gpu.lastResult.card.value).toFixed(2)}` : ""}
-                        {gpu.lastResult.card.rarity ? ` • ${gpu.lastResult.card.rarity}` : ""}
-                        {typeof gpu.lastResult.card.confidence === "number" ? ` • ${Math.round(gpu.lastResult.card.confidence * 100)}%` : ""}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
 
             {/* Voice capture */}
             {settings.voiceCaptureEnabled && (

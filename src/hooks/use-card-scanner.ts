@@ -263,20 +263,6 @@ export function useCardScanner({
 
       let pricingData: any;
       try {
-        // If GPU pricing was populated, use it first.
-        if (gpuPricing) {
-          pricingData = {
-            currentPriceRaw: gpuPricing.currentPriceRaw ?? null,
-            currentPricePsa9: gpuPricing.currentPricePsa9 ?? null,
-            currentPricePsa10: gpuPricing.currentPricePsa10 ?? null,
-            suggestedPrice: gpuPricing.suggestedPrice ?? null,
-            ebayListingUrl: gpuPricing.ebayListingUrl ?? null,
-          };
-        }
-
-        if (pricingData) {
-          // done
-        } else {
         const cardIdentification = await withRetry(
           async () => {
             const { data, error } = await supabase.functions.invoke("identify-card", {
@@ -289,7 +275,6 @@ export function useCardScanner({
         );
 
         if (cardIdentification) pricingData = cardIdentification;
-        }
       } catch (error) {
         console.error("Pricing fetch error:", error);
         toast.warning("Could not fetch pricing data");
