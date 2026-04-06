@@ -26,7 +26,7 @@ export interface IdentifiedCardData {
 export interface HybridIdentifyResult {
   success: boolean;
   cardData: IdentifiedCardData;
-  source: "local" | "cloud" | "gpu";
+  source: "local" | "cloud";
   error?: string;
 }
 
