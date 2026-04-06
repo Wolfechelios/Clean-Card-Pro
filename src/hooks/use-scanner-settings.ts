@@ -51,6 +51,9 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   batchScanSize: 3,
 
   preferredMicroscopeDeviceId: "",
+
+  foilDetectionEnabled: true,
+  foilDetectionMode: "fast",
 };
 
 export function useScannerSettings() {
