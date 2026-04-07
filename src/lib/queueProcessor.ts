@@ -665,6 +665,7 @@ async function processJob(item: QueueItem): Promise<void> {
   const rarity: string | null = identify?.rarity ?? null;
   const gameType: string | null = identify?.game_type ?? null;
   const sportType: string | null = identify?.sport_type ?? null;
+  const cardCondition: string | null = identify?.condition ?? null;
   const confidence: number = identify?.confidence ?? 0;
   const year: string | null = identify?.year ?? null;
   const playerName: string | null = identify?.player_name ?? null;
