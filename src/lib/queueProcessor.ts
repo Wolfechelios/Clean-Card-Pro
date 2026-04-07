@@ -685,7 +685,7 @@ async function processJob(item: QueueItem): Promise<void> {
   const userId = await getUserId();
 
   const [priceResult, ownershipResult] = await Promise.all([
-    cachedFetchPrice({ cardName, cardSet, cardNumber, gameType, sportType })
+    cachedFetchPrice({ cardName, cardSet, cardNumber, gameType, sportType, condition: cardCondition })
       .catch(() => ({ raw: null as number | null, psa10: null as number | null })),
     (async () => {
       if (!userId) return { ownedCount: 0, isInLibrary: false, existingId: undefined as string | undefined };
