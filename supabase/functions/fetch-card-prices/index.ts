@@ -111,26 +111,43 @@ async function fetchEbayPrices(searchQuery: string): Promise<SourcePrices> {
 
     // Split into lines and process
     const lines = md.split("\n");
+    let totalExtracted = 0;
+    const MAX_PRICES = 15;
     for (const line of lines) {
+      if (totalExtracted >= MAX_PRICES) break;
       const lower = line.toLowerCase();
-      // Skip shipping lines, "to" ranges, or non-listing lines
+      // Skip non-sold listing lines
       if (lower.includes("shipping") || lower.includes("import") || lower.includes("returns")) continue;
+      if (lower.includes("bid") || lower.includes("watching") || lower.includes("buy it now") || lower.includes("best offer")) continue;
 
-      // Extract prices from the line
       const priceMatches = line.match(/\$([0-9,]+(?:\.\d{2})?)/g);
       if (!priceMatches) continue;
 
       for (const match of priceMatches) {
+        if (totalExtracted >= MAX_PRICES) break;
         const price = parsePrice(match);
         if (!price || price > 50000 || price < 0.01) continue;
 
-        // Categorize by grading context in the line
         if (lower.includes("psa 10") || lower.includes("psa10") || lower.includes("gem mint")) {
           psa10Prices.push(price);
         } else if (lower.includes("psa 9") || lower.includes("psa9") || lower.includes("mint")) {
           psa9Prices.push(price);
         } else {
           soldPrices.push(price);
+        }
+        totalExtracted++;
+      }
+    }
+
+    // Intra-source outlier filter: if cheapest < $2, reject anything > 20× cheapest
+    for (const arr of [soldPrices, psa9Prices, psa10Prices]) {
+      if (arr.length > 1) {
+        const lowest = Math.min(...arr);
+        if (lowest < 2) {
+          const cap = lowest * 20;
+          for (let i = arr.length - 1; i >= 0; i--) {
+            if (arr[i] > cap) arr.splice(i, 1);
+          }
         }
       }
     }
