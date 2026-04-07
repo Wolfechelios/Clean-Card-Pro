@@ -93,7 +93,7 @@ function getMedian(prices: number[]): number | null {
 }
 
 // ─── eBay Sold via Firecrawl ────────────────────────────────────────
-async function fetchEbayPrices(searchQuery: string): Promise<SourcePrices> {
+async function fetchEbayPrices(searchQuery: string, condition?: string): Promise<SourcePrices> {
   try {
     const encoded = encodeURIComponent(searchQuery);
     const ebayUrl = `https://www.ebay.com/sch/i.html?_nkw=${encoded}&LH_Sold=1&LH_Complete=1&_sop=13`;
