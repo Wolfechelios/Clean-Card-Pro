@@ -374,10 +374,12 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { cardName, cardSet, cardNumber, gameType, sportType } = await req.json();
-    console.log("Fetching prices for:", { cardName, cardSet, cardNumber, gameType, sportType });
+    const { cardName, cardSet, cardNumber, gameType, sportType, condition } = await req.json();
+    console.log("Fetching prices for:", { cardName, cardSet, cardNumber, gameType, sportType, condition });
 
-    const searchQuery = `${cardName} ${cardSet || ""} ${cardNumber || ""}`.trim();
+    // Build search query with condition for more accurate results
+    const conditionTerm = condition && !["unknown", ""].includes(condition.toLowerCase()) ? condition : "";
+    const searchQuery = `${cardName} ${cardSet || ""} ${cardNumber || ""} ${conditionTerm}`.replace(/\s+/g, " ").trim();
     const sources: string[] = [];
 
     const isTCG = gameType && ["pokemon", "yugioh", "yu-gi-oh", "mtg", "magic"].some(
