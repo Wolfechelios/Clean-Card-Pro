@@ -345,6 +345,7 @@ async function cachedFetchPrice(args: {
         cardNumber: args.cardNumber,
         gameType: args.gameType,
         sportType: args.sportType,
+        condition: args.condition,
       },
       { timeoutMs: 6000, retries: 1, retryDelayMs: 200 }
     );

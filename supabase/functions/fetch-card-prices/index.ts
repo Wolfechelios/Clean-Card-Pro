@@ -398,7 +398,7 @@ Deno.serve(async (req) => {
     );
 
     // Fetch all sources in parallel
-    const ebayPromise = fetchEbayPrices(searchQuery);
+    const ebayPromise = fetchEbayPrices(searchQuery, condition);
     const pcPromise = isTCG ? fetchPriceChartingPrices(cardName, cardSet, gameType, cardNumber) : Promise.resolve(emptySource());
     const tcgPromise = isTCG
       ? fetchTCGPlayerPrices(cardName, cardSet, cardNumber, gameType)

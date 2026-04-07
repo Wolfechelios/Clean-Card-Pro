@@ -169,6 +169,7 @@ export class TCGPlayerAdapter implements PriceSourceAdapter {
           cardNumber: card.number,
           gameType: card.gameType,
           sportType: card.sportType,
+          condition: card.condition,
         },
       });
 

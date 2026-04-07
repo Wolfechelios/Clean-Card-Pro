@@ -83,6 +83,7 @@ export function BulkPriceRefresh() {
                     cardNumber: card.card_number,
                     gameType: card.game_type,
                     sportType: card.sport_type,
+                    condition: card.condition,
                   },
                 }
               );

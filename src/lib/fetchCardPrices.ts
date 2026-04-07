@@ -10,7 +10,8 @@ export async function fetchCardPrices(
   cardSet?: string | null,
   cardNumber?: string | null,
   gameType?: string | null,
-  sportType?: string | null
+  sportType?: string | null,
+  condition?: string | null
 ): Promise<CardPricing> {
   const { data, error } = await supabase.functions.invoke("fetch-card-prices", {
     body: {
@@ -19,6 +20,7 @@ export async function fetchCardPrices(
       cardNumber,
       gameType,
       sportType,
+      condition,
     },
   });
 
