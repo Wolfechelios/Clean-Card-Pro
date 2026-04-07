@@ -179,7 +179,8 @@ async function fetchEbayPrices(searchQuery: string): Promise<SourcePrices> {
 async function fetchPriceChartingPrices(
   cardName: string,
   cardSet: string | null,
-  gameType: string | null
+  gameType: string | null,
+  cardNumber: string | null = null
 ): Promise<SourcePrices> {
   try {
     let category = "pokemon";
@@ -191,8 +192,6 @@ async function fetchPriceChartingPrices(
 
     // Build a direct card URL slug
     const slugParts = [cardName, cardSet || ""];
-    // Include card number for precise matching
-    const cardNumber = arguments.length > 3 ? arguments[3] : null;
     if (cardNumber) slugParts.push(cardNumber);
     const slug = slugParts.join(" ")
       .trim()
