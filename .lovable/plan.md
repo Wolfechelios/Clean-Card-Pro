@@ -1,39 +1,37 @@
 
 
-## Plan: Fix Inflated Pricing + Ensure Update Prices Uses Same Logic
+## Plan: Include Card Condition in Price Search Queries
 
 ### Problem
-Common cards like "Coach Captain Bearman" get priced at ~$20 due to three bugs in `fetch-card-prices`. Since both the scan pipeline AND the "Update Card Prices" button (`update-prices` edge function, `BulkPriceRefresh` component) all call `fetch-card-prices`, fixing this single function fixes all paths.
+The pricing engine searches eBay, TCGPlayer, and PriceCharting without including the card's condition (e.g., "Near Mint 1st Edition", "Lightly Played"). This means a search for "Lavalval Ignis HA06-EN051" returns prices across all conditions, pulling in higher-priced 1st Edition or graded listings that inflate the value of a raw common card.
 
-### Changes — one file only
+### Changes
+
+**1. Accept `condition` parameter in edge function**
 
 **File: `supabase/functions/fetch-card-prices/index.ts`**
+- Add `condition` to the destructured request body
+- Append condition to `searchQuery` when present (e.g., `"Lavalval Ignis HA06-EN051 Near Mint"`)
+- Pass condition into eBay search URL (`_nkw=...+near+mint`)
+- Pass condition into TCGPlayer search query
+- Use condition to filter PriceCharting results (match "near mint" / "lightly played" sections)
 
-#### 1. Remove TCGPlayer blind fallback (lines 291-296)
-The `allPriceMatches` fallback extracts every `$X.XX` on the page and computes a median from unrelated prices. Delete this fallback — if named patterns (`market price`, `last sold`, `low`, `mid`, `high`) don't match, return `null` instead.
+**2. Pass `condition` from all callers**
 
-#### 2. Filter eBay noise (lines 112-136)
-- Skip lines containing "bid", "watching", "buy it now", "best offer" (active listings, not sold)
-- Cap extraction to first 15 price matches to avoid accumulating prices from unrelated cards further down the page
-- Add intra-source outlier filter: if the lowest price in a batch is < $2, reject any price > 20× the lowest
+| File | Change |
+|------|--------|
+| `src/lib/fetchCardPrices.ts` | Add `condition` parameter, pass in body |
+| `src/lib/queueProcessor.ts` | Pass card's `condition` field to `fetch-card-prices` invocation |
+| `src/lib/pricing/adapters.ts` | Pass `card.condition` in both `EbaySoldAdapter` and `TCGPlayerAdapter` bodies |
+| `src/components/pricing/BulkPriceRefresh.tsx` | Include `card.condition` in the bulk refresh body |
+| `supabase/functions/update-prices/index.ts` | Include `condition` field from the cards query in the internal fetch call |
 
-#### 3. Cross-source outlier rejection (lines 394-410)
-Before computing `rawPrice` median from `rawCandidates`:
-- If 2+ sources agree within 3× of each other and one source is > 5× the others, drop the outlier
-- This prevents a $20 eBay noise value from inflating a $0.25 card
+**3. Smarter eBay condition filtering**
 
-#### 4. Include card number in PriceCharting slug (line 176)
-When `cardNumber` is available, append it to the slug for more precise matching (e.g., `coach-captain-bearman-mp14-en118` instead of just `coach-captain-bearman`).
+In the eBay scraper, when condition is "Near Mint" or "NM":
+- Exclude lines mentioning "PSA", "BGS", "CGC", "graded", "gem mint" (these are graded cards, not raw NM)
+- This prevents graded sale prices from inflating raw card values
 
-### Why this covers "Update Card Prices"
-- The Settings page "Update Prices" button calls the `update-prices` edge function, which internally calls `fetch-card-prices`
-- The `BulkPriceRefresh` component calls `fetch-card-prices` directly
-- The scan pipeline's queue processor calls `fetch-card-prices`
-- All three paths go through the same function — one fix covers everything
-
-### Files to edit
-
-| File | Changes |
-|------|---------|
-| `supabase/functions/fetch-card-prices/index.ts` | Remove TCGPlayer blind fallback; add eBay line filtering; add cross-source outlier rejection; improve PriceCharting slug with card number |
+### Expected result
+"Lavalval Ignis HA06-EN051" with condition "Near Mint" will search for `"Lavalval Ignis HA06-EN051 near mint"` on eBay sold, returning $0.25-$1.00 results instead of $5-$20 graded/1st-edition results.
 
