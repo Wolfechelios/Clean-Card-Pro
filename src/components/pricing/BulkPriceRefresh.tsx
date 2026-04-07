@@ -45,7 +45,7 @@ export function BulkPriceRefresh() {
       // Fetch all cards missing prices
       const { data: cards, error } = await supabase
         .from("cards")
-        .select("id, card_name, card_set, card_number, game_type, sport_type")
+        .select("id, card_name, card_set, card_number, game_type, sport_type, condition")
         .eq("user_id", userId)
         .is("current_price_raw", null)
         .limit(500);
