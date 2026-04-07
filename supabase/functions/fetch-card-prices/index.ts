@@ -190,7 +190,11 @@ async function fetchPriceChartingPrices(
     }
 
     // Build a direct card URL slug
-    const slug = `${cardName} ${cardSet || ""}`
+    const slugParts = [cardName, cardSet || ""];
+    // Include card number for precise matching
+    const cardNumber = arguments.length > 3 ? arguments[3] : null;
+    if (cardNumber) slugParts.push(cardNumber);
+    const slug = slugParts.join(" ")
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9\s-]/g, "")
