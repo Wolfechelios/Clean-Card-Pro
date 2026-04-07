@@ -1,37 +1,67 @@
 
 
-## Plan: Include Card Condition in Price Search Queries
+## Plan: Prioritize PriceCharting & SportsCardPro + Condition-Based Pricing
 
 ### Problem
-The pricing engine searches eBay, TCGPlayer, and PriceCharting without including the card's condition (e.g., "Near Mint 1st Edition", "Lightly Played"). This means a search for "Lavalval Ignis HA06-EN051" returns prices across all conditions, pulling in higher-priced 1st Edition or graded listings that inflate the value of a raw common card.
+Currently, the raw price is computed as a median across all sources equally (TCGPlayer, PriceCharting, eBay, SportsCardPro). PriceCharting and SportsCardPro should be the primary/authoritative sources, with eBay and TCGPlayer as secondary confirmation. Additionally, NM/Mint condition cards should map to ~PSA 8 grade pricing when available.
 
 ### Changes
 
-**1. Accept `condition` parameter in edge function**
-
 **File: `supabase/functions/fetch-card-prices/index.ts`**
-- Add `condition` to the destructured request body
-- Append condition to `searchQuery` when present (e.g., `"Lavalval Ignis HA06-EN051 Near Mint"`)
-- Pass condition into eBay search URL (`_nkw=...+near+mint`)
-- Pass condition into TCGPlayer search query
-- Use condition to filter PriceCharting results (match "near mint" / "lightly played" sections)
 
-**2. Pass `condition` from all callers**
+#### 1. Prioritize PriceCharting and SportsCardPro as primary sources (lines 429-434)
+Replace the equal-weight median logic with a priority system:
+- If PriceCharting has a price, use it as the primary raw value
+- If SportsCardPro has a price (sports cards), use it as primary
+- Only fall back to eBay/TCGPlayer median if primary sources return null
+- If both primary and secondary exist, use primary but sanity-check against secondary (reject primary if >5x off from secondary consensus)
 
-| File | Change |
-|------|--------|
-| `src/lib/fetchCardPrices.ts` | Add `condition` parameter, pass in body |
-| `src/lib/queueProcessor.ts` | Pass card's `condition` field to `fetch-card-prices` invocation |
-| `src/lib/pricing/adapters.ts` | Pass `card.condition` in both `EbaySoldAdapter` and `TCGPlayerAdapter` bodies |
-| `src/components/pricing/BulkPriceRefresh.tsx` | Include `card.condition` in the bulk refresh body |
-| `supabase/functions/update-prices/index.ts` | Include `condition` field from the cards query in the internal fetch call |
+#### 2. Map NM/Mint condition to PSA 8 grade pricing (lines 436-446)
+- When condition is "Near Mint", "NM", "Mint", or "NM/Mint":
+  - Look for PSA 8 prices in PriceCharting markdown (add regex for `psa\s*8|grade\s*8`)
+  - If PSA 8 price found, use it as the `suggested` price for NM cards
+  - Store a new `psa8` field or map it to the existing `raw` field with a note
 
-**3. Smarter eBay condition filtering**
+#### 3. Update PriceCharting scraper to extract PSA 8 prices (lines 233-245)
+- Add `psa8Match` regex: `/(?:psa\s*8|grade\s*8)[^\n$]*\$([0-9,]+(?:\.\d{2})?)/i`
+- Add `psa8` to `SourcePrices` interface
+- Return PSA 8 price alongside existing tiers
 
-In the eBay scraper, when condition is "Near Mint" or "NM":
-- Exclude lines mentioning "PSA", "BGS", "CGC", "graded", "gem mint" (these are graded cards, not raw NM)
-- This prevents graded sale prices from inflating raw card values
+#### 4. Update SportsCardPro scraper similarly (lines 359-361)
+- Add PSA 8 regex extraction
+- Return PSA 8 price
 
-### Expected result
-"Lavalval Ignis HA06-EN051" with condition "Near Mint" will search for `"Lavalval Ignis HA06-EN051 near mint"` on eBay sold, returning $0.25-$1.00 results instead of $5-$20 graded/1st-edition results.
+#### 5. Update raw price determination logic (lines 429-466)
+New priority logic:
+```text
+For TCG cards:
+  1. PriceCharting ungraded → primary raw
+  2. TCGPlayer market → secondary confirmation
+  3. eBay sold → tertiary confirmation
+
+For sports cards:
+  1. SportsCardPro ungraded → primary raw
+  2. PriceCharting ungraded → secondary
+  3. eBay sold → tertiary
+
+For NM/Mint condition:
+  suggested_price = psa8 price (if available) ?? raw price
+```
+
+#### 6. Add `psa8` field to PricingResult interface and response (lines 3-29, 460-489)
+- Add `psa8`, `medianPsa8`, `ebayPsa8` fields
+- Populate from extracted data
+
+### Files to edit
+
+| File | Changes |
+|------|---------|
+| `supabase/functions/fetch-card-prices/index.ts` | Add PSA 8 extraction to PriceCharting + SportsCardPro scrapers; rewrite raw price logic to prioritize PC/SCP; add condition→grade mapping for NM=PSA8; add psa8 fields to response |
+
+### What stays unchanged
+- eBay scraper logic (already filtering graded for raw searches)
+- TCGPlayer scraper
+- All client-side adapters and consensus engine
+- Bulk price refresh and update-prices callers
+- All UI components
 
