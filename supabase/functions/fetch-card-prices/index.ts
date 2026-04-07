@@ -389,7 +389,7 @@ Deno.serve(async (req) => {
 
     // Fetch all sources in parallel
     const ebayPromise = fetchEbayPrices(searchQuery);
-    const pcPromise = isTCG ? fetchPriceChartingPrices(cardName, cardSet, gameType) : Promise.resolve(emptySource());
+    const pcPromise = isTCG ? fetchPriceChartingPrices(cardName, cardSet, gameType, cardNumber) : Promise.resolve(emptySource());
     const tcgPromise = isTCG
       ? fetchTCGPlayerPrices(cardName, cardSet, cardNumber, gameType)
       : Promise.resolve({ lastSold: null, low: null, mid: null, high: null, market: null, url: null });
@@ -403,10 +403,24 @@ Deno.serve(async (req) => {
     if (ebay.raw || ebay.psa10) sources.push("eBay Sold");
     if (scp.raw) sources.push("SportsCardPro");
 
+    // Cross-source outlier rejection helper
+    function rejectOutliers(candidates: number[]): number[] {
+      if (candidates.length < 2) return candidates;
+      const sorted = [...candidates].sort((a, b) => a - b);
+      const low = sorted[0];
+      // If 2+ sources agree within 3× and one is > 5× the lowest, drop the outlier
+      const agreeing = sorted.filter(v => v <= low * 3);
+      if (agreeing.length >= 2 && sorted[sorted.length - 1] > low * 5) {
+        return sorted.filter(v => v <= low * 5);
+      }
+      return candidates;
+    }
+
     // Determine raw price: prefer TCGPlayer market for TCG, else median of available
-    const rawCandidates = [tcg.market, tcg.lastSold, pc.raw, ebay.raw, scp.raw].filter(
+    let rawCandidates = [tcg.market, tcg.lastSold, pc.raw, ebay.raw, scp.raw].filter(
       (v): v is number => v != null && v > 0
     );
+    rawCandidates = rejectOutliers(rawCandidates);
     const rawPrice = getMedian(rawCandidates);
 
     // PSA9: use actual found prices only — NO multipliers
