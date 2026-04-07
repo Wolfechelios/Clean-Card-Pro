@@ -120,6 +120,14 @@ async function fetchEbayPrices(searchQuery: string, condition?: string): Promise
       if (lower.includes("shipping") || lower.includes("import") || lower.includes("returns")) continue;
       if (lower.includes("bid") || lower.includes("watching") || lower.includes("buy it now") || lower.includes("best offer")) continue;
 
+      // When searching for raw/NM condition, exclude graded listings
+      const isRawCondition = condition && ["near mint", "nm", "lightly played", "lp", "raw"].some(
+        c => condition.toLowerCase().includes(c)
+      );
+      if (isRawCondition) {
+        if (lower.includes("psa") || lower.includes("bgs") || lower.includes("cgc") || lower.includes("graded") || lower.includes("gem mint 10")) continue;
+      }
+
       const priceMatches = line.match(/\$([0-9,]+(?:\.\d{2})?)/g);
       if (!priceMatches) continue;
 
