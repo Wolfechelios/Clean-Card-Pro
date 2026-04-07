@@ -93,7 +93,7 @@ function getMedian(prices: number[]): number | null {
 }
 
 // ─── eBay Sold via Firecrawl ────────────────────────────────────────
-async function fetchEbayPrices(searchQuery: string): Promise<SourcePrices> {
+async function fetchEbayPrices(searchQuery: string, condition?: string): Promise<SourcePrices> {
   try {
     const encoded = encodeURIComponent(searchQuery);
     const ebayUrl = `https://www.ebay.com/sch/i.html?_nkw=${encoded}&LH_Sold=1&LH_Complete=1&_sop=13`;
@@ -119,6 +119,14 @@ async function fetchEbayPrices(searchQuery: string): Promise<SourcePrices> {
       // Skip non-sold listing lines
       if (lower.includes("shipping") || lower.includes("import") || lower.includes("returns")) continue;
       if (lower.includes("bid") || lower.includes("watching") || lower.includes("buy it now") || lower.includes("best offer")) continue;
+
+      // When searching for raw/NM condition, exclude graded listings
+      const isRawCondition = condition && ["near mint", "nm", "lightly played", "lp", "raw"].some(
+        c => condition.toLowerCase().includes(c)
+      );
+      if (isRawCondition) {
+        if (lower.includes("psa") || lower.includes("bgs") || lower.includes("cgc") || lower.includes("graded") || lower.includes("gem mint 10")) continue;
+      }
 
       const priceMatches = line.match(/\$([0-9,]+(?:\.\d{2})?)/g);
       if (!priceMatches) continue;
@@ -374,10 +382,12 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { cardName, cardSet, cardNumber, gameType, sportType } = await req.json();
-    console.log("Fetching prices for:", { cardName, cardSet, cardNumber, gameType, sportType });
+    const { cardName, cardSet, cardNumber, gameType, sportType, condition } = await req.json();
+    console.log("Fetching prices for:", { cardName, cardSet, cardNumber, gameType, sportType, condition });
 
-    const searchQuery = `${cardName} ${cardSet || ""} ${cardNumber || ""}`.trim();
+    // Build search query with condition for more accurate results
+    const conditionTerm = condition && !["unknown", ""].includes(condition.toLowerCase()) ? condition : "";
+    const searchQuery = `${cardName} ${cardSet || ""} ${cardNumber || ""} ${conditionTerm}`.replace(/\s+/g, " ").trim();
     const sources: string[] = [];
 
     const isTCG = gameType && ["pokemon", "yugioh", "yu-gi-oh", "mtg", "magic"].some(
@@ -388,7 +398,7 @@ Deno.serve(async (req) => {
     );
 
     // Fetch all sources in parallel
-    const ebayPromise = fetchEbayPrices(searchQuery);
+    const ebayPromise = fetchEbayPrices(searchQuery, condition);
     const pcPromise = isTCG ? fetchPriceChartingPrices(cardName, cardSet, gameType, cardNumber) : Promise.resolve(emptySource());
     const tcgPromise = isTCG
       ? fetchTCGPlayerPrices(cardName, cardSet, cardNumber, gameType)

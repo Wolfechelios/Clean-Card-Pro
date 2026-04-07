@@ -321,6 +321,7 @@ async function cachedFetchPrice(args: {
   cardNumber: string | null;
   gameType: string | null;
   sportType: string | null;
+  condition?: string | null;
 }): Promise<{ raw: number | null; psa10: number | null }> {
   const key = priceKey(args);
 
@@ -344,6 +345,7 @@ async function cachedFetchPrice(args: {
         cardNumber: args.cardNumber,
         gameType: args.gameType,
         sportType: args.sportType,
+        condition: args.condition,
       },
       { timeoutMs: 6000, retries: 1, retryDelayMs: 200 }
     );
@@ -663,6 +665,7 @@ async function processJob(item: QueueItem): Promise<void> {
   const rarity: string | null = identify?.rarity ?? null;
   const gameType: string | null = identify?.game_type ?? null;
   const sportType: string | null = identify?.sport_type ?? null;
+  const cardCondition: string | null = identify?.condition ?? null;
   const confidence: number = identify?.confidence ?? 0;
   const year: string | null = identify?.year ?? null;
   const playerName: string | null = identify?.player_name ?? null;
@@ -682,7 +685,7 @@ async function processJob(item: QueueItem): Promise<void> {
   const userId = await getUserId();
 
   const [priceResult, ownershipResult] = await Promise.all([
-    cachedFetchPrice({ cardName, cardSet, cardNumber, gameType, sportType })
+    cachedFetchPrice({ cardName, cardSet, cardNumber, gameType, sportType, condition: cardCondition })
       .catch(() => ({ raw: null as number | null, psa10: null as number | null })),
     (async () => {
       if (!userId) return { ownedCount: 0, isInLibrary: false, existingId: undefined as string | undefined };
