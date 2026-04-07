@@ -1,64 +1,39 @@
 
 
-## Plan: Speed Up Rapid Scan Card Recognition
+## Plan: Fix Inflated Pricing + Ensure Update Prices Uses Same Logic
 
-### Root cause analysis
+### Problem
+Common cards like "Coach Captain Bearman" get priced at ~$20 due to three bugs in `fetch-card-prices`. Since both the scan pipeline AND the "Update Card Prices" button (`update-prices` edge function, `BulkPriceRefresh` component) all call `fetch-card-prices`, fixing this single function fixes all paths.
 
-Each card goes through **4 sequential network calls**, each with generous timeouts and retries. On a typical scan, total per-card time is 8–20 seconds:
+### Changes — one file only
 
-```text
-Current pipeline (serial):
-  Upload to Storage ──► Z.AI OCR ──► rapid-card-identify ──► Price fetch
-       ~2s                ~5s              ~5s                   ~2s
-                                    (includes officialNameResolver
-                                     which makes ANOTHER external API call)
-```
+**File: `supabase/functions/fetch-card-prices/index.ts`**
 
-### Optimizations (5 changes)
+#### 1. Remove TCGPlayer blind fallback (lines 291-296)
+The `allPriceMatches` fallback extracts every `$X.XX` on the page and computes a median from unrelated prices. Delete this fallback — if named patterns (`market price`, `last sold`, `low`, `mid`, `high`) don't match, return `null` instead.
 
-**1. Parallelize OCR + Identification (biggest win)**
-Currently Z.AI OCR runs first (8s timeout), then its output feeds into `rapid-card-identify`. The OCR text is helpful but not required — the AI model already reads the card image. Run both in parallel; if OCR finishes first, great, otherwise the AI identifies without it.
+#### 2. Filter eBay noise (lines 112-136)
+- Skip lines containing "bid", "watching", "buy it now", "best offer" (active listings, not sold)
+- Cap extraction to first 15 price matches to avoid accumulating prices from unrelated cards further down the page
+- Add intra-source outlier filter: if the lowest price in a batch is < $2, reject any price > 20× the lowest
 
-**2. Make official name resolution async / non-blocking**
-Inside `rapid-card-identify`, `resolveOfficialCardIdentity` makes external HTTP calls to ygoprodeck, pokemontcg.io, or scryfall APIs. This adds 1–5s per card. Move this to a post-processing step that enriches the result after returning the initial identification.
+#### 3. Cross-source outlier rejection (lines 394-410)
+Before computing `rawPrice` median from `rawCandidates`:
+- If 2+ sources agree within 3× of each other and one source is > 5× the others, drop the outlier
+- This prevents a $20 eBay noise value from inflating a $0.25 card
 
-**3. Reduce edge function timeouts and retries**
-- `invokeEdgeFunction` default timeout: 6s → 10s (one call, fewer retries)
-- `rapid-card-identify` Lovable AI retries: 5 → 2 (with shorter backoff)
-- Z.AI OCR timeout: 8s → 4s (it's supplementary, not critical)
+#### 4. Include card number in PriceCharting slug (line 176)
+When `cardNumber` is available, append it to the slug for more precise matching (e.g., `coach-captain-bearman-mp14-en118` instead of just `coach-captain-bearman`).
 
-**4. Upload + Identify in parallel**
-Currently the image is uploaded to Storage, then the public URL is used for identification. Instead, start the upload and identification concurrently — the AI can use a base64 data URL while the storage upload proceeds in the background.
-
-**5. Switch to faster AI model for rapid mode**
-Already using `gemini-2.5-flash-lite` which is the fastest. Reduce `max_tokens` from 300 → 200 (JSON response is ~150 tokens). Add `response_format: { type: "json_object" }` to skip markdown wrapping.
-
-### Expected improvement
-
-```text
-Optimized pipeline (parallel):
-  ┌─ Upload to Storage ─────────┐
-  ├─ Z.AI OCR (4s cap) ─────────┤──► Merge ──► Price fetch
-  └─ rapid-card-identify (no    │       ~0s        ~2s
-     name resolver) ────────────┘
-           ~3-5s total
-
-Before: ~14s per card
-After:  ~5-7s per card
-```
+### Why this covers "Update Card Prices"
+- The Settings page "Update Prices" button calls the `update-prices` edge function, which internally calls `fetch-card-prices`
+- The `BulkPriceRefresh` component calls `fetch-card-prices` directly
+- The scan pipeline's queue processor calls `fetch-card-prices`
+- All three paths go through the same function — one fix covers everything
 
 ### Files to edit
 
 | File | Changes |
 |------|---------|
-| `src/lib/queueProcessor.ts` | Parallelize upload + OCR + identify; pass base64 to identify; make name resolution a background enrichment step |
-| `supabase/functions/rapid-card-identify/index.ts` | Remove `resolveOfficialCardIdentity` call (move to post-process); reduce retries 5→2; reduce max_tokens 300→200; add `response_format` |
-| `src/lib/hybridCardIdentify.ts` | Reduce cloud retry count from 2→1; tighten timeout |
-
-### What stays unchanged
-- Card identification accuracy (same AI model and prompt)
-- Offline fallback logic
-- Anomaly detection
-- Price fetching (already parallelized with ownership check)
-- All scanner UI components
+| `supabase/functions/fetch-card-prices/index.ts` | Remove TCGPlayer blind fallback; add eBay line filtering; add cross-source outlier rejection; improve PriceCharting slug with card number |
 
