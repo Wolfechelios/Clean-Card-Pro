@@ -321,6 +321,7 @@ async function cachedFetchPrice(args: {
   cardNumber: string | null;
   gameType: string | null;
   sportType: string | null;
+  condition?: string | null;
 }): Promise<{ raw: number | null; psa10: number | null }> {
   const key = priceKey(args);
 
