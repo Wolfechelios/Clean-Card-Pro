@@ -317,7 +317,7 @@ async function fetchTCGPlayerPrices(
     console.log(`[TCGPlayer] Market: $${market}, LastSold: $${lastSold}, Low: $${low}, Mid: $${mid}, High: $${high}`);
 
     return {
-      market: market ?? fallbackPrice,
+      market,
       lastSold,
       low,
       mid,
