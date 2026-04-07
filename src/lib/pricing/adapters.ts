@@ -21,6 +21,7 @@ export class EbaySoldAdapter implements PriceSourceAdapter {
           cardNumber: card.number,
           gameType: card.gameType,
           sportType: card.sportType,
+          condition: card.condition,
         },
       });
 
