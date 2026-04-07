@@ -55,7 +55,7 @@ Deno.serve(async (req) => {
     
     const { data: cards, error: fetchError } = await supabaseClient
       .from('cards')
-      .select('id, card_name, card_set, card_number, game_type, sport_type, image_url, current_price_raw')
+      .select('id, card_name, card_set, card_number, game_type, sport_type, condition, image_url, current_price_raw')
       .eq('user_id', userId)
       .or(`current_price_raw.is.null,last_price_update.is.null,last_price_update.lt.${oneDayAgo}`)
       .limit(50);
