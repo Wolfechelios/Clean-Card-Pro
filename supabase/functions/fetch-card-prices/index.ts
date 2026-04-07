@@ -308,14 +308,6 @@ async function fetchTCGPlayerPrices(
     const midMatch = md.match(/(?:mid|median|tcg\s*mid)[:\s]*\$([0-9,]+(?:\.\d{2})?)/i);
     const highMatch = md.match(/(?:high|tcg\s*high)[:\s]*\$([0-9,]+(?:\.\d{2})?)/i);
 
-    // Also try generic price patterns if named patterns fail
-    const allPriceMatches = md.match(/\$([0-9,]+\.\d{2})/g);
-    let fallbackPrice: number | null = null;
-    if (allPriceMatches && allPriceMatches.length > 0) {
-      const prices = allPriceMatches.map(p => parsePrice(p)).filter((p): p is number => p !== null && p < 50000);
-      fallbackPrice = getMedian(prices);
-    }
-
     const market = parsePrice(marketMatch?.[1] ?? null);
     const lastSold = parsePrice(lastSoldMatch?.[1] ?? null);
     const low = parsePrice(lowMatch?.[1] ?? null);
