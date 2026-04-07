@@ -111,26 +111,43 @@ async function fetchEbayPrices(searchQuery: string): Promise<SourcePrices> {
 
     // Split into lines and process
     const lines = md.split("\n");
+    let totalExtracted = 0;
+    const MAX_PRICES = 15;
     for (const line of lines) {
+      if (totalExtracted >= MAX_PRICES) break;
       const lower = line.toLowerCase();
-      // Skip shipping lines, "to" ranges, or non-listing lines
+      // Skip non-sold listing lines
       if (lower.includes("shipping") || lower.includes("import") || lower.includes("returns")) continue;
+      if (lower.includes("bid") || lower.includes("watching") || lower.includes("buy it now") || lower.includes("best offer")) continue;
 
-      // Extract prices from the line
       const priceMatches = line.match(/\$([0-9,]+(?:\.\d{2})?)/g);
       if (!priceMatches) continue;
 
       for (const match of priceMatches) {
+        if (totalExtracted >= MAX_PRICES) break;
         const price = parsePrice(match);
         if (!price || price > 50000 || price < 0.01) continue;
 
-        // Categorize by grading context in the line
         if (lower.includes("psa 10") || lower.includes("psa10") || lower.includes("gem mint")) {
           psa10Prices.push(price);
         } else if (lower.includes("psa 9") || lower.includes("psa9") || lower.includes("mint")) {
           psa9Prices.push(price);
         } else {
           soldPrices.push(price);
+        }
+        totalExtracted++;
+      }
+    }
+
+    // Intra-source outlier filter: if cheapest < $2, reject anything > 20× cheapest
+    for (const arr of [soldPrices, psa9Prices, psa10Prices]) {
+      if (arr.length > 1) {
+        const lowest = Math.min(...arr);
+        if (lowest < 2) {
+          const cap = lowest * 20;
+          for (let i = arr.length - 1; i >= 0; i--) {
+            if (arr[i] > cap) arr.splice(i, 1);
+          }
         }
       }
     }
@@ -162,7 +179,8 @@ async function fetchEbayPrices(searchQuery: string): Promise<SourcePrices> {
 async function fetchPriceChartingPrices(
   cardName: string,
   cardSet: string | null,
-  gameType: string | null
+  gameType: string | null,
+  cardNumber: string | null = null
 ): Promise<SourcePrices> {
   try {
     let category = "pokemon";
@@ -173,7 +191,9 @@ async function fetchPriceChartingPrices(
     }
 
     // Build a direct card URL slug
-    const slug = `${cardName} ${cardSet || ""}`
+    const slugParts = [cardName, cardSet || ""];
+    if (cardNumber) slugParts.push(cardNumber);
+    const slug = slugParts.join(" ")
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9\s-]/g, "")
@@ -287,14 +307,6 @@ async function fetchTCGPlayerPrices(
     const midMatch = md.match(/(?:mid|median|tcg\s*mid)[:\s]*\$([0-9,]+(?:\.\d{2})?)/i);
     const highMatch = md.match(/(?:high|tcg\s*high)[:\s]*\$([0-9,]+(?:\.\d{2})?)/i);
 
-    // Also try generic price patterns if named patterns fail
-    const allPriceMatches = md.match(/\$([0-9,]+\.\d{2})/g);
-    let fallbackPrice: number | null = null;
-    if (allPriceMatches && allPriceMatches.length > 0) {
-      const prices = allPriceMatches.map(p => parsePrice(p)).filter((p): p is number => p !== null && p < 50000);
-      fallbackPrice = getMedian(prices);
-    }
-
     const market = parsePrice(marketMatch?.[1] ?? null);
     const lastSold = parsePrice(lastSoldMatch?.[1] ?? null);
     const low = parsePrice(lowMatch?.[1] ?? null);
@@ -304,7 +316,7 @@ async function fetchTCGPlayerPrices(
     console.log(`[TCGPlayer] Market: $${market}, LastSold: $${lastSold}, Low: $${low}, Mid: $${mid}, High: $${high}`);
 
     return {
-      market: market ?? fallbackPrice,
+      market,
       lastSold,
       low,
       mid,
@@ -377,7 +389,7 @@ Deno.serve(async (req) => {
 
     // Fetch all sources in parallel
     const ebayPromise = fetchEbayPrices(searchQuery);
-    const pcPromise = isTCG ? fetchPriceChartingPrices(cardName, cardSet, gameType) : Promise.resolve(emptySource());
+    const pcPromise = isTCG ? fetchPriceChartingPrices(cardName, cardSet, gameType, cardNumber) : Promise.resolve(emptySource());
     const tcgPromise = isTCG
       ? fetchTCGPlayerPrices(cardName, cardSet, cardNumber, gameType)
       : Promise.resolve({ lastSold: null, low: null, mid: null, high: null, market: null, url: null });
@@ -391,10 +403,24 @@ Deno.serve(async (req) => {
     if (ebay.raw || ebay.psa10) sources.push("eBay Sold");
     if (scp.raw) sources.push("SportsCardPro");
 
+    // Cross-source outlier rejection helper
+    function rejectOutliers(candidates: number[]): number[] {
+      if (candidates.length < 2) return candidates;
+      const sorted = [...candidates].sort((a, b) => a - b);
+      const low = sorted[0];
+      // If 2+ sources agree within 3× and one is > 5× the lowest, drop the outlier
+      const agreeing = sorted.filter(v => v <= low * 3);
+      if (agreeing.length >= 2 && sorted[sorted.length - 1] > low * 5) {
+        return sorted.filter(v => v <= low * 5);
+      }
+      return candidates;
+    }
+
     // Determine raw price: prefer TCGPlayer market for TCG, else median of available
-    const rawCandidates = [tcg.market, tcg.lastSold, pc.raw, ebay.raw, scp.raw].filter(
+    let rawCandidates = [tcg.market, tcg.lastSold, pc.raw, ebay.raw, scp.raw].filter(
       (v): v is number => v != null && v > 0
     );
+    rawCandidates = rejectOutliers(rawCandidates);
     const rawPrice = getMedian(rawCandidates);
 
     // PSA9: use actual found prices only — NO multipliers
