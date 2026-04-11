@@ -304,7 +304,11 @@ export async function resolveOfficialCardIdentity<T extends NameResolvableCard>(
   const game = normalizeGameType(card.game_type, card.sport_type);
   const candidateNames = dedupeNames([currentName, printedName]);
 
-  let verified: { card_name: string; card_set: string | null; card_number: string } | null = null;
+  // Parse year from card (may be number or string)
+  const cardYear = card.year ? (typeof card.year === "number" ? card.year : parseInt(String(card.year))) : null;
+  const validYear = cardYear && cardYear >= 1993 && cardYear <= 2030 ? cardYear : null;
+
+  let verified: { card_name: string; card_set: string | null; card_number: string; year?: number } | null = null;
 
   if (cardNumber) {
     if (game === "yugioh") {
@@ -316,13 +320,22 @@ export async function resolveOfficialCardIdentity<T extends NameResolvableCard>(
     }
   }
 
+  // MTG fallback: search by name + set/year when set+number lookup fails
+  if (!verified && game === "mtg" && candidateNames.length > 0) {
+    verified = await lookupMtgByNameAndSet(candidateNames, cardSet, validYear);
+  }
+
   if (verified?.card_name) {
-    return {
+    const result: any = {
       ...card,
       card_name: verified.card_name,
       card_set: verified.card_set ?? card.card_set ?? null,
       card_number: verified.card_number ?? card.card_number ?? null,
     };
+    if ((verified as any).year) {
+      result.year = (verified as any).year;
+    }
+    return result;
   }
 
   if (printedName && printedName !== currentName) {

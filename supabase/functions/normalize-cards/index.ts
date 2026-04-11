@@ -94,6 +94,37 @@ function removeJunkTokens(name: string): { cleaned: string; removed: string[] } 
   return { cleaned: cleanString(cleaned), removed };
 }
 
+// Common MTG set name → code mappings
+const MTG_SET_NAME_TO_CODE: Record<string, string> = {
+  "alpha": "LEA", "beta": "LEB", "unlimited": "2ED", "revised": "3ED",
+  "fourth edition": "4ED", "fifth edition": "5ED", "sixth edition": "6ED",
+  "seventh edition": "7ED", "eighth edition": "8ED", "ninth edition": "9ED",
+  "tenth edition": "10E", "core set 2019": "M19", "core set 2020": "M20",
+  "core set 2021": "M21", "magic 2010": "M10", "magic 2011": "M11",
+  "magic 2012": "M12", "magic 2013": "M13", "magic 2014": "M14",
+  "magic 2015": "M15", "magic origins": "ORI",
+};
+
+// Extract year from MTG set names like "Core Set 2021", "Fourth Edition" etc.
+function extractMtgYearFromSet(setName: string): number | null {
+  // Direct year in set name
+  const yearMatch = setName.match(/\b(19|20)\d{2}\b/);
+  if (yearMatch) return parseInt(yearMatch[0]);
+
+  // Named editions → approximate years
+  const editionYears: Record<string, number> = {
+    "alpha": 1993, "beta": 1993, "unlimited": 1994, "revised": 1994,
+    "fourth edition": 1995, "fifth edition": 1997, "sixth edition": 1999,
+    "seventh edition": 2001, "eighth edition": 2003, "ninth edition": 2005,
+    "tenth edition": 2007, "magic origins": 2015,
+  };
+  const lower = setName.toLowerCase().trim();
+  for (const [key, yr] of Object.entries(editionYears)) {
+    if (lower.includes(key)) return yr;
+  }
+  return null;
+}
+
 // Normalize MTG card
 function normalizeMTG(card: any): { updates: any; confidence: number; notes: any } {
   const notes: any = { game: 'mtg' };
@@ -107,12 +138,20 @@ function normalizeMTG(card: any): { updates: any; confidence: number; notes: any
     notes.removedTokens = removed;
   }
   
-  // Process set code
+  // Process set code - also try mapping known set names to codes
   if (card.card_set) {
     let setCode = card.card_set.toLowerCase()
       .replace(/^\[|\]$/g, '')
       .replace(/^set:\s*/i, '')
       .trim();
+
+    // Try to map full set name to code
+    const mappedCode = MTG_SET_NAME_TO_CODE[setCode];
+    if (mappedCode) {
+      updates.set_code = mappedCode;
+      notes.mappedSetCode = mappedCode;
+    }
+
     if (setCode !== card.card_set?.toLowerCase()) {
       updates.card_set = setCode;
       notes.normalizedSetCode = true;
@@ -129,11 +168,21 @@ function normalizeMTG(card: any): { updates: any; confidence: number; notes: any
       }
     }
   }
+
+  // Extract year from set name or card data
+  if (!card.year && card.card_set) {
+    const extractedYear = extractMtgYearFromSet(card.card_set);
+    if (extractedYear) {
+      updates.year = extractedYear;
+      notes.yearSource = 'set_name';
+    }
+  }
   
   // Calculate confidence
   if (updates.card_set || card.card_set) confidence += 20;
   if (updates.card_number || card.card_number) confidence += 20;
   if (cleanedName) confidence += 10;
+  if (updates.year || card.year) confidence += 10;
   
   return { updates, confidence: Math.min(confidence, 100), notes };
 }
