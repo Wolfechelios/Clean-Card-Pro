@@ -7,6 +7,7 @@ import {
   triggerFastFocus,
   getMaxCameraConstraints,
 } from "@/lib/camera-optimizations";
+import { playShutterBeep } from "@/lib/audioBeeps";
 
 interface UseCameraCaptureOptions {
   onCapture: (file: File) => void;
@@ -173,6 +174,7 @@ export function useCameraCapture({ onCapture }: UseCameraCaptureOptions) {
     }
 
     try {
+      playShutterBeep();
       // Trigger fast focus before capture
       if (streamRef.current) {
         await triggerFastFocus(streamRef.current);

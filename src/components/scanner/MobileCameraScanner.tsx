@@ -8,6 +8,7 @@ import { CameraDeviceSelector } from "./CameraDeviceSelector";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
 import { ZoomControls } from "./ZoomControls";
 import { useNativeCamera } from "@/hooks/use-native-camera";
+import { playShutterBeep } from "@/lib/audioBeeps";
 import { isNativePlatform, isAndroid } from "@/lib/platform";
 import { 
   getMaxQualityStream, 
@@ -42,6 +43,7 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
   // Native camera capture (Android/iOS)
   const captureNativePhoto = async () => {
     try {
+      playShutterBeep();
       setIsInitializing(true);
       const hasPermission = await checkPermissions();
       if (!hasPermission) {
@@ -288,6 +290,7 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
     }
 
     try {
+      playShutterBeep();
       // Trigger focus before capture
       if (streamRef.current) {
         await triggerFastFocus(streamRef.current);
