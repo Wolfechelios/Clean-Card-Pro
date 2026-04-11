@@ -101,6 +101,31 @@ If you extracted a valid set code (e.g., LOB-001), look up the official card nam
 
 ${ygoRaritySection}
 
+CRITICAL FOR MAGIC: THE GATHERING CARDS — SET & YEAR IDENTIFICATION:
+
+STEP 1 — SET SYMBOL (bottom-center-right of card, to the right of the type line):
+Describe the shape and color of the set symbol. Color indicates rarity: black/grey = Common, silver = Uncommon, gold = Rare, orange-red/mythic orange = Mythic Rare. Use the symbol shape to determine the exact set (e.g., a stylized 'M' for Core Sets, a dragon head for Dragons of Tarkir, etc.).
+
+STEP 2 — COLLECTOR NUMBER (bottom-left of card):
+Look for text in format "123/280" or just "123". This is the collector number. Extract BOTH the card number and total. Format: "123/280".
+
+STEP 3 — COPYRIGHT YEAR (very bottom center of card):
+Read the copyright line: "© 2010 Wizards of the Coast" or "™ & © 2021 Wizards...". Extract the 4-digit year. This is the printing year and determines which set/printing this card belongs to.
+
+STEP 4 — FRAME STYLE (helps narrow the era):
+- Pre-8th Edition (before 2003): old-style brown/grey/blue borders, no holofoil stamp
+- 8th Edition to M14 (2003-2013): modern silver/black border, no holofoil stamp
+- M15 onward (2014+): updated frame with holofoil oval stamp at bottom-center of card (below art, above text box)
+- Post-2024 frames may have additional design changes
+
+STEP 5 — MTG OUTPUT REQUIREMENTS:
+You MUST populate ALL of these for MTG cards:
+- "card_name": exact name as printed
+- "card_set": full set name (e.g., "Magic 2010", "Innistrad: Midnight Hunt", "Revised Edition")
+- "card_number": collector number in "123/280" format if visible
+- "year": the copyright year (4-digit number)
+- "rarity": Common/Uncommon/Rare/Mythic Rare based on set symbol color
+
 Return JSON in this exact format:
 
 {

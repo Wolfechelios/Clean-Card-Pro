@@ -4,6 +4,7 @@ type NameResolvableCard = {
   card_number?: string | null;
   game_type?: string | null;
   sport_type?: string | null;
+  year?: number | string | null;
 };
 
 function clean(value: unknown): string | null {
@@ -207,7 +208,7 @@ async function lookupPokemonByNumber(
 async function lookupMtgBySetAndNumber(
   cardSet: string | null,
   cardNumber: string
-): Promise<{ card_name: string; card_set: string | null; card_number: string } | null> {
+): Promise<{ card_name: string; card_set: string | null; card_number: string; year?: number } | null> {
   const setCode = clean(cardSet)?.toLowerCase();
   if (!setCode || !/^[a-z0-9]{2,6}$/.test(setCode)) return null;
 
@@ -217,10 +218,78 @@ async function lookupMtgBySetAndNumber(
   const data = await fetchJson(`https://api.scryfall.com/cards/${encodeURIComponent(setCode)}/${encodeURIComponent(collectorNo)}`);
   if (!data?.name) return null;
 
+  const year = data.released_at ? parseInt(data.released_at.substring(0, 4)) : undefined;
+
   return {
     card_name: clean(data.name) || "Unknown Card",
     card_set: clean(data.set_name) || cardSet,
     card_number: clean(data.collector_number) || cardNumber,
+    ...(year ? { year } : {}),
+  };
+}
+
+async function lookupMtgByNameAndSet(
+  candidateNames: string[],
+  cardSet: string | null,
+  year: number | null
+): Promise<{ card_name: string; card_set: string | null; card_number: string; year?: number } | null> {
+  if (!candidateNames.length) return null;
+
+  const primaryName = candidateNames[0];
+
+  // Try exact name search on Scryfall
+  const query = `!"${primaryName}"`;
+  const data = await fetchJson(
+    `https://api.scryfall.com/cards/search?q=${encodeURIComponent(query)}&unique=prints&order=released&dir=asc`,
+    8000
+  );
+  const cards = Array.isArray(data?.data) ? data.data : [];
+  if (!cards.length) return null;
+
+  // If we have a year, find the printing from that year
+  if (year) {
+    const yearMatch = cards.find((c: any) => {
+      const relYear = c.released_at ? parseInt(c.released_at.substring(0, 4)) : 0;
+      return relYear === year;
+    });
+    if (yearMatch) {
+      return {
+        card_name: clean(yearMatch.name) || primaryName,
+        card_set: clean(yearMatch.set_name),
+        card_number: clean(yearMatch.collector_number) || null as any,
+        year,
+      };
+    }
+  }
+
+  // If we have a set name, fuzzy match it
+  if (cardSet) {
+    const setKey = normalizeForMatch(cardSet);
+    const setMatch = cards.find((c: any) => {
+      const apiSetName = normalizeForMatch(clean(c.set_name));
+      const apiSetCode = normalizeForMatch(clean(c.set));
+      return (apiSetName && (apiSetName.includes(setKey) || setKey.includes(apiSetName)))
+        || (apiSetCode && setKey === apiSetCode);
+    });
+    if (setMatch) {
+      const relYear = setMatch.released_at ? parseInt(setMatch.released_at.substring(0, 4)) : undefined;
+      return {
+        card_name: clean(setMatch.name) || primaryName,
+        card_set: clean(setMatch.set_name),
+        card_number: clean(setMatch.collector_number) || null as any,
+        ...(relYear ? { year: relYear } : {}),
+      };
+    }
+  }
+
+  // Fallback: return the first (oldest) printing
+  const first = cards[0];
+  const relYear = first.released_at ? parseInt(first.released_at.substring(0, 4)) : undefined;
+  return {
+    card_name: clean(first.name) || primaryName,
+    card_set: clean(first.set_name),
+    card_number: clean(first.collector_number) || null as any,
+    ...(relYear ? { year: relYear } : {}),
   };
 }
 
