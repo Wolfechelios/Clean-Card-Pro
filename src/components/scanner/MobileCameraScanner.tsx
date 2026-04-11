@@ -43,6 +43,7 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
   // Native camera capture (Android/iOS)
   const captureNativePhoto = async () => {
     try {
+      playShutterBeep();
       setIsInitializing(true);
       const hasPermission = await checkPermissions();
       if (!hasPermission) {
@@ -289,6 +290,7 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
     }
 
     try {
+      playShutterBeep();
       // Trigger focus before capture
       if (streamRef.current) {
         await triggerFastFocus(streamRef.current);
