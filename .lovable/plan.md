@@ -1,67 +1,54 @@
 
 
-## Plan: Prioritize PriceCharting & SportsCardPro + Condition-Based Pricing
+## Plan: Improve MTG Card Identification with Year and Set Disambiguation
 
 ### Problem
-Currently, the raw price is computed as a median across all sources equally (TCGPlayer, PriceCharting, eBay, SportsCardPro). PriceCharting and SportsCardPro should be the primary/authoritative sources, with eBay and TCGPlayer as secondary confirmation. Additionally, NM/Mint condition cards should map to ~PSA 8 grade pricing when available.
+MTG cards with the same name exist across many sets and years (e.g., "Lightning Bolt" in Alpha 1993, M10 2009, M11 2010, etc.). Currently the AI prompt doesn't emphasize MTG-specific visual cues, the Scryfall resolver only looks up by set code + collector number (missing when not detected), and there's no fallback search by card name + set name. This means reprints often get misidentified or lumped together.
 
 ### Changes
 
-**File: `supabase/functions/fetch-card-prices/index.ts`**
+**1. Enhance AI prompt for MTG-specific identification**
 
-#### 1. Prioritize PriceCharting and SportsCardPro as primary sources (lines 429-434)
-Replace the equal-weight median logic with a priority system:
-- If PriceCharting has a price, use it as the primary raw value
-- If SportsCardPro has a price (sports cards), use it as primary
-- Only fall back to eBay/TCGPlayer median if primary sources return null
-- If both primary and secondary exist, use primary but sanity-check against secondary (reject primary if >5x off from secondary consensus)
+**File: `supabase/functions/enhanced-card-identify/index.ts`**
+- Add an MTG-specific section to the prompt (similar to the existing Yu-Gi-Oh ROI section) instructing the AI to:
+  - Read the **set symbol** (bottom-center-right of card) and describe its shape/color to determine set and rarity
+  - Read the **collector number** (bottom-left, format `123/280`)
+  - Read the **copyright year** at the very bottom (e.g., "© 2010 Wizards...")
+  - Distinguish frame styles: pre-8th Edition (old border), 8th-M15 (modern border), M15+ (updated holofoil stamp), post-2024 frames
+  - Always populate `year`, `card_set`, and `card_number` fields for MTG cards
 
-#### 2. Map NM/Mint condition to PSA 8 grade pricing (lines 436-446)
-- When condition is "Near Mint", "NM", "Mint", or "NM/Mint":
-  - Look for PSA 8 prices in PriceCharting markdown (add regex for `psa\s*8|grade\s*8`)
-  - If PSA 8 price found, use it as the `suggested` price for NM cards
-  - Store a new `psa8` field or map it to the existing `raw` field with a note
+**2. Add Scryfall name+set search fallback**
 
-#### 3. Update PriceCharting scraper to extract PSA 8 prices (lines 233-245)
-- Add `psa8Match` regex: `/(?:psa\s*8|grade\s*8)[^\n$]*\$([0-9,]+(?:\.\d{2})?)/i`
-- Add `psa8` to `SourcePrices` interface
-- Return PSA 8 price alongside existing tiers
+**File: `supabase/functions/_shared/officialNameResolver.ts`**
+- Add a new function `lookupMtgByNameAndSet(cardName, cardSet, year)` that uses Scryfall's `/cards/search?q=!"name"+set:code` API when set code + collector number lookup fails
+- If year is available, filter Scryfall results by `released_at` year to pick the correct printing
+- Extract and return `set_name`, `collector_number`, `released_at` (year) from the matched result
+- Update `resolveOfficialCardIdentity` to try this fallback when `lookupMtgBySetAndNumber` returns null
 
-#### 4. Update SportsCardPro scraper similarly (lines 359-361)
-- Add PSA 8 regex extraction
-- Return PSA 8 price
+**3. Improve MTG normalization to extract year from copyright**
 
-#### 5. Update raw price determination logic (lines 429-466)
-New priority logic:
-```text
-For TCG cards:
-  1. PriceCharting ungraded → primary raw
-  2. TCGPlayer market → secondary confirmation
-  3. eBay sold → tertiary confirmation
+**File: `supabase/functions/normalize-cards/index.ts`**
+- In `normalizeMTG()`, add regex to extract year from card_set or card_name fields (e.g., "Core Set 2021" → year 2021, "Fourth Edition" → year 1995)
+- Map common MTG set name patterns to set codes (e.g., "Revised" → "3ED", "10th Edition" → "10E")
+- Populate the `year` field on the cards table when detected
 
-For sports cards:
-  1. SportsCardPro ungraded → primary raw
-  2. PriceCharting ungraded → secondary
-  3. eBay sold → tertiary
+**4. Store year from Scryfall in resolver**
 
-For NM/Mint condition:
-  suggested_price = psa8 price (if available) ?? raw price
-```
-
-#### 6. Add `psa8` field to PricingResult interface and response (lines 3-29, 460-489)
-- Add `psa8`, `medianPsa8`, `ebayPsa8` fields
-- Populate from extracted data
+**File: `supabase/functions/_shared/officialNameResolver.ts`**
+- When Scryfall returns data, extract the year from `released_at` and include it in the resolved result
+- Update the return type to optionally include `year`
+- In `resolveOfficialCardIdentity`, propagate `year` back to the card object
 
 ### Files to edit
 
 | File | Changes |
 |------|---------|
-| `supabase/functions/fetch-card-prices/index.ts` | Add PSA 8 extraction to PriceCharting + SportsCardPro scrapers; rewrite raw price logic to prioritize PC/SCP; add condition→grade mapping for NM=PSA8; add psa8 fields to response |
+| `supabase/functions/enhanced-card-identify/index.ts` | Add MTG-specific prompt section for set symbol, collector number, copyright year, and frame style detection |
+| `supabase/functions/_shared/officialNameResolver.ts` | Add `lookupMtgByNameAndSet` fallback using Scryfall search API; return year from `released_at`; update resolver to propagate year |
+| `supabase/functions/normalize-cards/index.ts` | Enhance `normalizeMTG` to extract year from set names and populate `year` field |
 
 ### What stays unchanged
-- eBay scraper logic (already filtering graded for raw searches)
-- TCGPlayer scraper
-- All client-side adapters and consensus engine
-- Bulk price refresh and update-prices callers
-- All UI components
+- Database schema (already has `year`, `card_set`, `card_number`, `set_code` columns)
+- Client-side code, UI components, pricing logic
+- Yu-Gi-Oh and Pokémon identification paths
 
