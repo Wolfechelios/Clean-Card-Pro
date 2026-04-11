@@ -8,6 +8,7 @@ import { CameraDeviceSelector } from "./CameraDeviceSelector";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
 import { ZoomControls } from "./ZoomControls";
 import { useNativeCamera } from "@/hooks/use-native-camera";
+import { playShutterBeep } from "@/lib/audioBeeps";
 import { isNativePlatform, isAndroid } from "@/lib/platform";
 import { 
   getMaxQualityStream, 

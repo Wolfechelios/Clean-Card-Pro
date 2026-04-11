@@ -7,6 +7,7 @@ import {
   triggerFastFocus,
   getMaxCameraConstraints,
 } from "@/lib/camera-optimizations";
+import { playShutterBeep } from "@/lib/audioBeeps";
 
 interface UseCameraCaptureOptions {
   onCapture: (file: File) => void;
