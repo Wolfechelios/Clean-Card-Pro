@@ -273,8 +273,24 @@ JSON only.`;
       cardData = { card_name: 'Unknown Card', confidence: 0 };
     }
 
-    // NOTE: resolveOfficialCardIdentity removed from hot path for speed.
-    // Name resolution is now done as a background enrichment step client-side.
+    // YGO set code verification — correct set name via YGOPRODeck
+    try {
+      const gameType = (cardData.game_type || "").toLowerCase();
+      if (gameType.includes("yu") || gameType.includes("ygo")) {
+        const ygoVerified = await verifyYgoSetCode(cardData);
+        if (ygoVerified) {
+          const oldSet = cardData.card_set;
+          cardData.card_name = ygoVerified.card_name;
+          cardData.card_set = ygoVerified.card_set;
+          cardData.card_number = ygoVerified.card_number;
+          if (oldSet !== ygoVerified.card_set) {
+            console.log(`YGO set corrected: "${oldSet}" → "${ygoVerified.card_set}"`);
+          }
+        }
+      }
+    } catch (ygoErr) {
+      console.warn("YGO set verification skipped:", ygoErr);
+    }
 
     console.log('Identified:', cardData.card_name);
 

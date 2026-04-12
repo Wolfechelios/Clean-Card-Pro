@@ -262,6 +262,20 @@ For non-Yu-Gi-Oh cards, omit the foilFeatures object.`;
     try {
       if (cardData?.primary && typeof cardData.primary === "object") {
         cardData.primary = await resolveOfficialCardIdentity(cardData.primary, { ocrText });
+        // Additional YGO set code verification
+        const gameType = (cardData.primary.game_type || "").toLowerCase();
+        if (gameType.includes("yu") || gameType.includes("ygo")) {
+          const ygoVerified = await verifyYgoSetCode(cardData.primary);
+          if (ygoVerified) {
+            const oldSet = cardData.primary.card_set;
+            cardData.primary.card_name = ygoVerified.card_name;
+            cardData.primary.card_set = ygoVerified.card_set;
+            cardData.primary.card_number = ygoVerified.card_number;
+            if (oldSet !== ygoVerified.card_set) {
+              console.log(`YGO set corrected: "${oldSet}" → "${ygoVerified.card_set}"`);
+            }
+          }
+        }
       } else if (cardData && typeof cardData === "object") {
         cardData = await resolveOfficialCardIdentity(cardData, { ocrText });
       }
