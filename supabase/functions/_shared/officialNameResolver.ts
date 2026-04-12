@@ -114,6 +114,11 @@ async function lookupYugiohBySetCode(candidateNames: string[], cardNumber: strin
     return null;
   }
 
+  // First try direct set-code lookup (no candidate names needed)
+  const directResult = await lookupYgoBySetCodeDirect(normalizedTarget);
+  if (directResult) return directResult;
+
+  // Fallback: search by candidate names + match set code
   for (const candidate of candidateNames) {
     const data = await fetchJson(`https://db.ygoprodeck.com/api/v7/cardinfo.php?fname=${encodeURIComponent(candidate)}`);
     const cards = data?.data;
@@ -133,6 +138,54 @@ async function lookupYugiohBySetCode(candidateNames: string[], cardNumber: strin
   }
 
   return null;
+}
+
+/**
+ * Direct YGOPRODeck lookup by set code only (e.g. "SDBE-EN017").
+ * Searches all cards that appear in the set prefix, then matches the exact code.
+ */
+async function lookupYgoBySetCodeDirect(normalizedCode: string): Promise<{ card_name: string; card_set: string | null; card_number: string } | null> {
+  // Extract set prefix (e.g. "SDBE" from "SDBE-EN017")
+  const dashIdx = normalizedCode.indexOf("-");
+  if (dashIdx < 2) return null;
+  const setPrefix = normalizedCode.substring(0, dashIdx);
+
+  // YGOPRODeck supports searching by card set code prefix via the cardset parameter
+  const data = await fetchJson(
+    `https://db.ygoprodeck.com/api/v7/cardinfo.php?cardset=${encodeURIComponent(setPrefix)}&num=100&offset=0`,
+    8000
+  );
+  const cards = Array.isArray(data?.data) ? data.data : [];
+
+  for (const card of cards) {
+    const sets = Array.isArray(card?.card_sets) ? card.card_sets : [];
+    const match = sets.find((s: any) => normalizeCardNumber(clean(s?.set_code)) === normalizedCode);
+    if (match) {
+      return {
+        card_name: clean(card?.name) || "Unknown Card",
+        card_set: clean(match?.set_name),
+        card_number: clean(match?.set_code) || normalizedCode,
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Public helper: verify a YGO card's set name using YGOPRODeck.
+ * Used by edge functions for post-processing AI results.
+ */
+export async function verifyYgoSetCode(
+  cardData: { card_name?: string | null; card_number?: string | null; card_set?: string | null }
+): Promise<{ card_name: string; card_set: string | null; card_number: string } | null> {
+  const cardNumber = normalizeCardNumber(clean(cardData.card_number));
+  if (!cardNumber || !/^[A-Z0-9]{2,5}-[A-Z]{0,2}[0-9]{3}$/.test(cardNumber)) {
+    return null;
+  }
+
+  const candidateNames = dedupeNames([cardData.card_name]);
+  return lookupYugiohBySetCode(candidateNames, cardNumber);
 }
 
 function isLikelySetMatch(inputSet: string | null, apiSetObj: any): boolean {

@@ -1,5 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { resolveOfficialCardIdentity } from "../_shared/officialNameResolver.ts";
+import { resolveOfficialCardIdentity, verifyYgoSetCode } from "../_shared/officialNameResolver.ts";
 import { buildYgoRarityPromptSection } from "../_shared/ygoRarityMatrix.ts";
 import { validateImageUrl, SSRFError } from "../_shared/validateUrl.ts";
 import { rateLimitResponse } from "../_shared/rateLimiter.ts";
