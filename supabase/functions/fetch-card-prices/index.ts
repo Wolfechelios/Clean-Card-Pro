@@ -593,6 +593,8 @@ Deno.serve(async (req) => {
       tcgPlayerHigh: round(tcg.high),
       tcgPlayerMarket: round(tcg.market),
       tcgPlayerUrl: tcg.url,
+      comcRaw: round(comc.raw),
+      comcUrl: comc.url,
       source: sources.length > 0 ? sources.join(" + ") : "No data",
     };
 
