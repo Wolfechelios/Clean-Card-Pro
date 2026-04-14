@@ -28,6 +28,8 @@ interface PricingResult {
   tcgPlayerHigh: number | null;
   tcgPlayerMarket: number | null;
   tcgPlayerUrl: string | null;
+  comcRaw: number | null;
+  comcUrl: string | null;
   source: string;
 }
 
@@ -371,6 +373,94 @@ async function fetchSportsCardProPrices(searchQuery: string): Promise<SourcePric
   }
 }
 
+// ─── COMC via Firecrawl (MTG + Pokémon only) ───────────────────────
+async function fetchCOMCPrices(
+  cardName: string,
+  cardSet: string | null,
+  gameType: string | null
+): Promise<SourcePrices> {
+  try {
+    const gt = (gameType || "").toLowerCase();
+    let category = "Pokemon";
+    if (gt.includes("mtg") || gt.includes("magic")) category = "Magic";
+
+    const searchTerms = [cardName, cardSet || ""].filter(Boolean).join(" ").trim();
+    const encoded = encodeURIComponent(searchTerms);
+    const comcUrl = `https://www.comc.com/Cards/${category},=${encoded},vList,i100`;
+    console.log("[COMC] Scraping:", comcUrl);
+
+    const md = await scrapeWithFirecrawl(comcUrl);
+    if (!md || md.length < 100) return { ...emptySource(), url: comcUrl };
+
+    const rawPrices: number[] = [];
+    const psa8Prices: number[] = [];
+    const psa9Prices: number[] = [];
+    const psa10Prices: number[] = [];
+    const cgc9Prices: number[] = [];
+    const cgc10Prices: number[] = [];
+
+    // Match card name loosely for filtering
+    const nameWords = cardName.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 2);
+
+    // COMC listings: lines with prices like $XX.XX, condition in brackets [CONDITION]
+    const lines = md.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const lower = line.toLowerCase();
+
+      // Check if this line or nearby lines contain the card name
+      const context = [lines[i - 1] || "", line, lines[i + 1] || ""].join(" ").toLowerCase();
+      const nameMatch = nameWords.length > 0 && nameWords.filter(w => context.includes(w)).length >= Math.min(nameWords.length, 2);
+      if (!nameMatch) continue;
+
+      // Extract price
+      const priceMatch = line.match(/\$([0-9,]+(?:\.\d{2})?)/);
+      if (!priceMatch) continue;
+      const price = parsePrice(priceMatch[1]);
+      if (!price || price > 50000 || price < 0.01) continue;
+
+      // Extract condition from brackets
+      const condMatch = context.match(/\[(.*?)\]/g);
+      const condStr = condMatch ? condMatch.map(c => c.toLowerCase()).join(" ") : lower;
+
+      if (condStr.includes("psa 10") || condStr.includes("psa10") || condStr.includes("gem mint 10") || condStr.includes("gem-mt 10")) {
+        psa10Prices.push(price);
+      } else if (condStr.includes("psa 9") || condStr.includes("psa9") || condStr.includes("mint 9")) {
+        psa9Prices.push(price);
+      } else if (condStr.includes("psa 8") || condStr.includes("psa8") || condStr.includes("nm-mt 8")) {
+        psa8Prices.push(price);
+      } else if (condStr.includes("cgc 10") || condStr.includes("cgc10") || condStr.includes("pristine 10")) {
+        cgc10Prices.push(price);
+      } else if (condStr.includes("cgc 9") || condStr.includes("cgc9")) {
+        cgc9Prices.push(price);
+      } else if (condStr.includes("bgs") || condStr.includes("sgc")) {
+        // skip other grading companies for now
+      } else if (condStr.includes("near mint") || condStr.includes("nm") || condStr.includes("mint") || condStr.includes("lightly played") || condStr.includes("lp")) {
+        rawPrices.push(price);
+      } else if (!condStr.includes("psa") && !condStr.includes("cgc") && !condStr.includes("bgs")) {
+        // Ungraded/unknown condition → treat as raw candidate
+        rawPrices.push(price);
+      }
+    }
+
+    console.log(`[COMC] Found ${rawPrices.length} raw, ${psa8Prices.length} PSA8, ${psa9Prices.length} PSA9, ${psa10Prices.length} PSA10 prices`);
+
+    return {
+      raw: getMedian(rawPrices) ? parseFloat(getMedian(rawPrices)!.toFixed(2)) : null,
+      psa8: getMedian(psa8Prices) ? parseFloat(getMedian(psa8Prices)!.toFixed(2)) : null,
+      psa9: getMedian(psa9Prices) ? parseFloat(getMedian(psa9Prices)!.toFixed(2)) : null,
+      psa10: getMedian(psa10Prices) ? parseFloat(getMedian(psa10Prices)!.toFixed(2)) : null,
+      cgc9: getMedian(cgc9Prices) ? parseFloat(getMedian(cgc9Prices)!.toFixed(2)) : null,
+      cgc10: getMedian(cgc10Prices) ? parseFloat(getMedian(cgc10Prices)!.toFixed(2)) : null,
+      highestSold: null,
+      url: comcUrl,
+    };
+  } catch (e) {
+    console.error("[COMC] Error:", e);
+    return emptySource();
+  }
+}
+
 // ─── Main handler ───────────────────────────────────────────────────
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -392,6 +482,9 @@ Deno.serve(async (req) => {
       sportType.toLowerCase()
     );
 
+    // Detect if COMC-eligible (MTG or Pokémon, not YGO)
+    const isCOMCEligible = isTCG && gameType && /mtg|magic|pokemon|pokémon/i.test(gameType);
+
     // Fetch all sources in parallel
     const ebayPromise = fetchEbayPrices(searchQuery, condition);
     const pcPromise = isTCG ? fetchPriceChartingPrices(cardName, cardSet, gameType, cardNumber) : Promise.resolve(emptySource());
@@ -399,16 +492,18 @@ Deno.serve(async (req) => {
       ? fetchTCGPlayerPrices(cardName, cardSet, cardNumber, gameType)
       : Promise.resolve({ lastSold: null, low: null, mid: null, high: null, market: null, url: null });
     const scpPromise = isSportsCard ? fetchSportsCardProPrices(searchQuery) : Promise.resolve(emptySource());
+    const comcPromise = isCOMCEligible ? fetchCOMCPrices(cardName, cardSet, gameType) : Promise.resolve(emptySource());
 
-    const [ebay, pc, tcg, scp] = await Promise.all([ebayPromise, pcPromise, tcgPromise, scpPromise]);
+    const [ebay, pc, tcg, scp, comc] = await Promise.all([ebayPromise, pcPromise, tcgPromise, scpPromise, comcPromise]);
 
     // Build sources list
+    if (comc.raw || comc.psa10) sources.push("COMC");
     if (pc.raw || pc.psa10) sources.push("PriceCharting");
     if (scp.raw || scp.psa10) sources.push("SportsCardPro");
     if (tcg.market || tcg.lastSold) sources.push("TCGPlayer");
     if (ebay.raw || ebay.psa10) sources.push("eBay Sold");
 
-    // ── Priority-based raw price (PC/SCP first) ──────────────────────
+    // ── Priority-based raw price ─────────────────────────────────────
     let rawPrice: number | null = null;
 
     if (isSportsCard) {
@@ -417,8 +512,14 @@ Deno.serve(async (req) => {
       const secondary = pc.raw;
       const tertiary = [ebay.raw, tcg.market, tcg.lastSold].filter((v): v is number => v != null && v > 0);
       rawPrice = pickPrimaryWithSanity(primary, secondary, tertiary);
+    } else if (isCOMCEligible) {
+      // MTG/Pokémon: COMC → PriceCharting → TCGPlayer → eBay
+      const primary = comc.raw ?? pc.raw;
+      const secondary = pc.raw ?? tcg.market ?? tcg.lastSold;
+      const tertiary = [comc.raw, pc.raw, tcg.market, tcg.lastSold, ebay.raw].filter((v): v is number => v != null && v > 0);
+      rawPrice = pickPrimaryWithSanity(primary, secondary, tertiary);
     } else {
-      // TCG: PriceCharting → TCGPlayer → eBay fallback
+      // Other TCG (YGO): PriceCharting → TCGPlayer → eBay fallback
       const primary = pc.raw;
       const secondary = tcg.market ?? tcg.lastSold;
       const tertiary = [ebay.raw, scp.raw].filter((v): v is number => v != null && v > 0);
@@ -426,26 +527,28 @@ Deno.serve(async (req) => {
     }
 
     // PSA 8: actual found prices only
-    const psa8Candidates = [pc.psa8, scp.psa8, ebay.psa8].filter(
+    const psa8Candidates = [comc.psa8, pc.psa8, scp.psa8, ebay.psa8].filter(
       (v): v is number => v != null && v > 0
     );
     const psa8 = getMedian(psa8Candidates);
 
     // PSA 9: actual found prices only
-    const psa9Candidates = [pc.psa9, ebay.psa9, scp.psa9].filter(
+    const psa9Candidates = [comc.psa9, pc.psa9, ebay.psa9, scp.psa9].filter(
       (v): v is number => v != null && v > 0
     );
     const psa9 = getMedian(psa9Candidates);
 
     // PSA 10: actual found prices only
-    const psa10Candidates = [pc.psa10, ebay.psa10, scp.psa10].filter(
+    const psa10Candidates = [comc.psa10, pc.psa10, ebay.psa10, scp.psa10].filter(
       (v): v is number => v != null && v > 0
     );
     const psa10 = getMedian(psa10Candidates);
 
     // CGC
-    const cgc9 = pc.cgc9;
-    const cgc10 = pc.cgc10;
+    const cgc9Candidates = [comc.cgc9, pc.cgc9].filter((v): v is number => v != null && v > 0);
+    const cgc9 = getMedian(cgc9Candidates);
+    const cgc10Candidates = [comc.cgc10, pc.cgc10].filter((v): v is number => v != null && v > 0);
+    const cgc10 = getMedian(cgc10Candidates);
 
     // Highest sold
     const allHighs = [ebay.highestSold, tcg.high, tcg.lastSold].filter(
@@ -490,6 +593,8 @@ Deno.serve(async (req) => {
       tcgPlayerHigh: round(tcg.high),
       tcgPlayerMarket: round(tcg.market),
       tcgPlayerUrl: tcg.url,
+      comcRaw: round(comc.raw),
+      comcUrl: comc.url,
       source: sources.length > 0 ? sources.join(" + ") : "No data",
     };
 
