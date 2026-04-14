@@ -1,53 +1,66 @@
 
 
-## Plan: Fix Yu-Gi-Oh Set Misidentification (Honest SDBE-EN017 = $90 bug)
+## Plan: Add COMC as Price Source for MTG and Pokémon
 
-### Root Cause
-The AI identified "SDBE-EN017" as belonging to "Speed Duel: Battle City Box" instead of "Saga of Blue-Eyes White Dragon Structure Deck". The pricing engine correctly returned $93 for the wrong set. The real price is $0.24.
+### What
+Add COMC (comc.com) as an additional pricing source for MTG and Pokémon cards. Yu-Gi-Oh is excluded because COMC has essentially zero Yu-Gi-Oh inventory.
 
-The AI prompt already extracts the set code correctly (SDBE-EN017), but there's no post-processing step to **verify the set code against a real Yu-Gi-Oh database** — unlike MTG which has Scryfall validation.
+### COMC Listing Format (from scraping)
+Each listing follows this pattern in markdown:
+```text
+[YEAR SET_NAME - [Base] #CARD_NUMBER](url)
+VARIANT - CARD_NAME [CONDITION]
+$PRICE
+```
+Example: `1999 Pokemon Base Set - [Base] #4 | Holo - Charizard [PSA 4 VG‑EX] | $1,131.10`
+
+Conditions include: `NM` / `Near Mint`, `LP` / `Lightly Played`, `MP` / `Moderately Played`, `PSA X`, `CGC X`, `BGS X`.
+
+### Search URL Pattern
+- MTG: `https://www.comc.com/Cards/Magic,=CARD_NAME+SET,vList,i100`
+- Pokémon: `https://www.comc.com/Cards/Pokemon,=CARD_NAME+SET,vList,i100`
 
 ### Changes
 
-**1. Add YGOPRODeck API lookup to officialNameResolver.ts**
+**File: `supabase/functions/fetch-card-prices/index.ts`**
 
-**File: `supabase/functions/_shared/officialNameResolver.ts`**
+1. **Add `fetchCOMCPrices(cardName, cardSet, gameType)` function** (~80 lines)
+   - Build search URL using game-specific category path (`/Cards/Magic` or `/Cards/Pokemon`)
+   - Scrape via Firecrawl (already used by other scrapers in this file)
+   - Parse listings using regex on the structured markdown format:
+     - Extract price from `$XX.XX` pattern
+     - Extract condition from `[CONDITION]` bracket pattern
+     - Filter listings to match card name (fuzzy match)
+   - Categorize prices by condition:
+     - `NM` / `Near Mint` / `Mint` → raw price candidates
+     - `PSA 8` → psa8 candidates
+     - `PSA 9` → psa9 candidates  
+     - `PSA 10` → psa10 candidates
+     - `CGC 9` / `CGC 10` → cgc candidates
+   - Return `SourcePrices` (median of each category)
 
-Add a new function `lookupYgoBySetCode(setCode: string)` that calls the free YGOPRODeck API:
-- `https://db.ygoprodeck.com/api/v7/cardinfo.php?name={cardName}` — returns all printings with set codes
-- Or use the card number approach: parse the set prefix (e.g., "SDBE") and card number, then look up via the API to get the **official set name**
-- This returns the correct set name, card name, and rarity for the exact printing
+2. **Wire COMC into parallel fetch** (~line 396)
+   - Add `comcPromise` for MTG and Pokémon cards (not YGO, not sports)
+   - Condition: `isTCG && gameType matches "mtg|magic|pokemon"`
+   - Add to `Promise.all` alongside existing fetches
 
-Update `resolveOfficialCardIdentity()` to call this for Yu-Gi-Oh cards when a set code is detected, overriding the AI's guessed set name with the database-verified one.
+3. **Add COMC prices to aggregation** (~line 406-444)
+   - Add COMC to sources list when it returns data
+   - Include COMC raw/psa8/psa9/psa10/cgc prices in their respective median candidate arrays
+   - For MTG/Pokémon priority: COMC → PriceCharting → TCGPlayer → eBay
 
-**2. Add set code validation in enhanced-card-identify post-processing**
-
-**File: `supabase/functions/enhanced-card-identify/index.ts`**
-
-After the AI returns its identification, if `game_type` is Yu-Gi-Oh and `card_number` matches the YGO set code regex (`/^[A-Z0-9]{2,5}-[A-Z]{0,2}\d{3}$/`):
-- Call `lookupYgoBySetCode()` to verify the set name
-- If the API returns a different set name, override it and log the correction
-- This prevents incorrect set names from propagating to the pricing engine
-
-**3. Same fix in rapid-card-identify post-processing**
-
-**File: `supabase/functions/rapid-card-identify/index.ts`**
-
-Apply the same YGOPRODeck lookup after parsing the AI response, before returning `cardData`.
+4. **Add COMC fields to PricingResult** (optional, for transparency)
+   - Add `comcRaw`, `comcUrl` fields so the client can see COMC as a distinct source
 
 ### Files to edit
 
 | File | Changes |
 |------|---------|
-| `supabase/functions/_shared/officialNameResolver.ts` | Add `lookupYgoBySetCode(cardNumber)` using YGOPRODeck API; integrate into `resolveOfficialCardIdentity` for YGO cards |
-| `supabase/functions/enhanced-card-identify/index.ts` | Call YGO set code verification in post-processing (where `resolveOfficialCardIdentity` is already called) |
-| `supabase/functions/rapid-card-identify/index.ts` | Add same YGO set code verification before returning cardData |
+| `supabase/functions/fetch-card-prices/index.ts` | Add `fetchCOMCPrices()` scraper; wire into parallel fetch for MTG + Pokémon; add COMC prices to all median candidate arrays |
 
 ### What stays unchanged
-- Pricing engine (`fetch-card-prices`) — works correctly when given the right data
-- All client-side code, UI, database schema
-- MTG/Pokemon/Sports identification paths
-
-### Expected result
-Scanning "Honest SDBE-EN017" → YGOPRODeck confirms set = "Saga of Blue-Eyes White Dragon Structure Deck" → price = $0.24 instead of $93.88.
+- Yu-Gi-Oh pricing (no COMC inventory exists)
+- Sports card pricing
+- Client-side adapters, consensus engine, UI
+- All existing scrapers (eBay, PriceCharting, TCGPlayer, SportsCardPro)
 
