@@ -527,26 +527,28 @@ Deno.serve(async (req) => {
     }
 
     // PSA 8: actual found prices only
-    const psa8Candidates = [pc.psa8, scp.psa8, ebay.psa8].filter(
+    const psa8Candidates = [comc.psa8, pc.psa8, scp.psa8, ebay.psa8].filter(
       (v): v is number => v != null && v > 0
     );
     const psa8 = getMedian(psa8Candidates);
 
     // PSA 9: actual found prices only
-    const psa9Candidates = [pc.psa9, ebay.psa9, scp.psa9].filter(
+    const psa9Candidates = [comc.psa9, pc.psa9, ebay.psa9, scp.psa9].filter(
       (v): v is number => v != null && v > 0
     );
     const psa9 = getMedian(psa9Candidates);
 
     // PSA 10: actual found prices only
-    const psa10Candidates = [pc.psa10, ebay.psa10, scp.psa10].filter(
+    const psa10Candidates = [comc.psa10, pc.psa10, ebay.psa10, scp.psa10].filter(
       (v): v is number => v != null && v > 0
     );
     const psa10 = getMedian(psa10Candidates);
 
     // CGC
-    const cgc9 = pc.cgc9;
-    const cgc10 = pc.cgc10;
+    const cgc9Candidates = [comc.cgc9, pc.cgc9].filter((v): v is number => v != null && v > 0);
+    const cgc9 = getMedian(cgc9Candidates);
+    const cgc10Candidates = [comc.cgc10, pc.cgc10].filter((v): v is number => v != null && v > 0);
+    const cgc10 = getMedian(cgc10Candidates);
 
     // Highest sold
     const allHighs = [ebay.highestSold, tcg.high, tcg.lastSold].filter(
