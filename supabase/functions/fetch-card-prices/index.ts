@@ -28,6 +28,8 @@ interface PricingResult {
   tcgPlayerHigh: number | null;
   tcgPlayerMarket: number | null;
   tcgPlayerUrl: string | null;
+  comcRaw: number | null;
+  comcUrl: string | null;
   source: string;
 }
 
