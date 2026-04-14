@@ -373,6 +373,94 @@ async function fetchSportsCardProPrices(searchQuery: string): Promise<SourcePric
   }
 }
 
+// ─── COMC via Firecrawl (MTG + Pokémon only) ───────────────────────
+async function fetchCOMCPrices(
+  cardName: string,
+  cardSet: string | null,
+  gameType: string | null
+): Promise<SourcePrices> {
+  try {
+    const gt = (gameType || "").toLowerCase();
+    let category = "Pokemon";
+    if (gt.includes("mtg") || gt.includes("magic")) category = "Magic";
+
+    const searchTerms = [cardName, cardSet || ""].filter(Boolean).join(" ").trim();
+    const encoded = encodeURIComponent(searchTerms);
+    const comcUrl = `https://www.comc.com/Cards/${category},=${encoded},vList,i100`;
+    console.log("[COMC] Scraping:", comcUrl);
+
+    const md = await scrapeWithFirecrawl(comcUrl);
+    if (!md || md.length < 100) return { ...emptySource(), url: comcUrl };
+
+    const rawPrices: number[] = [];
+    const psa8Prices: number[] = [];
+    const psa9Prices: number[] = [];
+    const psa10Prices: number[] = [];
+    const cgc9Prices: number[] = [];
+    const cgc10Prices: number[] = [];
+
+    // Match card name loosely for filtering
+    const nameWords = cardName.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(w => w.length > 2);
+
+    // COMC listings: lines with prices like $XX.XX, condition in brackets [CONDITION]
+    const lines = md.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const lower = line.toLowerCase();
+
+      // Check if this line or nearby lines contain the card name
+      const context = [lines[i - 1] || "", line, lines[i + 1] || ""].join(" ").toLowerCase();
+      const nameMatch = nameWords.length > 0 && nameWords.filter(w => context.includes(w)).length >= Math.min(nameWords.length, 2);
+      if (!nameMatch) continue;
+
+      // Extract price
+      const priceMatch = line.match(/\$([0-9,]+(?:\.\d{2})?)/);
+      if (!priceMatch) continue;
+      const price = parsePrice(priceMatch[1]);
+      if (!price || price > 50000 || price < 0.01) continue;
+
+      // Extract condition from brackets
+      const condMatch = context.match(/\[(.*?)\]/g);
+      const condStr = condMatch ? condMatch.map(c => c.toLowerCase()).join(" ") : lower;
+
+      if (condStr.includes("psa 10") || condStr.includes("psa10") || condStr.includes("gem mint 10") || condStr.includes("gem-mt 10")) {
+        psa10Prices.push(price);
+      } else if (condStr.includes("psa 9") || condStr.includes("psa9") || condStr.includes("mint 9")) {
+        psa9Prices.push(price);
+      } else if (condStr.includes("psa 8") || condStr.includes("psa8") || condStr.includes("nm-mt 8")) {
+        psa8Prices.push(price);
+      } else if (condStr.includes("cgc 10") || condStr.includes("cgc10") || condStr.includes("pristine 10")) {
+        cgc10Prices.push(price);
+      } else if (condStr.includes("cgc 9") || condStr.includes("cgc9")) {
+        cgc9Prices.push(price);
+      } else if (condStr.includes("bgs") || condStr.includes("sgc")) {
+        // skip other grading companies for now
+      } else if (condStr.includes("near mint") || condStr.includes("nm") || condStr.includes("mint") || condStr.includes("lightly played") || condStr.includes("lp")) {
+        rawPrices.push(price);
+      } else if (!condStr.includes("psa") && !condStr.includes("cgc") && !condStr.includes("bgs")) {
+        // Ungraded/unknown condition → treat as raw candidate
+        rawPrices.push(price);
+      }
+    }
+
+    console.log(`[COMC] Found ${rawPrices.length} raw, ${psa8Prices.length} PSA8, ${psa9Prices.length} PSA9, ${psa10Prices.length} PSA10 prices`);
+
+    return {
+      raw: getMedian(rawPrices) ? parseFloat(getMedian(rawPrices)!.toFixed(2)) : null,
+      psa8: getMedian(psa8Prices) ? parseFloat(getMedian(psa8Prices)!.toFixed(2)) : null,
+      psa9: getMedian(psa9Prices) ? parseFloat(getMedian(psa9Prices)!.toFixed(2)) : null,
+      psa10: getMedian(psa10Prices) ? parseFloat(getMedian(psa10Prices)!.toFixed(2)) : null,
+      cgc9: getMedian(cgc9Prices) ? parseFloat(getMedian(cgc9Prices)!.toFixed(2)) : null,
+      cgc10: getMedian(cgc10Prices) ? parseFloat(getMedian(cgc10Prices)!.toFixed(2)) : null,
+      highestSold: null,
+      url: comcUrl,
+    };
+  } catch (e) {
+    console.error("[COMC] Error:", e);
+    return emptySource();
+  }
+}
+
 // ─── Main handler ───────────────────────────────────────────────────
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
