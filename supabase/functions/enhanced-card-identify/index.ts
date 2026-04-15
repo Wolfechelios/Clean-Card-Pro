@@ -294,6 +294,15 @@ For non-Yu-Gi-Oh cards, omit the foilFeatures object.`;
       console.warn("Official name verification skipped:", verifyError);
     }
 
+    // Force game_type override if user specified a hint
+    if (canonicalGameType) {
+      if (cardData?.primary && typeof cardData.primary === "object") {
+        cardData.primary.game_type = canonicalGameType;
+      } else if (cardData && typeof cardData === "object") {
+        cardData.game_type = canonicalGameType;
+      }
+    }
+
     console.log('Card identified:', cardData);
 
     return new Response(

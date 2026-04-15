@@ -1258,6 +1258,25 @@ export default function RapidScanCamera() {
       {/* ── Compact top bar ── */}
       <div className="flex items-center justify-between gap-2 px-1">
         <div className="flex items-center gap-2">
+          <Select
+            value={settings.gameTypeFilter}
+            onValueChange={(val) => updateSettings({ gameTypeFilter: val as ScannerSettings["gameTypeFilter"] })}
+          >
+            <SelectTrigger className="h-8 w-[130px] text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">Auto Detect</SelectItem>
+              <SelectItem value="mtg">MTG</SelectItem>
+              <SelectItem value="yugioh">Yu-Gi-Oh!</SelectItem>
+              <SelectItem value="pokemon">Pokémon</SelectItem>
+              <SelectItem value="sports">Sports</SelectItem>
+              <SelectItem value="gpk">GPK</SelectItem>
+              <SelectItem value="marvel">Marvel</SelectItem>
+              <SelectItem value="onepiece">One Piece</SelectItem>
+              <SelectItem value="other">Other</SelectItem>
+            </SelectContent>
+          </Select>
           <Badge 
             variant={
               settings.scanMode === "REMOVE" 
