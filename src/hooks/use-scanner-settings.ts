@@ -29,6 +29,9 @@ export interface ScannerSettings {
   // Foil detection
   foilDetectionEnabled: boolean;
   foilDetectionMode: "fast" | "accurate";
+
+  // Game type filter for identification
+  gameTypeFilter: "auto" | "mtg" | "yugioh" | "pokemon" | "sports" | "gpk" | "marvel" | "onepiece" | "other";
 }
 
 const DEFAULT_SETTINGS: ScannerSettings = {
@@ -54,6 +57,8 @@ const DEFAULT_SETTINGS: ScannerSettings = {
 
   foilDetectionEnabled: true,
   foilDetectionMode: "fast",
+
+  gameTypeFilter: "auto",
 };
 
 export function useScannerSettings() {
