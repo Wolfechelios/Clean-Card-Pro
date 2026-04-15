@@ -1,34 +1,40 @@
 
 
-## Plan: Fix "Unknown Card" Errors and Token Truncation
+## Plan: Limit Pricing Sources to COMC + TCGPlayer Only
 
-### Root Cause
-The `rapid-card-identify` edge function has `max_tokens: 200` — far too low for the response JSON. The AI correctly identifies cards but the response gets truncated mid-JSON (visible in logs: every card shows `Parse error:` with valid data cut off at the `alternatives` array). The fallback sets `card_name: 'Unknown Card'`.
+### Problem
+The `fetch-card-prices` edge function scrapes 5 sources in parallel (eBay, PriceCharting, TCGPlayer, SportsCardPro, COMC), consuming Firecrawl credits and adding latency. You only want COMC and TCGPlayer.
 
-The same issue affects the Gemini Direct fallback path (`maxOutputTokens: 200`).
+### Changes
 
-### Fix
+**File: `supabase/functions/fetch-card-prices/index.ts`**
 
-**File: `supabase/functions/rapid-card-identify/index.ts`**
+In the main handler (~lines 488-497):
+- Remove `ebayPromise` — replace with `Promise.resolve(emptySource())`
+- Remove `pcPromise` — replace with `Promise.resolve(emptySource())`
+- Remove `scpPromise` — replace with `Promise.resolve(emptySource())`
+- Keep `tcgPromise` and `comcPromise` as-is
+- Expand COMC eligibility to all card types (remove the MTG/Pokémon restriction on line 486)
 
-| Line | Current | Fix |
-|------|---------|-----|
-| 181 | `max_tokens: 200` | `max_tokens: 1024` |
-| 237 | `maxOutputTokens: 200` | `maxOutputTokens: 1024` |
+The aggregation logic (lines 506-557) stays intact — it already handles null values from inactive sources gracefully. The priority picker will naturally fall through to COMC/TCGPlayer data.
 
-This single change fixes both:
-- "Unknown Card" errors (JSON will parse correctly)
-- Missing alternatives (the array won't be truncated)
-- Card selection UI will now display properly since alternatives data will actually arrive
+**File: `src/lib/pricing/adapters.ts`**
+
+In `getDefaultAdapters()` (~line 224):
+- Remove `EbaySoldAdapter` and `PriceChartingLocalAdapter` from the default array
+- Keep only `TCGPlayerAdapter` (and a COMC adapter if one exists, otherwise the COMC data comes through `fetch-card-prices` already)
+- Remove the sports card adapter addition
 
 ### Files to edit
 
 | File | Changes |
 |------|---------|
-| `supabase/functions/rapid-card-identify/index.ts` | Increase `max_tokens` from 200 to 1024 on both Lovable AI and Gemini Direct paths |
+| `supabase/functions/fetch-card-prices/index.ts` | Disable eBay, PriceCharting, SportsCardPro scraping; expand COMC to all card types |
+| `src/lib/pricing/adapters.ts` | Remove eBay and PriceCharting adapters from defaults |
 
 ### What stays unchanged
-- Enhanced-card-identify (already has sufficient token limits)
-- All client-side components (CardIdentificationEditor, alternatives, manual search — already correctly implemented)
-- Queue processor, pricing engine, scanner UI
+- COMC and TCGPlayer scraping functions (unchanged)
+- Database schema, queue processor, consensus logic
+- `sports-card-prices` edge function (separate, untouched)
+- All price display components
 
