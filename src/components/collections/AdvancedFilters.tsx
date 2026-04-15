@@ -5,7 +5,8 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { X, Filter, Save, Trash2, ChevronDown, ChevronUp, SortAsc, SortDesc } from "lucide-react";
+import { X, Filter, Save, Trash2, ChevronDown, ChevronUp, SortAsc, SortDesc, AlertTriangle } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
@@ -36,6 +37,7 @@ export interface FilterConfig {
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
   psa10Viable?: boolean | null; // null = all, true = viable, false = not viable
+  priceAnomaly?: boolean;
 }
 
 interface AdvancedFiltersProps {
@@ -250,6 +252,20 @@ export default function AdvancedFilters({
                   </Button>
                 </div>
               </div>
+            </div>
+
+            {/* Price Anomaly Toggle */}
+            <div className="flex items-center gap-3 pt-2">
+              <Checkbox
+                id="price-anomaly"
+                checked={filters.priceAnomaly || false}
+                onCheckedChange={(checked) => handleFilterChange("priceAnomaly", checked === true ? true : undefined)}
+              />
+              <Label htmlFor="price-anomaly" className="text-sm font-medium flex items-center gap-2 cursor-pointer">
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+                Price Anomalies Only
+                <span className="text-xs text-muted-foreground">(missing, stale, or suspicious prices)</span>
+              </Label>
             </div>
 
             {/* Price Range */}

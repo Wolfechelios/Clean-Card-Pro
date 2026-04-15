@@ -57,6 +57,7 @@ interface CardItem {
   psa10_viable?: boolean | null;
   psa10_viable_confidence?: number | null;
   quantity?: number | null;
+  last_price_update?: string | null;
 }
 
 export default function Collections() {
@@ -109,6 +110,11 @@ export default function Collections() {
     const psa10viableParam = searchParams.get("psa10viable");
     if (psa10viableParam === "true") {
       setActiveFilters(prev => ({ ...prev, psa10Viable: true }));
+    }
+    
+    const anomalyParam = searchParams.get("anomaly");
+    if (anomalyParam === "true") {
+      setActiveFilters(prev => ({ ...prev, priceAnomaly: true }));
     }
     // Only run on initial mount, not on every searchParams change
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -210,6 +216,26 @@ export default function Collections() {
     // Collection name filter
     if (activeFilters.collectionName) {
       filtered = filtered.filter(card => card.collection_name === activeFilters.collectionName);
+    }
+
+    // Price anomaly filter
+    if (activeFilters.priceAnomaly) {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      
+      filtered = filtered.filter(card => {
+        // No price
+        if (!card.current_price_raw || card.current_price_raw === 0) return true;
+        // Suspiciously high with no PSA10 backing
+        if (card.current_price_raw > 500 && !card.psa10_price) return true;
+        // PSA10 cheaper than raw (impossible)
+        if (card.psa10_price && card.current_price_raw && card.psa10_price < card.current_price_raw) return true;
+        // Common rarity priced high
+        if (card.rarity && ['Common', 'common'].includes(card.rarity) && card.current_price_raw > 50) return true;
+        // Stale price
+        if (!card.last_price_update || new Date(card.last_price_update) < thirtyDaysAgo) return true;
+        return false;
+      });
     }
 
     // PSA 10 Viable filter
