@@ -112,7 +112,8 @@ async function identifyWithLocalLLM(imageUrl: string): Promise<IdentifiedCardDat
 async function identifyWithCloud(
   imageUrl: string,
   functionName: string = "rapid-card-identify",
-  ocrText?: string
+  ocrText?: string,
+  gameTypeHint?: string
 ): Promise<IdentifiedCardData> {
   const { data, error } = await supabase.functions.invoke(functionName, {
     body: { imageUrl, ocrText, gameTypeHint },
