@@ -172,7 +172,7 @@ Return JSON in this exact format:
 
 ${ocrText ? `OCR text extracted: ${ocrText}` : ''}
 
-Only include alternatives array if confidence is below 0.95. If completely certain, return empty alternatives array.
+ALWAYS include 2-3 alternative identifications in the alternatives array — even when confidence is high. Show different printings, sets, or similar-looking cards. This helps the user verify the correct match.
 For non-Yu-Gi-Oh cards, omit the foilFeatures object.`;
 
     const messages = [

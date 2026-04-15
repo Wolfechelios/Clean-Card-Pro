@@ -117,7 +117,10 @@ No OCR evidence was provided. Use only printed text visible in the image.
   "team": "team name if sports card, else null",
   "manufacturer": "card manufacturer (Topps/Panini/Konami/WOTC/Pokemon Company/Upper Deck etc) or null",
   "confidence": 0.0-1.0,
-  "foilFeatures": { "only for Yu-Gi-Oh — see foil rarity protocol below" }
+  "foilFeatures": { "only for Yu-Gi-Oh — see foil rarity protocol below" },
+  "alternatives": [
+    { "card_name": "alt name", "card_set": "alt set", "confidence": 0.0-1.0, "reason": "why this could match" }
+  ]
 }
 
 CRITICAL NAME RULES:
@@ -139,6 +142,8 @@ RARITY RULES (non-YGO):
 - MTG: Black symbol=Common, Silver=Uncommon, Gold=Rare, Orange=Mythic Rare
 - If holographic/prismatic/numbered - NOT Common
 - NEVER return null for rarity
+
+ALTERNATIVES: ALWAYS include 2-3 alternative identifications in the "alternatives" array — even when confidence is high. Show different printings, sets, or similar-looking cards.
 
 ${ocrEvidenceSection}
 
