@@ -222,16 +222,7 @@ function isSportsCard(card?: CardPriceIdentity | null): boolean {
  * For sports cards, adds SportsCardPro, CardLadder, 130point.com, and eBay Firecrawl adapters.
  */
 export function getDefaultAdapters(card?: CardPriceIdentity | null): PriceSourceAdapter[] {
-  const adapters: PriceSourceAdapter[] = [
-    new EbaySoldAdapter(),
-    new PriceChartingLocalAdapter(),
+  return [
     new TCGPlayerAdapter(),
   ];
-
-  // Add sports-card-specific sources when applicable
-  if (isSportsCard(card)) {
-    adapters.push(...getSportsCardAdapters());
-  }
-
-  return adapters;
 }

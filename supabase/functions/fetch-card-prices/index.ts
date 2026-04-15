@@ -482,17 +482,14 @@ Deno.serve(async (req) => {
       sportType.toLowerCase()
     );
 
-    // Detect if COMC-eligible (MTG or Pokémon, not YGO)
-    const isCOMCEligible = isTCG && gameType && /mtg|magic|pokemon|pokémon/i.test(gameType);
-
-    // Fetch all sources in parallel
-    const ebayPromise = fetchEbayPrices(searchQuery, condition);
-    const pcPromise = isTCG ? fetchPriceChartingPrices(cardName, cardSet, gameType, cardNumber) : Promise.resolve(emptySource());
+    // Only COMC + TCGPlayer sources active
+    const ebayPromise = Promise.resolve(emptySource());
+    const pcPromise = Promise.resolve(emptySource());
     const tcgPromise = isTCG
       ? fetchTCGPlayerPrices(cardName, cardSet, cardNumber, gameType)
       : Promise.resolve({ lastSold: null, low: null, mid: null, high: null, market: null, url: null });
-    const scpPromise = isSportsCard ? fetchSportsCardProPrices(searchQuery) : Promise.resolve(emptySource());
-    const comcPromise = isCOMCEligible ? fetchCOMCPrices(cardName, cardSet, gameType) : Promise.resolve(emptySource());
+    const scpPromise = Promise.resolve(emptySource());
+    const comcPromise = fetchCOMCPrices(cardName, cardSet, gameType);
 
     const [ebay, pc, tcg, scp, comc] = await Promise.all([ebayPromise, pcPromise, tcgPromise, scpPromise, comcPromise]);
 
