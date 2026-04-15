@@ -1,46 +1,34 @@
 
 
-## Plan: Always Show Alternatives + Add Manual Search When No Match
+## Plan: Fix "Unknown Card" Errors and Token Truncation
 
-### Problem
-1. Alternatives only display when confidence is below 95% — high-confidence but wrong identifications show no alternatives
-2. When none of the alternatives match, users have no way to search for the correct card manually
+### Root Cause
+The `rapid-card-identify` edge function has `max_tokens: 200` — far too low for the response JSON. The AI correctly identifies cards but the response gets truncated mid-JSON (visible in logs: every card shows `Parse error:` with valid data cut off at the `alternatives` array). The fallback sets `card_name: 'Unknown Card'`.
 
-### Changes
+The same issue affects the Gemini Direct fallback path (`maxOutputTokens: 200`).
 
-**1. Always show alternatives in the UI**
-
-**File: `src/components/scanner/CardIdentificationEditor.tsx`**
-- Remove the `primaryCard.confidence < 95` gate on `showAlternatives` — always show the alternatives section when alternatives exist
-- Add a "None of these? Search manually" button at the bottom of alternatives (and show it even when alternatives list is empty)
-- Add a manual search input that lets the user type a card name and calls the `enhanced-card-identify` or a search edge function to fetch new matches
-- Display search results as selectable cards in the same alternative format
-
-**2. Always request alternatives from the AI**
-
-**File: `supabase/functions/enhanced-card-identify/index.ts`**
-- Change the prompt from "Only include alternatives if confidence < 0.95" to "Always include 2-3 alternative identifications with different sets, printings, or similar cards"
+### Fix
 
 **File: `supabase/functions/rapid-card-identify/index.ts`**
-- Same prompt change: always return alternatives
 
-**3. Add a "Search for card" action using existing search function**
+| Line | Current | Fix |
+|------|---------|-----|
+| 181 | `max_tokens: 200` | `max_tokens: 1024` |
+| 237 | `maxOutputTokens: 200` | `maxOutputTokens: 1024` |
 
-**File: `src/components/scanner/CardIdentificationEditor.tsx`**
-- Add state for `isSearching`, `searchQuery`, `searchResults`
-- Add a collapsible search section with an Input + Search button
-- On search, call `supabase.functions.invoke("search-card-details", { body: { query, gameType } })` to find matching cards
-- Render results as selectable alternative cards the user can pick
+This single change fixes both:
+- "Unknown Card" errors (JSON will parse correctly)
+- Missing alternatives (the array won't be truncated)
+- Card selection UI will now display properly since alternatives data will actually arrive
 
 ### Files to edit
 
 | File | Changes |
 |------|---------|
-| `src/components/scanner/CardIdentificationEditor.tsx` | Remove confidence gate on alternatives, add manual search UI with input + results |
-| `supabase/functions/enhanced-card-identify/index.ts` | Always return 2-3 alternatives in prompt |
-| `supabase/functions/rapid-card-identify/index.ts` | Same: always return alternatives |
+| `supabase/functions/rapid-card-identify/index.ts` | Increase `max_tokens` from 200 to 1024 on both Lovable AI and Gemini Direct paths |
 
 ### What stays unchanged
-- Database schema, pricing engine, queue processor
-- The confirm/save flow — selecting a search result just updates the edited name/set like alternatives do today
+- Enhanced-card-identify (already has sufficient token limits)
+- All client-side components (CardIdentificationEditor, alternatives, manual search — already correctly implemented)
+- Queue processor, pricing engine, scanner UI
 
