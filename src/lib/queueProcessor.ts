@@ -13,7 +13,7 @@ import { canProcessFrame, markFrameStart, markFrameEnd } from "@/lib/performance
 import { MEMORY_CONFIG } from "@/lib/performance/memoryConfig";
 import { hybridIdentifyCard, clearOfflineAttempt } from "@/lib/hybridCardIdentify";
 import { queueAnomalyDetector } from "@/lib/scanAnomalyDetector";
-import { addRecentScan } from "@/lib/recentScans";
+import { addRecentScan, getRecentScans, updateRecentScan } from "@/lib/recentScans";
 import { insertCardDual } from "@/lib/localCards";
 import {
   idbGetNextQueued,
@@ -33,6 +33,7 @@ import {
 export type ProcessedCard = {
   id: string;
   cardName: string;
+  pricingDeferred?: boolean;
   cardSet?: string;
   cardNumber?: string;
   rarity?: string;
@@ -91,6 +92,33 @@ const WORKER_SCALE_INTERVAL_MS = 500;
 const QUEUE_REFRESH_INTERVAL_MS = 1000;
 const MIN_SERIAL_JOB_DELAY_MS = 800;
 const ANOMALY_PAUSE_STORAGE_KEY = "rapid-scan-anomaly-paused";
+const RAPID_SCAN_CAPTURE_ACTIVE_KEY = "rapid-scan-capture-active";
+
+function readRapidScanCaptureActiveFlag(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(RAPID_SCAN_CAPTURE_ACTIVE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function setRapidScanCaptureActive(active: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (active) {
+      window.localStorage.setItem(RAPID_SCAN_CAPTURE_ACTIVE_KEY, "1");
+    } else {
+      window.localStorage.removeItem(RAPID_SCAN_CAPTURE_ACTIVE_KEY);
+    }
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function isRapidScanCaptureActive(): boolean {
+  return readRapidScanCaptureActiveFlag();
+}
 
 function readAnomalyPauseFlag(): boolean {
   if (typeof window === "undefined") return false;
@@ -687,47 +715,60 @@ async function processJob(item: QueueItem): Promise<void> {
     return;
   }
 
-  // Fetch price + check library ownership in parallel
-  const userId = await getUserId();
+  // During active capture, defer price + ownership lookups until the user stops scanning.
+  const pricingDeferred = isRapidScanCaptureActive();
 
-  const [priceResult, ownershipResult] = await Promise.all([
-    cachedFetchPrice({ cardName, cardSet, cardNumber, gameType, sportType, condition: cardCondition })
-      .catch(() => ({ raw: null as number | null, psa10: null as number | null })),
-    (async () => {
-      if (!userId) return { ownedCount: 0, isInLibrary: false, existingId: undefined as string | undefined };
-      try {
-        const { count } = await supabase
-          .from("cards")
-          .select("id", { count: "exact", head: true })
-          .eq("user_id", userId)
-          .ilike("card_name", cardName);
-        const ownedCount = count || 0;
-        const isInLibrary = ownedCount > 0;
-        let existingId: string | undefined = undefined;
-        if (isInLibrary) {
-          const { data } = await supabase
+  let rawPrice: number | null = null;
+  let psa10Price: number | null = null;
+  let ownedCount = 0;
+  let isInLibrary = false;
+  let existingId: string | undefined = undefined;
+
+  if (!pricingDeferred) {
+    const userId = await getUserId();
+
+    const [priceResult, ownershipResult] = await Promise.all([
+      cachedFetchPrice({ cardName, cardSet, cardNumber, gameType, sportType, condition: cardCondition })
+        .catch(() => ({ raw: null as number | null, psa10: null as number | null })),
+      (async () => {
+        if (!userId) return { ownedCount: 0, isInLibrary: false, existingId: undefined as string | undefined };
+        try {
+          const { count } = await supabase
             .from("cards")
-            .select("id")
+            .select("id", { count: "exact", head: true })
             .eq("user_id", userId)
-            .ilike("card_name", cardName)
-            .limit(1);
-          existingId = data?.[0]?.id;
+            .ilike("card_name", cardName);
+          const ownedCount = count || 0;
+          const isInLibrary = ownedCount > 0;
+          let existingId: string | undefined = undefined;
+          if (isInLibrary) {
+            const { data } = await supabase
+              .from("cards")
+              .select("id")
+              .eq("user_id", userId)
+              .ilike("card_name", cardName)
+              .limit(1);
+            existingId = data?.[0]?.id;
+          }
+          return { ownedCount, isInLibrary, existingId };
+        } catch {
+          return { ownedCount: 0, isInLibrary: false, existingId: undefined as string | undefined };
         }
-        return { ownedCount, isInLibrary, existingId };
-      } catch {
-        return { ownedCount: 0, isInLibrary: false, existingId: undefined as string | undefined };
-      }
-    })(),
-  ]);
+      })(),
+    ]);
 
-  const rawPrice = priceResult.raw;
-  const psa10Price = priceResult.psa10;
-  const { ownedCount, isInLibrary, existingId } = ownershipResult;
+    rawPrice = priceResult.raw;
+    psa10Price = priceResult.psa10;
+    ownedCount = ownershipResult.ownedCount;
+    isInLibrary = ownershipResult.isInLibrary;
+    existingId = ownershipResult.existingId;
+  }
 
   // Store processed result
   const processedCard: ProcessedCard = {
     id: item.id,
     cardName,
+    pricingDeferred,
     cardSet: cardSet || undefined,
     cardNumber: cardNumber || undefined,
     rarity: rarity || undefined,
@@ -820,6 +861,102 @@ async function processJob(item: QueueItem): Promise<void> {
 
   // Success - remove from queue
   await idbDelete(item.id);
+}
+
+async function lookupOwnership(cardName: string): Promise<{ ownedCount: number; isInLibrary: boolean; existingId?: string }> {
+  const userId = await getUserId();
+  if (!userId) return { ownedCount: 0, isInLibrary: false, existingId: undefined };
+
+  try {
+    const { count } = await supabase
+      .from("cards")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .ilike("card_name", cardName);
+
+    const ownedCount = count || 0;
+    const isInLibrary = ownedCount > 0;
+    let existingId: string | undefined = undefined;
+
+    if (isInLibrary) {
+      const { data } = await supabase
+        .from("cards")
+        .select("id")
+        .eq("user_id", userId)
+        .ilike("card_name", cardName)
+        .limit(1);
+      existingId = data?.[0]?.id;
+    }
+
+    return { ownedCount, isInLibrary, existingId };
+  } catch {
+    return { ownedCount: 0, isInLibrary: false, existingId: undefined };
+  }
+}
+
+export async function processPendingRecentScanPrices(concurrency = 3): Promise<void> {
+  const pending = getRecentScans().filter((scan) => scan.card_name && scan.price == null);
+  if (pending.length === 0) return;
+
+  let index = 0;
+
+  async function worker() {
+    while (index < pending.length) {
+      const current = pending[index++];
+
+      try {
+        const [priceResult, ownershipResult] = await Promise.all([
+          cachedFetchPrice({
+            cardName: current.card_name,
+            cardSet: current.card_set,
+            cardNumber: current.card_number,
+            gameType: current.gameType ?? null,
+            sportType: current.sportType ?? null,
+            condition: null,
+          }).catch(() => ({ raw: null as number | null, psa10: null as number | null })),
+          lookupOwnership(current.card_name),
+        ]);
+
+        updateRecentScan(current.id, {
+          price: priceResult.raw,
+          psa10Price: priceResult.psa10,
+          isHighValue: (priceResult.raw ?? 0) >= 15,
+          isInLibrary: ownershipResult.isInLibrary,
+          libraryQuantity: ownershipResult.ownedCount,
+          dbId: ownershipResult.existingId ?? null,
+        } as any);
+
+        useQueueProcessor.setState({
+          lastProcessedCard: {
+            id: current.id,
+            cardName: current.card_name,
+            cardSet: current.card_set ?? undefined,
+            cardNumber: current.card_number ?? undefined,
+            playerName: current.player_name ?? undefined,
+            rarity: current.rarity ?? undefined,
+            gameType: current.gameType ?? undefined,
+            sportType: current.sportType ?? undefined,
+            value: priceResult.raw,
+            psa10Price: priceResult.psa10,
+            imageUrl: current.image_url,
+            isInLibrary: ownershipResult.isInLibrary,
+            libraryQuantity: ownershipResult.ownedCount,
+            dbId: ownershipResult.existingId,
+            year: current.year ?? undefined,
+            team: current.team ?? undefined,
+            manufacturer: current.manufacturer ?? undefined,
+            pricingDeferred: false,
+          },
+        });
+
+        window.dispatchEvent(new CustomEvent("recent-scan-added"));
+      } catch (error) {
+        console.error("[QueueProcessor] Deferred pricing failed:", error);
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, pending.length)) }, () => worker()));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

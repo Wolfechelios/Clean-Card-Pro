@@ -49,7 +49,7 @@ import {
 import { compressImageForQueue } from "@/lib/imageCompressor";
 import { applyFastAutofocus, applyAutoColorBalance, applyAntiGlare } from "@/lib/camera-optimizations";
 import { DEFAULT_TUNING, nextAutoCaptureState, rgbaToGray, meanAbsDiff, type AutoCaptureState } from "@/lib/visionAutoCapture";
-import { useQueueProcessor } from "@/lib/queueProcessor";
+import { processPendingRecentScanPrices, setRapidScanCaptureActive, useQueueProcessor } from "@/lib/queueProcessor";
 import { getRecentScans, clearAllRecentScans, removeRecentScan, updateRecentScan } from "@/lib/recentScans";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
 import { useClarityZoom } from "@/hooks/use-clarity-zoom";
@@ -342,7 +342,7 @@ export default function RapidScanCamera() {
       isInLibrary: s.isInLibrary ?? false,
       libraryQuantity: s.libraryQuantity ?? 0,
       imageUrl: s.image_url,
-      priceFetching: false,
+      priceFetching: card.pricingDeferred,
       year: s.year ?? undefined,
       team: s.team ?? undefined,
       manufacturer: s.manufacturer ?? undefined,
@@ -550,7 +550,8 @@ export default function RapidScanCamera() {
       }
 
       setCameraOn(true);
-      setStatusLine("Camera live — tap Capture for each card");
+      setRapidScanCaptureActive(true);
+      setStatusLine("Camera live — tap Capture. Prices wait for Stop");
       
       useGlobalProcessControl.getState().setScannerActive(true);
 
@@ -584,7 +585,15 @@ export default function RapidScanCamera() {
     streamRef.current = null;
     trackRef.current = null;
     setCameraOn(false);
-    setStatusLine("Camera stopped");
+    setRapidScanCaptureActive(false);
+    setStatusLine("Camera stopped — fetching prices for scanned cards");
+    void processPendingRecentScanPrices(3)
+      .then(() => {
+        setStatusLine("Pricing complete — ready for next batch");
+      })
+      .catch(() => {
+        setStatusLine("Camera stopped — some prices could not be fetched");
+      });
     
     useGlobalProcessControl.getState().setScannerActive(false);
 
@@ -760,8 +769,8 @@ export default function RapidScanCamera() {
         filename: "card.jpg",
       });
 
-      setStatusLine("Captured — processing in background");
-      setOverlay({ label: "Captured…" });
+      setStatusLine("Captured — pricing waits until Stop");
+      setOverlay({ label: "Captured…", value: null });
 
       // Progressive zoom-out after each snap to keep card in frame
       try {
@@ -861,8 +870,8 @@ export default function RapidScanCamera() {
         filename: "card.jpg",
       });
 
-      setStatusLine("Captured — processing in background");
-      setOverlay({ label: "Captured…" });
+      setStatusLine("Captured — pricing waits until Stop");
+      setOverlay({ label: "Captured…", value: null });
 
       // Progressive zoom-out after each snap to keep card in frame
       try {
@@ -1014,7 +1023,7 @@ export default function RapidScanCamera() {
           isInLibrary: scan.isInLibrary,
           libraryQuantity: scan.libraryQuantity,
           dbId: scan.dbId || undefined,
-          priceFetching: false,
+          priceFetching: scan.price == null,
           year: scan.year || undefined,
           team: scan.team || undefined,
           manufacturer: scan.manufacturer || undefined,
@@ -1489,7 +1498,7 @@ export default function RapidScanCamera() {
               )}
             </div>
             <div className="text-right text-[10px] text-white/50 shrink-0">
-              {cameraOn && "Pinch to zoom • Tap to focus"}
+              {cameraOn && "Pinch to zoom • Tap to focus • Prices after Stop"}
             </div>
           </div>
         </div>
@@ -1593,7 +1602,7 @@ export default function RapidScanCamera() {
       {/* ── Status strip ── */}
       <div className="flex items-center justify-between px-2 text-xs text-muted-foreground">
         <span>
-          Queued: {queuedItemsCount} • Processing: {processingItemsCount}
+          Queued: {queuedItemsCount} • Processing: {processingItemsCount} • Deferred pricing: {cards.filter((c) => c.status === "completed" && (c.value == null || c.priceFetching)).length}
         </span>
         <div className="flex items-center gap-2">
           {!isNative && cameraOn && zoomLevel > 1 && (
