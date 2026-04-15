@@ -304,6 +304,11 @@ JSON only.`;
       console.warn("YGO set verification skipped:", ygoErr);
     }
 
+    // Force game_type override if user specified a hint
+    if (canonicalGameType && cardData.card_name !== 'Unknown Card') {
+      cardData.game_type = canonicalGameType;
+    }
+
     console.log('Identified:', cardData.card_name);
 
     return new Response(

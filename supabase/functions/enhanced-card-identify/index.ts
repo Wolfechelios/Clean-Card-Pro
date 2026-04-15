@@ -65,7 +65,18 @@ serve(async (req) => {
     // Prepare the prompt for card identification with multiple options
     const ygoRaritySection = buildYgoRarityPromptSection();
 
-    const prompt = `You are an expert trading card identifier specializing in sports cards, Pokémon, Magic: The Gathering, Yu-Gi-Oh!, and other collectible card games.
+    // Game type hint mapping
+    const GAME_TYPE_MAP: Record<string, string> = {
+      mtg: "MTG", yugioh: "Yu-Gi-Oh!", pokemon: "Pokemon",
+      sports: "Sports", gpk: "GPK", marvel: "Marvel", onepiece: "One Piece",
+    };
+    const canonicalGameType = gameTypeHint && gameTypeHint !== "auto" ? GAME_TYPE_MAP[gameTypeHint] || null : null;
+
+    const gameTypeHintSection = canonicalGameType
+      ? `\nIMPORTANT: The user has confirmed this is a ${canonicalGameType} card. Set game_type to "${canonicalGameType}" — do not guess a different game type.\n`
+      : "";
+
+    const prompt = `${gameTypeHintSection}You are an expert trading card identifier specializing in sports cards, Pokémon, Magic: The Gathering, Yu-Gi-Oh!, and other collectible card games.
 
 Analyze this trading card image and provide the most likely card identification along with up to 2 alternative possibilities if you're not completely certain.
 
