@@ -509,11 +509,11 @@ Deno.serve(async (req) => {
       const secondary = pc.raw;
       const tertiary = [ebay.raw, tcg.market, tcg.lastSold].filter((v): v is number => v != null && v > 0);
       rawPrice = pickPrimaryWithSanity(primary, secondary, tertiary);
-    } else if (isCOMCEligible) {
-      // MTG/Pokémon: COMC → PriceCharting → TCGPlayer → eBay
-      const primary = comc.raw ?? pc.raw;
-      const secondary = pc.raw ?? tcg.market ?? tcg.lastSold;
-      const tertiary = [comc.raw, pc.raw, tcg.market, tcg.lastSold, ebay.raw].filter((v): v is number => v != null && v > 0);
+    } else if (isTCG) {
+      // TCG cards: COMC → TCGPlayer fallback
+      const primary = comc.raw ?? tcg.market ?? tcg.lastSold;
+      const secondary = tcg.market ?? tcg.lastSold ?? comc.raw;
+      const tertiary = [comc.raw, tcg.market, tcg.lastSold].filter((v): v is number => v != null && v > 0);
       rawPrice = pickPrimaryWithSanity(primary, secondary, tertiary);
     } else {
       // Other TCG (YGO): PriceCharting → TCGPlayer → eBay fallback
