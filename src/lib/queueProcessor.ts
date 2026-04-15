@@ -554,10 +554,15 @@ async function processJob(item: QueueItem): Promise<void> {
     return { data: null, error: e };
   });
 
+  // Read game type filter from scanner settings
+  const scanSettings = getScannerSettings();
+  const gameTypeHint = scanSettings.gameTypeFilter !== "auto" ? scanSettings.gameTypeFilter : undefined;
+
   // Start identification immediately with base64 (no need to wait for upload)
   const identifyPromise = hybridIdentifyCard(base64, {
     cloudFunction: "rapid-card-identify",
     skipOfflineGuard: false,
+    gameTypeHint,
   }).catch((e: any) => ({ success: false, cardData: null, source: "cloud" as const, error: e }));
 
   // Wait for all three in parallel
@@ -602,6 +607,7 @@ async function processJob(item: QueueItem): Promise<void> {
         cloudFunction: "rapid-card-identify",
         skipOfflineGuard: false,
         ocrText,
+        gameTypeHint,
       });
       identify = retryResult.cardData;
       console.log(`[QueueProcessor] Card identified via ${retryResult.source} (OCR retry):`, identify?.card_name);

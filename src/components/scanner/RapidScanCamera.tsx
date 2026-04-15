@@ -60,7 +60,8 @@ import { useNativeCamera } from "@/hooks/use-native-camera";
 import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 import { getMultiFrameAnalyzer, resetMultiFrameAnalyzer, type MultiFrameResult } from "@/lib/foilTrainer/multiFrameAnalyzer";
 import { FoilDetectionOverlay } from "./FoilDetectionOverlay";
-import { getScannerSettings, useScannerSettings } from "@/hooks/use-scanner-settings";
+import { getScannerSettings, useScannerSettings, type ScannerSettings } from "@/hooks/use-scanner-settings";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { hapticTap } from "@/lib/haptics";
 import { useVoiceCommand } from "@/hooks/use-voice-command";
 import { useCameraDevices } from "@/hooks/use-camera-devices";
@@ -1258,6 +1259,25 @@ export default function RapidScanCamera() {
       {/* ── Compact top bar ── */}
       <div className="flex items-center justify-between gap-2 px-1">
         <div className="flex items-center gap-2">
+          <Select
+            value={settings.gameTypeFilter}
+            onValueChange={(val) => updateSettings({ gameTypeFilter: val as ScannerSettings["gameTypeFilter"] })}
+          >
+            <SelectTrigger className="h-8 w-[130px] text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">Auto Detect</SelectItem>
+              <SelectItem value="mtg">MTG</SelectItem>
+              <SelectItem value="yugioh">Yu-Gi-Oh!</SelectItem>
+              <SelectItem value="pokemon">Pokémon</SelectItem>
+              <SelectItem value="sports">Sports</SelectItem>
+              <SelectItem value="gpk">GPK</SelectItem>
+              <SelectItem value="marvel">Marvel</SelectItem>
+              <SelectItem value="onepiece">One Piece</SelectItem>
+              <SelectItem value="other">Other</SelectItem>
+            </SelectContent>
+          </Select>
           <Badge 
             variant={
               settings.scanMode === "REMOVE" 

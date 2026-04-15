@@ -112,10 +112,11 @@ async function identifyWithLocalLLM(imageUrl: string): Promise<IdentifiedCardDat
 async function identifyWithCloud(
   imageUrl: string,
   functionName: string = "rapid-card-identify",
-  ocrText?: string
+  ocrText?: string,
+  gameTypeHint?: string
 ): Promise<IdentifiedCardData> {
   const { data, error } = await supabase.functions.invoke(functionName, {
-    body: { imageUrl, ocrText },
+    body: { imageUrl, ocrText, gameTypeHint },
   });
 
   if (error) throw new Error(error.message);
@@ -174,6 +175,7 @@ export async function hybridIdentifyCard(
     skipOfflineGuard?: boolean;
     usePaddleOCR?: boolean;
     ocrText?: string; // Pre-extracted OCR text from Z.AI or other source
+    gameTypeHint?: string; // User-selected game type filter
   } = {}
 ): Promise<HybridIdentifyResult> {
   const {
@@ -183,6 +185,7 @@ export async function hybridIdentifyCard(
     skipOfflineGuard = false,
     usePaddleOCR = false,
     ocrText: preOcrText,
+    gameTypeHint,
   } = options;
 
   // Optional PaddleOCR preprocessing
@@ -203,7 +206,7 @@ export async function hybridIdentifyCard(
   // Force cloud mode
   if (forceCloud && online) {
     const cardData = await withRetry(
-      () => identifyWithCloud(imageUrl, cloudFunction, ocrText || undefined),
+      () => identifyWithCloud(imageUrl, cloudFunction, ocrText || undefined, gameTypeHint),
       { retries: 1, baseMs: 800, maxMs: 3000 }
     );
     return { success: true, cardData, source: "cloud" };
@@ -229,7 +232,7 @@ export async function hybridIdentifyCard(
   if (online) {
     try {
       const cardData = await withRetry(
-        () => identifyWithCloud(imageUrl, cloudFunction, ocrText || undefined),
+        () => identifyWithCloud(imageUrl, cloudFunction, ocrText || undefined, gameTypeHint),
         { retries: 1, baseMs: 800, maxMs: 3000 }
       );
       return { success: true, cardData, source: "cloud" };
