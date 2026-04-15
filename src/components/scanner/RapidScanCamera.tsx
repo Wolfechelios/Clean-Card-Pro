@@ -41,6 +41,7 @@ import {
 import {
   idbAdd,
   idbCount,
+  idbCountQueued,
   idbDelete,
   idbListMetaFast,
   idbClear,
@@ -49,7 +50,7 @@ import {
 import { compressImageForQueue } from "@/lib/imageCompressor";
 import { applyFastAutofocus, applyAutoColorBalance, applyAntiGlare } from "@/lib/camera-optimizations";
 import { DEFAULT_TUNING, nextAutoCaptureState, rgbaToGray, meanAbsDiff, type AutoCaptureState } from "@/lib/visionAutoCapture";
-import { processPendingRecentScanPrices, setRapidScanCaptureActive, useQueueProcessor } from "@/lib/queueProcessor";
+import { useQueueProcessor } from "@/lib/queueProcessor";
 import { getRecentScans, clearAllRecentScans, removeRecentScan, updateRecentScan } from "@/lib/recentScans";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
 import { useClarityZoom } from "@/hooks/use-clarity-zoom";
@@ -342,7 +343,7 @@ export default function RapidScanCamera() {
       isInLibrary: s.isInLibrary ?? false,
       libraryQuantity: s.libraryQuantity ?? 0,
       imageUrl: s.image_url,
-      priceFetching: card.pricingDeferred,
+      priceFetching: false,
       year: s.year ?? undefined,
       team: s.team ?? undefined,
       manufacturer: s.manufacturer ?? undefined,
@@ -550,8 +551,7 @@ export default function RapidScanCamera() {
       }
 
       setCameraOn(true);
-      setRapidScanCaptureActive(true);
-      setStatusLine("Camera live — tap Capture. Prices wait for Stop");
+      setStatusLine("Camera live — tap Capture for each card");
       
       useGlobalProcessControl.getState().setScannerActive(true);
 
@@ -585,21 +585,21 @@ export default function RapidScanCamera() {
     streamRef.current = null;
     trackRef.current = null;
     setCameraOn(false);
-    setRapidScanCaptureActive(false);
-    setStatusLine("Camera stopped — fetching prices for scanned cards");
-    void processPendingRecentScanPrices(3)
-      .then(() => {
-        setStatusLine("Pricing complete — ready for next batch");
-      })
-      .catch(() => {
-        setStatusLine("Camera stopped — some prices could not be fetched");
-      });
-    
+
     useGlobalProcessControl.getState().setScannerActive(false);
 
     // Clear video element to release decoder resources (important on mobile)
     if (videoRef.current) {
       try { (videoRef.current as any).srcObject = null; } catch {}
+    }
+
+    const queuedCount = await idbCountQueued();
+    if (queuedCount > 0) {
+      setStatusLine(`Camera stopped — pricing ${queuedCount} captured card${queuedCount === 1 ? "" : "s"}`);
+      setOverlay({ label: `Pricing ${queuedCount} captured card${queuedCount === 1 ? "" : "s"}…` });
+      ensureWorkersRunning();
+    } else {
+      setStatusLine("Camera stopped");
     }
   }
 
@@ -769,8 +769,8 @@ export default function RapidScanCamera() {
         filename: "card.jpg",
       });
 
-      setStatusLine("Captured — pricing waits until Stop");
-      setOverlay({ label: "Captured…", value: null });
+      setStatusLine("Captured — pricing will run after you stop");
+      setOverlay({ label: "Captured…" });
 
       // Progressive zoom-out after each snap to keep card in frame
       try {
@@ -784,7 +784,6 @@ export default function RapidScanCamera() {
       }
 
       requestRefreshMeta();
-      ensureWorkersRunning();
     } catch (e: any) {
       console.error(e);
       toast.error(e?.message ?? "Native capture failed");
@@ -870,8 +869,8 @@ export default function RapidScanCamera() {
         filename: "card.jpg",
       });
 
-      setStatusLine("Captured — pricing waits until Stop");
-      setOverlay({ label: "Captured…", value: null });
+      setStatusLine("Captured — pricing will run after you stop");
+      setOverlay({ label: "Captured…" });
 
       // Progressive zoom-out after each snap to keep card in frame
       try {
@@ -885,7 +884,6 @@ export default function RapidScanCamera() {
       }
 
       requestRefreshMeta();
-      ensureWorkersRunning();
     } catch (e: any) {
       console.error(e);
       toast.error(e?.message ?? "Capture failed");
@@ -1023,7 +1021,7 @@ export default function RapidScanCamera() {
           isInLibrary: scan.isInLibrary,
           libraryQuantity: scan.libraryQuantity,
           dbId: scan.dbId || undefined,
-          priceFetching: scan.price == null,
+          priceFetching: false,
           year: scan.year || undefined,
           team: scan.team || undefined,
           manufacturer: scan.manufacturer || undefined,
@@ -1498,7 +1496,7 @@ export default function RapidScanCamera() {
               )}
             </div>
             <div className="text-right text-[10px] text-white/50 shrink-0">
-              {cameraOn && "Pinch to zoom • Tap to focus • Prices after Stop"}
+              {cameraOn ? "Pinch to zoom • Tap to focus • Stop to price" : ""}
             </div>
           </div>
         </div>
@@ -1602,7 +1600,7 @@ export default function RapidScanCamera() {
       {/* ── Status strip ── */}
       <div className="flex items-center justify-between px-2 text-xs text-muted-foreground">
         <span>
-          Queued: {queuedItemsCount} • Processing: {processingItemsCount} • Deferred pricing: {cards.filter((c) => c.status === "completed" && (c.value == null || c.priceFetching)).length}
+          Captured waiting: {queuedItemsCount} • Pricing now: {processingItemsCount}
         </span>
         <div className="flex items-center gap-2">
           {!isNative && cameraOn && zoomLevel > 1 && (

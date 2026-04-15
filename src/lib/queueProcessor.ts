@@ -13,7 +13,7 @@ import { canProcessFrame, markFrameStart, markFrameEnd } from "@/lib/performance
 import { MEMORY_CONFIG } from "@/lib/performance/memoryConfig";
 import { hybridIdentifyCard, clearOfflineAttempt } from "@/lib/hybridCardIdentify";
 import { queueAnomalyDetector } from "@/lib/scanAnomalyDetector";
-import { addRecentScan, getRecentScans, updateRecentScan } from "@/lib/recentScans";
+import { addRecentScan } from "@/lib/recentScans";
 import { insertCardDual } from "@/lib/localCards";
 import {
   idbGetNextQueued,
@@ -33,7 +33,6 @@ import {
 export type ProcessedCard = {
   id: string;
   cardName: string;
-  pricingDeferred?: boolean;
   cardSet?: string;
   cardNumber?: string;
   rarity?: string;
@@ -92,33 +91,9 @@ const WORKER_SCALE_INTERVAL_MS = 500;
 const QUEUE_REFRESH_INTERVAL_MS = 1000;
 const MIN_SERIAL_JOB_DELAY_MS = 800;
 const ANOMALY_PAUSE_STORAGE_KEY = "rapid-scan-anomaly-paused";
-const RAPID_SCAN_CAPTURE_ACTIVE_KEY = "rapid-scan-capture-active";
-
-function readRapidScanCaptureActiveFlag(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return window.localStorage.getItem(RAPID_SCAN_CAPTURE_ACTIVE_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-export function setRapidScanCaptureActive(active: boolean): void {
-  if (typeof window === "undefined") return;
-  try {
-    if (active) {
-      window.localStorage.setItem(RAPID_SCAN_CAPTURE_ACTIVE_KEY, "1");
-    } else {
-      window.localStorage.removeItem(RAPID_SCAN_CAPTURE_ACTIVE_KEY);
-    }
-  } catch {
-    // ignore storage failures
-  }
-}
-
-function isRapidScanCaptureActive(): boolean {
-  return readRapidScanCaptureActiveFlag();
-}
+const IDENTIFY_TIMEOUT_MS = 3500;
+const OCR_TIMEOUT_MS = 2500;
+const UPLOAD_TIMEOUT_MS = 8000;
 
 function readAnomalyPauseFlag(): boolean {
   if (typeof window === "undefined") return false;
@@ -549,113 +524,97 @@ async function processJob(item: QueueItem): Promise<void> {
 
   await idbUpdateMeta(item.id, { status: "processing" });
 
-  const filePath = `cards/${item.id}.jpg`;
-  const file = new File([item.blob], item.filename, { type: item.mime });
-
-  // Create a base64 data URL for immediate AI identification
+  // Create a base64 data URL for AI identification only.
+  // Keep the first pass as light as possible: identify first, OCR only on weak/failing results,
+  // and defer upload until the card is actually readable.
   const base64 = await blobToBase64DataUrl(item.blob, item.mime);
 
-  // ─── PARALLEL: Upload + OCR + Identify all at once ───
-  const uploadPromise = withTimeout(
-    withRetry(async () => {
-      const res = await supabase.storage
-        .from("card-images")
-        .upload(filePath, file, { upsert: false });
-      if (res.error) throw new Error(res.error.message);
-      return res.data;
-    }),
-    10000,
-    "Storage upload"
-  ).catch((e: any) => {
-    console.warn("[QueueProcessor] Upload failed, will retry later:", e);
-    return null;
-  });
-
-  const ocrPromise = withTimeout(
-    supabase.functions.invoke("zai-ocr", {
-      body: { imageUrl: base64, mode: "meta" },
-    }),
-    4000,
-    "Z.AI OCR"
-  ).catch((e: any) => {
-    console.warn("[QueueProcessor] Z.AI OCR skipped:", e);
-    return { data: null, error: e };
-  });
-
-  // Read game type filter from scanner settings
   const scanSettings = getScannerSettings();
   const gameTypeHint = scanSettings.gameTypeFilter !== "auto" ? scanSettings.gameTypeFilter : undefined;
 
-  // Start identification immediately with base64 (no need to wait for upload)
-  const identifyPromise = hybridIdentifyCard(base64, {
-    cloudFunction: "rapid-card-identify",
-    skipOfflineGuard: false,
-    gameTypeHint,
-  }).catch((e: any) => ({ success: false, cardData: null, source: "cloud" as const, error: e }));
+  const identifyInitial = await withTimeout(
+    hybridIdentifyCard(base64, {
+      cloudFunction: "rapid-card-identify",
+      skipOfflineGuard: false,
+      gameTypeHint,
+    }),
+    IDENTIFY_TIMEOUT_MS,
+    "Rapid identify"
+  ).catch((e: any) => ({ success: false, cardData: null, source: "cloud" as const, error: e }));
 
-  // Wait for all three in parallel
-  const [_uploadResult, ocrResult, identifyResult] = await Promise.all([
-    uploadPromise,
-    ocrPromise,
-    identifyPromise,
-  ]);
+  let identify: any = null;
+  let shouldUseOcrFallback = false;
 
-  // Get public URL for storage
-  const { data: publicUrlData } = supabase.storage
-    .from("card-images")
-    .getPublicUrl(filePath);
-  const imageUrl = publicUrlData.publicUrl;
+  if (!(identifyInitial as any)?.error && (identifyInitial as any)?.success) {
+    identify = (identifyInitial as any).cardData;
+    const initialConfidence = Number(identify?.confidence ?? 0);
+    const initialName = String(identify?.card_name ?? "").trim().toLowerCase();
+    shouldUseOcrFallback = !initialName || initialName === "unknown card" || initialConfidence < 0.5;
+    console.log(`[QueueProcessor] Card identified via ${(identifyInitial as any).source}:`, identify?.card_name, `conf=${initialConfidence}`);
+  } else {
+    const err = (identifyInitial as any)?.error;
+    if (err?.message?.includes("max attempts reached")) {
+      throw new Error("Offline: requires internet connection to identify this card");
+    }
+    shouldUseOcrFallback = true;
+  }
 
-  // Extract OCR data
   let ocrText: string | null = null;
   let ocrSetCode: string | null = null;
   let ocrCardNumber: string | null = null;
   let ocrConfidence = 0;
 
-  if (ocrResult && (ocrResult as any).data && !(ocrResult as any).error) {
-    const ocr = (ocrResult as any).data;
-    ocrText = ocr.text || null;
-    ocrSetCode = ocr.setCode || null;
-    ocrCardNumber = ocr.cardNumber || null;
-    ocrConfidence = ocr.confidence || 0;
-    console.log(`[QueueProcessor] Z.AI OCR: "${ocrText?.substring(0, 60)}" conf=${ocrConfidence} set=${ocrSetCode} num=${ocrCardNumber}`);
-  }
+  if (shouldUseOcrFallback) {
+    const ocrResult = await withTimeout(
+      supabase.functions.invoke("zai-ocr", {
+        body: { imageUrl: base64, mode: "meta" },
+      }),
+      OCR_TIMEOUT_MS,
+      "Z.AI OCR"
+    ).catch((e: any) => {
+      console.warn("[QueueProcessor] Z.AI OCR skipped:", e);
+      return { data: null, error: e } as any;
+    });
 
-  // Process identification result
-  let identify: any;
-
-  if ((identifyResult as any).error || !(identifyResult as any).success) {
-    const err = (identifyResult as any).error;
-    if (err?.message?.includes("max attempts reached")) {
-      throw new Error("Offline: requires internet connection to identify this card");
+    if (ocrResult && (ocrResult as any).data && !(ocrResult as any).error) {
+      const ocr = (ocrResult as any).data;
+      ocrText = ocr.text || null;
+      ocrSetCode = ocr.setCode || null;
+      ocrCardNumber = ocr.cardNumber || null;
+      ocrConfidence = ocr.confidence || 0;
+      console.log(`[QueueProcessor] Z.AI OCR: "${ocrText?.substring(0, 60)}" conf=${ocrConfidence} set=${ocrSetCode} num=${ocrCardNumber}`);
     }
-    // If first attempt failed and we now have OCR, retry with OCR text
+
     if (ocrText) {
-      const retryResult = await hybridIdentifyCard(base64, {
-        cloudFunction: "rapid-card-identify",
-        skipOfflineGuard: false,
-        ocrText,
-        gameTypeHint,
-      });
+      const retryResult = await withTimeout(
+        hybridIdentifyCard(base64, {
+          cloudFunction: "rapid-card-identify",
+          skipOfflineGuard: false,
+          ocrText,
+          gameTypeHint,
+        }),
+        IDENTIFY_TIMEOUT_MS + 1500,
+        "Rapid identify OCR retry"
+      );
       identify = retryResult.cardData;
       console.log(`[QueueProcessor] Card identified via ${retryResult.source} (OCR retry):`, identify?.card_name);
-    } else {
+    } else if (!identify) {
+      const err = (identifyInitial as any)?.error;
       throw err || new Error("Card identification failed");
     }
-  } else {
-    identify = (identifyResult as any).cardData;
-    console.log(`[QueueProcessor] Card identified via ${(identifyResult as any).source}:`, identify?.card_name);
   }
 
-  // Enrich with OCR structured data
+  if (!identify) {
+    throw new Error("Card identification failed");
+  }
+
+  // Enrich with OCR structured data only when we actually used OCR
   if (ocrConfidence >= 0.5) {
     if (ocrCardNumber && (!identify?.card_number || identify.confidence < 0.7)) {
       identify.card_number = ocrCardNumber;
     }
-    if (ocrSetCode && (!identify?.card_set || identify.confidence < 0.7)) {
-      if (!identify?.card_set) {
-        identify.card_set = ocrSetCode;
-      }
+    if (ocrSetCode && (!identify?.card_set || identify.confidence < 0.7) && !identify?.card_set) {
+      identify.card_set = ocrSetCode;
     }
   }
 
@@ -668,7 +627,6 @@ async function processJob(item: QueueItem): Promise<void> {
     const { toast } = await import("sonner");
     toast.error(`Rapid scan stopped — "${cardName}" repeated 10 times. Clear the bad batch before continuing.`);
     console.error(`[QueueProcessor] Auto-stopped: ${anomaly.message}`);
-    // Hard stop — mark remaining queued items as error
     const remaining = await idbListMetaFast(1000);
     await Promise.all(
       remaining
@@ -694,6 +652,7 @@ async function processJob(item: QueueItem): Promise<void> {
     const { toast } = await import("sonner");
     toast.warning(anomaly.message);
   }
+
   const cardSet: string | null = identify?.card_set ?? null;
   const cardNumber: string | null = identify?.card_number ?? null;
   const rarity: string | null = identify?.rarity ?? null;
@@ -706,7 +665,6 @@ async function processJob(item: QueueItem): Promise<void> {
   const team: string | null = identify?.team ?? null;
   const manufacturer: string | null = identify?.manufacturer ?? null;
 
-  // Filter out unreadable/blurry cards
   const MIN_CONFIDENCE = 0.3;
   if (cardName === "Unknown Card" || confidence < MIN_CONFIDENCE) {
     console.log(`[QueueProcessor] Discarding unreadable card (confidence: ${(confidence * 100).toFixed(0)}%, name: ${cardName})`);
@@ -715,23 +673,36 @@ async function processJob(item: QueueItem): Promise<void> {
     return;
   }
 
-  // During active capture, defer price + ownership lookups until the user stops scanning.
-  const pricingDeferred = isRapidScanCaptureActive();
+  const filePath = `cards/${item.id}.jpg`;
+  const file = new File([item.blob], item.filename, { type: item.mime });
 
-  let rawPrice: number | null = null;
-  let psa10Price: number | null = null;
-  let ownedCount = 0;
-  let isInLibrary = false;
-  let existingId: string | undefined = undefined;
+  // After a successful identification, do the slower network work in parallel.
+  const uploadPromise = withTimeout(
+    withRetry(async () => {
+      const res = await supabase.storage
+        .from("card-images")
+        .upload(filePath, file, { upsert: false });
+      if (res.error) throw new Error(res.error.message);
+      return res.data;
+    }),
+    UPLOAD_TIMEOUT_MS,
+    "Storage upload"
+  ).catch((e: any) => {
+    console.warn("[QueueProcessor] Upload failed, will fall back to local preview:", e);
+    return null;
+  });
 
-  if (!pricingDeferred) {
-    const userId = await getUserId();
+  const userIdPromise = getUserId();
 
-    const [priceResult, ownershipResult] = await Promise.all([
-      cachedFetchPrice({ cardName, cardSet, cardNumber, gameType, sportType, condition: cardCondition })
-        .catch(() => ({ raw: null as number | null, psa10: null as number | null })),
-      (async () => {
-        if (!userId) return { ownedCount: 0, isInLibrary: false, existingId: undefined as string | undefined };
+  const [priceResult, userId, _uploadResult] = await Promise.all([
+    cachedFetchPrice({ cardName, cardSet, cardNumber, gameType, sportType, condition: cardCondition })
+      .catch(() => ({ raw: null as number | null, psa10: null as number | null })),
+    userIdPromise,
+    uploadPromise,
+  ]);
+
+  const ownershipResult = userId
+    ? await (async () => {
         try {
           const { count } = await supabase
             .from("cards")
@@ -754,21 +725,19 @@ async function processJob(item: QueueItem): Promise<void> {
         } catch {
           return { ownedCount: 0, isInLibrary: false, existingId: undefined as string | undefined };
         }
-      })(),
-    ]);
+      })()
+    : { ownedCount: 0, isInLibrary: false, existingId: undefined as string | undefined };
 
-    rawPrice = priceResult.raw;
-    psa10Price = priceResult.psa10;
-    ownedCount = ownershipResult.ownedCount;
-    isInLibrary = ownershipResult.isInLibrary;
-    existingId = ownershipResult.existingId;
-  }
+  const { data: publicUrlData } = supabase.storage.from("card-images").getPublicUrl(filePath);
+  const imageUrl = publicUrlData.publicUrl;
 
-  // Store processed result
+  const rawPrice = priceResult.raw;
+  const psa10Price = priceResult.psa10;
+  const { ownedCount, isInLibrary, existingId } = ownershipResult;
+
   const processedCard: ProcessedCard = {
     id: item.id,
     cardName,
-    pricingDeferred,
     cardSet: cardSet || undefined,
     cardNumber: cardNumber || undefined,
     rarity: rarity || undefined,
@@ -789,7 +758,6 @@ async function processJob(item: QueueItem): Promise<void> {
   store._setLastProcessedCard(processedCard);
   store._setCurrentItem(null);
 
-  // Auto-save to database when scanMode is SAVE and confidence is sufficient
   const settings = getScannerSettings();
   const confPct = confidence * 100;
   const threshold = settings.autoConfirmThreshold ?? 75;
@@ -832,11 +800,9 @@ async function processJob(item: QueueItem): Promise<void> {
       console.log(`[QueueProcessor] Auto-saved to library: ${cardName} (${confPct.toFixed(0)}% confidence)`);
     } catch (e: any) {
       console.error(`[QueueProcessor] Auto-save failed for ${cardName}:`, e);
-      // Don't fail the whole job — card is still in recent scans
     }
   }
 
-  // Track in recent scans
   addRecentScan({
     id: item.id,
     card_name: cardName,
@@ -859,104 +825,7 @@ async function processJob(item: QueueItem): Promise<void> {
   });
   window.dispatchEvent(new CustomEvent("recent-scan-added"));
 
-  // Success - remove from queue
   await idbDelete(item.id);
-}
-
-async function lookupOwnership(cardName: string): Promise<{ ownedCount: number; isInLibrary: boolean; existingId?: string }> {
-  const userId = await getUserId();
-  if (!userId) return { ownedCount: 0, isInLibrary: false, existingId: undefined };
-
-  try {
-    const { count } = await supabase
-      .from("cards")
-      .select("id", { count: "exact", head: true })
-      .eq("user_id", userId)
-      .ilike("card_name", cardName);
-
-    const ownedCount = count || 0;
-    const isInLibrary = ownedCount > 0;
-    let existingId: string | undefined = undefined;
-
-    if (isInLibrary) {
-      const { data } = await supabase
-        .from("cards")
-        .select("id")
-        .eq("user_id", userId)
-        .ilike("card_name", cardName)
-        .limit(1);
-      existingId = data?.[0]?.id;
-    }
-
-    return { ownedCount, isInLibrary, existingId };
-  } catch {
-    return { ownedCount: 0, isInLibrary: false, existingId: undefined };
-  }
-}
-
-export async function processPendingRecentScanPrices(concurrency = 3): Promise<void> {
-  const pending = getRecentScans().filter((scan) => scan.card_name && scan.price == null);
-  if (pending.length === 0) return;
-
-  let index = 0;
-
-  async function worker() {
-    while (index < pending.length) {
-      const current = pending[index++];
-
-      try {
-        const [priceResult, ownershipResult] = await Promise.all([
-          cachedFetchPrice({
-            cardName: current.card_name,
-            cardSet: current.card_set,
-            cardNumber: current.card_number,
-            gameType: current.gameType ?? null,
-            sportType: current.sportType ?? null,
-            condition: null,
-          }).catch(() => ({ raw: null as number | null, psa10: null as number | null })),
-          lookupOwnership(current.card_name),
-        ]);
-
-        updateRecentScan(current.id, {
-          price: priceResult.raw,
-          psa10Price: priceResult.psa10,
-          isHighValue: (priceResult.raw ?? 0) >= 15,
-          isInLibrary: ownershipResult.isInLibrary,
-          libraryQuantity: ownershipResult.ownedCount,
-          dbId: ownershipResult.existingId ?? null,
-        } as any);
-
-        useQueueProcessor.setState({
-          lastProcessedCard: {
-            id: current.id,
-            cardName: current.card_name,
-            cardSet: current.card_set ?? undefined,
-            cardNumber: current.card_number ?? undefined,
-            playerName: current.player_name ?? undefined,
-            rarity: current.rarity ?? undefined,
-            gameType: current.gameType ?? undefined,
-            sportType: current.sportType ?? undefined,
-            value: priceResult.raw,
-            psa10Price: priceResult.psa10,
-            imageUrl: current.image_url,
-            isInLibrary: ownershipResult.isInLibrary,
-            libraryQuantity: ownershipResult.ownedCount,
-            dbId: ownershipResult.existingId,
-            year: current.year ?? undefined,
-            team: current.team ?? undefined,
-            manufacturer: current.manufacturer ?? undefined,
-            pricingDeferred: false,
-          },
-        });
-
-        window.dispatchEvent(new CustomEvent("recent-scan-added"));
-      } catch (error) {
-        console.error("[QueueProcessor] Deferred pricing failed:", error);
-      }
-    }
-  }
-
-  await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, pending.length)) }, () => worker()));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
