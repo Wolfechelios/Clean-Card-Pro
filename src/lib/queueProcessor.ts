@@ -607,6 +607,7 @@ async function processJob(item: QueueItem): Promise<void> {
         cloudFunction: "rapid-card-identify",
         skipOfflineGuard: false,
         ocrText,
+        gameTypeHint,
       });
       identify = retryResult.cardData;
       console.log(`[QueueProcessor] Card identified via ${retryResult.source} (OCR retry):`, identify?.card_name);
