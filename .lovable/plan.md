@@ -1,36 +1,79 @@
 
 
-## Plan: Fix Rate-Limited Price Updates
+## Plan: Add Game Type Selector to Rapid Scan
 
-### Root Cause
-The `update-prices` edge function processes up to 50 cards in a tight sequential loop with zero delay. After ~20 cards, the Firecrawl scraping API hits its rate limit (~33 second cooldown), causing the remaining cards to fail silently. Your recently scanned MTG cards were in the failed batch.
+### Problem
+The AI vision model guesses `game_type` from the image, and sometimes gets it wrong (e.g., labeling an MTG card as Yu-Gi-Oh). This causes wrong pricing lookups. There's no way for the user to constrain what type of cards they're scanning.
 
-### Fix
+### Solution
+Add a persistent "Card Type" selector to scanner settings and display it prominently in the Rapid Scan UI. When set, the selected game type is passed through to the AI identification prompt, forcing correct classification.
 
-**File: `supabase/functions/update-prices/index.ts`**
+### Changes
 
-1. **Add delay between price fetches** — insert a 2-second pause between each card to stay under Firecrawl's rate limit
-2. **Respect `Retry-After`** — when a rate limit error is returned, wait the specified duration then retry that card once instead of skipping it
-3. **Reduce batch size** — process 20 cards per invocation instead of 50, since the function has a limited execution window
-4. **Add sequential error recovery** — if 3 consecutive rate limit errors occur, stop processing and return partial results with a count of remaining cards
+**1. Add `gameTypeFilter` to scanner settings**
 
-### Technical Details
+**File: `src/hooks/use-scanner-settings.ts`**
+- Add `gameTypeFilter: string` to `ScannerSettings` interface (default: `"auto"`)
+- Options: `"auto"`, `"mtg"`, `"yugioh"`, `"pokemon"`, `"sports"`, `"gpk"`, `"marvel"`, `"onepiece"`, `"other"`
 
-| Change | Detail |
-|--------|--------|
-| Add `await sleep(2000)` between each fetch | Prevents Firecrawl rate limit from triggering |
-| Catch rate limit responses (status 429 or `RateLimitError`) | Wait `retryAfterMs` (capped at 35s) then retry once |
-| Reduce `.limit(50)` to `.limit(20)` | Keeps total execution time under edge function timeout |
-| Return `{ updated, skipped, remaining }` in response | So the client knows to trigger another round |
+**2. Show game type selector in Rapid Scan camera UI**
+
+**File: `src/components/scanner/RapidScanCamera.tsx`**
+- Add a compact chip/select row above the camera viewfinder showing the current game type filter
+- Use `Select` component with labeled options (Auto Detect, Magic: The Gathering, Yu-Gi-Oh!, Pokémon, Sports, GPK, Marvel, One Piece, Other)
+- Persist via `updateSettings({ gameTypeFilter: value })`
+
+**3. Pass game type hint through the queue processor**
+
+**File: `src/lib/queueProcessor.ts`**
+- Read `getScannerSettings().gameTypeFilter` before calling `hybridIdentifyCard`
+- Pass it as a new `gameTypeHint` option
+
+**4. Thread hint through hybrid identify to the edge function**
+
+**File: `src/lib/hybridCardIdentify.ts`**
+- Add `gameTypeHint?: string` to the options parameter
+- Pass it in the edge function body: `{ imageUrl, ocrText, gameTypeHint }`
+
+**5. Use the hint in the AI prompt**
+
+**File: `supabase/functions/rapid-card-identify/index.ts`**
+- Accept `gameTypeHint` from the request body
+- When not `"auto"`, prepend to prompt: `"IMPORTANT: The user has confirmed this is a [Game Type] card. Set game_type to '[value]' — do not guess a different game type."`
+- Also apply the hint as a post-processing override: force `cardData.game_type` to the canonical value
+
+**6. Same hint in enhanced-card-identify**
+
+**File: `supabase/functions/enhanced-card-identify/index.ts`**
+- Same pattern: accept `gameTypeHint`, inject into prompt, override result
+
+### Game Type Mapping
+
+| Selector Label | `gameTypeFilter` value | Canonical `game_type` |
+|---|---|---|
+| Auto Detect | `auto` | (AI decides) |
+| Magic: The Gathering | `mtg` | `MTG` |
+| Yu-Gi-Oh! | `yugioh` | `Yu-Gi-Oh!` |
+| Pokémon | `pokemon` | `Pokemon` |
+| Sports | `sports` | `Sports` |
+| Garbage Pail Kids | `gpk` | `GPK` |
+| Marvel | `marvel` | `Marvel` |
+| One Piece | `onepiece` | `One Piece` |
+| Other | `other` | (AI decides, but prompted as "not any major TCG") |
 
 ### Files to edit
 
 | File | Changes |
 |------|---------|
-| `supabase/functions/update-prices/index.ts` | Add sleep between fetches, retry on rate limit, reduce batch to 20 |
+| `src/hooks/use-scanner-settings.ts` | Add `gameTypeFilter` field |
+| `src/components/scanner/RapidScanCamera.tsx` | Add game type selector UI above viewfinder |
+| `src/lib/queueProcessor.ts` | Read setting, pass `gameTypeHint` to `hybridIdentifyCard` |
+| `src/lib/hybridCardIdentify.ts` | Thread `gameTypeHint` to edge function body |
+| `supabase/functions/rapid-card-identify/index.ts` | Accept hint, inject into prompt, override result |
+| `supabase/functions/enhanced-card-identify/index.ts` | Same hint support |
 
 ### What stays unchanged
-- `fetch-card-prices` function — works fine individually
-- Client-side price refresh logic
-- All other pricing/scanning code
+- Pricing engine, COMC integration, all other scrapers
+- Database schema — no new tables or columns
+- Upload tab and USB tab (can add later if needed)
 
