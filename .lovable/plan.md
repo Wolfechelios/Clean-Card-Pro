@@ -1,66 +1,36 @@
 
 
-## Plan: Add COMC as Price Source for MTG and Pokémon
+## Plan: Fix Rate-Limited Price Updates
 
-### What
-Add COMC (comc.com) as an additional pricing source for MTG and Pokémon cards. Yu-Gi-Oh is excluded because COMC has essentially zero Yu-Gi-Oh inventory.
+### Root Cause
+The `update-prices` edge function processes up to 50 cards in a tight sequential loop with zero delay. After ~20 cards, the Firecrawl scraping API hits its rate limit (~33 second cooldown), causing the remaining cards to fail silently. Your recently scanned MTG cards were in the failed batch.
 
-### COMC Listing Format (from scraping)
-Each listing follows this pattern in markdown:
-```text
-[YEAR SET_NAME - [Base] #CARD_NUMBER](url)
-VARIANT - CARD_NAME [CONDITION]
-$PRICE
-```
-Example: `1999 Pokemon Base Set - [Base] #4 | Holo - Charizard [PSA 4 VG‑EX] | $1,131.10`
+### Fix
 
-Conditions include: `NM` / `Near Mint`, `LP` / `Lightly Played`, `MP` / `Moderately Played`, `PSA X`, `CGC X`, `BGS X`.
+**File: `supabase/functions/update-prices/index.ts`**
 
-### Search URL Pattern
-- MTG: `https://www.comc.com/Cards/Magic,=CARD_NAME+SET,vList,i100`
-- Pokémon: `https://www.comc.com/Cards/Pokemon,=CARD_NAME+SET,vList,i100`
+1. **Add delay between price fetches** — insert a 2-second pause between each card to stay under Firecrawl's rate limit
+2. **Respect `Retry-After`** — when a rate limit error is returned, wait the specified duration then retry that card once instead of skipping it
+3. **Reduce batch size** — process 20 cards per invocation instead of 50, since the function has a limited execution window
+4. **Add sequential error recovery** — if 3 consecutive rate limit errors occur, stop processing and return partial results with a count of remaining cards
 
-### Changes
+### Technical Details
 
-**File: `supabase/functions/fetch-card-prices/index.ts`**
-
-1. **Add `fetchCOMCPrices(cardName, cardSet, gameType)` function** (~80 lines)
-   - Build search URL using game-specific category path (`/Cards/Magic` or `/Cards/Pokemon`)
-   - Scrape via Firecrawl (already used by other scrapers in this file)
-   - Parse listings using regex on the structured markdown format:
-     - Extract price from `$XX.XX` pattern
-     - Extract condition from `[CONDITION]` bracket pattern
-     - Filter listings to match card name (fuzzy match)
-   - Categorize prices by condition:
-     - `NM` / `Near Mint` / `Mint` → raw price candidates
-     - `PSA 8` → psa8 candidates
-     - `PSA 9` → psa9 candidates  
-     - `PSA 10` → psa10 candidates
-     - `CGC 9` / `CGC 10` → cgc candidates
-   - Return `SourcePrices` (median of each category)
-
-2. **Wire COMC into parallel fetch** (~line 396)
-   - Add `comcPromise` for MTG and Pokémon cards (not YGO, not sports)
-   - Condition: `isTCG && gameType matches "mtg|magic|pokemon"`
-   - Add to `Promise.all` alongside existing fetches
-
-3. **Add COMC prices to aggregation** (~line 406-444)
-   - Add COMC to sources list when it returns data
-   - Include COMC raw/psa8/psa9/psa10/cgc prices in their respective median candidate arrays
-   - For MTG/Pokémon priority: COMC → PriceCharting → TCGPlayer → eBay
-
-4. **Add COMC fields to PricingResult** (optional, for transparency)
-   - Add `comcRaw`, `comcUrl` fields so the client can see COMC as a distinct source
+| Change | Detail |
+|--------|--------|
+| Add `await sleep(2000)` between each fetch | Prevents Firecrawl rate limit from triggering |
+| Catch rate limit responses (status 429 or `RateLimitError`) | Wait `retryAfterMs` (capped at 35s) then retry once |
+| Reduce `.limit(50)` to `.limit(20)` | Keeps total execution time under edge function timeout |
+| Return `{ updated, skipped, remaining }` in response | So the client knows to trigger another round |
 
 ### Files to edit
 
 | File | Changes |
 |------|---------|
-| `supabase/functions/fetch-card-prices/index.ts` | Add `fetchCOMCPrices()` scraper; wire into parallel fetch for MTG + Pokémon; add COMC prices to all median candidate arrays |
+| `supabase/functions/update-prices/index.ts` | Add sleep between fetches, retry on rate limit, reduce batch to 20 |
 
 ### What stays unchanged
-- Yu-Gi-Oh pricing (no COMC inventory exists)
-- Sports card pricing
-- Client-side adapters, consensus engine, UI
-- All existing scrapers (eBay, PriceCharting, TCGPlayer, SportsCardPro)
+- `fetch-card-prices` function — works fine individually
+- Client-side price refresh logic
+- All other pricing/scanning code
 
