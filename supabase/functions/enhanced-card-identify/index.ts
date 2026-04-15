@@ -28,7 +28,7 @@ serve(async (req) => {
   } catch { /* continue without rate limiting if JWT parse fails */ }
 
   try {
-    const { imageUrl: rawImageUrl, ocrText } = await req.json();
+    const { imageUrl: rawImageUrl, ocrText, gameTypeHint } = await req.json();
 
     let imageUrl: string;
     try {
