@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, Edit2, AlertCircle } from "lucide-react";
+import { CheckCircle, Edit2, AlertCircle, Search, Loader2 } from "lucide-react";
 import type { ScanMode } from "@/hooks/use-scanner-settings";
 import { FoilTrainerPanel } from "./FoilTrainerPanel";
 import {
@@ -12,6 +12,9 @@ import {
   evaluateFoilScanResult,
 } from "@/lib/foilTrainer/foilTrainerService";
 import { supabase } from "@/integrations/supabase/client";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { CardIdentificationAlternatives } from "./CardIdentificationAlternatives";
+import { CardManualSearch } from "./CardManualSearch";
 
 interface CardData {
   card_name: string;
@@ -38,14 +41,11 @@ interface CardIdentificationEditorProps {
   primaryCard: CardData;
   alternatives?: Alternative[];
   imageUrl?: string;
-
-  // NEW
   scanMode?: ScanMode;
   ownedCount?: number;
   isInLibrary?: boolean;
   currentPriceRaw?: number | null;
   userId?: string;
-
   onConfirm: (editedCard: CardData) => void;
   onSelectAlternative: (alternative: Alternative) => void;
   onCancel: () => void;
@@ -68,13 +68,12 @@ export function CardIdentificationEditor({
   const [editedName, setEditedName] = useState(primaryCard.card_name);
   const [editedSet, setEditedSet] = useState(primaryCard.card_set || "");
 
-  // Foil Trainer evaluation
   const foilEvaluation = useMemo(() => {
     const foilResult = evaluateFoilScanResult(
       primaryCard.rarity,
-      null, // finish not yet on CardData
+      null,
       primaryCard.game_type,
-      undefined, // foilDetectorConfidence
+      undefined,
     );
     const triggerLevel = shouldShowFoilTrainer({
       rarity: primaryCard.rarity,
@@ -100,7 +99,11 @@ export function CardIdentificationEditor({
     setIsEditing(false);
   };
 
-  const showAlternatives = alternatives.length > 0 && primaryCard.confidence < 95;
+  const handleSearchSelect = (match: { card_name: string; card_set: string | null; card_number: string | null; rarity: string | null; market_price: number | null }) => {
+    setEditedName(match.card_name);
+    setEditedSet(match.card_set || "");
+    setIsEditing(false);
+  };
 
   const statusLabel =
     scanMode === "SCAN_ONLY"
@@ -146,12 +149,6 @@ export function CardIdentificationEditor({
           {currentPriceRaw !== null && currentPriceRaw > 0 && (
             <CardDescription className="text-primary">
               Price: <span className="font-semibold">${Number(currentPriceRaw).toFixed(2)}</span>
-            </CardDescription>
-          )}
-
-          {showAlternatives && (
-            <CardDescription className="text-yellow-600 dark:text-yellow-500">
-              Confidence is below target. Review alternatives or edit manually.
             </CardDescription>
           )}
         </CardHeader>
@@ -216,34 +213,21 @@ export function CardIdentificationEditor({
         </CardContent>
       </Card>
 
-      {showAlternatives && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Alternative Matches</CardTitle>
-            <CardDescription>Select an alternative if the primary identification doesn't match</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {alternatives.map((alt, index) => (
-              <button
-                key={index}
-                onClick={() => handleSelectAlternative(alt)}
-                className="w-full p-3 rounded-lg border hover:border-primary hover:bg-accent transition-colors text-left"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">{alt.card_name}</div>
-                    <div className="text-sm text-muted-foreground truncate">{alt.card_set}</div>
-                    <div className="text-xs text-muted-foreground mt-1">{alt.reason}</div>
-                  </div>
-                  <Badge variant="outline">{Math.round(alt.confidence)}%</Badge>
-                </div>
-              </button>
-            ))}
-          </CardContent>
-        </Card>
+      {/* Always show alternatives when they exist */}
+      {alternatives.length > 0 && (
+        <CardIdentificationAlternatives
+          alternatives={alternatives}
+          onSelect={handleSelectAlternative}
+        />
       )}
 
-      {/* Foil Trainer — only shows for foil-sensitive cards */}
+      {/* Manual search — always available */}
+      <CardManualSearch
+        gameType={primaryCard.game_type}
+        onSelect={handleSearchSelect}
+      />
+
+      {/* Foil Trainer */}
       {userId && foilEvaluation.triggerLevel !== "none" && (
         <FoilTrainerPanel
           userId={userId}
