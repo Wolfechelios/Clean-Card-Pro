@@ -50,7 +50,7 @@ Deno.serve(async (req) => {
       .select('id, card_name, card_set, card_number, game_type, sport_type, condition, image_url, current_price_raw')
       .eq('user_id', userId)
       .or(`current_price_raw.is.null,last_price_update.is.null,last_price_update.lt.${oneDayAgo}`)
-      .limit(20);
+      .limit(10);
 
     if (fetchError) throw fetchError;
 
@@ -107,7 +107,7 @@ Deno.serve(async (req) => {
         // Handle rate limits with retry
         if (priceResponse.status === 429) {
           const retryAfter = parseInt(priceResponse.headers.get('Retry-After') || '10', 10);
-          const waitMs = Math.min(retryAfter * 1000, 35000);
+          const waitMs = Math.min(retryAfter * 1000, 15000);
           console.log(`Rate limited — waiting ${waitMs}ms then retrying ${card.card_name}`);
           await priceResponse.text(); // consume body
           await sleep(waitMs);
@@ -182,8 +182,8 @@ Deno.serve(async (req) => {
         skipped++;
       }
 
-      // 2-second delay between cards to avoid rate limits
-      await sleep(2000);
+      // 1-second delay between cards to avoid rate limits
+      await sleep(1000);
     }
 
     if (updates.length > 0) {
