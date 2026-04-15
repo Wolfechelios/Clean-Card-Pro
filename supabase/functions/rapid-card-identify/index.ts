@@ -77,6 +77,18 @@ serve(async (req) => {
     console.log(`Rapid card identification using ${useGeminiDirect ? 'Gemini Direct (user key)' : 'Lovable AI'}...`);
 
     const ygoRaritySection = buildYgoRarityPromptSection();
+
+    // Game type hint mapping
+    const GAME_TYPE_MAP: Record<string, string> = {
+      mtg: "MTG", yugioh: "Yu-Gi-Oh!", pokemon: "Pokemon",
+      sports: "Sports", gpk: "GPK", marvel: "Marvel", onepiece: "One Piece",
+    };
+    const canonicalGameType = gameTypeHint && gameTypeHint !== "auto" ? GAME_TYPE_MAP[gameTypeHint] || null : null;
+
+    const gameTypeHintSection = canonicalGameType
+      ? `\nIMPORTANT: The user has confirmed this is a ${canonicalGameType} card. Set game_type to "${canonicalGameType}" — do not guess a different game type.\n`
+      : "";
+
     const ocrEvidenceSection = normalizedOcrText
       ? `
 OCR EVIDENCE (server-side extracted text, prioritize this over visual guessing when it contains a title, set code, or collector number):
@@ -92,7 +104,7 @@ OCR PRIORITY RULES:
 No OCR evidence was provided. Use only printed text visible in the image.
 `;
 
-    const prompt = `Identify this trading card. Return JSON only:
+    const prompt = `${gameTypeHintSection}Identify this trading card. Return JSON only:
 {
   "card_name": "exact printed name",
   "card_set": "set name or null",
