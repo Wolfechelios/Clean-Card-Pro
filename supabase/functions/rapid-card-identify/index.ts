@@ -178,7 +178,7 @@ JSON only.`;
                 ]
               }],
               temperature: 0.1,
-              max_tokens: 200,
+              max_tokens: 1024,
               response_format: { type: "json_object" },
             }),
           });
@@ -234,7 +234,7 @@ JSON only.`;
                 }],
                 generationConfig: {
                   temperature: 0.1,
-                  maxOutputTokens: 200,
+                  maxOutputTokens: 1024,
                 }
               }),
             }
