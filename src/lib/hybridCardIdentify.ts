@@ -206,7 +206,7 @@ export async function hybridIdentifyCard(
   // Force cloud mode
   if (forceCloud && online) {
     const cardData = await withRetry(
-      () => identifyWithCloud(imageUrl, cloudFunction, ocrText || undefined),
+      () => identifyWithCloud(imageUrl, cloudFunction, ocrText || undefined, gameTypeHint),
       { retries: 1, baseMs: 800, maxMs: 3000 }
     );
     return { success: true, cardData, source: "cloud" };
@@ -232,7 +232,7 @@ export async function hybridIdentifyCard(
   if (online) {
     try {
       const cardData = await withRetry(
-        () => identifyWithCloud(imageUrl, cloudFunction, ocrText || undefined),
+        () => identifyWithCloud(imageUrl, cloudFunction, ocrText || undefined, gameTypeHint),
         { retries: 1, baseMs: 800, maxMs: 3000 }
       );
       return { success: true, cardData, source: "cloud" };
