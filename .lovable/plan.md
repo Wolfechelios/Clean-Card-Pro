@@ -1,40 +1,39 @@
 
 
-## Plan: Limit Pricing Sources to COMC + TCGPlayer Only
+## Plan: Fix Build Errors, COMC Category Bug, and Scan Reliability
 
-### Problem
-The `fetch-card-prices` edge function scrapes 5 sources in parallel (eBay, PriceCharting, TCGPlayer, SportsCardPro, COMC), consuming Firecrawl credits and adding latency. You only want COMC and TCGPlayer.
+### Problem Summary
+Three issues are causing scan failures and build problems:
+
+1. **Build errors** — Three files use `Record<string, any>` for Supabase `.update()` calls, which the new strict typing rejects.
+2. **COMC wrong category** — Sports cards (Dave Winfield, Eddie Murray, etc.) are searched under "Pokemon" on COMC because the category logic only handles MTG; everything else defaults to "Pokemon". This returns zero results for all sports cards.
+3. **Rate limiting delays** — Lovable AI is consistently rate-limited, causing every scan to wait 3+ seconds before falling back to your Gemini key. Not a code bug, but adds latency.
 
 ### Changes
 
-**File: `supabase/functions/fetch-card-prices/index.ts`**
+**1. Fix build errors (3 files)**
 
-In the main handler (~lines 488-497):
-- Remove `ebayPromise` — replace with `Promise.resolve(emptySource())`
-- Remove `pcPromise` — replace with `Promise.resolve(emptySource())`
-- Remove `scpPromise` — replace with `Promise.resolve(emptySource())`
-- Keep `tcgPromise` and `comcPromise` as-is
-- Expand COMC eligibility to all card types (remove the MTG/Pokémon restriction on line 486)
+| File | Fix |
+|------|-----|
+| `src/components/collections/CardsNeedingReview.tsx` (lines 168, 251) | Cast `dbUpdates`/`updates` from `Record<string, any>` to the proper Supabase update type using `as any` on the `.update()` call |
+| `src/components/settings/BulkCardReidentify.tsx` (line 148) | Same fix — cast `updateData` with `as any` in the `.update()` call |
 
-The aggregation logic (lines 506-557) stays intact — it already handles null values from inactive sources gracefully. The priority picker will naturally fall through to COMC/TCGPlayer data.
+**2. Fix COMC category mapping (`supabase/functions/fetch-card-prices/index.ts`)**
 
-**File: `src/lib/pricing/adapters.ts`**
+The `fetchCOMCPrices` function (line 384) currently defaults to `"Pokemon"` for all non-MTG cards, including sports cards. Fix:
 
-In `getDefaultAdapters()` (~line 224):
-- Remove `EbaySoldAdapter` and `PriceChartingLocalAdapter` from the default array
-- Keep only `TCGPlayerAdapter` (and a COMC adapter if one exists, otherwise the COMC data comes through `fetch-card-prices` already)
-- Remove the sports card adapter addition
+- Add `"Baseball"`, `"Football"`, `"Basketball"`, `"Hockey"` categories based on `gameType` and `sportType` (need to pass `sportType` into the function)
+- Add `"Yu-Gi-Oh"` category
+- Only default to `"Pokemon"` when the game type is actually Pokemon
+- For unknown types, use a generic COMC search without category
 
-### Files to edit
+**3. Skip Lovable AI retry delay (optional optimization)**
 
-| File | Changes |
-|------|---------|
-| `supabase/functions/fetch-card-prices/index.ts` | Disable eBay, PriceCharting, SportsCardPro scraping; expand COMC to all card types |
-| `src/lib/pricing/adapters.ts` | Remove eBay and PriceCharting adapters from defaults |
+In the `rapid-card-identify` edge function, reduce the rate-limit retry wait from 2 attempts (1s + 2s = 3s) to 1 attempt (1s) before falling back to the user's Gemini key, cutting wasted time in half.
 
-### What stays unchanged
-- COMC and TCGPlayer scraping functions (unchanged)
-- Database schema, queue processor, consensus logic
-- `sports-card-prices` edge function (separate, untouched)
-- All price display components
+### Technical Details
+
+- The COMC function signature needs `sportType` added as a parameter
+- The caller in the main handler (~line 460-470) needs to pass `sportType` through
+- COMC category map: `baseball` → `"Baseball"`, `football` → `"Football"`, `basketball` → `"Basketball"`, `hockey` → `"Hockey"`, `yugioh` → `"Yu-Gi-Oh"`, `pokemon` → `"Pokemon"`, `mtg/magic` → `"Magic"`
 
