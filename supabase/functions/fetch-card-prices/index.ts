@@ -377,16 +377,26 @@ async function fetchSportsCardProPrices(searchQuery: string): Promise<SourcePric
 async function fetchCOMCPrices(
   cardName: string,
   cardSet: string | null,
-  gameType: string | null
+  gameType: string | null,
+  sportType: string | null = null
 ): Promise<SourcePrices> {
   try {
     const gt = (gameType || "").toLowerCase();
-    let category = "Pokemon";
-    if (gt.includes("mtg") || gt.includes("magic")) category = "Magic";
+    const st = (sportType || "").toLowerCase();
+    let category = "";
+    if (gt.includes("pokemon")) category = "Pokemon";
+    else if (gt.includes("mtg") || gt.includes("magic")) category = "Magic";
+    else if (gt.includes("yugioh") || gt.includes("yu-gi-oh")) category = "Yu-Gi-Oh";
+    else if (st.includes("baseball") || gt.includes("baseball")) category = "Baseball";
+    else if (st.includes("football") || gt.includes("football")) category = "Football";
+    else if (st.includes("basketball") || gt.includes("basketball")) category = "Basketball";
+    else if (st.includes("hockey") || gt.includes("hockey")) category = "Hockey";
+    else if (st.includes("soccer") || gt.includes("soccer")) category = "Soccer";
 
     const searchTerms = [cardName, cardSet || ""].filter(Boolean).join(" ").trim();
     const encoded = encodeURIComponent(searchTerms);
-    const comcUrl = `https://www.comc.com/Cards/${category},=${encoded},vList,i100`;
+    const categoryPath = category ? `${category},` : "";
+    const comcUrl = `https://www.comc.com/Cards/${categoryPath}=${encoded},vList,i100`;
     console.log("[COMC] Scraping:", comcUrl);
 
     const md = await scrapeWithFirecrawl(comcUrl);
@@ -489,7 +499,7 @@ Deno.serve(async (req) => {
       ? fetchTCGPlayerPrices(cardName, cardSet, cardNumber, gameType)
       : Promise.resolve({ lastSold: null, low: null, mid: null, high: null, market: null, url: null });
     const scpPromise = Promise.resolve(emptySource());
-    const comcPromise = fetchCOMCPrices(cardName, cardSet, gameType);
+    const comcPromise = fetchCOMCPrices(cardName, cardSet, gameType, sportType);
 
     const [ebay, pc, tcg, scp, comc] = await Promise.all([ebayPromise, pcPromise, tcgPromise, scpPromise, comcPromise]);
 

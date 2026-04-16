@@ -165,7 +165,7 @@ export function CardsNeedingReview() {
         }
 
         if (Object.keys(dbUpdates).length > 0) {
-          await supabase.from("cards").update(dbUpdates).eq("id", selectedCard.id);
+          await supabase.from("cards").update(dbUpdates as any).eq("id", selectedCard.id);
         }
 
         toast.success("Re-analysis complete — review the updated fields");
@@ -248,7 +248,7 @@ export function CardsNeedingReview() {
           if (best.rarity && (!card.rarity || card.rarity === "")) updates.rarity = best.rarity;
 
           if (Object.keys(updates).length > 0) {
-            await supabase.from("cards").update(updates).eq("id", card.id);
+            await supabase.from("cards").update(updates as any).eq("id", card.id);
             updated++;
           }
         }

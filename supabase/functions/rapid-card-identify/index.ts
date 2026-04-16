@@ -157,10 +157,10 @@ JSON only.`;
     let lastError: Error | null = null;
     let lovableExhausted = false;
 
-    // Try Lovable AI FIRST — reduced to 2 retries for speed
+    // Try Lovable AI FIRST — single attempt, fast fallback to Gemini
     if (LOVABLE_API_KEY) {
       console.log('Trying Lovable AI...');
-      for (let attempt = 0; attempt < 2; attempt++) {
+      for (let attempt = 0; attempt < 1; attempt++) {
         try {
           const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
             method: 'POST',
@@ -184,12 +184,10 @@ JSON only.`;
           });
 
           if (!response.ok) {
-            if (response.status === 429) {
-              const delay = Math.min(5000, 1000 * Math.pow(2, attempt));
-              console.log(`Lovable AI rate limited, waiting ${delay}ms (attempt ${attempt + 1}/2)`);
-              await new Promise(r => setTimeout(r, delay));
-              if (attempt === 1) lovableExhausted = true;
-              continue;
+          if (response.status === 429) {
+              console.log('Lovable AI rate limited, falling back to Gemini immediately');
+              lovableExhausted = true;
+              break;
             }
             if (response.status === 402) {
               lovableExhausted = true;
