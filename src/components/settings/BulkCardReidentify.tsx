@@ -145,7 +145,7 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
           if (Object.keys(updateData).length > 0) {
             await supabase
               .from("cards")
-              .update(updateData)
+              .update(updateData as any)
               .eq("id", card.id);
             
             return true;
