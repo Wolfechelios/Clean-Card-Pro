@@ -1,12 +1,14 @@
 import { useCallback } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Camera, Usb, Trash2, Upload } from "lucide-react";
+import { Camera, Usb, Trash2, Upload, LaptopMinimal, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 import { useCardScanner } from "@/hooks/use-card-scanner";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import { useBatchScanner } from "@/hooks/use-batch-scanner";
 import { useScannerSettings } from "@/hooks/use-scanner-settings";
+import { SCAN_ENGINE_PROFILES, type ScanEngineProfileId } from "@/lib/performance/scanProfiles";
+import { cn } from "@/lib/utils";
 
 import { UploadTab } from "./scanner/UploadTab";
 import { BatchQueue } from "./scanner/BatchQueue";
@@ -25,6 +27,11 @@ interface ScannerProps {
 
 const Scanner = ({ userId }: ScannerProps) => {
   const { settings, updateSettings } = useScannerSettings();
+  const engineProfile = SCAN_ENGINE_PROFILES[settings.scanEngineProfile ?? "balanced_default"];
+  const engineCards: Array<{ id: ScanEngineProfileId; icon: typeof LaptopMinimal }> = [
+    { id: "ipad_mac_paired", icon: LaptopMinimal },
+    { id: "redmagic_standalone", icon: Smartphone },
+  ];
 
   const {
     file,
@@ -102,6 +109,49 @@ const Scanner = ({ userId }: ScannerProps) => {
             ? "Switch to Remove Mode"
             : "Switch to Save Mode"}
         </Button>
+      </div>
+
+      <div className="rounded-lg border bg-card p-4 space-y-3">
+        <div className="space-y-1">
+          <div className="text-sm font-semibold">Dual-System Scan Engine</div>
+          <div className="text-xs text-muted-foreground">
+            Select the engine that matches your hardware. iPad + Mac uses Continuity Camera on the Mac. RedMagic runs fully on the phone.
+          </div>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          {engineCards.map(({ id, icon: Icon }) => {
+            const profile = SCAN_ENGINE_PROFILES[id];
+            const active = profile.id === engineProfile.id;
+            return (
+              <button
+                key={profile.id}
+                type="button"
+                onClick={() => updateSettings({ scanEngineProfile: profile.id })}
+                className={cn(
+                  "rounded-xl border p-4 text-left transition-all",
+                  active ? "border-primary bg-primary/5 shadow-sm" : "hover:border-primary/40 hover:bg-muted/40"
+                )}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 text-sm font-semibold">
+                      <Icon className="h-4 w-4" />
+                      {profile.label}
+                    </div>
+                    <div className="mt-1 text-xs text-muted-foreground">{profile.description}</div>
+                  </div>
+                  {active && <span className="text-[10px] font-semibold uppercase tracking-wide text-primary">Active</span>}
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
+                  <div>Queue {profile.queueMax}</div>
+                  <div>{profile.maxWorkers} workers</div>
+                  <div>{profile.targetResolution}</div>
+                  <div>{profile.ramBufferImages} RAM frames</div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <Tabs defaultValue="rapid" className="w-full">

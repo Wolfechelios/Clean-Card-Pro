@@ -3,11 +3,13 @@ import { useState, useEffect, useCallback } from "react";
 const SCANNER_SETTINGS_KEY = "card-scanner-settings";
 
 export type ScanMode = "SAVE" | "SCAN_ONLY" | "REMOVE";
+export type ScanEngineProfileId = "balanced_default" | "ipad_mac_paired" | "redmagic_standalone";
 
 export interface ScannerSettings {
   autoConfirmEnabled: boolean;
   autoConfirmThreshold: number;
   scanMode: ScanMode;
+  scanEngineProfile: ScanEngineProfileId;
 
   hapticsOnCapture: boolean;
   flashOnCapture: boolean;
@@ -38,6 +40,7 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   autoConfirmEnabled: true,
   autoConfirmThreshold: 75,
   scanMode: "SAVE",
+  scanEngineProfile: "balanced_default",
 
   hapticsOnCapture: true,
   flashOnCapture: true,

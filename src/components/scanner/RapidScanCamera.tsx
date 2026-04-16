@@ -62,6 +62,7 @@ import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 import { getMultiFrameAnalyzer, resetMultiFrameAnalyzer, type MultiFrameResult } from "@/lib/foilTrainer/multiFrameAnalyzer";
 import { FoilDetectionOverlay } from "./FoilDetectionOverlay";
 import { getScannerSettings, useScannerSettings, type ScannerSettings } from "@/hooks/use-scanner-settings";
+import { getScanEngineProfile } from "@/lib/performance/scanProfiles";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { hapticTap } from "@/lib/haptics";
 import { useVoiceCommand } from "@/hooks/use-voice-command";
@@ -69,12 +70,6 @@ import { useCameraDevices } from "@/hooks/use-camera-devices";
 import { CameraDeviceSelector } from "./CameraDeviceSelector";
 import { WhiteBalanceControl } from "./WhiteBalanceControl";
 import { playKachingBeep, playShutterBeep, playJackpotBeep, warmUpAudio } from "@/lib/audioBeeps";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TUNING
-// ─────────────────────────────────────────────────────────────────────────────
-
-const QUEUE_MAX = 500; // large buffer - uses IndexedDB (device storage)
 
 type ScannedCard = {
   id: string;
@@ -128,6 +123,8 @@ function money(n: number | null | undefined) {
 
 export default function RapidScanCamera() {
   const { settings, updateSettings } = useScannerSettings();
+  const engineProfile = useMemo(() => getScanEngineProfile(settings.scanEngineProfile), [settings.scanEngineProfile]);
+  const queueMax = engineProfile.queueMax;
   const isMobile = useIsMobile();
 
 
@@ -174,6 +171,12 @@ export default function RapidScanCamera() {
   const [autoTimerCountdown, setAutoTimerCountdown] = useState(0);
 
   const autoTimerSeconds = settings.autoTimerIntervalSeconds ?? 2;
+
+  useEffect(() => {
+    if (!cameraOn) {
+      setStatusLine(`${engineProfile.label} ready — ${engineProfile.targetResolution} target, queue ${queueMax}, ${engineProfile.maxWorkers} worker${engineProfile.maxWorkers === 1 ? "" : "s"}`);
+    }
+  }, [cameraOn, engineProfile, queueMax]);
 
   const triggerFlash = useCallback(() => {
     if (!settings.flashOnCapture) return;
@@ -732,8 +735,8 @@ export default function RapidScanCamera() {
 
     try {
       const current = await idbCount();
-      if (current >= QUEUE_MAX) {
-        toast.error(`Buffer full (${QUEUE_MAX}). Let it process or clear.`);
+      if (current >= queueMax) {
+        toast.error(`Buffer full (${queueMax}). Let it process or clear.`);
         setBusyCapture(false);
         return;
       }
@@ -811,8 +814,8 @@ export default function RapidScanCamera() {
 
     try {
       const current = await idbCount();
-      if (current >= QUEUE_MAX) {
-        toast.error(`Buffer full (${QUEUE_MAX}). Let it process or clear.`);
+      if (current >= queueMax) {
+        toast.error(`Buffer full (${queueMax}). Let it process or clear.`);
         setBusyCapture(false);
         return;
       }

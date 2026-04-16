@@ -16,7 +16,7 @@ import { queueAnomalyDetector } from "@/lib/scanAnomalyDetector";
 import { addRecentScan } from "@/lib/recentScans";
 import { insertCardDual } from "@/lib/localCards";
 import {
-  idbGetNextQueued,
+  idbClaimNextQueued,
   idbUpdateMeta,
   idbDelete,
   idbCount,
@@ -155,8 +155,7 @@ function getJobDelayMs(): number { return Math.max(getDeviceTier().jobDelayMs, M
 function getPollIntervalMs(): number { return getDeviceTier().pollIntervalMs; }
 
 function getMaxWorkerCount(): number {
-  // Rapid queue must stay serialized to avoid cross-card result collapse.
-  return 1;
+  return Math.max(1, getDeviceTier().maxWorkers);
 }
 
 // Adaptive scaling
@@ -460,7 +459,7 @@ async function workerLoop(workerId: number) {
       }
     }
 
-    const next = await idbGetNextQueued();
+    const next = await idbClaimNextQueued();
     if (!next) {
       consecutiveEmpty++;
       
@@ -522,7 +521,6 @@ async function processJob(item: QueueItem): Promise<void> {
   const store = useQueueProcessor.getState();
   store._setCurrentItem(item.id);
 
-  await idbUpdateMeta(item.id, { status: "processing" });
 
   // Create a base64 data URL for AI identification only.
   // Keep the first pass as light as possible: identify first, OCR only on weak/failing results,
