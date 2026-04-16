@@ -1578,7 +1578,7 @@ export default function RapidScanCamera() {
         </button>
 
         {/* Right: Stop + torch controls */}
-        {!isNative && cameraOn ? (
+        {cameraOn ? (
           <div className="flex items-center gap-3 shrink-0">
             <Button
               variant="destructive"
@@ -1589,16 +1589,18 @@ export default function RapidScanCamera() {
             >
               <CameraOff className="h-5 w-5" />
             </Button>
-            <Button
-              variant={torchOn ? "secondary" : "outline"}
-              size="icon"
-              className="h-14 w-14 rounded-full"
-              onClick={toggleTorch}
-              disabled={!support.torch}
-              title={support.torch ? "Toggle flash" : "Flash not supported"}
-            >
-              {torchOn ? <FlashlightOff className="h-5 w-5" /> : <Flashlight className="h-5 w-5" />}
-            </Button>
+            {!isNative && (
+              <Button
+                variant={torchOn ? "secondary" : "outline"}
+                size="icon"
+                className="h-14 w-14 rounded-full"
+                onClick={toggleTorch}
+                disabled={!support.torch}
+                title={support.torch ? "Toggle flash" : "Flash not supported"}
+              >
+                {torchOn ? <FlashlightOff className="h-5 w-5" /> : <Flashlight className="h-5 w-5" />}
+              </Button>
+            )}
           </div>
         ) : <div className="w-14" />}
       </div>
