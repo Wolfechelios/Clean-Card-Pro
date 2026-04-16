@@ -80,6 +80,9 @@ function isUSBDevice(label: string): boolean {
     l.includes("phone") ||
     l.includes("android") ||
     l.includes("iphone") ||
+    l.includes("ipad") ||
+    l.includes("continuity") ||
+    l.includes("desk view") ||
     l.includes("webcam") ||
     l.includes("droidcam") ||
     l.includes("iriun") ||
