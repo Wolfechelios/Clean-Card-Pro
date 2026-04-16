@@ -576,6 +576,8 @@ export default function RapidScanCamera() {
   }
 
   async function stopCamera() {
+    stopAutoTimer();
+
     if (torchOn) {
       await setTorch(trackRef.current, false);
       setTorchOn(false);
@@ -1575,18 +1577,29 @@ export default function RapidScanCamera() {
           )}
         </button>
 
-        {/* Right: Torch toggle */}
+        {/* Right: Stop + torch controls */}
         {!isNative && cameraOn ? (
-          <Button
-            variant={torchOn ? "secondary" : "outline"}
-            size="icon"
-            className="h-14 w-14 rounded-full shrink-0"
-            onClick={toggleTorch}
-            disabled={!support.torch}
-            title={support.torch ? "Toggle flash" : "Flash not supported"}
-          >
-            {torchOn ? <FlashlightOff className="h-5 w-5" /> : <Flashlight className="h-5 w-5" />}
-          </Button>
+          <div className="flex items-center gap-3 shrink-0">
+            <Button
+              variant="destructive"
+              size="icon"
+              className="h-14 w-14 rounded-full"
+              onClick={stopCamera}
+              title="Stop camera and start pricing"
+            >
+              <CameraOff className="h-5 w-5" />
+            </Button>
+            <Button
+              variant={torchOn ? "secondary" : "outline"}
+              size="icon"
+              className="h-14 w-14 rounded-full"
+              onClick={toggleTorch}
+              disabled={!support.torch}
+              title={support.torch ? "Toggle flash" : "Flash not supported"}
+            >
+              {torchOn ? <FlashlightOff className="h-5 w-5" /> : <Flashlight className="h-5 w-5" />}
+            </Button>
+          </div>
         ) : <div className="w-14" />}
       </div>
 
