@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Camera, Loader2, QrCode, SwitchCamera, X, Zap, Wifi, WifiOff } from "lucide-react";
 import { toast } from "sonner";
 import QrScanner from "react-qr-scanner";
+import { useScannerSettings } from "@/hooks/use-scanner-settings";
 
 interface RemoteScanMobileProps {
   userId: string;
