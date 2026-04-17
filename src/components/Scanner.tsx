@@ -28,6 +28,28 @@ interface ScannerProps {
 
 const Scanner = ({ userId }: ScannerProps) => {
   const { settings, updateSettings } = useScannerSettings();
+  const location = useLocation();
+
+  // Resolve initial tab: ?tab=usb URL param > settings.defaultScanTab
+  const initialTab = useMemo<"rapid" | "usb" | "upload">(() => {
+    const params = new URLSearchParams(location.search);
+    const tabParam = params.get("tab");
+    if (tabParam === "rapid" || tabParam === "usb" || tabParam === "upload") return tabParam;
+    return settings.defaultScanTab || "rapid";
+  }, [location.search, settings.defaultScanTab]);
+
+  const [activeTab, setActiveTab] = useState<string>(initialTab);
+
+  // If user navigates with a hash like #remote, scroll the remote card into view once tab is mounted
+  useEffect(() => {
+    if (location.hash === "#remote" && activeTab === "usb") {
+      const t = setTimeout(() => {
+        const el = document.getElementById("remote");
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 200);
+      return () => clearTimeout(t);
+    }
+  }, [location.hash, activeTab]);
 
   const {
     file,
