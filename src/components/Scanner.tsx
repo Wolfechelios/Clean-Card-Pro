@@ -1,4 +1,5 @@
-import { useCallback } from "react";
+import { useCallback, useMemo, useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Camera, Usb, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,28 @@ interface ScannerProps {
 
 const Scanner = ({ userId }: ScannerProps) => {
   const { settings, updateSettings } = useScannerSettings();
+  const location = useLocation();
+
+  // Resolve initial tab: ?tab=usb URL param > settings.defaultScanTab
+  const initialTab = useMemo<"rapid" | "usb" | "upload">(() => {
+    const params = new URLSearchParams(location.search);
+    const tabParam = params.get("tab");
+    if (tabParam === "rapid" || tabParam === "usb" || tabParam === "upload") return tabParam;
+    return settings.defaultScanTab || "rapid";
+  }, [location.search, settings.defaultScanTab]);
+
+  const [activeTab, setActiveTab] = useState<string>(initialTab);
+
+  // If user navigates with a hash like #remote, scroll the remote card into view once tab is mounted
+  useEffect(() => {
+    if (location.hash === "#remote" && activeTab === "usb") {
+      const t = setTimeout(() => {
+        const el = document.getElementById("remote");
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 200);
+      return () => clearTimeout(t);
+    }
+  }, [location.hash, activeTab]);
 
   const {
     file,
@@ -106,7 +129,7 @@ const Scanner = ({ userId }: ScannerProps) => {
         </Button>
       </div>
 
-      <Tabs defaultValue="rapid" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid w-full grid-cols-3" role="tablist">
           <TabsTrigger value="rapid" className="flex items-center gap-2">
             <Camera className="h-4 w-4" aria-hidden="true" />

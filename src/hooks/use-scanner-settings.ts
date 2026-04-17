@@ -34,6 +34,15 @@ export interface ScannerSettings {
 
   // Game type filter for identification
   gameTypeFilter: "auto" | "mtg" | "yugioh" | "pokemon" | "sports" | "gpk" | "marvel" | "onepiece" | "other";
+
+  // Remote scanning (phone-as-camera pairing)
+  remoteAutoQueue: boolean;
+  remoteSessionTimeoutMin: number;
+  remotePhoneImageQuality: "low" | "medium" | "high";
+  remoteBurstIntervalSec: number;
+  remoteShowPhotoGrid: boolean;
+  remoteSoundOnReceive: boolean;
+  defaultScanTab: "rapid" | "usb" | "upload";
 }
 
 const DEFAULT_SETTINGS: ScannerSettings = {
@@ -62,6 +71,14 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   foilDetectionMode: "fast",
 
   gameTypeFilter: "auto",
+
+  remoteAutoQueue: true,
+  remoteSessionTimeoutMin: 30,
+  remotePhoneImageQuality: "high",
+  remoteBurstIntervalSec: 1.5,
+  remoteShowPhotoGrid: true,
+  remoteSoundOnReceive: true,
+  defaultScanTab: "rapid",
 };
 
 export function useScannerSettings() {

@@ -9,12 +9,14 @@ import { Badge } from "@/components/ui/badge";
 import { Camera, Loader2, QrCode, SwitchCamera, X, Zap, Wifi, WifiOff } from "lucide-react";
 import { toast } from "sonner";
 import QrScanner from "react-qr-scanner";
+import { useScannerSettings } from "@/hooks/use-scanner-settings";
 
 interface RemoteScanMobileProps {
   userId: string;
 }
 
 export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
+  const { settings } = useScannerSettings();
   const [mode, setMode] = useState<'scan' | 'manual' | 'camera'>('scan');
   const [sessionCode, setSessionCode] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
@@ -27,11 +29,18 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
   const [burstMode, setBurstMode] = useState(false);
   const [burstQueue, setBurstQueue] = useState(0);
   const [connectionHealth, setConnectionHealth] = useState<'good' | 'weak' | 'lost'>('good');
+  // Remote-overridable settings (received via realtime broadcast from desktop)
+  const [imageQuality, setImageQuality] = useState<'low' | 'medium' | 'high'>(settings.remotePhoneImageQuality);
+  const [burstIntervalSec, setBurstIntervalSec] = useState<number>(settings.remoteBurstIntervalSec);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const channelRef = useRef<any>(null);
   const burstActiveRef = useRef(false);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const imageQualityRef = useRef(imageQuality);
+  const burstIntervalRef = useRef(burstIntervalSec);
+  imageQualityRef.current = imageQuality;
+  burstIntervalRef.current = burstIntervalSec;
 
   const connectToSession = async (code: string) => {
     setIsConnecting(true);
@@ -72,8 +81,13 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
   const setupRealtimeChannel = (sessId: string) => {
     const channel = supabase.channel(`remote-scan-${sessId}`)
       .on('broadcast', { event: 'ack' }, () => {
-        // Desktop acknowledged receipt
         setConnectionHealth('good');
+      })
+      .on('broadcast', { event: 'settings' }, (payload: any) => {
+        const q = payload?.payload?.imageQuality;
+        const b = payload?.payload?.burstIntervalSec;
+        if (q === 'low' || q === 'medium' || q === 'high') setImageQuality(q);
+        if (typeof b === 'number' && b >= 0.25 && b <= 30) setBurstIntervalSec(b);
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
@@ -155,8 +169,10 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
     if (!ctx) return null;
     ctx.drawImage(videoRef.current, 0, 0, vw, vh);
 
+    const qualityMap = { low: 0.6, medium: 0.78, high: 0.92 } as const;
+    const jpegQ = qualityMap[imageQualityRef.current] ?? 0.9;
     const blob = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.90);
+      canvas.toBlob((b) => resolve(b), 'image/jpeg', jpegQ);
     });
     if (!blob) return null;
 
@@ -235,8 +251,9 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
         setSentCount(prev => prev + 1);
         setBurstQueue(prev => Math.max(0, prev - 1));
 
-        // Small delay between burst captures (500ms)
-        await new Promise(r => setTimeout(r, 500));
+        // Configurable delay between burst captures
+        const delayMs = Math.max(250, Math.round((burstIntervalRef.current || 1.5) * 1000));
+        await new Promise(r => setTimeout(r, delayMs));
       } catch (err) {
         console.error("Burst capture error:", err);
         setBurstQueue(prev => Math.max(0, prev - 1));
