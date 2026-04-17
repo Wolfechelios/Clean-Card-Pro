@@ -1,4 +1,5 @@
-import { useCallback } from "react";
+import { useCallback, useMemo, useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Camera, Usb, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
