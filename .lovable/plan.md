@@ -1,39 +1,69 @@
 
 
-## Plan: Fix Build Errors, COMC Category Bug, and Scan Reliability
+## Plan: Add Remote Scan Settings (Desktop Pairing Configuration)
 
-### Problem Summary
-Three issues are causing scan failures and build problems:
+### What's actually happening
 
-1. **Build errors** — Three files use `Record<string, any>` for Supabase `.update()` calls, which the new strict typing rejects.
-2. **COMC wrong category** — Sports cards (Dave Winfield, Eddie Murray, etc.) are searched under "Pokemon" on COMC because the category logic only handles MTG; everything else defaults to "Pokemon". This returns zero results for all sports cards.
-3. **Rate limiting delays** — Lovable AI is consistently rate-limited, causing every scan to wait 3+ seconds before falling back to your Gemini key. Not a code bug, but adds latency.
+The "Remote" feature **does exist** — it's the `RemoteScanDesktop` component on the **Scan page → USB tab** that shows a QR code your phone scans to stream camera frames to your computer. But:
 
-### Changes
+1. There are **no remote-scan settings anywhere in the Settings page** — nothing for session lifetime, auto-queue toggle, image quality, burst mode defaults, etc.
+2. The `RemoteScanDesktop` component itself has an `autoQueue` state that's never exposed as a control.
+3. There's no way to find or manage the feature without opening Scan → USB tab.
 
-**1. Fix build errors (3 files)**
+So the "remote settings for the computer" you're looking for genuinely don't exist yet. I'll add them.
 
-| File | Fix |
-|------|-----|
-| `src/components/collections/CardsNeedingReview.tsx` (lines 168, 251) | Cast `dbUpdates`/`updates` from `Record<string, any>` to the proper Supabase update type using `as any` on the `.update()` call |
-| `src/components/settings/BulkCardReidentify.tsx` (line 148) | Same fix — cast `updateData` with `as any` in the `.update()` call |
+### Where settings will live
 
-**2. Fix COMC category mapping (`supabase/functions/fetch-card-prices/index.ts`)**
+`src/pages/SettingsPage.tsx` — add a new **"Remote Scanning"** card section with:
 
-The `fetchCOMCPrices` function (line 384) currently defaults to `"Pokemon"` for all non-MTG cards, including sports cards. Fix:
+| Setting | Default | Effect |
+|---|---|---|
+| Auto-queue received photos | On | When phone sends a frame, automatically push it into the rapid-scan queue (current hardcoded behavior) |
+| Session timeout | 30 min | Auto-expire idle pairing sessions |
+| Image quality on phone | High | Phone-side JPEG quality (passes through realtime payload) |
+| Burst capture interval | 1.5s | Default delay between auto-shots in mobile burst mode |
+| Show received-photo grid | On | Toggle the desktop thumbnail feed |
+| Sound on photo received | On | Beep when a frame arrives on desktop |
+| Default scan tab | Rapid | Which tab opens first on `/scan` (Rapid / USB / Upload) — surfaces Remote faster |
 
-- Add `"Baseball"`, `"Football"`, `"Basketball"`, `"Hockey"` categories based on `gameType` and `sportType` (need to pass `sportType` into the function)
-- Add `"Yu-Gi-Oh"` category
-- Only default to `"Pokemon"` when the game type is actually Pokemon
-- For unknown types, use a generic COMC search without category
+### Files to change
 
-**3. Skip Lovable AI retry delay (optional optimization)**
+1. **`src/hooks/use-scanner-settings.ts`**  
+   Add `RemoteScanSettings` fields to `ScannerSettings` interface + `DEFAULT_SETTINGS`:
+   - `remoteAutoQueue: boolean`
+   - `remoteSessionTimeoutMin: number`
+   - `remotePhoneImageQuality: "low" | "medium" | "high"`
+   - `remoteBurstIntervalSec: number`
+   - `remoteShowPhotoGrid: boolean`
+   - `remoteSoundOnReceive: boolean`
+   - `defaultScanTab: "rapid" | "usb" | "upload"`
 
-In the `rapid-card-identify` edge function, reduce the rate-limit retry wait from 2 attempts (1s + 2s = 3s) to 1 attempt (1s) before falling back to the user's Gemini key, cutting wasted time in half.
+2. **`src/pages/SettingsPage.tsx`**  
+   Add a new "Remote Scanning" `Card` section with switches/selects bound to the new settings.
 
-### Technical Details
+3. **`src/components/scanner/RemoteScanDesktop.tsx`**  
+   - Read `useScannerSettings()` and respect: `remoteAutoQueue`, `remoteShowPhotoGrid`, `remoteSoundOnReceive`.
+   - When `remoteAutoQueue` is off, show a "Queue all" button instead.
+   - When a frame arrives and sound is enabled, play `audioBeeps` shutter snap.
 
-- The COMC function signature needs `sportType` added as a parameter
-- The caller in the main handler (~line 460-470) needs to pass `sportType` through
-- COMC category map: `baseball` → `"Baseball"`, `football` → `"Football"`, `basketball` → `"Basketball"`, `hockey` → `"Hockey"`, `yugioh` → `"Yu-Gi-Oh"`, `pokemon` → `"Pokemon"`, `mtg/magic` → `"Magic"`
+4. **`src/components/scanner/RemoteScanMobile.tsx`**  
+   - Respect `remotePhoneImageQuality` (passed to canvas `toDataURL` quality).
+   - Respect `remoteBurstIntervalSec` for burst loop delay.
+
+5. **`src/components/Scanner.tsx`**  
+   - Replace `defaultValue="rapid"` on `<Tabs>` with `settings.defaultScanTab`.
+
+6. **`src/components/scanner/RemoteScanDesktop.tsx`** (session timeout)  
+   - On `generateSession`, store `expires_at = now() + remoteSessionTimeoutMin`. If session row exists past expiry, refresh.
+
+### Visibility / discoverability
+
+Add a small "Open Remote Scan" link under the Settings section that deep-links to `/scan?tab=usb#remote`, and parse that hash in `Scanner.tsx` to scroll the Remote card into view.
+
+### Out of scope (will not touch)
+
+- Phone-side QR scanner UI internals
+- `remote_scan_sessions` DB schema (no new columns needed; timeout is client-side)
+- Realtime channel protocol
+- Existing rapid-scan ordering work (separate task you previously paused)
 
