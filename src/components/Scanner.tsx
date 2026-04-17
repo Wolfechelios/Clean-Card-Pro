@@ -129,7 +129,7 @@ const Scanner = ({ userId }: ScannerProps) => {
         </Button>
       </div>
 
-      <Tabs defaultValue="rapid" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid w-full grid-cols-3" role="tablist">
           <TabsTrigger value="rapid" className="flex items-center gap-2">
             <Camera className="h-4 w-4" aria-hidden="true" />
