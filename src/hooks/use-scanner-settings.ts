@@ -71,6 +71,14 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   foilDetectionMode: "fast",
 
   gameTypeFilter: "auto",
+
+  remoteAutoQueue: true,
+  remoteSessionTimeoutMin: 30,
+  remotePhoneImageQuality: "high",
+  remoteBurstIntervalSec: 1.5,
+  remoteShowPhotoGrid: true,
+  remoteSoundOnReceive: true,
+  defaultScanTab: "rapid",
 };
 
 export function useScannerSettings() {
