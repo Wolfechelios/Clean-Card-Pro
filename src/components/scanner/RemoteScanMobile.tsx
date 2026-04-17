@@ -16,6 +16,7 @@ interface RemoteScanMobileProps {
 }
 
 export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
+  const { settings } = useScannerSettings();
   const [mode, setMode] = useState<'scan' | 'manual' | 'camera'>('scan');
   const [sessionCode, setSessionCode] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
@@ -28,11 +29,18 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
   const [burstMode, setBurstMode] = useState(false);
   const [burstQueue, setBurstQueue] = useState(0);
   const [connectionHealth, setConnectionHealth] = useState<'good' | 'weak' | 'lost'>('good');
+  // Remote-overridable settings (received via realtime broadcast from desktop)
+  const [imageQuality, setImageQuality] = useState<'low' | 'medium' | 'high'>(settings.remotePhoneImageQuality);
+  const [burstIntervalSec, setBurstIntervalSec] = useState<number>(settings.remoteBurstIntervalSec);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const channelRef = useRef<any>(null);
   const burstActiveRef = useRef(false);
   const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const imageQualityRef = useRef(imageQuality);
+  const burstIntervalRef = useRef(burstIntervalSec);
+  imageQualityRef.current = imageQuality;
+  burstIntervalRef.current = burstIntervalSec;
 
   const connectToSession = async (code: string) => {
     setIsConnecting(true);
