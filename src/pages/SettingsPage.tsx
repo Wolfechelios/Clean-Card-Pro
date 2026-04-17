@@ -647,6 +647,133 @@ setNullRarityCount(missingRarity || 0);
         </CardContent>
       </Card>
 
+      {/* Remote Scanning */}
+      <Card className="bg-card border-border">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Smartphone className="h-5 w-5" />
+            Remote Scanning
+          </CardTitle>
+          <CardDescription>
+            Pair a phone as a wireless camera for your computer (Scan → USB tab → Remote Phone Camera)
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label className="text-sm font-medium">Auto-queue received photos</Label>
+              <p className="text-xs text-muted-foreground">
+                Automatically push frames sent from the phone into the rapid-scan queue
+              </p>
+            </div>
+            <Switch
+              checked={scannerSettings.remoteAutoQueue}
+              onCheckedChange={(checked) => updateScannerSettings({ remoteAutoQueue: checked })}
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label className="text-sm font-medium">Show received-photo grid</Label>
+              <p className="text-xs text-muted-foreground">Display thumbnails of frames received from the phone</p>
+            </div>
+            <Switch
+              checked={scannerSettings.remoteShowPhotoGrid}
+              onCheckedChange={(checked) => updateScannerSettings({ remoteShowPhotoGrid: checked })}
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label className="text-sm font-medium">Sound on photo received</Label>
+              <p className="text-xs text-muted-foreground">Play a shutter beep when a frame arrives on the desktop</p>
+            </div>
+            <Switch
+              checked={scannerSettings.remoteSoundOnReceive}
+              onCheckedChange={(checked) => updateScannerSettings({ remoteSoundOnReceive: checked })}
+            />
+          </div>
+
+          <div className="grid gap-2">
+            <Label className="text-sm font-medium">Session timeout</Label>
+            <select
+              className="h-10 rounded-md border bg-background px-3 text-sm"
+              value={scannerSettings.remoteSessionTimeoutMin}
+              onChange={(e) => updateScannerSettings({ remoteSessionTimeoutMin: Number(e.target.value) })}
+            >
+              <option value={5}>5 minutes</option>
+              <option value={15}>15 minutes</option>
+              <option value={30}>30 minutes</option>
+              <option value={60}>1 hour</option>
+              <option value={240}>4 hours</option>
+            </select>
+            <p className="text-xs text-muted-foreground">Idle pairing sessions auto-expire after this duration</p>
+          </div>
+
+          <div className="grid gap-2">
+            <Label className="text-sm font-medium">Phone image quality</Label>
+            <select
+              className="h-10 rounded-md border bg-background px-3 text-sm"
+              value={scannerSettings.remotePhoneImageQuality}
+              onChange={(e) =>
+                updateScannerSettings({ remotePhoneImageQuality: e.target.value as "low" | "medium" | "high" })
+              }
+            >
+              <option value="low">Low (faster, smaller)</option>
+              <option value="medium">Medium</option>
+              <option value="high">High (best quality)</option>
+            </select>
+          </div>
+
+          <div>
+            <Label className="text-sm font-medium">
+              Burst capture interval: {scannerSettings.remoteBurstIntervalSec}s
+            </Label>
+            <p className="text-xs text-muted-foreground mt-1 mb-3">
+              Delay between auto-shots when phone burst mode is active
+            </p>
+            <Slider
+              min={0.5}
+              max={5}
+              step={0.5}
+              value={[scannerSettings.remoteBurstIntervalSec]}
+              onValueChange={(value) => updateScannerSettings({ remoteBurstIntervalSec: value[0] })}
+              className="w-full"
+            />
+            <div className="flex justify-between text-xs text-muted-foreground mt-1">
+              <span>0.5s (fast)</span>
+              <span>5s (slow)</span>
+            </div>
+          </div>
+
+          <Separator />
+
+          <div className="grid gap-2">
+            <Label className="text-sm font-medium">Default scan tab</Label>
+            <select
+              className="h-10 rounded-md border bg-background px-3 text-sm"
+              value={scannerSettings.defaultScanTab}
+              onChange={(e) =>
+                updateScannerSettings({ defaultScanTab: e.target.value as "rapid" | "usb" | "upload" })
+              }
+            >
+              <option value="rapid">Rapid Scan</option>
+              <option value="usb">USB / Remote</option>
+              <option value="upload">Upload</option>
+            </select>
+            <p className="text-xs text-muted-foreground">Which tab opens first when you visit the Scan page</p>
+          </div>
+
+          <Button
+            variant="outline"
+            onClick={() => navigate("/scan?tab=usb#remote")}
+          >
+            <ExternalLink className="h-4 w-4 mr-2" />
+            Open Remote Scan
+          </Button>
+        </CardContent>
+      </Card>
+
       {/* Collection Management */}
       <Card className="bg-card border-border">
         <CardHeader>
