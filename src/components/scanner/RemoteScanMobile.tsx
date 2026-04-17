@@ -81,8 +81,13 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
   const setupRealtimeChannel = (sessId: string) => {
     const channel = supabase.channel(`remote-scan-${sessId}`)
       .on('broadcast', { event: 'ack' }, () => {
-        // Desktop acknowledged receipt
         setConnectionHealth('good');
+      })
+      .on('broadcast', { event: 'settings' }, (payload: any) => {
+        const q = payload?.payload?.imageQuality;
+        const b = payload?.payload?.burstIntervalSec;
+        if (q === 'low' || q === 'medium' || q === 'high') setImageQuality(q);
+        if (typeof b === 'number' && b >= 0.25 && b <= 30) setBurstIntervalSec(b);
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
