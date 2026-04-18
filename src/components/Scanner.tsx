@@ -131,10 +131,14 @@ const Scanner = ({ userId }: ScannerProps) => {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-3" role="tablist">
+        <TabsList className="grid w-full grid-cols-4" role="tablist">
           <TabsTrigger value="rapid" className="flex items-center gap-2">
             <Camera className="h-4 w-4" aria-hidden="true" />
             Rapid Scan
+          </TabsTrigger>
+          <TabsTrigger value="phone" className="flex items-center gap-2">
+            <Smartphone className="h-4 w-4" aria-hidden="true" />
+            Phone (QR)
           </TabsTrigger>
           <TabsTrigger value="usb" className="flex items-center gap-2">
             <Usb className="h-4 w-4" aria-hidden="true" />
@@ -148,6 +152,28 @@ const Scanner = ({ userId }: ScannerProps) => {
 
         <TabsContent value="rapid">
           <RapidScanCamera />
+        </TabsContent>
+
+        <TabsContent value="phone">
+          {pendingCard ? (
+            <CardIdentificationEditor
+              userId={userId}
+              primaryCard={pendingCard.identifiedCard}
+              alternatives={pendingCard.alternatives}
+              imageUrl={preview || undefined}
+              scanMode={pendingCard.scanMode}
+              ownedCount={pendingCard.ownedCount}
+              isInLibrary={pendingCard.isInLibrary}
+              currentPriceRaw={pendingCard.fallbackData?.currentPriceRaw ?? null}
+              onConfirm={handleConfirmCard}
+              onSelectAlternative={handleSelectAlternative}
+              onCancel={handleCancelCard}
+            />
+          ) : (
+            <div id="remote" className="space-y-6">
+              <RemoteScanDesktop userId={userId} onImageReceived={handleUSBCapture} />
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="usb">
@@ -168,7 +194,6 @@ const Scanner = ({ userId }: ScannerProps) => {
           ) : (
             <div className="space-y-6">
               <ContinuityCameraIngest onImageCaptured={handleUSBCapture} />
-              <RemoteScanDesktop userId={userId} onImageReceived={handleUSBCapture} />
               <USBBulkImport />
               <USBPhoneCameraScanner onImageCaptured={handleUSBCapture} />
             </div>
