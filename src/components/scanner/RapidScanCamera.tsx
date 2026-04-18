@@ -25,6 +25,7 @@ import {
   Save,
   Eye,
   SunDim,
+  DollarSign,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 
@@ -469,6 +470,93 @@ export default function RapidScanCamera() {
   const totalValue = useMemo(() => {
     return cards.reduce((sum, c) => sum + (c.status === "completed" ? c.value || 0 : 0), 0);
   }, [cards]);
+
+  // Number of completed cards still missing a price
+  const missingPriceCount = useMemo(() => {
+    return cards.filter(
+      (c) => c.status === "completed" && (c.value == null) && c.cardName
+    ).length;
+  }, [cards]);
+
+  const [findingPrices, setFindingPrices] = useState(false);
+
+  // Manually fetch prices for any completed cards missing them.
+  // Hits fetch-card-prices, then updates UI state, recentScans, and DB row if saved.
+  const findPricesNow = useCallback(async () => {
+    if (findingPrices) return;
+    const targets = cards.filter(
+      (c) => c.status === "completed" && c.value == null && c.cardName
+    );
+    if (targets.length === 0) {
+      toast.info("All scanned cards already have prices");
+      return;
+    }
+    setFindingPrices(true);
+    toast.loading(`Looking up ${targets.length} prices...`, { id: "find-prices" });
+    let updated = 0;
+    const BATCH = 4;
+    try {
+      for (let i = 0; i < targets.length; i += BATCH) {
+        const batch = targets.slice(i, i + BATCH);
+        await Promise.all(
+          batch.map(async (card) => {
+            updateCard(card.id, { priceFetching: true });
+            try {
+              const { data, error } = await supabase.functions.invoke(
+                "fetch-card-prices",
+                {
+                  body: {
+                    cardName: card.cardName,
+                    cardSet: card.cardSet ?? null,
+                    cardNumber: card.cardNumber ?? null,
+                    gameType: card.gameType ?? null,
+                    sportType: card.sportType ?? null,
+                    condition: null,
+                  },
+                }
+              );
+              if (error) throw error;
+              const raw = money((data as any)?.raw ?? (data as any)?.suggested ?? null);
+              const psa10 = money((data as any)?.psa10 ?? null);
+              updateCard(card.id, {
+                value: raw,
+                psa10Price: psa10,
+                priceFetching: false,
+              });
+              try {
+                updateRecentScan(card.id, { price: raw, psa10Price: psa10 });
+              } catch {}
+              if (card.dbId && raw != null) {
+                try {
+                  await supabase
+                    .from("cards")
+                    .update({
+                      current_price_raw: raw,
+                      current_price_psa10: psa10,
+                      suggested_price: raw,
+                      last_price_update: new Date().toISOString(),
+                    })
+                    .eq("id", card.dbId);
+                } catch {}
+              }
+              if (raw != null) updated++;
+            } catch (e) {
+              console.warn("[FindPrices] Lookup failed for", card.cardName, e);
+              updateCard(card.id, { priceFetching: false });
+            }
+          })
+        );
+      }
+      toast.success(`Found prices for ${updated} of ${targets.length} cards`, {
+        id: "find-prices",
+      });
+    } catch (e) {
+      console.error("[FindPrices] Batch failed:", e);
+      toast.error("Price lookup failed", { id: "find-prices" });
+    } finally {
+      setFindingPrices(false);
+    }
+  }, [cards, findingPrices, updateCard]);
 
   // ───────────────────────────────────────────────────────────────────────────
   // CAMERA
