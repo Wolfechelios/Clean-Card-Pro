@@ -56,6 +56,8 @@ export default function Settings() {
   const [recentImportCount, setRecentImportCount] = useState(0);
   const [recentTimeRange, setRecentTimeRange] = useState(2); // hours
   const [showClearAll, setShowClearAll] = useState(false);
+  const [clearAllPassword, setClearAllPassword] = useState("");
+  const [isVerifyingClearAll, setIsVerifyingClearAll] = useState(false);
   const [totalCards, setTotalCards] = useState(0);
   const [isUpdatingPrices, setIsUpdatingPrices] = useState(false);
   const [showDeleteUnknown, setShowDeleteUnknown] = useState(false);
@@ -259,8 +261,28 @@ setNullRarityCount(missingRarity || 0);
 
   const handleClearAll = async () => {
     if (!userId) return;
-    
+    if (!user?.email) {
+      toast.error("Account email not found — cannot verify password");
+      return;
+    }
+    if (!clearAllPassword) {
+      toast.error("Enter your password to confirm");
+      return;
+    }
+
+    setIsVerifyingClearAll(true);
     try {
+      // Re-verify the user's password before destructive action
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: clearAllPassword,
+      });
+
+      if (authError) {
+        toast.error("Incorrect password");
+        return;
+      }
+
       const { error } = await supabase
         .from("cards")
         .delete()
@@ -269,12 +291,14 @@ setNullRarityCount(missingRarity || 0);
       if (error) throw error;
 
       toast.success("All cards deleted successfully");
+      setClearAllPassword("");
+      setShowClearAll(false);
       loadCollectionStats();
     } catch (error) {
       console.error("Error clearing collection:", error);
       toast.error("Failed to clear collection");
     } finally {
-      setShowClearAll(false);
+      setIsVerifyingClearAll(false);
     }
   };
 
@@ -1155,21 +1179,43 @@ setNullRarityCount(missingRarity || 0);
       </AlertDialog>
 
       {/* Clear All Cards Dialog */}
-      <AlertDialog open={showClearAll} onOpenChange={setShowClearAll}>
+      <AlertDialog
+        open={showClearAll}
+        onOpenChange={(open) => {
+          setShowClearAll(open);
+          if (!open) setClearAllPassword("");
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Clear Entire Collection</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete ALL {totalCards} cards in your collection? This will permanently delete your entire collection and cannot be undone.
+              You are about to permanently delete ALL {totalCards} cards in your collection. This cannot be undone. Enter your account password to confirm.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="clear-all-password">Account password</Label>
+            <Input
+              id="clear-all-password"
+              type="password"
+              autoComplete="current-password"
+              placeholder="Enter your password"
+              value={clearAllPassword}
+              onChange={(e) => setClearAllPassword(e.target.value)}
+              disabled={isVerifyingClearAll}
+            />
+          </div>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={isVerifyingClearAll}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleClearAll}
+              onClick={(e) => {
+                e.preventDefault();
+                handleClearAll();
+              }}
+              disabled={isVerifyingClearAll || !clearAllPassword}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Delete All {totalCards} Cards
+              {isVerifyingClearAll ? "Verifying..." : `Delete All ${totalCards} Cards`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
