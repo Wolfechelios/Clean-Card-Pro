@@ -1,69 +1,63 @@
 
 
-## Plan: Add Remote Scan Settings (Desktop Pairing Configuration)
+## Plan: Fix Rapid Scan Failures + MTG Pricing (PriceCharting + eBay Sold ≤2y)
 
-### What's actually happening
+### Root causes
 
-The "Remote" feature **does exist** — it's the `RemoteScanDesktop` component on the **Scan page → USB tab** that shows a QR code your phone scans to stream camera frames to your computer. But:
+**Why scans keep failing:**
 
-1. There are **no remote-scan settings anywhere in the Settings page** — nothing for session lifetime, auto-queue toggle, image quality, burst mode defaults, etc.
-2. The `RemoteScanDesktop` component itself has an `autoQueue` state that's never exposed as a control.
-3. There's no way to find or manage the feature without opening Scan → USB tab.
+1. **`fetch-card-prices` has eBay and PriceCharting hard-disabled** — both are wired as `Promise.resolve(emptySource())` (lines 496–501). Only COMC and TCGPlayer run. COMC returns 0 results for most MTG cards (logs confirm: `Razorfin Hunter`, `Consume Strength` → "No data"). So every MTG scan returns `raw: null`.
+2. **Aggressive timeouts in queue processor** — `IDENTIFY_TIMEOUT_MS = 3500ms`, `OCR_TIMEOUT_MS = 2500ms`. Mobile + cold-start edge functions regularly exceed this, throwing "timed out" → marked as `error`.
+3. **Silent discard at confidence < 0.3** — line 667 of `queueProcessor.ts` deletes the IDB item with no user-visible record (`idbDelete(item.id)` then `return`). Looks like a "missing" scan.
+4. **Lovable AI 429 fallback** — `rapid-card-identify` only falls back to user Gemini key if `lovableExhausted` flag is set AND user has a valid key. If user has no Gemini key, scans fail outright on rate limits.
+5. **`gameType` arrives as `null`** — logs show `gameType: null` for MTG cards. Without a hint, PriceCharting/COMC can't pick the right category. The hybrid identifier sometimes returns no game_type, and the queue processor doesn't backfill from `scanSettings.gameTypeFilter` before pricing.
 
-So the "remote settings for the computer" you're looking for genuinely don't exist yet. I'll add them.
+### Fixes
 
-### Where settings will live
+**1. Re-enable PriceCharting and eBay (MTG-focused)** — `supabase/functions/fetch-card-prices/index.ts`
+- Restore real `fetchPriceChartingPrices(...)` and `fetchEbayPrices(...)` calls (replace the `Promise.resolve(emptySource())` stubs).
+- Update eBay scrape URL to add `&_sop=13` (sold, ended recently) AND apply a **2-year date filter** by parsing each row's "Sold <date>" string from Firecrawl markdown — drop any sale older than today minus 24 months. Re-compute median only on the kept set.
+- Update `pickPrimaryWithSanity` priority for MTG specifically:
+  - `gameType` includes `mtg/magic` → **PriceCharting first → eBay sold-median (≤2y) second → TCGPlayer third**. COMC dropped to last resort for MTG.
+- Pass `gameType` into both functions (already accepts it).
 
-`src/pages/SettingsPage.tsx` — add a new **"Remote Scanning"** card section with:
+**2. eBay date-filter helper** — same file
+- Add a regex pass on each line: `/Sold\s+([A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})/i` → parse to Date → reject if `< now - 730 days`.
+- Lines without a parseable sold-date are kept (Firecrawl sometimes strips them) but logged.
 
-| Setting | Default | Effect |
-|---|---|---|
-| Auto-queue received photos | On | When phone sends a frame, automatically push it into the rapid-scan queue (current hardcoded behavior) |
-| Session timeout | 30 min | Auto-expire idle pairing sessions |
-| Image quality on phone | High | Phone-side JPEG quality (passes through realtime payload) |
-| Burst capture interval | 1.5s | Default delay between auto-shots in mobile burst mode |
-| Show received-photo grid | On | Toggle the desktop thumbnail feed |
-| Sound on photo received | On | Beep when a frame arrives on desktop |
-| Default scan tab | Rapid | Which tab opens first on `/scan` (Rapid / USB / Upload) — surfaces Remote faster |
+**3. Stop silent scan loss** — `src/lib/queueProcessor.ts`
+- Replace the `idbDelete(item.id)` discard at line 669 with `idbUpdateMeta(item.id, { status: "error", error: "Low confidence — needs review" })` so the item stays visible and the user knows.
+- Add a console + toast notification on first low-conf discard per session.
 
-### Files to change
+**4. Loosen scan timeouts** — `src/lib/queueProcessor.ts`
+- `IDENTIFY_TIMEOUT_MS`: 3500 → **8000** (matches edge function realistic latency)
+- `OCR_TIMEOUT_MS`: 2500 → **5000**
+- Keep `UPLOAD_TIMEOUT_MS` at 8000.
 
-1. **`src/hooks/use-scanner-settings.ts`**  
-   Add `RemoteScanSettings` fields to `ScannerSettings` interface + `DEFAULT_SETTINGS`:
-   - `remoteAutoQueue: boolean`
-   - `remoteSessionTimeoutMin: number`
-   - `remotePhoneImageQuality: "low" | "medium" | "high"`
-   - `remoteBurstIntervalSec: number`
-   - `remoteShowPhotoGrid: boolean`
-   - `remoteSoundOnReceive: boolean`
-   - `defaultScanTab: "rapid" | "usb" | "upload"`
+**5. Backfill `gameType` from user setting before pricing** — `src/lib/queueProcessor.ts` (around line 657)
+- If `gameType` is null AND `scanSettings.gameTypeFilter !== "auto"`, set `gameType` to the canonical map (e.g. `mtg` → `"MTG"`) before calling `cachedFetchPrice`.
 
-2. **`src/pages/SettingsPage.tsx`**  
-   Add a new "Remote Scanning" `Card` section with switches/selects bound to the new settings.
+**6. Better Lovable AI → Gemini fallback** — `supabase/functions/rapid-card-identify/index.ts`
+- Allow Gemini fallback even when `LOVABLE_API_KEY` is missing the `lovableExhausted` flag (any 5xx, network error, or empty content should also trigger fallback if a Gemini key is available).
+- Removes silent failures when Lovable AI hiccups.
 
-3. **`src/components/scanner/RemoteScanDesktop.tsx`**  
-   - Read `useScannerSettings()` and respect: `remoteAutoQueue`, `remoteShowPhotoGrid`, `remoteSoundOnReceive`.
-   - When `remoteAutoQueue` is off, show a "Queue all" button instead.
-   - When a frame arrives and sound is enabled, play `audioBeeps` shutter snap.
+### Files changed
 
-4. **`src/components/scanner/RemoteScanMobile.tsx`**  
-   - Respect `remotePhoneImageQuality` (passed to canvas `toDataURL` quality).
-   - Respect `remoteBurstIntervalSec` for burst loop delay.
+| File | Change |
+|---|---|
+| `supabase/functions/fetch-card-prices/index.ts` | Re-enable PC + eBay; add 2-year sold filter; MTG priority order |
+| `src/lib/queueProcessor.ts` | Looser timeouts; preserve low-conf items; backfill gameType |
+| `supabase/functions/rapid-card-identify/index.ts` | Broader Gemini fallback conditions |
 
-5. **`src/components/Scanner.tsx`**  
-   - Replace `defaultValue="rapid"` on `<Tabs>` with `settings.defaultScanTab`.
+### Out of scope
 
-6. **`src/components/scanner/RemoteScanDesktop.tsx`** (session timeout)  
-   - On `generateSession`, store `expires_at = now() + remoteSessionTimeoutMin`. If session row exists past expiry, refresh.
+- Full Phase 1 strict-ordering repair (separate paused task)
+- New IDB schema fields (`captureIndex`, etc.)
+- Settings UI for pricing source toggles
 
-### Visibility / discoverability
+### Verification after deploy
 
-Add a small "Open Remote Scan" link under the Settings section that deep-links to `/scan?tab=usb#remote`, and parse that hash in `Scanner.tsx` to scroll the Remote card into view.
-
-### Out of scope (will not touch)
-
-- Phone-side QR scanner UI internals
-- `remote_scan_sessions` DB schema (no new columns needed; timeout is client-side)
-- Realtime channel protocol
-- Existing rapid-scan ordering work (separate task you previously paused)
+- Scan an MTG card → response should include non-null `raw` from PriceCharting OR eBay median.
+- Check `fetch-card-prices` logs for `[PriceCharting]` and `[eBay]` lines (they were absent before).
+- Low-confidence captures should now show in the queue with an error badge instead of disappearing.
 
