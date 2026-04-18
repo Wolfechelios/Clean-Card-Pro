@@ -348,7 +348,7 @@ async function cachedFetchPrice(args: {
         sportType: args.sportType,
         condition: args.condition,
       },
-      { timeoutMs: 6000, retries: 1, retryDelayMs: 200 }
+      { timeoutMs: 6000, retries: 0, retryDelayMs: 200 }
     );
 
     let v: number | null = null;
