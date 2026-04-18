@@ -384,6 +384,7 @@ async function getUserId(): Promise<string | null> {
 
 let workersActive = 0;
 let scalingInterval: ReturnType<typeof setInterval> | null = null;
+let lowConfWarned = false;
 
 let rateLimitUntil = 0;
 function isRateLimitError(e: unknown): boolean {
