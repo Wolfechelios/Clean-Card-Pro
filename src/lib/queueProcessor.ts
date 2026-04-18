@@ -91,8 +91,7 @@ const WORKER_SCALE_INTERVAL_MS = 250;
 const QUEUE_REFRESH_INTERVAL_MS = 1000;
 const MIN_SERIAL_JOB_DELAY_MS = 50;
 const ANOMALY_PAUSE_STORAGE_KEY = "rapid-scan-anomaly-paused";
-const IDENTIFY_TIMEOUT_MS = 8000;
-const OCR_TIMEOUT_MS = 5000;
+const IDENTIFY_TIMEOUT_MS = 5000;
 const UPLOAD_TIMEOUT_MS = 8000;
 
 function readAnomalyPauseFlag(): boolean {
@@ -546,79 +545,20 @@ async function processJob(item: QueueItem): Promise<void> {
   ).catch((e: any) => ({ success: false, cardData: null, source: "cloud" as const, error: e }));
 
   let identify: any = null;
-  let shouldUseOcrFallback = false;
 
   if (!(identifyInitial as any)?.error && (identifyInitial as any)?.success) {
     identify = (identifyInitial as any).cardData;
     const initialConfidence = Number(identify?.confidence ?? 0);
-    const initialName = String(identify?.card_name ?? "").trim().toLowerCase();
-    shouldUseOcrFallback = !initialName || initialName === "unknown card" || initialConfidence < 0.5;
     console.log(`[QueueProcessor] Card identified via ${(identifyInitial as any).source}:`, identify?.card_name, `conf=${initialConfidence}`);
   } else {
     const err = (identifyInitial as any)?.error;
     if (err?.message?.includes("max attempts reached")) {
       throw new Error("Offline: requires internet connection to identify this card");
     }
-    shouldUseOcrFallback = true;
-  }
-
-  let ocrText: string | null = null;
-  let ocrSetCode: string | null = null;
-  let ocrCardNumber: string | null = null;
-  let ocrConfidence = 0;
-
-  if (shouldUseOcrFallback) {
-    const ocrResult = await withTimeout(
-      supabase.functions.invoke("zai-ocr", {
-        body: { imageUrl: base64, mode: "meta" },
-      }),
-      OCR_TIMEOUT_MS,
-      "Z.AI OCR"
-    ).catch((e: any) => {
-      console.warn("[QueueProcessor] Z.AI OCR skipped:", e);
-      return { data: null, error: e } as any;
-    });
-
-    if (ocrResult && (ocrResult as any).data && !(ocrResult as any).error) {
-      const ocr = (ocrResult as any).data;
-      ocrText = ocr.text || null;
-      ocrSetCode = ocr.setCode || null;
-      ocrCardNumber = ocr.cardNumber || null;
-      ocrConfidence = ocr.confidence || 0;
-      console.log(`[QueueProcessor] Z.AI OCR: "${ocrText?.substring(0, 60)}" conf=${ocrConfidence} set=${ocrSetCode} num=${ocrCardNumber}`);
-    }
-
-    if (ocrText) {
-      const retryResult = await withTimeout(
-        hybridIdentifyCard(base64, {
-          cloudFunction: "rapid-card-identify",
-          skipOfflineGuard: false,
-          ocrText,
-          gameTypeHint,
-        }),
-        IDENTIFY_TIMEOUT_MS + 1500,
-        "Rapid identify OCR retry"
-      );
-      identify = retryResult.cardData;
-      console.log(`[QueueProcessor] Card identified via ${retryResult.source} (OCR retry):`, identify?.card_name);
-    } else if (!identify) {
-      const err = (identifyInitial as any)?.error;
-      throw err || new Error("Card identification failed");
-    }
   }
 
   if (!identify) {
     throw new Error("Card identification failed");
-  }
-
-  // Enrich with OCR structured data only when we actually used OCR
-  if (ocrConfidence >= 0.5) {
-    if (ocrCardNumber && (!identify?.card_number || identify.confidence < 0.7)) {
-      identify.card_number = ocrCardNumber;
-    }
-    if (ocrSetCode && (!identify?.card_set || identify.confidence < 0.7) && !identify?.card_set) {
-      identify.card_set = ocrSetCode;
-    }
   }
 
   const cardName: string = identify?.card_name || "Unknown Card";
