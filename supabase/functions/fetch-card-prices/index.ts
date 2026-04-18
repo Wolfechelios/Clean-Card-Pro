@@ -515,24 +515,101 @@ Deno.serve(async (req) => {
     );
 
     const isMTG = gameType && /mtg|magic/i.test(gameType);
+    const isPokemon = gameType && /pokemon|pokémon/i.test(gameType);
+    const isYGO = gameType && /yugioh|yu-gi-oh/i.test(gameType);
 
-    // Re-enabled: PriceCharting + eBay (with 2-year sold filter)
-    const ebayPromise = fetchEbayPrices(searchQuery, condition);
-    const pcPromise = isTCG
-      ? fetchPriceChartingPrices(cardName, cardSet, gameType, cardNumber)
-      : Promise.resolve(emptySource());
-    const tcgPromise = isTCG
-      ? fetchTCGPlayerPrices(cardName, cardSet, cardNumber, gameType)
-      : Promise.resolve({ lastSold: null, low: null, mid: null, high: null, market: null, url: null });
-    const scpPromise = isSportsCard
-      ? fetchSportsCardProPrices(searchQuery)
-      : Promise.resolve(emptySource());
-    // For MTG, COMC is last resort — skip to save time on rapid scans
-    const comcPromise = isMTG
-      ? Promise.resolve(emptySource())
-      : fetchCOMCPrices(cardName, cardSet, gameType, sportType);
+    // ── Race-to-first-non-null pricing with 3.5s overall cap ──
+    // Game-specific priority: skip slow sources unless target source returns null.
+    const PRICING_CAP_MS = 3500;
 
-    const [ebay, pc, tcg, scp, comc] = await Promise.all([ebayPromise, pcPromise, tcgPromise, scpPromise, comcPromise]);
+    const raceFirstNonNull = async <T>(
+      promises: Array<Promise<T>>,
+      isNonNull: (v: T) => boolean,
+      capMs: number
+    ): Promise<T[]> => {
+      // Returns whatever resolved (with non-null preferred) before capMs
+      return await new Promise<T[]>((resolve) => {
+        const results: T[] = [];
+        let resolved = false;
+        let pending = promises.length;
+        const finish = () => {
+          if (resolved) return;
+          resolved = true;
+          resolve(results);
+        };
+        const timer = setTimeout(finish, capMs);
+        promises.forEach((p) => {
+          p.then((v) => {
+            results.push(v);
+            if (isNonNull(v)) {
+              clearTimeout(timer);
+              finish();
+            }
+          })
+            .catch(() => {})
+            .finally(() => {
+              pending--;
+              if (pending === 0) {
+                clearTimeout(timer);
+                finish();
+              }
+            });
+        });
+      });
+    };
+
+    let ebay: SourcePrices = emptySource();
+    let pc: SourcePrices = emptySource();
+    let tcg: { lastSold: number | null; low: number | null; mid: number | null; high: number | null; market: number | null; url: string | null } =
+      { lastSold: null, low: null, mid: null, high: null, market: null, url: null };
+    let scp: SourcePrices = emptySource();
+    let comc: SourcePrices = emptySource();
+
+    if (isMTG || isPokemon || isYGO) {
+      // TCG path: race PriceCharting + TCGPlayer; eBay only if both null
+      const pcP = fetchPriceChartingPrices(cardName, cardSet, gameType, cardNumber).then((r) => { pc = r; return r; });
+      const tcgP = fetchTCGPlayerPrices(cardName, cardSet, cardNumber, gameType).then((r) => { tcg = r; return r; });
+      await raceFirstNonNull(
+        [pcP, tcgP],
+        (v: any) => (v && (v.raw != null || v.market != null || v.lastSold != null)) as boolean,
+        PRICING_CAP_MS
+      );
+      // Fallback to eBay only if neither got a raw price
+      if (!pc.raw && !tcg.market && !tcg.lastSold) {
+        ebay = await Promise.race([
+          fetchEbayPrices(searchQuery, condition),
+          new Promise<SourcePrices>((r) => setTimeout(() => r(emptySource()), PRICING_CAP_MS)),
+        ]);
+      }
+    } else if (isSportsCard) {
+      // Sports: race SportsCardPro + PriceCharting; eBay fallback
+      const scpP = fetchSportsCardProPrices(searchQuery).then((r) => { scp = r; return r; });
+      const pcP = fetchPriceChartingPrices(cardName, cardSet, gameType, cardNumber).then((r) => { pc = r; return r; });
+      await raceFirstNonNull(
+        [scpP, pcP],
+        (v: any) => (v && v.raw != null) as boolean,
+        PRICING_CAP_MS
+      );
+      if (!scp.raw && !pc.raw) {
+        ebay = await Promise.race([
+          fetchEbayPrices(searchQuery, condition),
+          new Promise<SourcePrices>((r) => setTimeout(() => r(emptySource()), PRICING_CAP_MS)),
+        ]);
+      }
+    } else {
+      // Unknown: try PC + eBay quickly in parallel with cap
+      const [pcRes, ebayRes] = await Promise.all([
+        Promise.race([
+          fetchPriceChartingPrices(cardName, cardSet, gameType, cardNumber),
+          new Promise<SourcePrices>((r) => setTimeout(() => r(emptySource()), PRICING_CAP_MS)),
+        ]),
+        Promise.race([
+          fetchEbayPrices(searchQuery, condition),
+          new Promise<SourcePrices>((r) => setTimeout(() => r(emptySource()), PRICING_CAP_MS)),
+        ]),
+      ]);
+      pc = pcRes; ebay = ebayRes;
+    }
 
     // Build sources list
     if (comc.raw || comc.psa10) sources.push("COMC");
