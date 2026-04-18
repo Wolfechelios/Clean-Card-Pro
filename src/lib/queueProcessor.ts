@@ -87,9 +87,9 @@ type ProcessorStore = ProcessorState & {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
-const WORKER_SCALE_INTERVAL_MS = 500;
+const WORKER_SCALE_INTERVAL_MS = 250;
 const QUEUE_REFRESH_INTERVAL_MS = 1000;
-const MIN_SERIAL_JOB_DELAY_MS = 800;
+const MIN_SERIAL_JOB_DELAY_MS = 50;
 const ANOMALY_PAUSE_STORAGE_KEY = "rapid-scan-anomaly-paused";
 const IDENTIFY_TIMEOUT_MS = 8000;
 const OCR_TIMEOUT_MS = 5000;
