@@ -31,12 +31,13 @@ const Scanner = ({ userId }: ScannerProps) => {
   const location = useLocation();
 
   // Resolve initial tab: ?tab=usb URL param > settings.defaultScanTab
-  const initialTab = useMemo<"rapid" | "usb" | "upload">(() => {
+  const initialTab = useMemo<"rapid" | "phone" | "usb" | "upload">(() => {
     const params = new URLSearchParams(location.search);
     const tabParam = params.get("tab");
-    if (tabParam === "rapid" || tabParam === "usb" || tabParam === "upload") return tabParam;
-    return settings.defaultScanTab || "rapid";
-  }, [location.search, settings.defaultScanTab]);
+    if (tabParam === "rapid" || tabParam === "phone" || tabParam === "usb" || tabParam === "upload") return tabParam;
+    if (location.hash === "#remote") return "phone";
+    return (settings.defaultScanTab as any) || "rapid";
+  }, [location.search, location.hash, settings.defaultScanTab]);
 
   const [activeTab, setActiveTab] = useState<string>(initialTab);
 
