@@ -105,6 +105,21 @@ function getMedian(prices: number[]): number | null {
     : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+// ─── eBay sold-date parser (2-year filter) ──────────────────────────
+const TWO_YEARS_MS = 730 * 24 * 60 * 60 * 1000;
+function isWithinLast2Years(line: string): boolean {
+  // Pattern: "Sold Mar 14, 2024" / "Sold  Jan 2, 2023"
+  const match = line.match(/Sold\s+([A-Z][a-z]{2,9})\s+(\d{1,2}),\s+(\d{4})/i);
+  if (!match) {
+    // No parseable date — keep (Firecrawl sometimes strips dates)
+    return true;
+  }
+  const parsed = new Date(`${match[1]} ${match[2]}, ${match[3]}`);
+  if (isNaN(parsed.getTime())) return true;
+  const ageMs = Date.now() - parsed.getTime();
+  return ageMs <= TWO_YEARS_MS;
+}
+
 // ─── eBay Sold via Firecrawl ────────────────────────────────────────
 async function fetchEbayPrices(searchQuery: string, condition?: string): Promise<SourcePrices> {
   try {
@@ -122,12 +137,19 @@ async function fetchEbayPrices(searchQuery: string, condition?: string): Promise
 
     const lines = md.split("\n");
     let totalExtracted = 0;
+    let droppedOldCount = 0;
     const MAX_PRICES = 15;
     for (const line of lines) {
       if (totalExtracted >= MAX_PRICES) break;
       const lower = line.toLowerCase();
       if (lower.includes("shipping") || lower.includes("import") || lower.includes("returns")) continue;
       if (lower.includes("bid") || lower.includes("watching") || lower.includes("buy it now") || lower.includes("best offer")) continue;
+
+      // 2-year sold filter
+      if (!isWithinLast2Years(line)) {
+        droppedOldCount++;
+        continue;
+      }
 
       const isRawCondition = condition && ["near mint", "nm", "lightly played", "lp", "raw"].some(
         c => condition.toLowerCase().includes(c)
@@ -177,7 +199,7 @@ async function fetchEbayPrices(searchQuery: string, condition?: string): Promise
     const allPrices = [...soldPrices, ...psa8Prices, ...psa9Prices, ...psa10Prices];
     const highest = allPrices.length > 0 ? Math.max(...allPrices) : null;
 
-    console.log(`[eBay] Found ${soldPrices.length} raw, ${psa8Prices.length} PSA8, ${psa9Prices.length} PSA9, ${psa10Prices.length} PSA10 prices`);
+    console.log(`[eBay] Found ${soldPrices.length} raw, ${psa8Prices.length} PSA8, ${psa9Prices.length} PSA9, ${psa10Prices.length} PSA10 prices (dropped ${droppedOldCount} sales >2y old)`);
 
     return {
       raw: rawMedian ? parseFloat(rawMedian.toFixed(2)) : null,
@@ -492,14 +514,23 @@ Deno.serve(async (req) => {
       sportType.toLowerCase()
     );
 
-    // Only COMC + TCGPlayer sources active
-    const ebayPromise = Promise.resolve(emptySource());
-    const pcPromise = Promise.resolve(emptySource());
+    const isMTG = gameType && /mtg|magic/i.test(gameType);
+
+    // Re-enabled: PriceCharting + eBay (with 2-year sold filter)
+    const ebayPromise = fetchEbayPrices(searchQuery, condition);
+    const pcPromise = isTCG
+      ? fetchPriceChartingPrices(cardName, cardSet, gameType, cardNumber)
+      : Promise.resolve(emptySource());
     const tcgPromise = isTCG
       ? fetchTCGPlayerPrices(cardName, cardSet, cardNumber, gameType)
       : Promise.resolve({ lastSold: null, low: null, mid: null, high: null, market: null, url: null });
-    const scpPromise = Promise.resolve(emptySource());
-    const comcPromise = fetchCOMCPrices(cardName, cardSet, gameType, sportType);
+    const scpPromise = isSportsCard
+      ? fetchSportsCardProPrices(searchQuery)
+      : Promise.resolve(emptySource());
+    // For MTG, COMC is last resort — skip to save time on rapid scans
+    const comcPromise = isMTG
+      ? Promise.resolve(emptySource())
+      : fetchCOMCPrices(cardName, cardSet, gameType, sportType);
 
     const [ebay, pc, tcg, scp, comc] = await Promise.all([ebayPromise, pcPromise, tcgPromise, scpPromise, comcPromise]);
 
@@ -519,14 +550,20 @@ Deno.serve(async (req) => {
       const secondary = pc.raw;
       const tertiary = [ebay.raw, tcg.market, tcg.lastSold].filter((v): v is number => v != null && v > 0);
       rawPrice = pickPrimaryWithSanity(primary, secondary, tertiary);
+    } else if (isMTG) {
+      // MTG: PriceCharting → eBay sold (≤2y median) → TCGPlayer → COMC last
+      const primary = pc.raw;
+      const secondary = ebay.raw;
+      const tertiary = [tcg.market, tcg.lastSold, comc.raw].filter((v): v is number => v != null && v > 0);
+      rawPrice = pickPrimaryWithSanity(primary, secondary, tertiary);
     } else if (isTCG) {
-      // TCG cards: COMC → TCGPlayer fallback
+      // Pokemon/YGO: COMC → TCGPlayer → PriceCharting → eBay fallback
       const primary = comc.raw ?? tcg.market ?? tcg.lastSold;
       const secondary = tcg.market ?? tcg.lastSold ?? comc.raw;
-      const tertiary = [comc.raw, tcg.market, tcg.lastSold].filter((v): v is number => v != null && v > 0);
+      const tertiary = [pc.raw, ebay.raw].filter((v): v is number => v != null && v > 0);
       rawPrice = pickPrimaryWithSanity(primary, secondary, tertiary);
     } else {
-      // Other TCG (YGO): PriceCharting → TCGPlayer → eBay fallback
+      // Unknown game type: PriceCharting → TCGPlayer → eBay fallback
       const primary = pc.raw;
       const secondary = tcg.market ?? tcg.lastSold;
       const tertiary = [ebay.raw, scp.raw].filter((v): v is number => v != null && v > 0);

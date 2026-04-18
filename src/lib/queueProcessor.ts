@@ -91,8 +91,8 @@ const WORKER_SCALE_INTERVAL_MS = 500;
 const QUEUE_REFRESH_INTERVAL_MS = 1000;
 const MIN_SERIAL_JOB_DELAY_MS = 800;
 const ANOMALY_PAUSE_STORAGE_KEY = "rapid-scan-anomaly-paused";
-const IDENTIFY_TIMEOUT_MS = 3500;
-const OCR_TIMEOUT_MS = 2500;
+const IDENTIFY_TIMEOUT_MS = 8000;
+const OCR_TIMEOUT_MS = 5000;
 const UPLOAD_TIMEOUT_MS = 8000;
 
 function readAnomalyPauseFlag(): boolean {
@@ -384,6 +384,7 @@ async function getUserId(): Promise<string | null> {
 
 let workersActive = 0;
 let scalingInterval: ReturnType<typeof setInterval> | null = null;
+let lowConfWarned = false;
 
 let rateLimitUntil = 0;
 function isRateLimitError(e: unknown): boolean {
@@ -654,7 +655,7 @@ async function processJob(item: QueueItem): Promise<void> {
   const cardSet: string | null = identify?.card_set ?? null;
   const cardNumber: string | null = identify?.card_number ?? null;
   const rarity: string | null = identify?.rarity ?? null;
-  const gameType: string | null = identify?.game_type ?? null;
+  let gameType: string | null = identify?.game_type ?? null;
   const sportType: string | null = identify?.sport_type ?? null;
   const cardCondition: string | null = identify?.condition ?? null;
   const confidence: number = identify?.confidence ?? 0;
@@ -663,11 +664,40 @@ async function processJob(item: QueueItem): Promise<void> {
   const team: string | null = identify?.team ?? null;
   const manufacturer: string | null = identify?.manufacturer ?? null;
 
+  // Backfill gameType from user filter when AI returns null
+  if (!gameType && scanSettings.gameTypeFilter && scanSettings.gameTypeFilter !== "auto") {
+    const GAME_TYPE_MAP: Record<string, string> = {
+      mtg: "MTG",
+      yugioh: "Yu-Gi-Oh!",
+      pokemon: "Pokemon",
+      sports: "Sports",
+      gpk: "GPK",
+      marvel: "Marvel",
+      onepiece: "One Piece",
+    };
+    const backfilled = GAME_TYPE_MAP[scanSettings.gameTypeFilter];
+    if (backfilled) {
+      gameType = backfilled;
+      console.log(`[QueueProcessor] Backfilled gameType from user setting: ${gameType}`);
+    }
+  }
+
   const MIN_CONFIDENCE = 0.3;
   if (cardName === "Unknown Card" || confidence < MIN_CONFIDENCE) {
-    console.log(`[QueueProcessor] Discarding unreadable card (confidence: ${(confidence * 100).toFixed(0)}%, name: ${cardName})`);
-    await idbDelete(item.id);
+    console.log(`[QueueProcessor] Low-confidence scan preserved for review (confidence: ${(confidence * 100).toFixed(0)}%, name: ${cardName})`);
+    await idbUpdateMeta(item.id, {
+      status: "error",
+      error: `Low confidence (${(confidence * 100).toFixed(0)}%) — needs review`,
+    });
+    if (!lowConfWarned) {
+      lowConfWarned = true;
+      try {
+        const { toast } = await import("sonner");
+        toast.warning("Some scans had low confidence and are flagged for review in the queue.");
+      } catch { /* ignore */ }
+    }
     store._setCurrentItem(null);
+    store._incrementError();
     return;
   }
 

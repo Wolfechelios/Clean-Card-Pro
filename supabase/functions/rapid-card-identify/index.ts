@@ -213,8 +213,8 @@ JSON only.`;
       }
     }
 
-    // Fallback to Gemini Direct if Lovable AI failed/exhausted AND user has valid key
-    if (!content && useGeminiDirect && lovableExhausted) {
+    // Fallback to Gemini Direct if Lovable AI failed/exhausted/empty AND user has valid key
+    if (!content && useGeminiDirect) {
       console.log('Falling back to Gemini Direct (user key)...');
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
