@@ -1760,6 +1760,30 @@ export default function RapidScanCamera() {
         </div>
       </div>
 
+      {/* ── Find Prices Now button ── */}
+      {cards.some((c) => c.status === "completed") && (
+        <div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-border bg-card/50 px-3 py-2">
+          <div className="text-xs text-muted-foreground">
+            {missingPriceCount > 0
+              ? `${missingPriceCount} scanned ${missingPriceCount === 1 ? "card has" : "cards have"} no price yet`
+              : "All scanned cards have prices"}
+          </div>
+          <Button
+            size="sm"
+            variant={missingPriceCount > 0 ? "default" : "outline"}
+            onClick={findPricesNow}
+            disabled={findingPrices || missingPriceCount === 0}
+          >
+            {findingPrices ? (
+              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+            ) : (
+              <DollarSign className="h-4 w-4 mr-1" />
+            )}
+            Find Prices Now {missingPriceCount > 0 ? `(${missingPriceCount})` : ""}
+          </Button>
+        </div>
+      )}
+
       {/* ── Scanned cards list ── */}
       {cards.length > CARD_LIST_RENDER_LIMIT && (
         <div className="mb-2 flex items-center justify-between">
