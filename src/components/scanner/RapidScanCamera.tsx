@@ -1006,31 +1006,60 @@ export default function RapidScanCamera() {
     requestRefreshMeta();
   }, [queueProcessor.lastProcessedCard, updateCard, requestRefreshMeta]);
 
-  // Sync cards from recent-scan-added events (background queue processing)
+  // Sync cards from recent-scan-added events (background queue processing).
+  // Uses upsert semantics so background-completed scans (e.g. captured from
+  // another route or while this component was unmounted) appear in the list.
   useEffect(() => {
     const handleRecentScanAdded = () => {
       const recentScans = getRecentScans();
-      recentScans.forEach((scan) => {
-        updateCard(scan.id, {
-          status: "completed",
-          cardName: scan.card_name,
-          cardSet: scan.card_set || undefined,
-          cardNumber: scan.card_number || undefined,
-          playerName: scan.player_name || undefined,
-          rarity: scan.rarity || undefined,
-          gameType: scan.gameType || undefined,
-          sportType: scan.sportType || undefined,
-          value: scan.price ?? undefined,
-          psa10Price: scan.psa10Price ?? undefined,
-          imageUrl: scan.image_url,
-          isInLibrary: scan.isInLibrary,
-          libraryQuantity: scan.libraryQuantity,
-          dbId: scan.dbId || undefined,
-          priceFetching: false,
-          year: scan.year || undefined,
-          team: scan.team || undefined,
-          manufacturer: scan.manufacturer || undefined,
-        });
+      if (recentScans.length === 0) return;
+      setCards((prev) => {
+        const byId = new Map(prev.map((c) => [c.id, c]));
+        for (const scan of recentScans) {
+          const patch: Partial<ScannedCard> = {
+            status: "completed",
+            cardName: scan.card_name,
+            cardSet: scan.card_set || undefined,
+            cardNumber: scan.card_number || undefined,
+            playerName: scan.player_name || undefined,
+            rarity: scan.rarity || undefined,
+            gameType: scan.gameType || undefined,
+            sportType: scan.sportType || undefined,
+            value: scan.price ?? undefined,
+            psa10Price: scan.psa10Price ?? undefined,
+            imageUrl: scan.image_url,
+            isInLibrary: scan.isInLibrary,
+            libraryQuantity: scan.libraryQuantity,
+            dbId: scan.dbId || undefined,
+            priceFetching: false,
+            year: scan.year || undefined,
+            team: scan.team || undefined,
+            manufacturer: scan.manufacturer || undefined,
+          };
+          const existing = byId.get(scan.id);
+          if (existing) {
+            byId.set(scan.id, { ...existing, ...patch });
+          } else {
+            // Inject scans processed in background (different route/unmounted)
+            byId.set(scan.id, {
+              id: scan.id,
+              preview: scan.image_url,
+              ...patch,
+            } as ScannedCard);
+          }
+        }
+        // Preserve recentScans ordering (newest first); append any in-session
+        // cards not present in recentScans (still queued/processing).
+        const ordered: ScannedCard[] = [];
+        const consumed = new Set<string>();
+        for (const scan of recentScans) {
+          const c = byId.get(scan.id);
+          if (c) { ordered.push(c); consumed.add(scan.id); }
+        }
+        for (const c of prev) {
+          if (!consumed.has(c.id)) ordered.push(c);
+        }
+        return ordered;
       });
     };
 
