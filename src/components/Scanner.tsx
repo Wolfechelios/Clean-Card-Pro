@@ -43,7 +43,7 @@ const Scanner = ({ userId }: ScannerProps) => {
 
   // If user navigates with a hash like #remote, scroll the remote card into view once tab is mounted
   useEffect(() => {
-    if (location.hash === "#remote" && activeTab === "usb") {
+    if (location.hash === "#remote" && (activeTab === "phone" || activeTab === "usb")) {
       const t = setTimeout(() => {
         const el = document.getElementById("remote");
         if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
