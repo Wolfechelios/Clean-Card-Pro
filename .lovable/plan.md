@@ -1,99 +1,90 @@
 
 
-## Why your 130-card queue is crawling
+## Why it's still slow — root causes per card
 
-Three multipliers stack up to make this roughly 10x slower than it should be:
+Each card today goes through this serial chain (mobile, balanced profile):
 
-### 1. Hard-forced 800ms delay between every job
-`queueProcessor.ts` line 92:
-```
-const MIN_SERIAL_JOB_DELAY_MS = 800;
-```
-And line 154:
-```
-function getJobDelayMs(): number { 
-  return Math.max(getDeviceTier().jobDelayMs, MIN_SERIAL_JOB_DELAY_MS); 
-}
-```
-This **overrides** the device tier's `jobDelayMs` (which is 5–50ms depending on tier) and forces an 800ms pause after every single job. Across 130 cards that's **~104 seconds of pure idle time** even if every job were instant.
-
-### 2. Worker pool starts at 1 and scales up slowly
-- `startWorkers()` always starts with **1 worker** (line 396).
-- The scaling check runs every **500ms** (`WORKER_SCALE_INTERVAL_MS`) and only adds **one worker per check**.
-- Even on a high-tier device (`maxWorkers: 6`), it takes ~3 seconds just to spin up to full capacity. On the "balanced_default" profile it caps at **2 workers**, on "redmagic_standalone" at **3**.
-
-### 3. Per-job processing time is naturally heavy
-Each job runs sequentially:
-- `hybridIdentifyCard` (timeout 8s) → cloud edge function call
-- Optionally `zai-ocr` (timeout 5s) → second edge function on low confidence
-- Sometimes a **retry identify** with OCR text (8.5s timeout)
-- `fetch-card-prices` (timeout 6s, ≤1 retry) → scrapes PriceCharting + eBay + TCGPlayer
-- Storage upload + ownership query
-
-Realistic per-card latency: **4–10 seconds**. With 1–2 workers running serially and 800ms forced delay, 130 cards = **~20–35 minutes**.
-
-### Math estimate
-
-| Setting | Current | After fix |
+| Step | Time | Notes |
 |---|---|---|
-| Forced job delay | 800ms × 130 = 104s | ~10ms × 130 = 1.3s |
-| Initial worker count | 1 (scales slowly) | 3–4 immediately |
-| Effective parallelism | ~1.5 workers avg | 3–4 workers steady |
-| Estimated total for 130 cards | **20–35 min** | **5–8 min** |
+| Identify (cloud LLM) | 3–5s | `rapid-card-identify` → Lovable AI or Gemini |
+| **OCR fallback** if conf <0.5 | 2–3s | `zai-ocr` |
+| **Identify AGAIN** with OCR text | 3–5s | re-runs full LLM call with OCR hint |
+| Pricing — **waits for ALL sources** | 3–5s | `Promise.all([eBay, PriceCharting, TCGPlayer, SCP, COMC])` — slowest scrape gates the result |
+| Upload + ownership (parallel) | 1–2s | not the bottleneck |
+| **Total per card** | **8–15s** typical, **15–20s on weak scans** | |
 
----
+The user said: *"a picture just readable enough for OCR to work … use pricecharting.com or tcg.com to get the price, label it, move on."*
 
-## Proposed fix
+The current pipeline is doing 3× the work that's actually needed.
 
-### File: `src/lib/queueProcessor.ts`
+## Fix — strip it back to: identify → race-to-first-price → label → done
 
-**Change 1 — Drop the forced 800ms floor (line 92):**
-```ts
-const MIN_SERIAL_JOB_DELAY_MS = 50;  // was 800
-```
-Honor the device tier's `jobDelayMs` (5–50ms). The 800ms floor was likely a leftover safety throttle from earlier rate-limit issues, but `cachedFetchPrice` already has a 10-min in-memory cache and `rateLimitUntil` handles 429s globally.
+### 1. Kill the double-identify on low confidence
+**File:** `src/lib/queueProcessor.ts` (lines 549–608)
 
-**Change 2 — Start with full worker count immediately (line 394–398):**
-```ts
-function startWorkers() {
-  if (workersActive <= 0) {
-    const initialWorkers = Math.min(getMaxWorkerCount(), 4);
-    for (let i = 0; i < initialWorkers; i++) {
-      workersActive++;
-      workerLoop(i);
-    }
-  }
-  // ... scaling interval still handles upscale beyond 4 if tier allows
-}
-```
-Spawn up to 4 workers on start instead of 1. Scaling interval still kicks in for tiers that allow more.
+- Remove the OCR fallback retry that runs `hybridIdentifyCard` a second time.
+- If first identify returns `confidence < 0.3` or `Unknown Card` → mark error and move on (already does that at line 690).
+- If confidence ≥ 0.3 → trust it and proceed to pricing.
 
-**Change 3 — Tighten scale check interval (line 90):**
-```ts
-const WORKER_SCALE_INTERVAL_MS = 250;  // was 500
-```
-Faster ramp-up when more queue work appears.
+This alone removes 5–8s from every weak scan.
 
-### Optional: surface progress better (UI only)
-The `QueueStatusIndicator` already shows count/processed/errors, but with 130+ items users have no ETA. **Out of scope** unless you want it added — suggest as a follow-up.
+### 2. Race pricing sources instead of awaiting all
+**File:** `supabase/functions/fetch-card-prices/index.ts` (lines 519–535)
 
----
+Replace `Promise.all` with a **race-to-first-non-null** pattern using the game-specific priority order:
+
+- **MTG** → race PriceCharting + TCGPlayer; first one back with a non-null price wins. eBay only runs as a background fallback if both return null. COMC + SCP not called at all.
+- **Pokémon / YGO** → race TCGPlayer + PriceCharting; eBay fallback.
+- **Sports** → race SportsCardPro + PriceCharting; eBay fallback.
+
+Add a hard **3.5s overall pricing timeout** — if no source returns by then, return `raw: null` and label the card "price pending" so it doesn't block the queue.
+
+### 3. Tighten timeouts to match the simpler pipeline
+**File:** `src/lib/queueProcessor.ts`
+
+- `IDENTIFY_TIMEOUT_MS`: 8000 → **5000** (single attempt now, no retry padding needed)
+- `OCR_TIMEOUT_MS`: 5000 → **0** (removed)
+- Pricing edge call: 6000ms timeout, **0 retries** (was 1 retry — doubling latency on every transient failure)
+
+### 4. Don't compress the photo any harder than needed for OCR
+**File:** `src/lib/imageCompressor.ts`
+
+- Drop default `maxWidth` from 1600 → **1200**, `quality` 0.82 → **0.75**.
+- Cuts upload time and base64 conversion time roughly in half. User said readable-for-OCR is the only requirement.
+
+### 5. Skip the ownership query when in non-SAVE mode
+**File:** `src/lib/queueProcessor.ts` (line 736–761)
+
+The `cards` table count + select runs on every single card even when scan mode is `SCAN_ONLY`. Skip it unless `scanMode === "SAVE"` — saves 200–500ms per card on mobile.
+
+## Expected per-card time after fix
+
+| Step | Time |
+|---|---|
+| Identify (single call, no retry) | 3–4s |
+| Pricing (first source wins, 3.5s cap) | 1.5–3s |
+| Upload + maybe ownership (parallel, off critical path) | — |
+| **Total per card** | **~4–6s** down from 8–15s |
+
+Combined with the existing 4–6 parallel workers, **130 cards should clear in ~3–5 minutes** instead of 20+.
 
 ## Files changed
 
-| File | Lines | Change |
-|---|---|---|
-| `src/lib/queueProcessor.ts` | 90, 92, 394–398 | Lower job-delay floor, parallel worker startup, faster scale interval |
+| File | Change |
+|---|---|
+| `src/lib/queueProcessor.ts` | Remove OCR-retry loop, tighten timeouts, skip ownership in non-SAVE mode |
+| `supabase/functions/fetch-card-prices/index.ts` | Race sources to first non-null, 3.5s cap, drop COMC/SCP for non-target games |
+| `src/lib/imageCompressor.ts` | Lower default quality/dims (OCR-grade, not display-grade) |
 
 ## Out of scope
 
-- Edge function latency itself (would require server-side caching of identification results, separate effort)
-- Switching to a database-backed queue with background worker (the existing in-browser IDB queue is correct for this app's architecture)
-- Phase 1 strict-ordering repair (your previously paused task)
+- Phase 1 strict-ordering rapid scan repair
+- New IDB schema fields
+- Settings UI for pricing source toggles
 
-## Verification after deploy
+## Verification
 
-- Open `/scan` with 100+ items queued → console should immediately show `[QueueProcessor] Scaling up: starting worker 1/2/3` within the first second.
-- Job delay between completions should drop from ~800ms+ to under 100ms.
-- 130 cards should clear in roughly **5–8 minutes** instead of 20–35.
+- Scan an MTG card → first scan completes in ~4s end-to-end.
+- Edge logs show only `[PriceCharting]` and `[TCGPlayer]` for MTG (no eBay unless both return null).
+- 50-card queue clears in under 3 minutes.
 
