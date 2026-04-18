@@ -393,8 +393,12 @@ function isRateLimitError(e: unknown): boolean {
 
 function startWorkers() {
   if (workersActive <= 0) {
-    workersActive = 1;
-    workerLoop(0);
+    const initialWorkers = Math.min(getMaxWorkerCount(), 4);
+    console.log(`[QueueProcessor] Spawning ${initialWorkers} initial workers (max: ${getMaxWorkerCount()})`);
+    for (let i = 0; i < initialWorkers; i++) {
+      workersActive++;
+      workerLoop(i);
+    }
   }
   
   if (!scalingInterval) {
