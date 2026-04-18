@@ -521,10 +521,35 @@ async function workerLoop(workerId: number) {
   }
 }
 
+let authPauseWarned = false;
+
 async function processJob(item: QueueItem): Promise<void> {
   const store = useQueueProcessor.getState();
   store._setCurrentItem(item.id);
 
+  // ─── Auth guard for SAVE mode ───
+  // If the user signed out (or session expired) mid-batch and we're in SAVE
+  // mode, we'd silently drop work into recentScans without ever persisting to
+  // the library. Pause the processor and requeue this item instead.
+  const earlyScanSettings = getScannerSettings();
+  if (earlyScanSettings.scanMode === "SAVE") {
+    const earlyUserId = await getUserId();
+    if (!earlyUserId) {
+      await idbUpdateMeta(item.id, { status: "queued", error: undefined });
+      useQueueProcessor.setState({ isPaused: true });
+      store._setCurrentItem(null);
+      if (!authPauseWarned) {
+        authPauseWarned = true;
+        try {
+          const { toast } = await import("sonner");
+          toast.error("Signed out — sign back in to resume scanning.");
+        } catch { /* ignore */ }
+      }
+      console.warn("[QueueProcessor] Paused: lost auth in SAVE mode, requeued", item.id);
+      return;
+    }
+    authPauseWarned = false;
+  }
 
   // Create a base64 data URL for AI identification only.
   // Keep the first pass as light as possible: identify first, OCR only on weak/failing results,
@@ -666,7 +691,7 @@ async function processJob(item: QueueItem): Promise<void> {
 
   const userIdPromise = getUserId();
 
-  const [priceResult, userId, _uploadResult] = await Promise.all([
+  const [priceResult, userId, uploadResult] = await Promise.all([
     cachedFetchPrice({ cardName, cardSet, cardNumber, gameType, sportType, condition: cardCondition })
       .catch(() => ({ raw: null as number | null, psa10: null as number | null })),
     userIdPromise,
@@ -700,8 +725,23 @@ async function processJob(item: QueueItem): Promise<void> {
       })()
     : { ownedCount: 0, isInLibrary: false, existingId: undefined as string | undefined };
 
-  const { data: publicUrlData } = supabase.storage.from("card-images").getPublicUrl(filePath);
-  const imageUrl = publicUrlData.publicUrl;
+  // If upload failed, fall back to a local blob URL so the card is still
+  // visible in the UI (even though it won't survive a refresh / other devices).
+  let imageUrl: string;
+  let imageStatus: "stored" | "local-only" = "stored";
+  if (uploadResult) {
+    const { data: publicUrlData } = supabase.storage.from("card-images").getPublicUrl(filePath);
+    imageUrl = publicUrlData.publicUrl;
+  } else {
+    try {
+      imageUrl = URL.createObjectURL(item.blob);
+      imageStatus = "local-only";
+      console.warn(`[QueueProcessor] Using local blob URL for ${item.id} (upload failed)`);
+    } catch {
+      imageUrl = "";
+      imageStatus = "local-only";
+    }
+  }
 
   const rawPrice = priceResult.raw;
   const psa10Price = priceResult.psa10;
@@ -734,6 +774,7 @@ async function processJob(item: QueueItem): Promise<void> {
   const confPct = confidence * 100;
   const threshold = settings.autoConfirmThreshold ?? 75;
 
+  let saveAttemptedAndFailed = false;
   if (settings.scanMode === "SAVE" && userId && confPct >= threshold) {
     try {
       const inserted = await insertCardDual({
@@ -745,10 +786,10 @@ async function processJob(item: QueueItem): Promise<void> {
         game_type: gameType,
         sport_type: sportType,
         image_url: imageUrl,
-        image_storage_path: `cards/${item.id}.jpg`,
+        image_storage_path: imageStatus === "stored" ? `cards/${item.id}.jpg` : null,
         image_source: "scan",
-        image_status: "stored",
-        image_search_status: "found",
+        image_status: imageStatus === "stored" ? "stored" : "pending",
+        image_search_status: imageStatus === "stored" ? "found" : "pending",
         current_price_raw: rawPrice,
         suggested_price: rawPrice,
         last_price_update: rawPrice ? new Date().toISOString() : null,
@@ -772,10 +813,11 @@ async function processJob(item: QueueItem): Promise<void> {
       console.log(`[QueueProcessor] Auto-saved to library: ${cardName} (${confPct.toFixed(0)}% confidence)`);
     } catch (e: any) {
       console.error(`[QueueProcessor] Auto-save failed for ${cardName}:`, e);
+      saveAttemptedAndFailed = true;
     }
   }
 
-  addRecentScan({
+  const recentScanSaved = addRecentScan({
     id: item.id,
     card_name: cardName,
     card_set: cardSet,
@@ -797,7 +839,25 @@ async function processJob(item: QueueItem): Promise<void> {
   });
   window.dispatchEvent(new CustomEvent("recent-scan-added"));
 
-  await idbDelete(item.id);
+  // Only delete the queue item if work was actually persisted somewhere.
+  // - SAVE mode: require a successful library insert (or fall back to recentScans persisting it).
+  // - Non-SAVE: require addRecentScan to have actually stored it.
+  // Otherwise leave it as "error" so the user can retry without losing the capture.
+  if (saveAttemptedAndFailed && !recentScanSaved) {
+    await idbUpdateMeta(item.id, {
+      status: "error",
+      error: "Save failed — capture preserved for retry",
+    });
+    store._incrementError();
+  } else if (!recentScanSaved && settings.scanMode !== "SAVE") {
+    await idbUpdateMeta(item.id, {
+      status: "error",
+      error: "Scan rejected (low confidence / unreadable)",
+    });
+    store._incrementError();
+  } else {
+    await idbDelete(item.id);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
