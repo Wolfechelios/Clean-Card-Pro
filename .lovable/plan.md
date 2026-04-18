@@ -1,63 +1,99 @@
 
 
-## Plan: Fix Rapid Scan Failures + MTG Pricing (PriceCharting + eBay Sold ≤2y)
+## Why your 130-card queue is crawling
 
-### Root causes
+Three multipliers stack up to make this roughly 10x slower than it should be:
 
-**Why scans keep failing:**
+### 1. Hard-forced 800ms delay between every job
+`queueProcessor.ts` line 92:
+```
+const MIN_SERIAL_JOB_DELAY_MS = 800;
+```
+And line 154:
+```
+function getJobDelayMs(): number { 
+  return Math.max(getDeviceTier().jobDelayMs, MIN_SERIAL_JOB_DELAY_MS); 
+}
+```
+This **overrides** the device tier's `jobDelayMs` (which is 5–50ms depending on tier) and forces an 800ms pause after every single job. Across 130 cards that's **~104 seconds of pure idle time** even if every job were instant.
 
-1. **`fetch-card-prices` has eBay and PriceCharting hard-disabled** — both are wired as `Promise.resolve(emptySource())` (lines 496–501). Only COMC and TCGPlayer run. COMC returns 0 results for most MTG cards (logs confirm: `Razorfin Hunter`, `Consume Strength` → "No data"). So every MTG scan returns `raw: null`.
-2. **Aggressive timeouts in queue processor** — `IDENTIFY_TIMEOUT_MS = 3500ms`, `OCR_TIMEOUT_MS = 2500ms`. Mobile + cold-start edge functions regularly exceed this, throwing "timed out" → marked as `error`.
-3. **Silent discard at confidence < 0.3** — line 667 of `queueProcessor.ts` deletes the IDB item with no user-visible record (`idbDelete(item.id)` then `return`). Looks like a "missing" scan.
-4. **Lovable AI 429 fallback** — `rapid-card-identify` only falls back to user Gemini key if `lovableExhausted` flag is set AND user has a valid key. If user has no Gemini key, scans fail outright on rate limits.
-5. **`gameType` arrives as `null`** — logs show `gameType: null` for MTG cards. Without a hint, PriceCharting/COMC can't pick the right category. The hybrid identifier sometimes returns no game_type, and the queue processor doesn't backfill from `scanSettings.gameTypeFilter` before pricing.
+### 2. Worker pool starts at 1 and scales up slowly
+- `startWorkers()` always starts with **1 worker** (line 396).
+- The scaling check runs every **500ms** (`WORKER_SCALE_INTERVAL_MS`) and only adds **one worker per check**.
+- Even on a high-tier device (`maxWorkers: 6`), it takes ~3 seconds just to spin up to full capacity. On the "balanced_default" profile it caps at **2 workers**, on "redmagic_standalone" at **3**.
 
-### Fixes
+### 3. Per-job processing time is naturally heavy
+Each job runs sequentially:
+- `hybridIdentifyCard` (timeout 8s) → cloud edge function call
+- Optionally `zai-ocr` (timeout 5s) → second edge function on low confidence
+- Sometimes a **retry identify** with OCR text (8.5s timeout)
+- `fetch-card-prices` (timeout 6s, ≤1 retry) → scrapes PriceCharting + eBay + TCGPlayer
+- Storage upload + ownership query
 
-**1. Re-enable PriceCharting and eBay (MTG-focused)** — `supabase/functions/fetch-card-prices/index.ts`
-- Restore real `fetchPriceChartingPrices(...)` and `fetchEbayPrices(...)` calls (replace the `Promise.resolve(emptySource())` stubs).
-- Update eBay scrape URL to add `&_sop=13` (sold, ended recently) AND apply a **2-year date filter** by parsing each row's "Sold <date>" string from Firecrawl markdown — drop any sale older than today minus 24 months. Re-compute median only on the kept set.
-- Update `pickPrimaryWithSanity` priority for MTG specifically:
-  - `gameType` includes `mtg/magic` → **PriceCharting first → eBay sold-median (≤2y) second → TCGPlayer third**. COMC dropped to last resort for MTG.
-- Pass `gameType` into both functions (already accepts it).
+Realistic per-card latency: **4–10 seconds**. With 1–2 workers running serially and 800ms forced delay, 130 cards = **~20–35 minutes**.
 
-**2. eBay date-filter helper** — same file
-- Add a regex pass on each line: `/Sold\s+([A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})/i` → parse to Date → reject if `< now - 730 days`.
-- Lines without a parseable sold-date are kept (Firecrawl sometimes strips them) but logged.
+### Math estimate
 
-**3. Stop silent scan loss** — `src/lib/queueProcessor.ts`
-- Replace the `idbDelete(item.id)` discard at line 669 with `idbUpdateMeta(item.id, { status: "error", error: "Low confidence — needs review" })` so the item stays visible and the user knows.
-- Add a console + toast notification on first low-conf discard per session.
+| Setting | Current | After fix |
+|---|---|---|
+| Forced job delay | 800ms × 130 = 104s | ~10ms × 130 = 1.3s |
+| Initial worker count | 1 (scales slowly) | 3–4 immediately |
+| Effective parallelism | ~1.5 workers avg | 3–4 workers steady |
+| Estimated total for 130 cards | **20–35 min** | **5–8 min** |
 
-**4. Loosen scan timeouts** — `src/lib/queueProcessor.ts`
-- `IDENTIFY_TIMEOUT_MS`: 3500 → **8000** (matches edge function realistic latency)
-- `OCR_TIMEOUT_MS`: 2500 → **5000**
-- Keep `UPLOAD_TIMEOUT_MS` at 8000.
+---
 
-**5. Backfill `gameType` from user setting before pricing** — `src/lib/queueProcessor.ts` (around line 657)
-- If `gameType` is null AND `scanSettings.gameTypeFilter !== "auto"`, set `gameType` to the canonical map (e.g. `mtg` → `"MTG"`) before calling `cachedFetchPrice`.
+## Proposed fix
 
-**6. Better Lovable AI → Gemini fallback** — `supabase/functions/rapid-card-identify/index.ts`
-- Allow Gemini fallback even when `LOVABLE_API_KEY` is missing the `lovableExhausted` flag (any 5xx, network error, or empty content should also trigger fallback if a Gemini key is available).
-- Removes silent failures when Lovable AI hiccups.
+### File: `src/lib/queueProcessor.ts`
 
-### Files changed
+**Change 1 — Drop the forced 800ms floor (line 92):**
+```ts
+const MIN_SERIAL_JOB_DELAY_MS = 50;  // was 800
+```
+Honor the device tier's `jobDelayMs` (5–50ms). The 800ms floor was likely a leftover safety throttle from earlier rate-limit issues, but `cachedFetchPrice` already has a 10-min in-memory cache and `rateLimitUntil` handles 429s globally.
 
-| File | Change |
-|---|---|
-| `supabase/functions/fetch-card-prices/index.ts` | Re-enable PC + eBay; add 2-year sold filter; MTG priority order |
-| `src/lib/queueProcessor.ts` | Looser timeouts; preserve low-conf items; backfill gameType |
-| `supabase/functions/rapid-card-identify/index.ts` | Broader Gemini fallback conditions |
+**Change 2 — Start with full worker count immediately (line 394–398):**
+```ts
+function startWorkers() {
+  if (workersActive <= 0) {
+    const initialWorkers = Math.min(getMaxWorkerCount(), 4);
+    for (let i = 0; i < initialWorkers; i++) {
+      workersActive++;
+      workerLoop(i);
+    }
+  }
+  // ... scaling interval still handles upscale beyond 4 if tier allows
+}
+```
+Spawn up to 4 workers on start instead of 1. Scaling interval still kicks in for tiers that allow more.
 
-### Out of scope
+**Change 3 — Tighten scale check interval (line 90):**
+```ts
+const WORKER_SCALE_INTERVAL_MS = 250;  // was 500
+```
+Faster ramp-up when more queue work appears.
 
-- Full Phase 1 strict-ordering repair (separate paused task)
-- New IDB schema fields (`captureIndex`, etc.)
-- Settings UI for pricing source toggles
+### Optional: surface progress better (UI only)
+The `QueueStatusIndicator` already shows count/processed/errors, but with 130+ items users have no ETA. **Out of scope** unless you want it added — suggest as a follow-up.
 
-### Verification after deploy
+---
 
-- Scan an MTG card → response should include non-null `raw` from PriceCharting OR eBay median.
-- Check `fetch-card-prices` logs for `[PriceCharting]` and `[eBay]` lines (they were absent before).
-- Low-confidence captures should now show in the queue with an error badge instead of disappearing.
+## Files changed
+
+| File | Lines | Change |
+|---|---|---|
+| `src/lib/queueProcessor.ts` | 90, 92, 394–398 | Lower job-delay floor, parallel worker startup, faster scale interval |
+
+## Out of scope
+
+- Edge function latency itself (would require server-side caching of identification results, separate effort)
+- Switching to a database-backed queue with background worker (the existing in-browser IDB queue is correct for this app's architecture)
+- Phase 1 strict-ordering repair (your previously paused task)
+
+## Verification after deploy
+
+- Open `/scan` with 100+ items queued → console should immediately show `[QueueProcessor] Scaling up: starting worker 1/2/3` within the first second.
+- Job delay between completions should drop from ~800ms+ to under 100ms.
+- 130 cards should clear in roughly **5–8 minutes** instead of 20–35.
 
