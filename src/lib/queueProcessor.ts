@@ -673,7 +673,7 @@ async function processJob(item: QueueItem): Promise<void> {
     uploadPromise,
   ]);
 
-  const ownershipResult = userId
+  const ownershipResult = userId && scanSettings.scanMode === "SAVE"
     ? await (async () => {
         try {
           const { count } = await supabase
