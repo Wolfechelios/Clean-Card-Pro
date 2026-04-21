@@ -589,36 +589,24 @@ async function processJob(item: QueueItem): Promise<void> {
   const cardName: string = identify?.card_name || "Unknown Card";
 
   // ─── Anomaly detection ───
+  // Users legitimately scan multiple copies of the same card (playsets of 4, etc.).
+  // Only treat as anomaly at very high consecutive counts, and NEVER mass-fail
+  // queued items — just pause and let the user decide.
   const anomaly = queueAnomalyDetector.trackIdentification(cardName);
-  if (anomaly.consecutiveCount >= 10) {
+  if (anomaly.consecutiveCount >= 25) {
     writeAnomalyPauseFlag(true);
     const { toast } = await import("sonner");
-    toast.error(`Rapid scan stopped — "${cardName}" repeated 10 times. Clear the bad batch before continuing.`);
-    console.error(`[QueueProcessor] Auto-stopped: ${anomaly.message}`);
-    const remaining = await idbListMetaFast(1000);
-    await Promise.all(
-      remaining
-        .filter((meta) => meta.status === "queued")
-        .map((meta) =>
-          idbUpdateMeta(meta.id, {
-            status: "error",
-            error: `Anomaly: repeated identification "${cardName}"`,
-          })
-        )
+    toast.warning(
+      `Rapid scan paused — "${cardName}" identified 25 times in a row. Resume if this is intentional.`,
+      { duration: 8000 }
     );
-    useQueueProcessor.getState().stop();
+    console.warn(`[QueueProcessor] Auto-paused at 25 consecutive: ${cardName}`);
     useQueueProcessor.setState({ isPaused: true, isPausedByAnomaly: true });
-    throw new Error(`Rapid scan stopped after repeated "${cardName}" identifications`);
-  } else if (anomaly.consecutiveCount >= 5) {
-    writeAnomalyPauseFlag(true);
+    // Do NOT throw — let this card finish processing normally.
+  } else if (anomaly.consecutiveCount === 10) {
+    // One-time soft notice, no pause, no failure
     const { toast } = await import("sonner");
-    toast.warning(`Rapid scan paused — "${cardName}" keeps repeating. Resume manually or clear the bad batch.`);
-    useQueueProcessor.setState({ isPaused: true, isPausedByAnomaly: true });
-    console.warn(`[QueueProcessor] Auto-paused: ${anomaly.message}`);
-    throw new Error(`Rapid scan paused after repeated "${cardName}" identifications`);
-  } else if (anomaly.isAnomaly) {
-    const { toast } = await import("sonner");
-    toast.warning(anomaly.message);
+    toast.info(`"${cardName}" scanned 10 times in a row — looking good if intentional.`);
   }
 
   const cardSet: string | null = identify?.card_set ?? null;
