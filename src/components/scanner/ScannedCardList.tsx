@@ -878,6 +878,50 @@ export const ScannedCardList = ({
           )}
         </DialogContent>
       </Dialog>
+
+      <CardVerificationDialog
+        open={!!verifyingCard}
+        onOpenChange={(o) => {
+          if (!o) {
+            setVerifyingCard(null);
+            setVerifyTargetId(null);
+          }
+        }}
+        card={verifyingCard}
+        onAccept={async (patch) => {
+          if (!verifyTargetId) return;
+          onCardUpdate(verifyTargetId, {
+            cardName: patch.card_name,
+            cardSet: patch.card_set || undefined,
+            cardNumber: patch.card_number || undefined,
+            rarity: patch.rarity || undefined,
+            gameType: patch.game_type || undefined,
+            sportType: patch.sport_type || undefined,
+            value: patch.current_price_raw,
+          });
+          const target = cards.find((c) => c.id === verifyTargetId);
+          if (target?.dbId) {
+            const { error } = await supabase
+              .from("cards")
+              .update({
+                card_name: patch.card_name,
+                card_set: patch.card_set,
+                card_number: patch.card_number,
+                rarity: patch.rarity,
+                game_type: patch.game_type,
+                sport_type: patch.sport_type,
+                current_price_raw: patch.current_price_raw,
+                suggested_price: patch.current_price_raw,
+              })
+              .eq("id", target.dbId);
+            if (error) {
+              toast.error("Verified locally, but failed to save: " + error.message);
+              return;
+            }
+          }
+          toast.success(`Verified — ${patch.card_name} ($${patch.current_price_raw.toFixed(2)})`);
+        }}
+      />
     </>
   );
 };
