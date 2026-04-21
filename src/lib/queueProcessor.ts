@@ -208,6 +208,10 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
       return;
     }
     queueAnomalyDetector.resetSession();
+    // Recover items previously mass-failed by the old anomaly logic
+    recoverAnomalyErroredItems().catch((e) =>
+      console.warn("[QueueProcessor] anomaly recovery failed", e)
+    );
     set({ isRunning: true, isPaused: false, isPausedByAnomaly: false });
     startWorkers();
   },
