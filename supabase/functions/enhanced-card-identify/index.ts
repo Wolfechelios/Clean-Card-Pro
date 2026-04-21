@@ -114,6 +114,18 @@ ${ygoRaritySection}
 
 CRITICAL FOR MAGIC: THE GATHERING CARDS — SET & YEAR IDENTIFICATION:
 
+STEP 0 — EARLY EDITION DETECTION (cards with NO set symbol — set symbols started Exodus 1998):
+1. Check border color: BLACK → Alpha or Beta. WHITE → Unlimited / Revised / 4ED / 5ED.
+2. If BLACK border with no set symbol: examine corner radius. Heavily rounded corners = Alpha (LEA). Sharp / square corners = Beta (LEB).
+3. If WHITE border with no set symbol: read the copyright year EXACTLY from bottom-center.
+   - "© 1993" → Unlimited (set_code: 2ed)
+   - "© 1994" → Revised (set_code: 3ed)
+   - "© 1995" → 4th Edition (set_code: 4ed)
+   - "© 1997" → 5th Edition (set_code: 5ed)
+4. When detected, populate "early_edition" object: { detected: true, set_code: "lea|leb|2ed|3ed|4ed|5ed", confidence: "high|medium|low", visual_evidence: "what you saw" }.
+5. Also set card_set to the full English name (e.g. "Limited Edition Alpha", "Unlimited Edition", "Revised Edition", "Fourth Edition", "Fifth Edition").
+6. PRICE WARNING: misidentifying these sets is catastrophic (Alpha Black Lotus is ~$100k vs Unlimited ~$8k). If unsure between two early sets, set early_edition.confidence to "low" and pick the lower-value option.
+
 STEP 1 — SET SYMBOL (bottom-center-right of card, to the right of the type line):
 Describe the shape and color of the set symbol. Color indicates rarity: black/grey = Common, silver = Uncommon, gold = Rare, orange-red/mythic orange = Mythic Rare. Use the symbol shape to determine the exact set (e.g., a stylized 'M' for Core Sets, a dragon head for Dragons of Tarkir, etc.).
 
@@ -152,6 +164,12 @@ Return JSON in this exact format:
     "manufacturer": "manufacturer name",
     "confidence": "confidence score 0-1",
     "description": "brief description of the card",
+    "early_edition": {
+      "detected": false,
+      "set_code": "lea|leb|2ed|3ed|4ed|5ed or null",
+      "confidence": "high|medium|low",
+      "visual_evidence": "what visual cues led to this conclusion"
+    },
     "foilFeatures": {
       "nameFoil": "none|silver|gold|rainbow",
       "artPattern": "none|secretDiagonal|starlight|lattice|ghost|foil",

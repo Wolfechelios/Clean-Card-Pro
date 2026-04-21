@@ -143,6 +143,16 @@ RARITY RULES (non-YGO):
 - If holographic/prismatic/numbered - NOT Common
 - NEVER return null for rarity
 
+MTG EARLY EDITION DETECTION (cards with NO set symbol):
+- Black border + heavily rounded corners → Alpha (set_code "lea"), card_set "Limited Edition Alpha"
+- Black border + sharp corners → Beta (set_code "leb"), card_set "Limited Edition Beta"
+- White border + "© 1993" → Unlimited (set_code "2ed"), card_set "Unlimited Edition"
+- White border + "© 1994" → Revised (set_code "3ed"), card_set "Revised Edition"
+- White border + "© 1995" → 4th Edition (set_code "4ed"), card_set "Fourth Edition"
+- White border + "© 1997" → 5th Edition (set_code "5ed"), card_set "Fifth Edition"
+- When detected, add to JSON: "early_edition": { "detected": true, "set_code": "...", "confidence": "high|medium|low", "visual_evidence": "..." }
+- Misidentifying these is catastrophic (Alpha Black Lotus ~$100k vs Unlimited ~$8k). If unsure, set confidence "low".
+
 ALTERNATIVES: ALWAYS include 2-3 alternative identifications in the "alternatives" array — even when confidence is high. Show different printings, sets, or similar-looking cards.
 
 ${ocrEvidenceSection}
