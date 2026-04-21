@@ -69,6 +69,15 @@ export function CardIdentificationEditor({
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(primaryCard.card_name);
   const [editedSet, setEditedSet] = useState(primaryCard.card_set || "");
+  const [showEditionFinder, setShowEditionFinder] = useState(false);
+
+  const isMtg = (primaryCard.game_type || "").toLowerCase().includes("mtg") ||
+    (primaryCard.game_type || "").toLowerCase().includes("magic");
+  const earlyEdition = (primaryCard as any).early_edition;
+  const showEarlyEditionWarning = isMtg && (
+    (earlyEdition?.detected && earlyEdition?.confidence !== "high") ||
+    (!earlyEdition?.detected && primaryCard.confidence < 85)
+  );
 
   const foilEvaluation = useMemo(() => {
     const foilResult = evaluateFoilScanResult(
@@ -228,6 +237,37 @@ export function CardIdentificationEditor({
         gameType={primaryCard.game_type}
         onSelect={handleSearchSelect}
       />
+
+      {/* MTG early-edition warning */}
+      {showEarlyEditionWarning && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 flex items-start gap-2">
+          <Sparkles className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+          <div className="flex-1 text-xs">
+            <p className="font-semibold text-foreground">Early MTG set suspected — verify edition</p>
+            <p className="text-muted-foreground">
+              Alpha, Beta, Unlimited and Revised look nearly identical but have huge price differences. Confirm the printing.
+            </p>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => setShowEditionFinder(true)}>
+            Find Edition
+          </Button>
+        </div>
+      )}
+
+      {/* MTG Edition Finder dialog */}
+      {isMtg && (
+        <MtgEditionFinder
+          open={showEditionFinder}
+          onOpenChange={setShowEditionFinder}
+          initialCardName={editedName}
+          initialYear={primaryCard.year ? parseInt(primaryCard.year) : null}
+          initialSetCode={earlyEdition?.set_code || null}
+          onSelect={(picked) => {
+            setEditedSet(picked.setName);
+            setIsEditing(false);
+          }}
+        />
+      )}
 
       {/* Foil Trainer */}
       {userId && foilEvaluation.triggerLevel !== "none" && (
