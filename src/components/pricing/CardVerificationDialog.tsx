@@ -287,6 +287,34 @@ export function CardVerificationDialog({ open, onOpenChange, card, onAccept }: P
           </div>
         )}
 
+        {isMtg && !loading && (selected || card) && (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs space-y-2">
+            <div className="flex items-start gap-2">
+              <Sparkles className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="font-semibold text-foreground">MTG Edition Finder</p>
+                <p className="text-muted-foreground">
+                  Browse every printing of this card (including Alpha, Beta, Unlimited, Revised) to confirm the exact edition and price.
+                </p>
+                {overridePatch && (
+                  <p className="mt-1 text-foreground">
+                    Selected override: <span className="font-semibold">{overridePatch.setName}</span>
+                    {overridePatch.year && <> ({overridePatch.year})</>}
+                    {overridePatch.priceUsd !== null && <> — ${overridePatch.priceUsd.toFixed(2)}</>}
+                  </p>
+                )}
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowEditionFinder(true)}
+              >
+                Find Edition
+              </Button>
+            </div>
+          </div>
+        )}
+
         <DialogFooter className="flex-col sm:flex-row gap-2">
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             <X className="h-4 w-4 mr-2" />
@@ -303,10 +331,20 @@ export function CardVerificationDialog({ open, onOpenChange, card, onAccept }: P
             title={result?.needsReview ? "Anomaly detected — accepting will save the verified identity but flag the price." : undefined}
           >
             <ShieldCheck className="h-4 w-4 mr-2" />
-            {result?.needsReview ? "Accept Anyway" : "Accept Verified"}
+            {overridePatch ? "Accept Edition" : result?.needsReview ? "Accept Anyway" : "Accept Verified"}
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <MtgEditionFinder
+        open={showEditionFinder}
+        onOpenChange={setShowEditionFinder}
+        initialCardName={selected?.cardName || card?.cardName || null}
+        initialSetCode={null}
+        onSelect={(picked) => {
+          setOverridePatch(picked);
+        }}
+      />
     </Dialog>
   );
 }
