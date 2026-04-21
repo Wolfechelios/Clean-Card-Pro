@@ -400,6 +400,22 @@ export async function resolveOfficialCardIdentity<T extends NameResolvableCard>(
     }
   }
 
+  // MTG: prioritize AI-detected early edition (Alpha/Beta/Unlimited/Revised/4ED/5ED)
+  if (!verified && game === "mtg") {
+    const earlyEdition = (card as any).early_edition;
+    if (earlyEdition?.detected && earlyEdition?.set_code) {
+      const earlyResult = await lookupMtgByEarlyEdition(currentName, earlyEdition.set_code);
+      if (earlyResult) {
+        verified = {
+          card_name: earlyResult.card_name,
+          card_set: earlyResult.card_set,
+          card_number: earlyResult.card_number ?? "",
+          ...(earlyResult.year ? { year: earlyResult.year } : {}),
+        };
+      }
+    }
+  }
+
   // MTG fallback: search by name + set/year when set+number lookup fails
   if (!verified && game === "mtg" && candidateNames.length > 0) {
     verified = await lookupMtgByNameAndSet(candidateNames, cardSet, validYear);
