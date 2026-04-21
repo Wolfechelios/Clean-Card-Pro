@@ -35,6 +35,7 @@ import type { CardPriceIdentity } from "@/lib/pricing/types";
 import { toast } from "sonner";
 import { Pencil, Trash2, X, Save, Search, ImageIcon, CheckCircle2, XCircle, Box, Image, Sparkles, ShieldCheck } from "lucide-react";
 import { CardVerificationDialog } from "@/components/pricing/CardVerificationDialog";
+import { MtgEditionFinder } from "@/components/mtg/MtgEditionFinder";
 import { useNavigate } from "react-router-dom";
 
 export interface CardData {
@@ -86,6 +87,7 @@ export function CardDetailModal({
   const [referenceImageUrl, setReferenceImageUrl] = useState<string | null>(null);
   const [showVerification, setShowVerification] = useState(false);
   const [showVerifyDialog, setShowVerifyDialog] = useState(false);
+  const [showEditionFinder, setShowEditionFinder] = useState(false);
   const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
   const [cardState, setCardState] = useState<CardData | null>(null);
   const { consensus, loading: consensusLoading, error: consensusError, needsReview, fetchConsensus, reset: resetConsensus } = usePriceConsensus();
