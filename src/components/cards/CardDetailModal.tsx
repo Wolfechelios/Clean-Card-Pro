@@ -839,33 +839,56 @@ export function CardDetailModal({
         }
         onAccept={async (patch) => {
           if (!card) return;
-          const { error } = await supabase
-            .from("cards")
-            .update({
-              card_name: patch.card_name,
-              card_set: patch.card_set,
-              card_number: patch.card_number,
-              rarity: patch.rarity,
-              game_type: patch.game_type,
-              sport_type: patch.sport_type,
-              current_price_raw: patch.current_price_raw,
-              suggested_price: patch.current_price_raw,
-            })
-            .eq("id", card.id);
-          if (error) {
-            toast.error("Failed to save: " + error.message);
-            return;
-          }
-          toast.success(`Verified — ${patch.card_name} ($${patch.current_price_raw.toFixed(2)})`);
-          const updated: CardData = {
-            ...card,
+          console.log("[Verify] Accept patch:", patch);
+          const setVal = patch.card_set || card.card_set || null;
+          const skipPrice = !patch.current_price_raw || patch.current_price_raw <= 0;
+          const updates: Record<string, any> = {
             card_name: patch.card_name,
-            card_set: patch.card_set,
+            card_set: setVal,
+            collection_name: setVal, // enforce set === collection_name
             card_number: patch.card_number,
             rarity: patch.rarity,
             game_type: patch.game_type,
             sport_type: patch.sport_type,
-            current_price_raw: patch.current_price_raw,
+            updated_at: new Date().toISOString(),
+          };
+          if (!skipPrice) {
+            updates.current_price_raw = patch.current_price_raw;
+            updates.suggested_price = patch.current_price_raw;
+            updates.last_price_update = new Date().toISOString();
+          }
+          const { error } = await supabase
+            .from("cards")
+            .update(updates)
+            .eq("id", card.id);
+          if (error) {
+            console.error("[Verify] Update failed:", error);
+            toast.error("Failed to save: " + error.message);
+            return;
+          }
+          // Audit trail
+          if (!skipPrice) {
+            await supabase.from("price_history").insert({
+              card_id: card.id,
+              price_raw: patch.current_price_raw,
+              source: "verification",
+            });
+          }
+          toast.success(
+            skipPrice
+              ? `Verified identity — price flagged for review`
+              : `Verified — ${patch.card_name} ($${patch.current_price_raw.toFixed(2)})`
+          );
+          const updated: CardData = {
+            ...card,
+            card_name: patch.card_name,
+            card_set: setVal,
+            collection_name: setVal,
+            card_number: patch.card_number,
+            rarity: patch.rarity,
+            game_type: patch.game_type,
+            sport_type: patch.sport_type,
+            current_price_raw: skipPrice ? card.current_price_raw : patch.current_price_raw,
           };
           setCardState(updated);
           onUpdate?.(updated);
