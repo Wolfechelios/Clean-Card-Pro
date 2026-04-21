@@ -890,6 +890,8 @@ export const ScannedCardList = ({
         card={verifyingCard}
         onAccept={async (patch) => {
           if (!verifyTargetId) return;
+          console.log("[Verify] Scan accept patch:", patch);
+          const skipPrice = !patch.current_price_raw || patch.current_price_raw <= 0;
           onCardUpdate(verifyTargetId, {
             cardName: patch.card_name,
             cardSet: patch.card_set || undefined,
@@ -897,29 +899,51 @@ export const ScannedCardList = ({
             rarity: patch.rarity || undefined,
             gameType: patch.game_type || undefined,
             sportType: patch.sport_type || undefined,
-            value: patch.current_price_raw,
+            ...(skipPrice ? {} : { value: patch.current_price_raw }),
           });
           const target = cards.find((c) => c.id === verifyTargetId);
           if (target?.dbId) {
+            const setVal = patch.card_set || target.cardSet || null;
+            const baseUpdates = {
+              card_name: patch.card_name,
+              card_set: setVal,
+              collection_name: setVal,
+              card_number: patch.card_number,
+              rarity: patch.rarity,
+              game_type: patch.game_type,
+              sport_type: patch.sport_type,
+              updated_at: new Date().toISOString(),
+            };
+            const updates = skipPrice
+              ? baseUpdates
+              : {
+                  ...baseUpdates,
+                  current_price_raw: patch.current_price_raw,
+                  suggested_price: patch.current_price_raw,
+                  last_price_update: new Date().toISOString(),
+                };
             const { error } = await supabase
               .from("cards")
-              .update({
-                card_name: patch.card_name,
-                card_set: patch.card_set,
-                card_number: patch.card_number,
-                rarity: patch.rarity,
-                game_type: patch.game_type,
-                sport_type: patch.sport_type,
-                current_price_raw: patch.current_price_raw,
-                suggested_price: patch.current_price_raw,
-              })
+              .update(updates)
               .eq("id", target.dbId);
             if (error) {
+              console.error("[Verify] Scan update failed:", error);
               toast.error("Verified locally, but failed to save: " + error.message);
               return;
             }
+            if (!skipPrice) {
+              await supabase.from("price_history").insert({
+                card_id: target.dbId,
+                price_raw: patch.current_price_raw,
+                source: "verification",
+              });
+            }
           }
-          toast.success(`Verified — ${patch.card_name} ($${patch.current_price_raw.toFixed(2)})`);
+          toast.success(
+            skipPrice
+              ? `Verified identity — price flagged for review`
+              : `Verified — ${patch.card_name} ($${patch.current_price_raw.toFixed(2)})`
+          );
         }}
       />
     </>
