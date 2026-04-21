@@ -1,5 +1,6 @@
 // src/components/pricing/CardVerificationDialog.tsx
-// Side-by-side current ↔ verified comparison dialog.
+// Side-by-side current ↔ verified comparison dialog with selectable candidates
+// and a verified reference image.
 
 import { useEffect } from "react";
 import {
@@ -13,10 +14,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ShieldCheck, RefreshCw, X, AlertTriangle, ImageIcon } from "lucide-react";
+import { ShieldCheck, RefreshCw, X, AlertTriangle, ImageIcon, Loader2, CheckCircle2 } from "lucide-react";
 import { PriceConsensusPanel } from "./PriceConsensusPanel";
 import { useCardVerification } from "@/hooks/use-card-verification";
 import type { VerifyCardInput, VerifiedIdentification } from "@/lib/verification/verifyCard";
+import { cn } from "@/lib/utils";
 
 export interface VerifyAcceptPatch {
   card_name: string;
@@ -40,13 +42,25 @@ function Field({ label, value }: { label: string; value: string | number | null 
   return (
     <div>
       <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="text-sm font-medium truncate">{value ?? <span className="text-muted-foreground italic">—</span>}</div>
+      <div className="text-sm font-medium truncate">
+        {value ?? <span className="text-muted-foreground italic">—</span>}
+      </div>
     </div>
   );
 }
 
 export function CardVerificationDialog({ open, onOpenChange, card, onAccept }: Props) {
-  const { result, loading, error, run, reset } = useCardVerification();
+  const {
+    result,
+    selected,
+    selectedIndex,
+    loading,
+    switching,
+    error,
+    run,
+    selectCandidate,
+    reset,
+  } = useCardVerification();
 
   useEffect(() => {
     if (open && card) {
@@ -61,23 +75,27 @@ export function CardVerificationDialog({ open, onOpenChange, card, onAccept }: P
   };
 
   const handleAccept = async () => {
-    if (!card || !result) return;
-    const { identification, consensus } = result;
+    if (!card || !result || !selected) return;
+    const { consensus, needsReview } = result;
     await onAccept?.(
       {
-        card_name: identification.cardName,
-        card_set: identification.cardSet,
-        card_number: identification.cardNumber,
-        rarity: identification.rarity,
-        game_type: identification.gameType,
-        sport_type: identification.sportType,
+        card_name: selected.cardName,
+        card_set: selected.cardSet,
+        card_number: selected.cardNumber,
+        rarity: selected.rarity,
+        game_type: selected.gameType,
+        sport_type: selected.sportType,
         // If needs review, write 0 so consumer can detect & skip price write
-        current_price_raw: result.needsReview ? 0 : consensus.recommendedUSD,
+        current_price_raw: needsReview ? 0 : consensus.recommendedUSD,
       },
-      identification
+      selected
     );
     onOpenChange(false);
   };
+
+  const referenceImageUrl = result?.referenceImageUrl ?? null;
+  const candidates = result?.candidates ?? [];
+  const hasAlternatives = candidates.length > 1;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -88,7 +106,7 @@ export function CardVerificationDialog({ open, onOpenChange, card, onAccept }: P
             Verify Card
           </DialogTitle>
           <DialogDescription>
-            Re-runs identification and pulls a fresh price consensus across all sources. Each verification ≈ up to 6 API calls.
+            Re-runs identification, fetches the matching reference card, and pulls a fresh price consensus.
           </DialogDescription>
         </DialogHeader>
 
@@ -96,7 +114,7 @@ export function CardVerificationDialog({ open, onOpenChange, card, onAccept }: P
           {/* Current */}
           <div className="rounded-lg border border-border bg-card p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold">Current</span>
+              <span className="text-sm font-semibold">Your Card</span>
               <Badge variant="outline" className="text-[10px]">On record</Badge>
             </div>
             <div className="aspect-[3/4] w-full overflow-hidden rounded-md border border-border/50 bg-muted">
@@ -122,10 +140,34 @@ export function CardVerificationDialog({ open, onOpenChange, card, onAccept }: P
           <div className="rounded-lg border border-border bg-card p-4 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-sm font-semibold">Verified Match</span>
-              {result?.needsReview && (
-                <Badge variant="destructive" className="text-[10px] gap-1">
-                  <AlertTriangle className="h-3 w-3" /> Needs review
-                </Badge>
+              <div className="flex items-center gap-1.5">
+                {switching && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                {result?.needsReview && (
+                  <Badge variant="destructive" className="text-[10px] gap-1">
+                    <AlertTriangle className="h-3 w-3" /> Needs review
+                  </Badge>
+                )}
+              </div>
+            </div>
+
+            {/* Reference image for selected candidate */}
+            <div className="aspect-[3/4] w-full overflow-hidden rounded-md border border-border/50 bg-muted">
+              {loading ? (
+                <Skeleton className="w-full h-full" />
+              ) : referenceImageUrl ? (
+                <img
+                  src={referenceImageUrl}
+                  alt="Verified reference card"
+                  className="w-full h-full object-contain"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground gap-1">
+                  <ImageIcon className="h-8 w-8" />
+                  <span className="text-[10px]">No reference image found</span>
+                </div>
               )}
             </div>
 
@@ -143,18 +185,22 @@ export function CardVerificationDialog({ open, onOpenChange, card, onAccept }: P
               </div>
             )}
 
-            {!loading && !error && result && (
+            {!loading && !error && result && selected && (
               <>
                 <div className="grid grid-cols-2 gap-2">
-                  <Field label="Name" value={result.identification.cardName} />
-                  <Field label="Set" value={result.identification.cardSet} />
-                  <Field label="Number" value={result.identification.cardNumber} />
-                  <Field label="Rarity" value={result.identification.rarity} />
-                  <Field label="Game" value={result.identification.gameType} />
-                  <Field label="Match" value={`${Math.round(result.identification.matchConfidence * 100)}%`} />
+                  <Field label="Name" value={selected.cardName} />
+                  <Field label="Set" value={selected.cardSet} />
+                  <Field label="Number" value={selected.cardNumber} />
+                  <Field label="Rarity" value={selected.rarity} />
+                  <Field label="Game" value={selected.gameType} />
+                  <Field
+                    label="Match"
+                    value={`${Math.round(selected.matchConfidence * 100)}%`}
+                  />
                 </div>
                 <PriceConsensusPanel
                   consensus={result.consensus}
+                  loading={switching}
                   needsReview={result.needsReview}
                 />
               </>
@@ -162,20 +208,80 @@ export function CardVerificationDialog({ open, onOpenChange, card, onAccept }: P
           </div>
         </div>
 
+        {/* Alternative matches */}
+        {hasAlternatives && !loading && !error && (
+          <div className="space-y-2 pt-2 border-t border-border/50">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Alternative matches
+              </span>
+              <Badge variant="outline" className="text-[10px]">
+                {candidates.length - 1} other{candidates.length - 1 === 1 ? "" : "s"}
+              </Badge>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {candidates.map((c, i) => {
+                const isSelected = i === selectedIndex;
+                return (
+                  <button
+                    key={`${c.cardName}-${c.cardSet ?? "noset"}-${i}`}
+                    type="button"
+                    onClick={() => selectCandidate(i)}
+                    disabled={switching || isSelected}
+                    className={cn(
+                      "text-left rounded-md border p-2.5 transition-all",
+                      isSelected
+                        ? "border-primary bg-primary/5 ring-1 ring-primary"
+                        : "border-border bg-card hover:bg-accent/50 hover:border-primary/30",
+                      switching && "opacity-50 cursor-wait"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          {isSelected && <CheckCircle2 className="h-3 w-3 text-primary shrink-0" />}
+                          <p className="text-xs font-semibold truncate">{c.cardName}</p>
+                        </div>
+                        {c.cardSet && (
+                          <p className="text-[10px] text-muted-foreground truncate">
+                            {c.cardSet}
+                            {c.cardNumber && ` • #${c.cardNumber}`}
+                          </p>
+                        )}
+                        {c.reason && (
+                          <p className="text-[10px] text-muted-foreground/80 truncate mt-0.5 italic">
+                            {c.reason}
+                          </p>
+                        )}
+                      </div>
+                      <Badge variant="outline" className="text-[9px] shrink-0">
+                        {Math.round(c.matchConfidence * 100)}%
+                      </Badge>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Tap an alternative to re-price and re-fetch its reference image.
+            </p>
+          </div>
+        )}
+
         <DialogFooter className="flex-col sm:flex-row gap-2">
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             <X className="h-4 w-4 mr-2" />
             Reject
           </Button>
-          <Button variant="outline" onClick={handleRerun} disabled={loading}>
+          <Button variant="outline" onClick={handleRerun} disabled={loading || switching}>
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
             Re-run
           </Button>
           <Button
             variant="default"
             onClick={handleAccept}
-            disabled={loading || !result}
-            title={result?.needsReview ? "Anomaly detected — accepting will still save the verified identity but flag the price." : undefined}
+            disabled={loading || switching || !result || !selected}
+            title={result?.needsReview ? "Anomaly detected — accepting will save the verified identity but flag the price." : undefined}
           >
             <ShieldCheck className="h-4 w-4 mr-2" />
             {result?.needsReview ? "Accept Anyway" : "Accept Verified"}
