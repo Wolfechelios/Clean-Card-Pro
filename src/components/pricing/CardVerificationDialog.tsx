@@ -63,10 +63,6 @@ export function CardVerificationDialog({ open, onOpenChange, card, onAccept }: P
   const handleAccept = async () => {
     if (!card || !result) return;
     const { identification, consensus } = result;
-    // Always persist verified identity. If price flagged as needsReview, keep existing price.
-    const priceToWrite = result.needsReview
-      ? (typeof card.id === "string" ? NaN : NaN) // sentinel: caller should ignore price
-      : consensus.recommendedUSD;
     await onAccept?.(
       {
         card_name: identification.cardName,
@@ -75,7 +71,8 @@ export function CardVerificationDialog({ open, onOpenChange, card, onAccept }: P
         rarity: identification.rarity,
         game_type: identification.gameType,
         sport_type: identification.sportType,
-        current_price_raw: Number.isFinite(priceToWrite) ? priceToWrite : 0,
+        // If needs review, write 0 so consumer can detect & skip price write
+        current_price_raw: result.needsReview ? 0 : consensus.recommendedUSD,
       },
       identification
     );
