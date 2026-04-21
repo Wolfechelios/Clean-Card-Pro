@@ -1,93 +1,82 @@
 
 
-## Why cards appeared in queue but never showed up
+## Add "Verify" button to Rapid Scan + Collection
 
-Looking at the pipeline in `src/lib/queueProcessor.ts` and `src/components/scanner/RapidScanCamera.tsx`, three real problems can cause "queued but never showed":
+A manual verification action that re-runs identification + price consensus on demand, shows the matched card with full source breakdown, and lets the user accept or reject the result.
 
-### Problem 1 — Cards processed in background never get added to the visible list
-`RapidScanCamera.tsx` line 1010–1044: the `recent-scan-added` event handler calls `updateCard(scan.id, ...)` for each recent scan. But `updateCard` (line 445) only **updates existing entries** — it never **adds** new ones:
-```ts
-setCards((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
-```
-So if a scan was captured in one session, processed in the background while the user was on another tab/route (right now they're on `/auth`), and then they return to Rapid Scan — the on-mount hydration at line 331 only runs **once**. Any scan completing while the component was unmounted, OR captured from another device (USB/remote), never gets injected into the visible card list.
+### What it does
 
-### Problem 2 — Auth loss silently breaks the save path
-The user is currently on `/auth` — likely the session expired mid-batch. When that happens:
-- `getUserId()` returns `null`
-- `insertCardDual` in SAVE mode is skipped (line 737 checks `userId &&`)
-- `addRecentScan` still runs → entry goes to `localStorage`
-- `idbDelete(item.id)` still runs → queue item gone
+When the user taps **Verify** on a scanned card (Rapid Scan list) or a collection card (Collection grid/detail):
+1. Re-runs card identification using the stored image
+2. Pulls fresh prices from all sources (PriceCharting, TCGPlayer, eBay, SCP)
+3. Runs the result through the consensus/anomaly gate
+4. Opens a side-by-side dialog: **Current data ↔ Verified match**
+5. User can **Accept** (writes verified name/set/number/price to record) or **Reject** (keeps existing)
 
-So cards "process" but never make it to the library, and the queue empties. From the user's perspective: queue drained, library empty, no visible result.
+### UI changes
 
-### Problem 3 — Storage upload silently swallowed
-Lines 662–665: if upload throws, it logs a warning, returns `null`, then line 703 still calls `getPublicUrl(filePath)` for a path that was **never uploaded**. `imageUrl` becomes a broken URL. The card "succeeds" but its image is dead — visually it looks like nothing happened.
+**`src/components/scanner/ScannedCardList.tsx`** — Add a `ShieldCheck` icon button next to the existing edit/delete icons on each completed scan row. Disabled while verifying (spinner).
 
-## Fix
+**`src/pages/CollectionsPage.tsx`** — Add a "Verify" action to the bulk action toolbar (verifies all selected) and a single "Verify" button inside `CardDetailModal`.
 
-### File: `src/components/scanner/RapidScanCamera.tsx`
-**Change `recent-scan-added` handler to upsert (add new + update existing):**
+**New: `src/components/pricing/CardVerificationDialog.tsx`** — Two-column dialog:
+- Left: current card (image, name, set, number, current price)
+- Right: verified result (matched name, set, number, consensus price range, confidence bar, source quote list)
+- Footer: `Accept Verified` / `Reject` / `Re-run`
+- Reuses `PriceConsensusPanel` for the right-side price breakdown
 
-```ts
-const handleRecentScanAdded = () => {
-  const recentScans = getRecentScans();
-  setCards((prev) => {
-    const byId = new Map(prev.map((c) => [c.id, c]));
-    for (const scan of recentScans) {
-      const existing = byId.get(scan.id);
-      const patch = {
-        status: "completed" as const,
-        cardName: scan.card_name,
-        cardSet: scan.card_set ?? undefined,
-        cardNumber: scan.card_number ?? undefined,
-        playerName: scan.player_name ?? undefined,
-        imageUrl: scan.image_url,
-        value: scan.price,
-        psa10Price: scan.psa10Price ?? null,
-        rarity: scan.rarity ?? undefined,
-        gameType: scan.gameType ?? undefined,
-        sportType: scan.sportType ?? undefined,
-        dbId: scan.dbId ?? undefined,
-        isInLibrary: !!scan.isInLibrary,
-        libraryQuantity: scan.libraryQuantity ?? 0,
-        year: scan.year ?? undefined,
-        team: scan.team ?? undefined,
-        manufacturer: scan.manufacturer ?? undefined,
-      };
-      if (existing) {
-        byId.set(scan.id, { ...existing, ...patch });
-      } else {
-        // Inject background-processed scans that were never in this session
-        byId.set(scan.id, { id: scan.id, ...patch });
-      }
-    }
-    // Preserve ordering: newest first by scanned_at
-    return Array.from(byId.values()).sort((a, b) => /* newest first */ 0);
-  });
-};
+### Data flow
+
+```text
+Verify button
+   │
+   ▼
+verifyCard(card)  ← new helper in src/lib/verification/verifyCard.ts
+   │
+   ├─► supabase.functions.invoke("enhanced-card-identify", { imageUrl })
+   │      → returns { cardData, alternatives }
+   │
+   ├─► verifyCardPrice(identity)  ← existing pipeline
+   │      → returns PriceConsensus
+   │
+   └─► returns { identification, consensus, needsReview }
+        │
+        ▼
+   CardVerificationDialog renders result
+        │
+        ▼
+   onAccept → supabase.from("cards").update({...})
+              + recordPriceHistory()
 ```
 
-### File: `src/lib/queueProcessor.ts`
-**1. Detect lost auth and pause instead of silently dropping work** — at the top of `processJob`, if `getUserId()` returns null and `scanMode === "SAVE"`, set queue item status back to `queued`, pause processor, and toast "Signed out — sign back in to resume scanning."
-
-**2. Fix the broken-image case** — when `uploadPromise` returns null (upload failed), use a placeholder/local blob URL (`URL.createObjectURL(item.blob)`) for `imageUrl` instead of asking Supabase Storage for a public URL of a file that doesn't exist. Persist a local thumbnail flag in `recentScans` so the UI knows it's local-only.
-
-**3. Don't `idbDelete` on auth-failed save paths** — only delete the IDB item after either (a) a confirmed library insert in SAVE mode, or (b) a successful `addRecentScan` in non-SAVE mode. If neither happens, leave it as `error` for retry.
-
-### Files changed
+### Files to create / edit
 
 | File | Change |
 |---|---|
-| `src/components/scanner/RapidScanCamera.tsx` | Upsert in `recent-scan-added` handler so background-processed cards appear |
-| `src/lib/queueProcessor.ts` | Pause-on-auth-loss; fall back to local URL when upload fails; don't delete IDB on silent failures |
+| `src/lib/verification/verifyCard.ts` (new) | `verifyCard(card)` orchestrator: re-identify + price consensus, returns combined result |
+| `src/hooks/use-card-verification.ts` (new) | Hook wrapping `verifyCard` with loading/error/result state |
+| `src/components/pricing/CardVerificationDialog.tsx` (new) | Side-by-side comparison dialog using `PriceConsensusPanel` |
+| `src/components/scanner/ScannedCardList.tsx` | Add Verify icon button per row; wires `onVerify(card)` |
+| `src/components/scanner/RapidScanCamera.tsx` | Pass `onVerify` handler that opens `CardVerificationDialog`; on accept, call `updateCard(id, patch)` |
+| `src/pages/CollectionsPage.tsx` | Add "Verify Selected" toolbar button + single-card verify in detail modal; on accept, update DB row + invalidate React Query cache |
+| `src/components/CardDetailModal.tsx` | Add "Verify" button in footer that opens `CardVerificationDialog` |
+
+### Behavior rules
+
+- **Pricing**: uses existing `verifyCardPrice` → consensus engine already enforces anomaly gates per `mem://pricing/consensus-and-anomaly-gate`
+- **If `needsReview === true`**: Accept button disabled, "Manual review required" badge shown, only Reject/Re-run available
+- **Cache**: verification results cached 4h via existing `consensusCache`; "Re-run" button bypasses cache
+- **Bulk verify (Collection)**: processes max 5 in parallel, shows per-row progress, results queued in a review drawer (one accept/reject per card — no auto-write)
+- **Cost**: each verify = 1 identify call + up to 5 price calls; show a small "1 verification ≈ X API calls" hint in the dialog
 
 ### Out of scope
-- Phase 1 strict-ordering work
-- Settings UI changes
-- Edge function changes (pricing is working, per logs)
+- Auto-verify on every scan (keeps API cost predictable; manual only)
+- Image re-capture from Verify dialog
+- History log of past verifications
 
 ### Verification
-- Capture 5 cards, refresh the page mid-batch → returning to Rapid Scan should show all 5 once processed.
-- Sign out mid-batch → toast appears, queue pauses; sign back in and click resume → remaining cards complete.
-- Force an upload error (offline) → card still appears with local image instead of broken thumbnail.
+- Rapid Scan: verify a card you know is correct → matched name/price appears, Accept updates the row
+- Rapid Scan: verify the $1,000 "Jinx" → consensus flags anomaly, Accept disabled, Reject keeps card
+- Collection: select 3 cards, click "Verify Selected" → drawer shows 3 results with individual accept/reject
+- CardDetailModal: open any card, click Verify → dialog opens with current vs verified, accept persists to DB
 
