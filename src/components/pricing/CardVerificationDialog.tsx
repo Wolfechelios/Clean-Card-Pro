@@ -61,8 +61,12 @@ export function CardVerificationDialog({ open, onOpenChange, card, onAccept }: P
   };
 
   const handleAccept = async () => {
-    if (!card || !result || result.needsReview) return;
+    if (!card || !result) return;
     const { identification, consensus } = result;
+    // Always persist verified identity. If price flagged as needsReview, keep existing price.
+    const priceToWrite = result.needsReview
+      ? (typeof card.id === "string" ? NaN : NaN) // sentinel: caller should ignore price
+      : consensus.recommendedUSD;
     await onAccept?.(
       {
         card_name: identification.cardName,
@@ -71,7 +75,7 @@ export function CardVerificationDialog({ open, onOpenChange, card, onAccept }: P
         rarity: identification.rarity,
         game_type: identification.gameType,
         sport_type: identification.sportType,
-        current_price_raw: consensus.recommendedUSD,
+        current_price_raw: Number.isFinite(priceToWrite) ? priceToWrite : 0,
       },
       identification
     );
@@ -173,10 +177,11 @@ export function CardVerificationDialog({ open, onOpenChange, card, onAccept }: P
           <Button
             variant="default"
             onClick={handleAccept}
-            disabled={loading || !result || result.needsReview}
+            disabled={loading || !result}
+            title={result?.needsReview ? "Anomaly detected — accepting will still save the verified identity but flag the price." : undefined}
           >
             <ShieldCheck className="h-4 w-4 mr-2" />
-            Accept Verified
+            {result?.needsReview ? "Accept Anyway" : "Accept Verified"}
           </Button>
         </DialogFooter>
       </DialogContent>
