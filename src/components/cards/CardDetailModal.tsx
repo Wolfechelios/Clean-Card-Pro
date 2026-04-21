@@ -842,21 +842,24 @@ export function CardDetailModal({
           console.log("[Verify] Accept patch:", patch);
           const setVal = patch.card_set || card.card_set || null;
           const skipPrice = !patch.current_price_raw || patch.current_price_raw <= 0;
-          const updates: Record<string, any> = {
+          const baseUpdates = {
             card_name: patch.card_name,
             card_set: setVal,
-            collection_name: setVal, // enforce set === collection_name
+            collection_name: setVal,
             card_number: patch.card_number,
             rarity: patch.rarity,
             game_type: patch.game_type,
             sport_type: patch.sport_type,
             updated_at: new Date().toISOString(),
           };
-          if (!skipPrice) {
-            updates.current_price_raw = patch.current_price_raw;
-            updates.suggested_price = patch.current_price_raw;
-            updates.last_price_update = new Date().toISOString();
-          }
+          const updates = skipPrice
+            ? baseUpdates
+            : {
+                ...baseUpdates,
+                current_price_raw: patch.current_price_raw,
+                suggested_price: patch.current_price_raw,
+                last_price_update: new Date().toISOString(),
+              };
           const { error } = await supabase
             .from("cards")
             .update(updates)
