@@ -15,6 +15,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { CardIdentificationAlternatives } from "./CardIdentificationAlternatives";
 import { CardManualSearch } from "./CardManualSearch";
+import { MtgEditionFinder } from "@/components/mtg/MtgEditionFinder";
+import { Sparkles } from "lucide-react";
 
 interface CardData {
   card_name: string;
