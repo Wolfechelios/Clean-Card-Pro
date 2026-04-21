@@ -33,7 +33,8 @@ import { PriceConsensusPanel } from "@/components/pricing/PriceConsensusPanel";
 import { usePriceConsensus } from "@/hooks/use-price-consensus";
 import type { CardPriceIdentity } from "@/lib/pricing/types";
 import { toast } from "sonner";
-import { Pencil, Trash2, X, Save, Search, ImageIcon, CheckCircle2, XCircle, Box, Image, Sparkles } from "lucide-react";
+import { Pencil, Trash2, X, Save, Search, ImageIcon, CheckCircle2, XCircle, Box, Image, Sparkles, ShieldCheck } from "lucide-react";
+import { CardVerificationDialog } from "@/components/pricing/CardVerificationDialog";
 import { useNavigate } from "react-router-dom";
 
 export interface CardData {
@@ -84,6 +85,7 @@ export function CardDetailModal({
   const [isVerifying, setIsVerifying] = useState(false);
   const [referenceImageUrl, setReferenceImageUrl] = useState<string | null>(null);
   const [showVerification, setShowVerification] = useState(false);
+  const [showVerifyDialog, setShowVerifyDialog] = useState(false);
   const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
   const [cardState, setCardState] = useState<CardData | null>(null);
   const { consensus, loading: consensusLoading, error: consensusError, needsReview, fetchConsensus, reset: resetConsensus } = usePriceConsensus();
@@ -761,7 +763,14 @@ export function CardDetailModal({
                   disabled={isVerifying}
                 >
                   <Search className="h-4 w-4 mr-2" />
-                  {isVerifying ? "Verifying..." : "Verify"}
+                  {isVerifying ? "Verifying..." : "Verify Image"}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowVerifyDialog(true)}
+                >
+                  <ShieldCheck className="h-4 w-4 mr-2" />
+                  Verify Match
                 </Button>
                 <Button variant="outline" onClick={() => setIsEditing(true)}>
                   <Pencil className="h-4 w-4 mr-2" />
@@ -809,6 +818,59 @@ export function CardDetailModal({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <CardVerificationDialog
+        open={showVerifyDialog}
+        onOpenChange={setShowVerifyDialog}
+        card={
+          card
+            ? {
+                id: card.id,
+                imageUrl: card.image_url,
+                cardName: card.card_name,
+                cardSet: card.card_set,
+                cardNumber: card.card_number,
+                rarity: card.rarity,
+                condition: card.condition,
+                gameType: card.game_type,
+                sportType: card.sport_type,
+              }
+            : null
+        }
+        onAccept={async (patch) => {
+          if (!card) return;
+          const { error } = await supabase
+            .from("cards")
+            .update({
+              card_name: patch.card_name,
+              card_set: patch.card_set,
+              card_number: patch.card_number,
+              rarity: patch.rarity,
+              game_type: patch.game_type,
+              sport_type: patch.sport_type,
+              current_price_raw: patch.current_price_raw,
+              suggested_price: patch.current_price_raw,
+            })
+            .eq("id", card.id);
+          if (error) {
+            toast.error("Failed to save: " + error.message);
+            return;
+          }
+          toast.success(`Verified — ${patch.card_name} ($${patch.current_price_raw.toFixed(2)})`);
+          const updated: CardData = {
+            ...card,
+            card_name: patch.card_name,
+            card_set: patch.card_set,
+            card_number: patch.card_number,
+            rarity: patch.rarity,
+            game_type: patch.game_type,
+            sport_type: patch.sport_type,
+            current_price_raw: patch.current_price_raw,
+          };
+          setCardState(updated);
+          onUpdate?.(updated);
+        }}
+      />
     </>
   );
 }
