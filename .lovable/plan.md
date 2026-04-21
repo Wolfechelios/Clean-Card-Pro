@@ -1,82 +1,49 @@
 
 
-## Add "Verify" button to Rapid Scan + Collection
+## Fix: Verify dialog doesn't fill in card info after accepting
 
-A manual verification action that re-runs identification + price consensus on demand, shows the matched card with full source breakdown, and lets the user accept or reject the result.
+### Problem
 
-### What it does
+After clicking "Accept Verified" in the verification dialog, none of the card fields (set, rarity, number, etc.) are updated on the card record. The dialog closes but nothing changes.
 
-When the user taps **Verify** on a scanned card (Rapid Scan list) or a collection card (Collection grid/detail):
-1. Re-runs card identification using the stored image
-2. Pulls fresh prices from all sources (PriceCharting, TCGPlayer, eBay, SCP)
-3. Runs the result through the consensus/anomaly gate
-4. Opens a side-by-side dialog: **Current data ↔ Verified match**
-5. User can **Accept** (writes verified name/set/number/price to record) or **Reject** (keeps existing)
+### Root cause
 
-### UI changes
+Two bugs in the accept-flow wiring:
 
-**`src/components/scanner/ScannedCardList.tsx`** — Add a `ShieldCheck` icon button next to the existing edit/delete icons on each completed scan row. Disabled while verifying (spinner).
+1. **`CardDetailModal.tsx`** — The `onAccept` handler likely either (a) isn't wired to a DB update at all, or (b) only updates a subset of fields and skips `rarity` because `VerifyAcceptPatch` doesn't include it. Looking at `CardVerificationDialog.tsx`, the patch shape is:
+   ```
+   { card_name, card_set, card_number, rarity, game_type, sport_type, current_price_raw }
+   ```
+   But the `VerifyAcceptPatch` interface in the dialog file is **missing `rarity`** in its TypeScript declaration even though the runtime object includes it — and consumers typed against the interface won't pass it through.
 
-**`src/pages/CollectionsPage.tsx`** — Add a "Verify" action to the bulk action toolbar (verifies all selected) and a single "Verify" button inside `CardDetailModal`.
+2. **`ScannedCardList.tsx` / `CollectionsPage.tsx`** — The `onAccept` callback in the Rapid Scan list and Collections most likely just closes the dialog and doesn't call `supabase.from("cards").update(patch).eq("id", card.id)` + `updateCardDual` to persist + mirror to local IndexedDB.
 
-**New: `src/components/pricing/CardVerificationDialog.tsx`** — Two-column dialog:
-- Left: current card (image, name, set, number, current price)
-- Right: verified result (matched name, set, number, consensus price range, confidence bar, source quote list)
-- Footer: `Accept Verified` / `Reject` / `Re-run`
-- Reuses `PriceConsensusPanel` for the right-side price breakdown
-
-### Data flow
-
-```text
-Verify button
-   │
-   ▼
-verifyCard(card)  ← new helper in src/lib/verification/verifyCard.ts
-   │
-   ├─► supabase.functions.invoke("enhanced-card-identify", { imageUrl })
-   │      → returns { cardData, alternatives }
-   │
-   ├─► verifyCardPrice(identity)  ← existing pipeline
-   │      → returns PriceConsensus
-   │
-   └─► returns { identification, consensus, needsReview }
-        │
-        ▼
-   CardVerificationDialog renders result
-        │
-        ▼
-   onAccept → supabase.from("cards").update({...})
-              + recordPriceHistory()
-```
-
-### Files to create / edit
+### Fix
 
 | File | Change |
 |---|---|
-| `src/lib/verification/verifyCard.ts` (new) | `verifyCard(card)` orchestrator: re-identify + price consensus, returns combined result |
-| `src/hooks/use-card-verification.ts` (new) | Hook wrapping `verifyCard` with loading/error/result state |
-| `src/components/pricing/CardVerificationDialog.tsx` (new) | Side-by-side comparison dialog using `PriceConsensusPanel` |
-| `src/components/scanner/ScannedCardList.tsx` | Add Verify icon button per row; wires `onVerify(card)` |
-| `src/components/scanner/RapidScanCamera.tsx` | Pass `onVerify` handler that opens `CardVerificationDialog`; on accept, call `updateCard(id, patch)` |
-| `src/pages/CollectionsPage.tsx` | Add "Verify Selected" toolbar button + single-card verify in detail modal; on accept, update DB row + invalidate React Query cache |
-| `src/components/CardDetailModal.tsx` | Add "Verify" button in footer that opens `CardVerificationDialog` |
+| `src/components/pricing/CardVerificationDialog.tsx` | Add `rarity: string \| null` to the `VerifyAcceptPatch` interface so it matches the runtime object being passed to `onAccept` |
+| `src/components/cards/CardDetailModal.tsx` | Implement the `onAccept` handler: call `updateCardDual(card.id, patch)`, update local component state with the new field values so the modal reflects changes immediately, show a success toast, and call `onCardChange?.()` to trigger Collections refetch |
+| `src/components/scanner/ScannedCardList.tsx` | In the verify dialog `onAccept`, call `onCardUpdate(card.id, { card_name, card_set, card_number, rarity, game_type, current_price_raw })` so the scan row updates in place; if the card has a `dbId`, also call `updateCardDual(dbId, patch)` to persist |
+| `src/pages/CollectionsPage.tsx` | After accept in the bulk-verify path, call `supabase.from("cards").update(patch).eq("id", id)` then `fetchCards()` to refresh the grid |
+| `src/lib/verification/verifyCard.ts` | Confirm `VerifiedIdentification` includes `rarity` (it does) — no change, but verify it propagates through the patch |
 
-### Behavior rules
+### Behavior after fix
 
-- **Pricing**: uses existing `verifyCardPrice` → consensus engine already enforces anomaly gates per `mem://pricing/consensus-and-anomaly-gate`
-- **If `needsReview === true`**: Accept button disabled, "Manual review required" badge shown, only Reject/Re-run available
-- **Cache**: verification results cached 4h via existing `consensusCache`; "Re-run" button bypasses cache
-- **Bulk verify (Collection)**: processes max 5 in parallel, shows per-row progress, results queued in a review drawer (one accept/reject per card — no auto-write)
-- **Cost**: each verify = 1 identify call + up to 5 price calls; show a small "1 verification ≈ X API calls" hint in the dialog
-
-### Out of scope
-- Auto-verify on every scan (keeps API cost predictable; manual only)
-- Image re-capture from Verify dialog
-- History log of past verifications
+1. User taps Verify → dialog opens, runs identification + price consensus
+2. Verified Match shows the new name/set/number/rarity
+3. User taps **Accept Verified**
+4. Patch is applied via `updateCardDual` → DB updated, local IndexedDB mirrored
+5. Toast: "Card updated from verification"
+6. Modal/list/grid reflects new values immediately (no manual refresh)
+7. `price_history` row inserted with `source: 'verification'` for audit trail
 
 ### Verification
-- Rapid Scan: verify a card you know is correct → matched name/price appears, Accept updates the row
-- Rapid Scan: verify the $1,000 "Jinx" → consensus flags anomaly, Accept disabled, Reject keeps card
-- Collection: select 3 cards, click "Verify Selected" → drawer shows 3 results with individual accept/reject
-- CardDetailModal: open any card, click Verify → dialog opens with current vs verified, accept persists to DB
+
+- Open any card with wrong/missing set+rarity, click Verify
+- Click Accept Verified
+- Confirm the modal immediately shows the new set, rarity, number, and price
+- Close modal, reload Collections — values persist
+- Check `cards` table: row reflects new values
+- Check `price_history`: new row with `source='verification'`
 
