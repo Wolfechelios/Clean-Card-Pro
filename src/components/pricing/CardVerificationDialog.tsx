@@ -2,7 +2,7 @@
 // Side-by-side current ↔ verified comparison dialog with selectable candidates
 // and a verified reference image.
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -14,10 +14,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ShieldCheck, RefreshCw, X, AlertTriangle, ImageIcon, Loader2, CheckCircle2 } from "lucide-react";
+import { ShieldCheck, RefreshCw, X, AlertTriangle, ImageIcon, Loader2, CheckCircle2, Sparkles } from "lucide-react";
 import { PriceConsensusPanel } from "./PriceConsensusPanel";
 import { useCardVerification } from "@/hooks/use-card-verification";
 import type { VerifyCardInput, VerifiedIdentification } from "@/lib/verification/verifyCard";
+import { MtgEditionFinder, type MtgEditionSelection } from "@/components/mtg/MtgEditionFinder";
 import { cn } from "@/lib/utils";
 
 export interface VerifyAcceptPatch {
