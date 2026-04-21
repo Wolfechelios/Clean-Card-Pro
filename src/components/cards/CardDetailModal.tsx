@@ -35,6 +35,7 @@ import type { CardPriceIdentity } from "@/lib/pricing/types";
 import { toast } from "sonner";
 import { Pencil, Trash2, X, Save, Search, ImageIcon, CheckCircle2, XCircle, Box, Image, Sparkles, ShieldCheck } from "lucide-react";
 import { CardVerificationDialog } from "@/components/pricing/CardVerificationDialog";
+import { MtgEditionFinder } from "@/components/mtg/MtgEditionFinder";
 import { useNavigate } from "react-router-dom";
 
 export interface CardData {
@@ -86,6 +87,7 @@ export function CardDetailModal({
   const [referenceImageUrl, setReferenceImageUrl] = useState<string | null>(null);
   const [showVerification, setShowVerification] = useState(false);
   const [showVerifyDialog, setShowVerifyDialog] = useState(false);
+  const [showEditionFinder, setShowEditionFinder] = useState(false);
   const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
   const [cardState, setCardState] = useState<CardData | null>(null);
   const { consensus, loading: consensusLoading, error: consensusError, needsReview, fetchConsensus, reset: resetConsensus } = usePriceConsensus();
@@ -503,7 +505,22 @@ export function CardDetailModal({
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="card_set">Card Set</Label>
+                    <Label htmlFor="card_set" className="flex items-center justify-between">
+                      <span>Card Set</span>
+                      {((editData.game_type || cardState?.game_type || "").toLowerCase().includes("mtg") ||
+                        (editData.game_type || cardState?.game_type || "").toLowerCase().includes("magic")) && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowEditionFinder(true)}
+                          className="h-6 px-2 text-xs"
+                        >
+                          <Sparkles className="h-3 w-3 mr-1" />
+                          Find Edition
+                        </Button>
+                      )}
+                    </Label>
                     <Input
                       id="card_set"
                       value={editData.card_set}
@@ -895,6 +912,24 @@ export function CardDetailModal({
           };
           setCardState(updated);
           onUpdate?.(updated);
+        }}
+      />
+
+      <MtgEditionFinder
+        open={showEditionFinder}
+        onOpenChange={setShowEditionFinder}
+        initialCardName={editData.card_name || cardState?.card_name || null}
+        initialSetCode={null}
+        onSelect={(picked) => {
+          setEditData((prev) => ({
+            ...prev,
+            card_set: picked.setName,
+            collection_name: picked.setName,
+            card_number: picked.collectorNumber || prev.card_number,
+            rarity: picked.rarity || prev.rarity,
+          }));
+          setIsEditing(true);
+          toast.success(`Selected ${picked.setName}${picked.year ? ` (${picked.year})` : ""}`);
         }}
       />
     </>
