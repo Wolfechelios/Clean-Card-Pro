@@ -251,7 +251,9 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
 
   resume: () => {
     writeAnomalyPauseFlag(false);
+    queueAnomalyDetector.resetSession();
     set({ isPaused: false, isPausedByAnomaly: false });
+    recoverAnomalyErroredItems().catch(() => {});
 
     if (!get().isRunning) {
       idbCountQueued()
