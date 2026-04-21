@@ -897,7 +897,8 @@ export default function Collections() {
                   const first = filteredCards.find((c) => selectedCards.has(c.id));
                   if (first) {
                     setCardDetail(first as any);
-                    toast.info("Open the detail modal and click 'Verify Match' to verify.");
+                    setShowCardDetail(true);
+                    toast.info("Tap 'Verify Match' inside the card details to verify.");
                   }
                 }}
                 title="Verify selected card identity & price"
