@@ -63,11 +63,18 @@ export function CardVerificationDialog({ open, onOpenChange, card, onAccept }: P
     reset,
   } = useCardVerification();
 
+  const [showEditionFinder, setShowEditionFinder] = useState(false);
+  const [overridePatch, setOverridePatch] = useState<MtgEditionSelection | null>(null);
+
   useEffect(() => {
     if (open && card) {
       run(card, false);
+      setOverridePatch(null);
     }
-    if (!open) reset();
+    if (!open) {
+      reset();
+      setOverridePatch(null);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, card?.id, card?.imageUrl]);
 
@@ -75,19 +82,30 @@ export function CardVerificationDialog({ open, onOpenChange, card, onAccept }: P
     if (card) run(card, true);
   };
 
+  const isMtg = (selected?.gameType || card?.gameType || "").toLowerCase().includes("mtg") ||
+    (selected?.gameType || card?.gameType || "").toLowerCase().includes("magic");
+
   const handleAccept = async () => {
     if (!card || !result || !selected) return;
     const { consensus, needsReview } = result;
+    // If user picked an MTG edition override, prefer that data + price.
+    const finalName = overridePatch?.cardName || selected.cardName;
+    const finalSet = overridePatch?.setName || selected.cardSet;
+    const finalNumber = overridePatch?.collectorNumber || selected.cardNumber;
+    const finalRarity = overridePatch?.rarity || selected.rarity;
+    const overridePrice = overridePatch?.priceUsd ?? null;
+    const finalPrice = overridePrice !== null && overridePrice > 0
+      ? overridePrice
+      : (needsReview ? 0 : consensus.recommendedUSD);
     await onAccept?.(
       {
-        card_name: selected.cardName,
-        card_set: selected.cardSet,
-        card_number: selected.cardNumber,
-        rarity: selected.rarity,
+        card_name: finalName,
+        card_set: finalSet,
+        card_number: finalNumber,
+        rarity: finalRarity,
         game_type: selected.gameType,
         sport_type: selected.sportType,
-        // If needs review, write 0 so consumer can detect & skip price write
-        current_price_raw: needsReview ? 0 : consensus.recommendedUSD,
+        current_price_raw: finalPrice,
       },
       selected
     );
