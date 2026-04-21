@@ -914,6 +914,24 @@ export function CardDetailModal({
           onUpdate?.(updated);
         }}
       />
+
+      <MtgEditionFinder
+        open={showEditionFinder}
+        onOpenChange={setShowEditionFinder}
+        initialCardName={editData.card_name || cardState?.card_name || null}
+        initialSetCode={null}
+        onSelect={(picked) => {
+          setEditData((prev) => ({
+            ...prev,
+            card_set: picked.setName,
+            collection_name: picked.setName,
+            card_number: picked.collectorNumber || prev.card_number,
+            rarity: picked.rarity || prev.rarity,
+          }));
+          setIsEditing(true);
+          toast.success(`Selected ${picked.setName}${picked.year ? ` (${picked.year})` : ""}`);
+        }}
+      />
     </>
   );
 }
