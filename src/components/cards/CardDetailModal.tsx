@@ -505,7 +505,22 @@ export function CardDetailModal({
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="card_set">Card Set</Label>
+                    <Label htmlFor="card_set" className="flex items-center justify-between">
+                      <span>Card Set</span>
+                      {((editData.game_type || cardState?.game_type || "").toLowerCase().includes("mtg") ||
+                        (editData.game_type || cardState?.game_type || "").toLowerCase().includes("magic")) && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setShowEditionFinder(true)}
+                          className="h-6 px-2 text-xs"
+                        >
+                          <Sparkles className="h-3 w-3 mr-1" />
+                          Find Edition
+                        </Button>
+                      )}
+                    </Label>
                     <Input
                       id="card_set"
                       value={editData.card_set}
