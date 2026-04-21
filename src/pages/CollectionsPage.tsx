@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
-import { Search, Trash2, RefreshCw, Edit3, ImageOff, X, Download, ImagePlus, Cloud, Gem } from "lucide-react";
+import { Search, Trash2, RefreshCw, Edit3, ImageOff, X, Download, ImagePlus, Cloud, Gem, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -37,6 +37,8 @@ import { CardDetailModal, CardData } from "@/components/cards/CardDetailModal";
 import { BulkImageSearch } from "@/components/collections/BulkImageSearch";
 import { AutopilotPanel } from "@/components/AutopilotPanel";
 import { toPublicImageUrl } from "@/lib/storage/getPublicImageUrl";
+import { CardVerificationDialog } from "@/components/pricing/CardVerificationDialog";
+import type { VerifyCardInput } from "@/lib/verification/verifyCard";
 
 interface CardItem {
   id: string;
@@ -86,6 +88,8 @@ export default function Collections() {
   const [showBulkImageSearch, setShowBulkImageSearch] = useState(false);
   const [cardDetail, setCardDetail] = useState<CardData | null>(null);
   const [showCardDetail, setShowCardDetail] = useState(false);
+  const [verifyTarget, setVerifyTarget] = useState<{ id: string; input: VerifyCardInput } | null>(null);
+  const [verifyQueue, setVerifyQueue] = useState<CardItem[]>([]);
   const [bulkEditData, setBulkEditData] = useState({
     condition: "",
     rarity: "",
@@ -894,16 +898,31 @@ export default function Collections() {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  const first = filteredCards.find((c) => selectedCards.has(c.id));
-                  if (first) {
-                    setCardDetail(first as any);
-                    setShowCardDetail(true);
-                    toast.info("Tap 'Verify Match' inside the card details to verify.");
+                  const queue = filteredCards.filter((c) => selectedCards.has(c.id));
+                  if (queue.length === 0) return;
+                  setVerifyQueue(queue.slice(1));
+                  const first = queue[0];
+                  setVerifyTarget({
+                    id: first.id,
+                    input: {
+                      id: first.id,
+                      imageUrl: first.image_url,
+                      cardName: first.card_name,
+                      cardSet: first.card_set,
+                      cardNumber: first.card_number,
+                      rarity: first.rarity,
+                      condition: first.condition,
+                      gameType: first.game_type,
+                      sportType: first.sport_type,
+                    },
+                  });
+                  if (queue.length > 1) {
+                    toast.info(`Verifying ${queue.length} cards — one at a time`);
                   }
                 }}
                 title="Verify selected card identity & price"
               >
-                <Edit3 className="h-4 w-4 mr-2" />
+                <ShieldCheck className="h-4 w-4 mr-2" />
                 Verify Selected
               </Button>
               <Button 
@@ -1166,6 +1185,80 @@ export default function Collections() {
           />
         </DialogContent>
       </Dialog>
+
+      {/* Verify Selected Dialog (one card at a time, queued) */}
+      <CardVerificationDialog
+        open={!!verifyTarget}
+        onOpenChange={(o) => {
+          if (!o) {
+            setVerifyTarget(null);
+            // Advance queue if more cards remain
+            if (verifyQueue.length > 0) {
+              const [next, ...rest] = verifyQueue;
+              setVerifyQueue(rest);
+              setTimeout(() => {
+                setVerifyTarget({
+                  id: next.id,
+                  input: {
+                    id: next.id,
+                    imageUrl: next.image_url,
+                    cardName: next.card_name,
+                    cardSet: next.card_set,
+                    cardNumber: next.card_number,
+                    rarity: next.rarity,
+                    condition: next.condition,
+                    gameType: next.game_type,
+                    sportType: next.sport_type,
+                  },
+                });
+              }, 200);
+            }
+          }
+        }}
+        card={verifyTarget?.input ?? null}
+        onAccept={async (patch) => {
+          if (!verifyTarget) return;
+          const id = verifyTarget.id;
+          const setVal = patch.card_set || null;
+          const skipPrice = !patch.current_price_raw || patch.current_price_raw <= 0;
+          const baseUpdates: any = {
+            card_name: patch.card_name,
+            card_set: setVal,
+            collection_name: setVal,
+            card_number: patch.card_number,
+            rarity: patch.rarity,
+            game_type: patch.game_type,
+            sport_type: patch.sport_type,
+            updated_at: new Date().toISOString(),
+          };
+          const updates = skipPrice
+            ? baseUpdates
+            : {
+                ...baseUpdates,
+                current_price_raw: patch.current_price_raw,
+                suggested_price: patch.current_price_raw,
+                last_price_update: new Date().toISOString(),
+              };
+          const { error } = await supabase.from("cards").update(updates).eq("id", id);
+          if (error) {
+            toast.error("Failed to save: " + error.message);
+            return;
+          }
+          if (!skipPrice) {
+            await supabase.from("price_history").insert({
+              card_id: id,
+              price_raw: patch.current_price_raw,
+              source: "verification",
+            });
+          }
+          toast.success(
+            skipPrice
+              ? `Verified identity — price flagged for review`
+              : `Verified — ${patch.card_name} ($${patch.current_price_raw.toFixed(2)})`
+          );
+          fetchCards();
+        }}
+      />
     </div>
   );
 }
