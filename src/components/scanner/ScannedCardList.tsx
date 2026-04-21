@@ -8,7 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Edit2, DollarSign, Hash, Sparkles, Trash2, Loader2, Library, Plus, List, Copy, Check, User, Gamepad2, Download, ImageIcon, Package, Crown } from "lucide-react";
+import { Edit2, DollarSign, Hash, Sparkles, Trash2, Loader2, Library, Plus, List, Copy, Check, User, Gamepad2, Download, ImageIcon, Package, Crown, ShieldCheck } from "lucide-react";
+import { CardVerificationDialog, type VerifyAcceptPatch } from "@/components/pricing/CardVerificationDialog";
+import type { VerifyCardInput } from "@/lib/verification/verifyCard";
 import { isPremiumYugiohSet } from "@/lib/premiumSets";
 import JSZip from "jszip";
 import { toPublicImageUrl } from "@/lib/storage/getPublicImageUrl";
@@ -106,6 +108,8 @@ export const ScannedCardList = ({
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [isAddingAll, setIsAddingAll] = useState(false);
   const [isRemovingAll, setIsRemovingAll] = useState(false);
+  const [verifyingCard, setVerifyingCard] = useState<VerifyCardInput | null>(null);
+  const [verifyTargetId, setVerifyTargetId] = useState<string | null>(null);
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showListDialog, setShowListDialog] = useState(false);
@@ -559,6 +563,27 @@ export const ScannedCardList = ({
           )}
 
           <div className="ml-auto flex items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              title="Verify identity & price"
+              onClick={() => {
+                setVerifyTargetId(card.id);
+                setVerifyingCard({
+                  id: card.id,
+                  imageUrl: card.imageUrl || card.preview,
+                  cardName: card.cardName,
+                  cardSet: card.cardSet,
+                  cardNumber: card.cardNumber,
+                  rarity: card.rarity,
+                  gameType: card.gameType,
+                  sportType: card.sportType,
+                });
+              }}
+            >
+              <ShieldCheck className="h-3.5 w-3.5" />
+            </Button>
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditDialog(card)}>
               <Edit2 className="h-3.5 w-3.5" />
             </Button>
@@ -853,6 +878,50 @@ export const ScannedCardList = ({
           )}
         </DialogContent>
       </Dialog>
+
+      <CardVerificationDialog
+        open={!!verifyingCard}
+        onOpenChange={(o) => {
+          if (!o) {
+            setVerifyingCard(null);
+            setVerifyTargetId(null);
+          }
+        }}
+        card={verifyingCard}
+        onAccept={async (patch) => {
+          if (!verifyTargetId) return;
+          onCardUpdate(verifyTargetId, {
+            cardName: patch.card_name,
+            cardSet: patch.card_set || undefined,
+            cardNumber: patch.card_number || undefined,
+            rarity: patch.rarity || undefined,
+            gameType: patch.game_type || undefined,
+            sportType: patch.sport_type || undefined,
+            value: patch.current_price_raw,
+          });
+          const target = cards.find((c) => c.id === verifyTargetId);
+          if (target?.dbId) {
+            const { error } = await supabase
+              .from("cards")
+              .update({
+                card_name: patch.card_name,
+                card_set: patch.card_set,
+                card_number: patch.card_number,
+                rarity: patch.rarity,
+                game_type: patch.game_type,
+                sport_type: patch.sport_type,
+                current_price_raw: patch.current_price_raw,
+                suggested_price: patch.current_price_raw,
+              })
+              .eq("id", target.dbId);
+            if (error) {
+              toast.error("Verified locally, but failed to save: " + error.message);
+              return;
+            }
+          }
+          toast.success(`Verified — ${patch.card_name} ($${patch.current_price_raw.toFixed(2)})`);
+        }}
+      />
     </>
   );
 };

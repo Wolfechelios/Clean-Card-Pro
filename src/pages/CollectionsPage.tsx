@@ -890,6 +890,22 @@ export default function Collections() {
                 <Edit3 className="h-4 w-4 mr-2" />
                 Edit Selected
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const first = filteredCards.find((c) => selectedCards.has(c.id));
+                  if (first) {
+                    setCardDetail(first as any);
+                    setShowCardDetail(true);
+                    toast.info("Tap 'Verify Match' inside the card details to verify.");
+                  }
+                }}
+                title="Verify selected card identity & price"
+              >
+                <Edit3 className="h-4 w-4 mr-2" />
+                Verify Selected
+              </Button>
               <Button 
                 variant="destructive" 
                 size="sm"
