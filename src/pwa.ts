@@ -7,26 +7,39 @@ function isPreviewOrIframe(): boolean {
     return true;
   }
   const host = window.location.hostname;
-  return host.includes("id-preview--") || host.includes("lovableproject.com");
+  return (
+    host.includes("id-preview--") ||
+    host.includes("lovableproject.com") ||
+    host.includes("lovable.app") ||
+    host === "localhost" ||
+    host === "127.0.0.1"
+  );
 }
 
-/** Unregister workers + clear caches in preview/iframe contexts */
+/** Unregister workers + clear ALL caches in preview/iframe contexts */
 export async function cleanupPreviewSW(): Promise<boolean> {
   if (!isPreviewOrIframe()) return false;
   if (!("serviceWorker" in navigator)) return false;
 
-  const registrations = await navigator.serviceWorker.getRegistrations();
-  await Promise.all(registrations.map((r) => r.unregister()));
+  try {
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(registrations.map((r) => r.unregister()));
 
-  if (typeof caches !== "undefined") {
-    const keys = await caches.keys();
-    await Promise.all(keys.filter((k) => k.startsWith("cleancards")).map((k) => caches.delete(k)));
+    if (typeof caches !== "undefined") {
+      const keys = await caches.keys();
+      // Clear ALL caches in preview, not just cleancards-prefixed ones
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch (err) {
+    console.warn("[PWA] cleanup error", err);
   }
 
-  // If we were controlled by an old SW, reload once to get a clean fetch
-  if (navigator.serviceWorker.controller) {
+  // Only reload once per session to avoid infinite reload loops
+  const RELOAD_KEY = "__sw_cleanup_reloaded__";
+  if (navigator.serviceWorker.controller && !sessionStorage.getItem(RELOAD_KEY)) {
+    sessionStorage.setItem(RELOAD_KEY, "1");
     window.location.reload();
-    return true; // signal: reload triggered, don't continue boot
+    return true;
   }
   return false;
 }
