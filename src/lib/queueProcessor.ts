@@ -116,6 +116,26 @@ function writeAnomalyPauseFlag(isPaused: boolean): void {
   }
 }
 
+/**
+ * Re-queue items that were mass-failed by the old anomaly detector.
+ * Users legitimately scan duplicates; those scans should never have errored.
+ */
+async function recoverAnomalyErroredItems(): Promise<void> {
+  try {
+    const all = await idbListMetaFast(1000);
+    const stuck = all.filter(
+      (m) => m.status === "error" && typeof m.error === "string" && m.error.startsWith("Anomaly:")
+    );
+    if (stuck.length === 0) return;
+    await Promise.all(
+      stuck.map((m) => idbUpdateMeta(m.id, { status: "queued", error: undefined }))
+    );
+    console.log(`[QueueProcessor] Recovered ${stuck.length} items previously failed by anomaly detector`);
+  } catch (e) {
+    console.warn("[QueueProcessor] recoverAnomalyErroredItems error", e);
+  }
+}
+
 // Pricing cache: reduces repeated edge-function calls during rapid scanning
 const PRICE_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const priceCache = new Map<string, { ts: number; value: number | null }>();
