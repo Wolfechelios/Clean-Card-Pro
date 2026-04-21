@@ -108,6 +108,8 @@ export const ScannedCardList = ({
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [isAddingAll, setIsAddingAll] = useState(false);
   const [isRemovingAll, setIsRemovingAll] = useState(false);
+  const [verifyingCard, setVerifyingCard] = useState<VerifyCardInput | null>(null);
+  const [verifyTargetId, setVerifyTargetId] = useState<string | null>(null);
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showListDialog, setShowListDialog] = useState(false);
@@ -561,6 +563,27 @@ export const ScannedCardList = ({
           )}
 
           <div className="ml-auto flex items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              title="Verify identity & price"
+              onClick={() => {
+                setVerifyTargetId(card.id);
+                setVerifyingCard({
+                  id: card.id,
+                  imageUrl: card.imageUrl || card.preview,
+                  cardName: card.cardName,
+                  cardSet: card.cardSet,
+                  cardNumber: card.cardNumber,
+                  rarity: card.rarity,
+                  gameType: card.gameType,
+                  sportType: card.sportType,
+                });
+              }}
+            >
+              <ShieldCheck className="h-3.5 w-3.5" />
+            </Button>
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditDialog(card)}>
               <Edit2 className="h-3.5 w-3.5" />
             </Button>
