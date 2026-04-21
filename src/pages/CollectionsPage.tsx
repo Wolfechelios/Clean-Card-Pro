@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
-import { Search, Trash2, RefreshCw, Edit3, ImageOff, X, Download, ImagePlus, Cloud, Gem } from "lucide-react";
+import { Search, Trash2, RefreshCw, Edit3, ImageOff, X, Download, ImagePlus, Cloud, Gem, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -37,6 +37,8 @@ import { CardDetailModal, CardData } from "@/components/cards/CardDetailModal";
 import { BulkImageSearch } from "@/components/collections/BulkImageSearch";
 import { AutopilotPanel } from "@/components/AutopilotPanel";
 import { toPublicImageUrl } from "@/lib/storage/getPublicImageUrl";
+import { CardVerificationDialog } from "@/components/pricing/CardVerificationDialog";
+import type { VerifyCardInput } from "@/lib/verification/verifyCard";
 
 interface CardItem {
   id: string;
@@ -86,6 +88,8 @@ export default function Collections() {
   const [showBulkImageSearch, setShowBulkImageSearch] = useState(false);
   const [cardDetail, setCardDetail] = useState<CardData | null>(null);
   const [showCardDetail, setShowCardDetail] = useState(false);
+  const [verifyTarget, setVerifyTarget] = useState<{ id: string; input: VerifyCardInput } | null>(null);
+  const [verifyQueue, setVerifyQueue] = useState<CardItem[]>([]);
   const [bulkEditData, setBulkEditData] = useState({
     condition: "",
     rarity: "",
@@ -894,16 +898,31 @@ export default function Collections() {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  const first = filteredCards.find((c) => selectedCards.has(c.id));
-                  if (first) {
-                    setCardDetail(first as any);
-                    setShowCardDetail(true);
-                    toast.info("Tap 'Verify Match' inside the card details to verify.");
+                  const queue = filteredCards.filter((c) => selectedCards.has(c.id));
+                  if (queue.length === 0) return;
+                  setVerifyQueue(queue.slice(1));
+                  const first = queue[0];
+                  setVerifyTarget({
+                    id: first.id,
+                    input: {
+                      id: first.id,
+                      imageUrl: first.image_url,
+                      cardName: first.card_name,
+                      cardSet: first.card_set,
+                      cardNumber: first.card_number,
+                      rarity: first.rarity,
+                      condition: first.condition,
+                      gameType: first.game_type,
+                      sportType: first.sport_type,
+                    },
+                  });
+                  if (queue.length > 1) {
+                    toast.info(`Verifying ${queue.length} cards — one at a time`);
                   }
                 }}
                 title="Verify selected card identity & price"
               >
-                <Edit3 className="h-4 w-4 mr-2" />
+                <ShieldCheck className="h-4 w-4 mr-2" />
                 Verify Selected
               </Button>
               <Button 
