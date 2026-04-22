@@ -17,6 +17,7 @@ import { PWAInstallBanner } from "@/components/pwa/PWAInstallBanner";
 import { PwaUpdateBanner } from "@/components/pwa/PwaUpdateBanner";
 import { usePWAOnboarding } from "@/hooks/use-pwa-onboarding";
 import { useQueueAutoResume } from "@/hooks/use-queue-auto-resume";
+import { PreviewReloadButton } from "@/components/dev/PreviewReloadButton";
 
 const Auth = lazy(() => import("./pages/Auth"));
 const NewDashboard = lazy(() => import("./pages/NewDashboard"));
@@ -145,6 +146,7 @@ const App = () => {
                   <AppRoutes />
                   <QueueStatusIndicator />
                   <OfflineIndicator />
+                  <PreviewReloadButton />
                 </PWAWrapper>
               </AuthProvider>
             </BrowserRouter>
