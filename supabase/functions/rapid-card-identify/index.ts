@@ -345,15 +345,41 @@ JSON only.`;
   }
 });
 
-async function fetchImageAsBase64(url: string): Promise<string> {
-  const response = await fetch(url);
-  const arrayBuffer = await response.arrayBuffer();
-  const uint8Array = new Uint8Array(arrayBuffer);
-  let binary = '';
-  for (let i = 0; i < uint8Array.length; i++) {
-    binary += String.fromCharCode(uint8Array[i]);
+function cleanBase64(b64: string): string {
+  let cleaned = (b64 || "").trim();
+  if (cleaned.startsWith("data:") && cleaned.includes(",")) {
+    cleaned = cleaned.split(",", 2)[1] ?? "";
   }
-  return btoa(binary);
+  cleaned = cleaned.replace(/\s/g, "");
+  if (!cleaned || !/^[A-Za-z0-9+/]+={0,2}$/.test(cleaned)) {
+    throw new Error("Invalid base64 image data");
+  }
+  return cleaned;
+}
+
+async function fetchImageAsBase64(url: string): Promise<string> {
+  // Fast path: caller already provided a data URL — strip the prefix.
+  if (typeof url === "string" && url.startsWith("data:")) {
+    return cleanBase64(url);
+  }
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Image fetch failed: ${response.status} ${response.statusText}`);
+  }
+  const arrayBuffer = await response.arrayBuffer();
+  if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+    throw new Error("Image fetch returned empty body");
+  }
+  const uint8Array = new Uint8Array(arrayBuffer);
+
+  // Chunked conversion to avoid call-stack overflow on large images.
+  let binary = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < uint8Array.length; i += CHUNK) {
+    binary += String.fromCharCode(...uint8Array.subarray(i, i + CHUNK));
+  }
+  return cleanBase64(btoa(binary));
 }
 
 function normalizeOcrText(value: unknown): string | null {
