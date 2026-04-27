@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { BookOpen } from "lucide-react";
 import { useBinderData } from "@/hooks/use-binder-data";
+import { useBinderSettings } from "@/hooks/use-binder-settings";
 import { BinderGrid } from "@/components/binder/BinderGrid";
 import { BinderControls } from "@/components/binder/BinderControls";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -14,6 +15,12 @@ export default function BinderPage() {
   const [flipStyle, setFlipStyle] = useState<"3d" | "slide">("3d");
 
   const { sets, slots, loading, stats } = useBinderData(selectedSetId);
+  const { settings: pictureSettings, update: updatePictureSettings } = useBinderSettings();
+
+  const selectedSetName = useMemo(
+    () => sets.find((s) => s.id === selectedSetId)?.set_name ?? null,
+    [sets, selectedSetId]
+  );
 
   const filteredSlots = useMemo(() => {
     let result = slots;
@@ -61,6 +68,8 @@ export default function BinderPage() {
             flipStyle={flipStyle}
             onFlipStyle={setFlipStyle}
             stats={stats}
+            pictureSettings={pictureSettings}
+            onPictureSettingsChange={updatePictureSettings}
           />
         </aside>
 
@@ -90,6 +99,8 @@ export default function BinderPage() {
               showPrices={showPrices}
               heatmapMode={heatmapMode}
               flipStyle={flipStyle}
+              pictureSettings={pictureSettings}
+              selectedSetName={selectedSetName}
             />
           )}
         </main>
