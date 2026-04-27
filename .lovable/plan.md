@@ -1,139 +1,104 @@
+## Binder Page Photo Capture → Auto-Crop into 9 Cards → Reuse Rapid Scanner Pipeline
 
+You photograph a 9-pocket binder page, the app perspective-corrects and slices it into 9 individual card images, and each crop is pushed into the **same scan queue the Rapid Scanner already uses** (`idbAdd` → `queueProcessor` → `rapid-card-identify`). No new identification logic is built — binder capture is purely a "best photo + best crop" front-end that feeds the existing pipeline.
 
-## MTG Edition Finder + Alpha/Beta/Unlimited/Revised Recognizer
+### What gets built
 
-Add specialized identification for early MTG core sets (Alpha, Beta, Unlimited, Revised, 4th Edition) which are visually similar but have huge price differences. Includes a manual Edition Finder tool to disambiguate any MTG card across all printings.
+#### 1. Best-possible photo capture (`BinderPageCapture.tsx`)
 
-### Why this matters
+Reuses the proven camera setup from `RapidScanCamera.tsx`:
 
-These early sets have **no set symbol** printed on the card (set symbols started with Exodus 1998), so the AI currently can't reliably tell them apart. The price difference is massive:
-- Alpha Black Lotus: ~$100,000+
-- Beta Black Lotus: ~$30,000
-- Unlimited Black Lotus: ~$8,000
-- Revised "Black Lotus" doesn't exist (banned)
+- Rear camera enforced (per existing optic-selection rules)
+- 4:3 aspect ratio, requests max resolution the device offers (per existing `camera-optimizations.ts`)
+- Continuous autofocus + auto white-balance, then **focus lock** on tap so the page doesn't refocus mid-shot
+- Torch toggle (on by default in dim conditions, detected from a quick exposure read)
+- Live overlay: 3×3 grid guide + corner targets so the user aligns the binder page edges to the frame
+- "Hold steady" indicator: pre-capture motion check using `devicemotion` / frame-diff; capture button disables until the device is still
+- Multi-frame capture: takes 3 rapid frames and picks the **sharpest** one (variance-of-Laplacian on a downsampled grayscale canvas — same metric the microscope path already uses)
+- Saves the chosen frame at full resolution as a JPEG ~92% quality
 
-A misidentification = catastrophic valuation error.
+#### 2. Best-possible crop (`pageDetect.ts` + `gridSlicer.ts`)
 
-### Visual recognition rules (encoded in AI prompt)
+- **Auto page detection**: Canvas-based edge detection (Sobel) → contour walk → largest 4-corner quad. Pure JS, no native deps.
+- **Perspective warp**: 4-point homography on a `<canvas>` flattens the page to a true rectangle at the standard 9-pocket aspect ratio.
+- **Grid slicing**: divide the warped rectangle into the configured grid (default 3×3, also supports 4×3 / 3×4 horizontal binders) with an inner pocket-padding %, so each cell is card art only — no plastic seam.
+- **Per-cell tightening**: each cell gets a final auto-crop using a brightness/edge threshold to trim residual pocket plastic, then is exported at the standard card aspect (2.5:3.5).
+- **Confidence score** per cell. Low confidence on any cell → the cell is flagged in the preview for manual adjust.
+- **Manual override panel**: 4 draggable corners on the page, an inner-padding slider, and rows/cols selector. Re-slices live as you drag.
 
-| Set | Year | Corners | Border | Copyright | Card stock |
-|---|---|---|---|---|---|
-| **Alpha** (LEA) | 1993 | Heavily rounded (large radius) | Black | None / "© 1993" | Lighter back, no beveled edge |
-| **Beta** (LEB) | 1993 | Sharp / square corners | Black | "© 1993" | Same back as Alpha |
-| **Unlimited** (2ED) | 1993 | Sharp corners | White | "© 1993" | White border = key tell |
-| **Revised** (3ED) | 1994 | Sharp corners | White | "© 1994" | Lighter, washed-out art |
-| **4th Edition** (4ED) | 1995 | Sharp corners | White | "© 1995" | Brighter print quality |
-| **5th Edition** (5ED) | 1997 | Sharp corners | White | "© 1997" | Pre-modern frame |
+#### 3. Hand-off to the existing Rapid Scanner pipeline
 
-Set symbol absent + black border + copyright year = **Alpha or Beta** (corner radius decides).
-Set symbol absent + white border + copyright year = **Unlimited / Revised / 4ED / 5ED** (year decides).
+The 9 (or fewer, if user marks empty pockets) crops are pushed straight into the existing queue — no new identification code:
 
-### What to build
-
-#### 1) Backend: enhance MTG identification prompt
-**`supabase/functions/enhanced-card-identify/index.ts`** + **`supabase/functions/rapid-card-identify/index.ts`**
-
-Add a new MTG section to the prompt:
-```
-STEP 0 — EARLY EDITION DETECTION (cards with NO set symbol):
-1. Check border color: BLACK → Alpha or Beta. WHITE → Unlimited/Revised/4ED/5ED.
-2. If BLACK border: check corner radius. Heavily rounded = Alpha. Sharp = Beta.
-3. If WHITE border: read copyright year exactly.
-   - "© 1993" → Unlimited
-   - "© 1994" → Revised
-   - "© 1995" → 4th Edition
-   - "© 1997" → 5th Edition
-4. Output card_set as the full set name AND set_code (lea/leb/2ed/3ed/4ed/5ed).
-5. Set early_edition_confidence: high/medium/low.
+```text
+crop blob
+  -> idbAdd({ type: 'rapid', image, source: 'binder-capture',
+              binderSlot: { setId, row, col } })
+  -> queueProcessor (existing single-worker, rate-limit aware)
+  -> rapid-card-identify edge function (existing)
+  -> existing dedupe + duplicate-card detection
+  -> existing officialNameResolver + pricing
+  -> card written to `cards` table via existing dual-write pattern
 ```
 
-Force the model to return a new `early_edition` field for MTG: `{ detected: boolean, set_code: string, confidence: "high"|"medium"|"low", visual_evidence: string }`.
+A small addition in `queueProcessor` (or its result handler): when a queue item carries `source === 'binder-capture'` with a `binderSlot`, on success the resolved card is also tagged with that slot's `setId` / position so the binder grid auto-fills the right pocket. No schema change — uses existing `card_set` / `card_number` matching that the binder grid already does in `use-binder-data.ts`.
 
-#### 2) Backend: Scryfall Edition Finder edge function
-**New: `supabase/functions/mtg-edition-finder/index.ts`**
+#### 4. Preview screen before sending to the queue
 
-Input: `{ cardName: string, hintYear?: number, hintSetCode?: string }`
-Output: All printings of the card with prices, ordered by release date.
+After auto-crop, user sees a 3×3 preview of the 9 cell images with per-cell actions:
+- **Re-shoot whole page**
+- **Adjust grid** (open manual corner/padding panel)
+- **Skip this pocket** (empty sleeve)
+- **Rotate this cell 90°** (sideways cards)
+- **Confirm all** → enqueue 9 items
 
-```
-GET https://api.scryfall.com/cards/search
-  ?q=!"Card Name"
-  &unique=prints
-  &order=released
-```
+#### 5. Picture display settings (small companion change to the sidebar)
 
-Returns array of:
-```
-{
-  set_code, set_name, year, collector_number,
-  border_color, frame, rarity,
-  prices: { usd, usd_foil, usd_etched },
-  image_uri,
-  is_early_set: bool  // lea/leb/2ed/3ed/4ed/5ed
-}
-```
+Since the original ask was also "binder mode settings for pictures," add a **Pictures** section in `BinderControls.tsx` so the captured images render cleanly:
 
-This is the data source for the Edition Finder UI.
+- Image Display: `Full image` / `Thumbnail (fast)` / `Hide images`
+- Image Fit: `Cover` / `Contain` (Contain matters for full-art that shouldn't be cropped)
+- Card Size: `Compact` / `Standard` / `Large`
+- Missing Card Style: `Empty slot` / `Card silhouette` / `Set logo`
+- Foil Glow: switch
+- Show Card Name: switch
 
-#### 3) Backend: post-process MTG identification
-**`supabase/functions/_shared/officialNameResolver.ts`**
-
-Add `lookupMtgByNameAndEarlyEdition()`: when AI returns `early_edition.detected = true`, query Scryfall directly with the detected set code (`lea`, `leb`, `2ed`, etc.) + card name to confirm and grab official metadata + price.
-
-#### 4) Frontend: Edition Finder UI
-
-**New: `src/components/mtg/MtgEditionFinder.tsx`**
-
-A dialog/panel with:
-- Input: card name (autocomplete via Scryfall `/cards/autocomplete`)
-- Optional: paste copyright year, border color, corner type
-- Result: scrollable list of all printings, each row showing:
-  - Set name + year + set code badge
-  - Border color swatch + frame era
-  - Card image thumbnail
-  - Raw price + foil price
-  - "Select this printing" button → updates the card record
-
-Highlight early-set rows (LEA/LEB/2ED/3ED/4ED) with a gold "Vintage" badge.
-
-#### 5) Frontend: integrate into Verify dialog
-**`src/components/pricing/CardVerificationDialog.tsx`**
-
-When the verified card is MTG, show an "Edition Finder" button that opens `MtgEditionFinder` pre-filled with the card name. User picks correct printing → patch updates set/year/price.
-
-#### 6) Frontend: integrate into Card Detail Modal
-**`src/components/cards/CardDetailModal.tsx`**
-
-Add "Find Edition" button next to the set field for any MTG card. Opens `MtgEditionFinder`.
-
-#### 7) Frontend: highlight in Rapid Scan
-**`src/components/scanner/CardIdentificationEditor.tsx`**
-
-If identified card is MTG with `early_edition.confidence !== "high"`, show a yellow banner: "Early MTG set suspected — verify edition" with one-tap Edition Finder button.
+Persisted in `localStorage` via a new `use-binder-settings.ts` hook.
 
 ### Files
 
-| File | Change |
-|---|---|
-| `supabase/functions/enhanced-card-identify/index.ts` | Add early-edition detection prompt + `early_edition` output field |
-| `supabase/functions/rapid-card-identify/index.ts` | Same prompt addition |
-| `supabase/functions/mtg-edition-finder/index.ts` (new) | Scryfall printings lookup + price aggregation |
-| `supabase/functions/_shared/officialNameResolver.ts` | `lookupMtgByEarlyEdition()` Scryfall confirmation |
-| `src/lib/mtg/editionFinder.ts` (new) | Client wrapper for the edge function |
-| `src/components/mtg/MtgEditionFinder.tsx` (new) | Printing picker dialog |
-| `src/components/pricing/CardVerificationDialog.tsx` | "Edition Finder" button for MTG cards |
-| `src/components/cards/CardDetailModal.tsx` | "Find Edition" button next to set field |
-| `src/components/scanner/CardIdentificationEditor.tsx` | Low-confidence early-edition warning banner |
+**New**
+- `src/components/binder/BinderPageCapture.tsx` — camera + multi-frame sharpness + auto-crop preview + manual override + enqueue
+- `src/lib/binder/pageDetect.ts` — Sobel edge detect + 4-corner quad finder + 4-point homography warp
+- `src/lib/binder/gridSlicer.ts` — grid slicing, per-cell tighten, per-cell rotate
+- `src/lib/binder/sharpness.ts` — variance-of-Laplacian helper for picking the best frame
+- `src/hooks/use-binder-settings.ts` — localStorage settings hook
 
-No DB schema changes. Uses public Scryfall API (no key needed).
+**Edited**
+- `src/components/binder/BinderGrid.tsx` — "Capture Binder Page" button + apply card-size CSS var
+- `src/components/binder/BinderControls.tsx` — add Pictures section
+- `src/components/binder/BinderSlotCard.tsx` — honor image-mode/fit/foil/name/missing-style props
+- `src/pages/BinderPage.tsx` — wire settings + capture dialog state
+- `src/lib/queueProcessor.ts` — recognize `source: 'binder-capture'` items and stamp the resolved card with the binder slot context (small additive change)
 
-### Memory updates
-- Update `mem://logic/mtg-card-identification-rules` with the early-edition visual matrix (Alpha/Beta/Unlimited/Revised/4ED/5ED rules)
+### Confirmations
+
+- **Identification logic**: unchanged. Reuses `rapid-card-identify`, queue, dedupe, pricing, dual-write. No new edge function.
+- **Storage**: crops are uploaded by the existing pipeline to the existing `card-images` bucket — same path used by Rapid Scanner today.
+- **No DB schema changes.**
+- **Rate-limit / 429 backoff**: inherited automatically because we go through `queueProcessor`.
 
 ### Verification
 
-- Scan an Unlimited card → AI returns `early_edition.set_code = "2ed"`, price matches Unlimited Scryfall data
-- Scan a Beta card with rounded corners → flagged "Alpha or Beta — verify"; open Edition Finder, pick LEB
-- Open any MTG card in Collections, click "Find Edition" → see all printings with prices, switching updates the record
-- Verify dialog on an MTG card shows Edition Finder shortcut
+- Open `/binder` → "Capture Binder Page" button visible at top of grid; sidebar shows new Pictures section
+- Tap Capture → camera opens with rear lens, 3×3 alignment overlay, capture button disabled until steady
+- Photograph a real 9-pocket page → preview shows 9 perspective-corrected card crops
+- Drag a corner handle → grid re-slices live
+- Mark one pocket as Skip, rotate one sideways card 90°, Confirm
+- 8 items appear in the existing scan queue; queue indicator counts up; identifications complete using the same flow as Rapid Scanner
+- Identified cards appear in their correct binder pockets automatically
 
+### Out of scope (later)
+
+- Multi-page batch (capture page after page back-to-back)
+- OCR-driven slot assignment when set isn't pre-selected
