@@ -77,16 +77,45 @@ export function addRecentScan(scan: Omit<RecentScan, "scanned_at" | "isHighValue
     
     const existing = getRecentScans();
     const price = scan.price ?? 0;
+    const now = Date.now();
+    const key = dedupeKey(scan);
+
+    // Dedupe: if same card was scanned within the window, merge in place
+    const dupIdx = existing.findIndex(
+      (s) => dedupeKey(s) === key && now - s.scanned_at < DEDUPE_WINDOW_MS
+    );
+
+    if (dupIdx !== -1) {
+      const prev = existing[dupIdx];
+      const mergedPrice = Math.max(prev.price ?? 0, price);
+      const mergedPsa10 = Math.max(prev.psa10Price ?? 0, scan.psa10Price ?? 0) || null;
+      const merged: RecentScan = {
+        ...prev,
+        ...scan,
+        price: mergedPrice > 0 ? mergedPrice : prev.price ?? scan.price ?? null,
+        psa10Price: mergedPsa10,
+        scanned_at: now,
+        isHighValue: mergedPrice >= VALUE_THRESHOLD,
+        scanCount: (prev.scanCount ?? 1) + 1,
+      };
+      // Move merged entry to the top
+      existing.splice(dupIdx, 1);
+      const updated = [merged, ...existing].slice(0, 500);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      return true;
+    }
+
     const newScan: RecentScan = {
       ...scan,
-      scanned_at: Date.now(),
+      scanned_at: now,
       isHighValue: price >= VALUE_THRESHOLD,
+      scanCount: 1,
     };
-    
+
     if (price >= JACKPOT_THRESHOLD) {
       playJackpotSound();
     }
-    
+
     const updated = [newScan, ...existing].slice(0, 500);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     return true;
