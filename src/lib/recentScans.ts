@@ -32,6 +32,17 @@ export interface RecentScan {
   year?: string | null;
   team?: string | null;
   manufacturer?: string | null;
+  scanCount?: number;
+}
+
+const DEDUPE_WINDOW_MS = 60 * 1000; // collapse re-scans of same card within 60s
+
+function dedupeKey(s: { card_name?: string | null; card_set?: string | null; card_number?: string | null; dbId?: string | null }): string {
+  if (s.dbId) return `id:${s.dbId}`;
+  const name = (s.card_name || "").trim().toLowerCase();
+  const set = (s.card_set || "").trim().toLowerCase();
+  const num = (s.card_number || "").trim().toLowerCase();
+  return `nm:${name}|st:${set}|no:${num}`;
 }
 
 export function getRecentScans(): RecentScan[] {
