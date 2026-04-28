@@ -565,8 +565,8 @@ Deno.serve(async (req) => {
     let scp: SourcePrices = emptySource();
     let comc: SourcePrices = emptySource();
 
-    if (isMTG || isPokemon || isYGO) {
-      // TCG path: race PriceCharting + TCGPlayer; eBay only if both null
+    if (isYGO) {
+      // Yu-Gi-Oh! ONLY: TCGPlayer is allowed alongside PriceCharting + eBay
       const pcP = fetchPriceChartingPrices(cardName, cardSet, gameType, cardNumber).then((r) => { pc = r; return r; });
       const tcgP = fetchTCGPlayerPrices(cardName, cardSet, cardNumber, gameType).then((r) => { tcg = r; return r; });
       await raceFirstNonNull(
@@ -574,30 +574,27 @@ Deno.serve(async (req) => {
         (v: any) => (v && (v.raw != null || v.market != null || v.lastSold != null)) as boolean,
         PRICING_CAP_MS
       );
-      // Fallback to eBay only if neither got a raw price
       if (!pc.raw && !tcg.market && !tcg.lastSold) {
         ebay = await Promise.race([
           fetchEbayPrices(searchQuery, condition),
           new Promise<SourcePrices>((r) => setTimeout(() => r(emptySource()), PRICING_CAP_MS)),
         ]);
       }
-    } else if (isSportsCard) {
-      // Sports: race SportsCardPro + PriceCharting; eBay fallback
-      const scpP = fetchSportsCardProPrices(searchQuery).then((r) => { scp = r; return r; });
-      const pcP = fetchPriceChartingPrices(cardName, cardSet, gameType, cardNumber).then((r) => { pc = r; return r; });
-      await raceFirstNonNull(
-        [scpP, pcP],
-        (v: any) => (v && v.raw != null) as boolean,
-        PRICING_CAP_MS
-      );
-      if (!scp.raw && !pc.raw) {
-        ebay = await Promise.race([
+    } else if (isMTG || isPokemon || isSportsCard) {
+      // All other games: eBay + PriceCharting only (no TCGPlayer)
+      const [pcRes, ebayRes] = await Promise.all([
+        Promise.race([
+          fetchPriceChartingPrices(cardName, cardSet, gameType, cardNumber),
+          new Promise<SourcePrices>((r) => setTimeout(() => r(emptySource()), PRICING_CAP_MS)),
+        ]),
+        Promise.race([
           fetchEbayPrices(searchQuery, condition),
           new Promise<SourcePrices>((r) => setTimeout(() => r(emptySource()), PRICING_CAP_MS)),
-        ]);
-      }
+        ]),
+      ]);
+      pc = pcRes; ebay = ebayRes;
     } else {
-      // Unknown: try PC + eBay quickly in parallel with cap
+      // Unknown game type: eBay + PriceCharting only
       const [pcRes, ebayRes] = await Promise.all([
         Promise.race([
           fetchPriceChartingPrices(cardName, cardSet, gameType, cardNumber),
@@ -622,28 +619,34 @@ Deno.serve(async (req) => {
     let rawPrice: number | null = null;
 
     if (isSportsCard) {
-      // Sports: SportsCardPro → PriceCharting → eBay/TCG fallback
-      const primary = scp.raw;
-      const secondary = pc.raw;
-      const tertiary = [ebay.raw, tcg.market, tcg.lastSold].filter((v): v is number => v != null && v > 0);
-      rawPrice = pickPrimaryWithSanity(primary, secondary, tertiary);
-    } else if (isMTG) {
-      // MTG: PriceCharting → eBay sold (≤2y median) → TCGPlayer → COMC last
+      // Sports: PriceCharting → eBay (no TCGPlayer)
       const primary = pc.raw;
       const secondary = ebay.raw;
-      const tertiary = [tcg.market, tcg.lastSold, comc.raw].filter((v): v is number => v != null && v > 0);
+      const tertiary = [scp.raw].filter((v): v is number => v != null && v > 0);
       rawPrice = pickPrimaryWithSanity(primary, secondary, tertiary);
-    } else if (isTCG) {
-      // Pokemon/YGO: COMC → TCGPlayer → PriceCharting → eBay fallback
-      const primary = comc.raw ?? tcg.market ?? tcg.lastSold;
-      const secondary = tcg.market ?? tcg.lastSold ?? comc.raw;
-      const tertiary = [pc.raw, ebay.raw].filter((v): v is number => v != null && v > 0);
+    } else if (isMTG) {
+      // MTG: PriceCharting → eBay (no TCGPlayer)
+      const primary = pc.raw;
+      const secondary = ebay.raw;
+      const tertiary = [comc.raw].filter((v): v is number => v != null && v > 0);
+      rawPrice = pickPrimaryWithSanity(primary, secondary, tertiary);
+    } else if (isPokemon) {
+      // Pokemon: PriceCharting → eBay (no TCGPlayer)
+      const primary = pc.raw;
+      const secondary = ebay.raw;
+      const tertiary = [comc.raw].filter((v): v is number => v != null && v > 0);
+      rawPrice = pickPrimaryWithSanity(primary, secondary, tertiary);
+    } else if (isYGO) {
+      // Yu-Gi-Oh! ONLY: TCGPlayer is allowed → PriceCharting → eBay
+      const primary = tcg.market ?? tcg.lastSold ?? pc.raw;
+      const secondary = pc.raw ?? tcg.market ?? tcg.lastSold;
+      const tertiary = [ebay.raw, comc.raw].filter((v): v is number => v != null && v > 0);
       rawPrice = pickPrimaryWithSanity(primary, secondary, tertiary);
     } else {
-      // Unknown game type: PriceCharting → TCGPlayer → eBay fallback
+      // Unknown game type: PriceCharting → eBay (no TCGPlayer)
       const primary = pc.raw;
-      const secondary = tcg.market ?? tcg.lastSold;
-      const tertiary = [ebay.raw, scp.raw].filter((v): v is number => v != null && v > 0);
+      const secondary = ebay.raw;
+      const tertiary = [scp.raw].filter((v): v is number => v != null && v > 0);
       rawPrice = pickPrimaryWithSanity(primary, secondary, tertiary);
     }
 

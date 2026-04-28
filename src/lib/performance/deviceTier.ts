@@ -19,7 +19,7 @@ export interface TierConfig {
 
 const HIGH_TIER: TierConfig = {
   tier: "high",
-  maxWorkers: 6,
+  maxWorkers: 8,
   maxInFlightFrames: 6,
   bulkApiDelayMs: 20,
   jobDelayMs: 5,
@@ -30,7 +30,7 @@ const HIGH_TIER: TierConfig = {
 
 const MID_TIER: TierConfig = {
   tier: "mid",
-  maxWorkers: 3,
+  maxWorkers: 5,
   maxInFlightFrames: 3,
   bulkApiDelayMs: 100,
   jobDelayMs: 15,
@@ -41,7 +41,7 @@ const MID_TIER: TierConfig = {
 
 const LOW_TIER: TierConfig = {
   tier: "low",
-  maxWorkers: 2,
+  maxWorkers: 4,
   maxInFlightFrames: 2,
   bulkApiDelayMs: 400,
   jobDelayMs: 50,
