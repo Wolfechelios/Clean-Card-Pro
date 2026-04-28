@@ -332,8 +332,21 @@ JSON only.`;
   } catch (error) {
     console.error('Rapid identify error:', error);
     const message = error instanceof Error ? error.message : 'Error';
-    const status = /rate limit/i.test(message) ? 429 : 500;
 
+    // Bad/empty image input: return 200 with success:false so the queue marks
+    // the job as unidentifiable instead of retrying forever on a 500.
+    if (/Invalid base64 image data|Image fetch (failed|returned empty)|btoa returned empty/i.test(message)) {
+      return new Response(
+        JSON.stringify({
+          error: message,
+          success: false,
+          cardData: { card_name: 'Unknown Card', confidence: 0, reason: 'bad_image' }
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const status = /rate limit/i.test(message) ? 429 : 500;
     return new Response(
       JSON.stringify({
         error: message,
