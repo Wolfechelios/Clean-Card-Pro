@@ -619,28 +619,34 @@ Deno.serve(async (req) => {
     let rawPrice: number | null = null;
 
     if (isSportsCard) {
-      // Sports: SportsCardPro → PriceCharting → eBay/TCG fallback
-      const primary = scp.raw;
-      const secondary = pc.raw;
-      const tertiary = [ebay.raw, tcg.market, tcg.lastSold].filter((v): v is number => v != null && v > 0);
-      rawPrice = pickPrimaryWithSanity(primary, secondary, tertiary);
-    } else if (isMTG) {
-      // MTG: PriceCharting → eBay sold (≤2y median) → TCGPlayer → COMC last
+      // Sports: PriceCharting → eBay (no TCGPlayer)
       const primary = pc.raw;
       const secondary = ebay.raw;
-      const tertiary = [tcg.market, tcg.lastSold, comc.raw].filter((v): v is number => v != null && v > 0);
+      const tertiary = [scp.raw].filter((v): v is number => v != null && v > 0);
       rawPrice = pickPrimaryWithSanity(primary, secondary, tertiary);
-    } else if (isTCG) {
-      // Pokemon/YGO: COMC → TCGPlayer → PriceCharting → eBay fallback
-      const primary = comc.raw ?? tcg.market ?? tcg.lastSold;
-      const secondary = tcg.market ?? tcg.lastSold ?? comc.raw;
-      const tertiary = [pc.raw, ebay.raw].filter((v): v is number => v != null && v > 0);
+    } else if (isMTG) {
+      // MTG: PriceCharting → eBay (no TCGPlayer)
+      const primary = pc.raw;
+      const secondary = ebay.raw;
+      const tertiary = [comc.raw].filter((v): v is number => v != null && v > 0);
+      rawPrice = pickPrimaryWithSanity(primary, secondary, tertiary);
+    } else if (isPokemon) {
+      // Pokemon: PriceCharting → eBay (no TCGPlayer)
+      const primary = pc.raw;
+      const secondary = ebay.raw;
+      const tertiary = [comc.raw].filter((v): v is number => v != null && v > 0);
+      rawPrice = pickPrimaryWithSanity(primary, secondary, tertiary);
+    } else if (isYGO) {
+      // Yu-Gi-Oh! ONLY: TCGPlayer is allowed → PriceCharting → eBay
+      const primary = tcg.market ?? tcg.lastSold ?? pc.raw;
+      const secondary = pc.raw ?? tcg.market ?? tcg.lastSold;
+      const tertiary = [ebay.raw, comc.raw].filter((v): v is number => v != null && v > 0);
       rawPrice = pickPrimaryWithSanity(primary, secondary, tertiary);
     } else {
-      // Unknown game type: PriceCharting → TCGPlayer → eBay fallback
+      // Unknown game type: PriceCharting → eBay (no TCGPlayer)
       const primary = pc.raw;
-      const secondary = tcg.market ?? tcg.lastSold;
-      const tertiary = [ebay.raw, scp.raw].filter((v): v is number => v != null && v > 0);
+      const secondary = ebay.raw;
+      const tertiary = [scp.raw].filter((v): v is number => v != null && v > 0);
       rawPrice = pickPrimaryWithSanity(primary, secondary, tertiary);
     }
 
