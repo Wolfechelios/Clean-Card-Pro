@@ -350,9 +350,20 @@ function cleanBase64(b64: string): string {
   if (cleaned.startsWith("data:") && cleaned.includes(",")) {
     cleaned = cleaned.split(",", 2)[1] ?? "";
   }
-  cleaned = cleaned.replace(/\s/g, "");
-  if (!cleaned || !/^[A-Za-z0-9+/]+={0,2}$/.test(cleaned)) {
-    throw new Error("Invalid base64 image data");
+  // Strip whitespace and convert URL-safe base64 to standard base64
+  cleaned = cleaned.replace(/\s/g, "").replace(/-/g, "+").replace(/_/g, "/");
+  if (!cleaned) {
+    throw new Error("Invalid base64 image data: empty after cleaning");
+  }
+  // Pad to multiple of 4
+  const pad = cleaned.length % 4;
+  if (pad === 2) cleaned += "==";
+  else if (pad === 3) cleaned += "=";
+  else if (pad === 1) {
+    throw new Error(`Invalid base64 image data: bad length ${cleaned.length}`);
+  }
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(cleaned)) {
+    throw new Error(`Invalid base64 image data: contains invalid chars (sample: ${cleaned.slice(0, 40)})`);
   }
   return cleaned;
 }
@@ -363,23 +374,30 @@ async function fetchImageAsBase64(url: string): Promise<string> {
     return cleanBase64(url);
   }
 
+  console.log(`[fetchImageAsBase64] Fetching: ${url.slice(0, 120)}`);
   const response = await fetch(url);
   if (!response.ok) {
-    throw new Error(`Image fetch failed: ${response.status} ${response.statusText}`);
+    throw new Error(`Image fetch failed: ${response.status} ${response.statusText} for ${url.slice(0, 120)}`);
   }
   const arrayBuffer = await response.arrayBuffer();
   if (!arrayBuffer || arrayBuffer.byteLength === 0) {
-    throw new Error("Image fetch returned empty body");
+    throw new Error(`Image fetch returned empty body for ${url.slice(0, 120)}`);
   }
   const uint8Array = new Uint8Array(arrayBuffer);
+  console.log(`[fetchImageAsBase64] Got ${uint8Array.length} bytes`);
 
   // Chunked conversion to avoid call-stack overflow on large images.
   let binary = "";
   const CHUNK = 0x8000;
   for (let i = 0; i < uint8Array.length; i += CHUNK) {
-    binary += String.fromCharCode(...uint8Array.subarray(i, i + CHUNK));
+    const chunk = uint8Array.subarray(i, Math.min(i + CHUNK, uint8Array.length));
+    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
   }
-  return cleanBase64(btoa(binary));
+  const encoded = btoa(binary);
+  if (!encoded) {
+    throw new Error(`btoa returned empty for ${uint8Array.length} bytes`);
+  }
+  return cleanBase64(encoded);
 }
 
 function normalizeOcrText(value: unknown): string | null {
