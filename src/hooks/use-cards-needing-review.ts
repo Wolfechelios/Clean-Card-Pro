@@ -245,6 +245,24 @@ export function useCardsNeedingReview() {
     }
   }, [userId, fetchCounts]);
 
+  const deleteCard = useCallback(async (cardId: string) => {
+    if (!userId) return false;
+    try {
+      const { error } = await supabase
+        .from("cards")
+        .delete()
+        .eq("id", cardId)
+        .eq("user_id", userId);
+      if (error) throw error;
+      setCards((prev) => prev.filter((c) => c.id !== cardId));
+      fetchCounts();
+      return true;
+    } catch (err) {
+      console.error("Error deleting card:", err);
+      return false;
+    }
+  }, [userId, fetchCounts]);
+
   return {
     cards,
     counts,
@@ -253,6 +271,7 @@ export function useCardsNeedingReview() {
     fetchCounts,
     markAsReviewed,
     dismissCard,
+    deleteCard,
     deleteAllByFilter,
   };
 }

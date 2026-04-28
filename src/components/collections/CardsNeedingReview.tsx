@@ -51,7 +51,7 @@ const REASON_COLORS: Record<ReviewReason, string> = {
 };
 
 export function CardsNeedingReview() {
-  const { cards, counts, loading, fetchCards, fetchCounts, markAsReviewed, dismissCard, deleteAllByFilter } = useCardsNeedingReview();
+  const { cards, counts, loading, fetchCards, fetchCounts, markAsReviewed, dismissCard, deleteCard, deleteAllByFilter } = useCardsNeedingReview();
   const [activeTab, setActiveTab] = useState<ReviewReason | "all">("all");
   const [selectedCard, setSelectedCard] = useState<CardNeedingReview | null>(null);
   const [editValues, setEditValues] = useState({ card_name: "", card_set: "", rarity: "" });
@@ -406,37 +406,60 @@ export function CardsNeedingReview() {
                 ) : (
                   <div className="divide-y">
                     {cards.map((card) => (
-                      <button
+                      <div
                         key={card.id}
-                        className={`w-full p-3 text-left hover:bg-muted/50 transition-colors flex items-center gap-3 ${
+                        className={`w-full p-3 hover:bg-muted/50 transition-colors flex items-center gap-3 ${
                           selectedCard?.id === card.id ? "bg-muted" : ""
                         }`}
-                        onClick={() => setSelectedCard(card)}
                       >
-                        {card.image_url && (
-                          <img
-                            src={card.image_url}
-                            alt=""
-                            className="h-12 w-9 object-cover rounded"
-                          />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">
-                            {card.card_name || "Unknown Card"}
-                          </p>
-                          <p className="text-xs text-muted-foreground truncate">
-                            {card.card_set || "Unknown Set"}
-                          </p>
-                          <Badge className={`text-[10px] mt-1 ${REASON_COLORS[card.reason]}`}>
-                            {REASON_LABELS[card.reason]}
-                          </Badge>
-                        </div>
-                        {card.ocr_confidence !== null && (
-                          <span className="text-xs text-muted-foreground">
-                            {Math.round(card.ocr_confidence)}%
-                          </span>
-                        )}
-                      </button>
+                        <button
+                          type="button"
+                          className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                          onClick={() => setSelectedCard(card)}
+                        >
+                          {card.image_url && (
+                            <img
+                              src={card.image_url}
+                              alt=""
+                              className="h-12 w-9 object-cover rounded shrink-0"
+                            />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">
+                              {card.card_name || "Unknown Card"}
+                            </p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {card.card_set || "Unknown Set"}
+                            </p>
+                            <Badge className={`text-[10px] mt-1 ${REASON_COLORS[card.reason]}`}>
+                              {REASON_LABELS[card.reason]}
+                            </Badge>
+                          </div>
+                          {card.ocr_confidence !== null && (
+                            <span className="text-xs text-muted-foreground shrink-0">
+                              {Math.round(card.ocr_confidence)}%
+                            </span>
+                          )}
+                        </button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            const ok = await deleteCard(card.id);
+                            if (ok) {
+                              toast.success("Card deleted");
+                              if (selectedCard?.id === card.id) setSelectedCard(null);
+                            } else {
+                              toast.error("Failed to delete card");
+                            }
+                          }}
+                          title="Delete card"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     ))}
                   </div>
                 )}
