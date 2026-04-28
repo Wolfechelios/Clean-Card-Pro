@@ -346,14 +346,22 @@ JSON only.`;
 });
 
 function cleanBase64(b64: string): string {
+  const rawLen = (b64 || "").length;
   let cleaned = (b64 || "").trim();
-  if (cleaned.startsWith("data:") && cleaned.includes(",")) {
-    cleaned = cleaned.split(",", 2)[1] ?? "";
+  if (cleaned.startsWith("data:")) {
+    const commaIdx = cleaned.indexOf(",");
+    if (commaIdx === -1) {
+      throw new Error(`Invalid base64 image data: data URL missing comma (rawLen=${rawLen}, sample=${cleaned.slice(0, 60)})`);
+    }
+    cleaned = cleaned.slice(commaIdx + 1);
   }
   // Strip whitespace and convert URL-safe base64 to standard base64
   cleaned = cleaned.replace(/\s/g, "").replace(/-/g, "+").replace(/_/g, "/");
   if (!cleaned) {
-    throw new Error("Invalid base64 image data: empty after cleaning");
+    throw new Error(`Invalid base64 image data: empty after cleaning (rawLen=${rawLen})`);
+  }
+  if (cleaned.length < 100) {
+    throw new Error(`Invalid base64 image data: too small (${cleaned.length} chars, rawLen=${rawLen}) — image likely failed to encode on the client`);
   }
   // Pad to multiple of 4
   const pad = cleaned.length % 4;

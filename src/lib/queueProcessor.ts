@@ -304,10 +304,21 @@ function sleep(ms: number) {
 
 function blobToBase64DataUrl(blob: Blob, mime: string): Promise<string> {
   return new Promise((resolve, reject) => {
+    if (!blob || blob.size === 0) {
+      reject(new Error(`blobToBase64DataUrl: empty blob (size=${blob?.size ?? "null"})`));
+      return;
+    }
     const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(new Blob([blob], { type: mime }));
+    reader.onloadend = () => {
+      const result = reader.result as string;
+      if (!result || typeof result !== "string" || result.length < 200 || !result.includes(",")) {
+        reject(new Error(`blobToBase64DataUrl: encoded result too small (len=${result?.length ?? 0}, blobSize=${blob.size})`));
+        return;
+      }
+      resolve(result);
+    };
+    reader.onerror = () => reject(reader.error || new Error("FileReader failed"));
+    reader.readAsDataURL(new Blob([blob], { type: mime || blob.type || "image/jpeg" }));
   });
 }
 
