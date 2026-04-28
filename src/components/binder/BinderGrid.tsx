@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { BinderSlotCard } from "./BinderSlotCard";
 import { BinderSlotModal } from "./BinderSlotModal";
-import { BinderPageCapture } from "./BinderPageCapture";
 import type { BinderSlot } from "@/hooks/use-binder-data";
 import type { BinderSettings } from "@/hooks/use-binder-settings";
 import { CARD_SIZE_PX } from "@/hooks/use-binder-settings";
@@ -19,6 +18,7 @@ interface BinderGridProps {
   flipStyle: "3d" | "slide";
   pictureSettings: BinderSettings;
   selectedSetName?: string | null;
+  onCaptureClick?: () => void;
 }
 
 export function BinderGrid({
@@ -28,12 +28,12 @@ export function BinderGrid({
   flipStyle,
   pictureSettings,
   selectedSetName,
+  onCaptureClick,
 }: BinderGridProps) {
   const [currentPage, setCurrentPage] = useState(0);
   const [selectedSlot, setSelectedSlot] = useState<BinderSlot | null>(null);
   const [direction, setDirection] = useState<"left" | "right">("right");
   const [animating, setAnimating] = useState(false);
-  const [captureOpen, setCaptureOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const totalPages = Math.ceil(slots.length / SLOTS_PER_PAGE);
@@ -102,14 +102,16 @@ export function BinderGrid({
           <span className="text-xs text-muted-foreground hidden sm:inline">
             #{pageSlots[0]?.cardNumber || "—"} – #{pageSlots[pageSlots.length - 1]?.cardNumber || "—"}
           </span>
-          <Button
-            size="sm"
-            onClick={() => setCaptureOpen(true)}
-            className="h-8"
-          >
-            <Camera className="h-3.5 w-3.5 mr-1.5" />
-            Capture Page
-          </Button>
+          {onCaptureClick && (
+            <Button
+              size="sm"
+              onClick={onCaptureClick}
+              className="h-8"
+            >
+              <Camera className="h-3.5 w-3.5 mr-1.5" />
+              Capture Page
+            </Button>
+          )}
         </div>
       </div>
 
@@ -187,13 +189,6 @@ export function BinderGrid({
       {selectedSlot && (
         <BinderSlotModal slot={selectedSlot} onClose={() => setSelectedSlot(null)} />
       )}
-
-      {/* Capture dialog */}
-      <BinderPageCapture
-        open={captureOpen}
-        onClose={() => setCaptureOpen(false)}
-        setName={selectedSetName}
-      />
     </div>
   );
 }
