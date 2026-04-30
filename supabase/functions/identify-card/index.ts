@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { callAIGateway } from "../_shared/aiGateway.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 import { validateImageUrl, SSRFError } from "../_shared/validateUrl.ts";
 
@@ -74,13 +75,7 @@ serve(async (req) => {
     }
 
     // Use AI vision to identify the card
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    const aiResponse = await callAIGateway({
         model: "google/gemini-2.5-flash",
         messages: [
           {
@@ -147,8 +142,7 @@ Return ONLY a JSON object with these exact keys: cardName, cardSet, cardNumber, 
           }
         ],
         tool_choice: { type: "function", function: { name: "identify_card" } }
-      }),
-    });
+      });
 
     if (!aiResponse.ok) {
       if (aiResponse.status === 429) {

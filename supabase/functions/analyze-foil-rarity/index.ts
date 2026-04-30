@@ -1,3 +1,4 @@
+import { callAIGateway } from "../_shared/aiGateway.ts";
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
@@ -44,13 +45,7 @@ ${gameContext}
 
 You MUST use the classify_foil_rarity tool to return your analysis.`;
 
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+    const response = await callAIGateway({
         model: 'google/gemini-2.5-flash',
         messages: [
           { role: 'system', content: systemPrompt },
@@ -105,8 +100,7 @@ You MUST use the classify_foil_rarity tool to return your analysis.`;
           },
         ],
         tool_choice: { type: 'function', function: { name: 'classify_foil_rarity' } },
-      }),
-    });
+      });
 
     if (!response.ok) {
       if (response.status === 429) {
