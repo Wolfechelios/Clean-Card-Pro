@@ -399,15 +399,13 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {devices.length > 1 && (
-          <CameraDeviceSelector
-            devices={devices}
-            selectedDeviceId={selectedDeviceId}
-            onDeviceChange={handleDeviceChange}
-            onRefresh={refreshDevices}
-            isLoading={devicesLoading}
-          />
-        )}
+        <CameraDeviceSelector
+          devices={devices}
+          selectedDeviceId={selectedDeviceId}
+          onDeviceChange={handleDeviceChange}
+          onRefresh={refreshDevices}
+          isLoading={devicesLoading}
+        />
         
         <div className="relative w-full bg-black rounded-lg overflow-hidden" style={{ aspectRatio: "3/4", maxHeight: "70vh" }}>
           <video
