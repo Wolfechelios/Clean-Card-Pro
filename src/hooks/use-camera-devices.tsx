@@ -172,8 +172,14 @@ export const useCameraDevices = () => {
         let lensLabel = label;
 
         if (usb) {
-          lensType = "usb";
-          lensLabel = label;
+          const phoneCam = classifyPhoneCam(label);
+          if (phoneCam) {
+            lensType = phoneCam.lensType;
+            lensLabel = phoneCam.lensLabel;
+          } else {
+            lensType = "usb";
+            lensLabel = label;
+          }
         } else if (rear) {
           const classification = classifyLens(label, rearCounter, rearIndices.length);
           lensType = classification.lensType;
