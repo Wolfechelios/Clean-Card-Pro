@@ -21,10 +21,16 @@ export type LensType =
  */
 function classifyPhoneCam(label: string): { lensType: LensType; lensLabel: string } | null {
   const l = label.toLowerCase();
-  if (l.includes("camo")) {
-    // Reincubate Camo — labels often look like "Reincubate Camo" or "Camo"
-    const isIphone = l.includes("iphone") || l.includes("ios");
-    return { lensType: "camo", lensLabel: isIphone ? "Camo (iPhone)" : "Camo" };
+  if (l.includes("camo") || l.includes("reincubate")) {
+    // Reincubate Camo / Camo Studio — "Reincubate Camo", "Camo", "Camo 2", etc.
+    const isIpad = l.includes("ipad");
+    const isIphone = !isIpad && (l.includes("iphone") || l.includes("ios"));
+    const suffix = isIpad ? " (iPad)" : isIphone ? " (iPhone)" : "";
+    return { lensType: "camo", lensLabel: `Camo${suffix}` };
+  }
+  if (l.includes("ipad") || l.includes("apple ipad") || l === "ipad" || l.includes("ios camera") || l.includes("ios cam")) {
+    // Camo Studio sometimes exposes the iPad directly under its device name
+    return { lensType: "camo", lensLabel: "Camo (iPad)" };
   }
   if (l.includes("continuity") || l.includes("desk view")) {
     return { lensType: "continuity", lensLabel: "Continuity Camera" };
@@ -126,6 +132,7 @@ function isUSBDevice(label: string): boolean {
     l.includes("droidcam") ||
     l.includes("iriun") ||
     l.includes("camo") ||
+    l.includes("reincubate") ||
     l.includes("epoccam") ||
     (!l.includes("front") &&
       !l.includes("back") &&
@@ -200,7 +207,21 @@ export const useCameraDevices = () => {
         };
       }).filter(Boolean) as CameraDevice[];
 
-      setDevices(videoDevices);
+      // Diagnostics: log exactly what the OS reports so we can extend matchers if needed
+      try {
+        // eslint-disable-next-line no-console
+        console.info(
+          "[camera-devices] enumerated",
+          videoDevices.map(d => ({ label: d.label, lensType: d.lensType, lensLabel: d.lensLabel }))
+        );
+      } catch {}
+
+      setDevices(prev => {
+        // Skip state update when nothing changed (avoids re-render churn from polling)
+        const sig = (arr: CameraDevice[]) =>
+          arr.map(d => `${d.deviceId}|${d.label}`).sort().join("~~");
+        return sig(prev) === sig(videoDevices) ? prev : videoDevices;
+      });
 
       // Auto-select main wide lens or first device
       setSelectedDeviceId(prev => {
@@ -220,8 +241,28 @@ export const useCameraDevices = () => {
     refreshDevices();
 
     navigator.mediaDevices.addEventListener("devicechange", refreshDevices);
+
+    // Re-enumerate when the tab regains focus / visibility — Camo Studio is often
+    // launched after the page loads, and `devicechange` doesn't always fire for
+    // virtual cameras whose underlying source (the iPad) hot-plugs.
+    const onFocus = () => refreshDevices();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refreshDevices();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    // Lightweight poll while visible: catches Camo iPad connection events the
+    // browser silently misses. Cheap because state only updates on real change.
+    const poll = window.setInterval(() => {
+      if (document.visibilityState === "visible") refreshDevices();
+    }, 4000);
+
     return () => {
       navigator.mediaDevices.removeEventListener("devicechange", refreshDevices);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.clearInterval(poll);
     };
   }, [refreshDevices]);
 
