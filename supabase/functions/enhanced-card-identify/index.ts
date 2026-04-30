@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { callAIGateway } from "../_shared/aiGateway.ts";
 import { resolveOfficialCardIdentity, verifyYgoSetCode } from "../_shared/officialNameResolver.ts";
 import { buildYgoRarityPromptSection } from "../_shared/ygoRarityMatrix.ts";
 import { validateImageUrl, SSRFError } from "../_shared/validateUrl.ts";
@@ -211,18 +212,11 @@ For non-Yu-Gi-Oh cards, omit the foilFeatures object.`;
       }
     ];
 
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+    const response = await callAIGateway({
         model: 'google/gemini-2.5-flash',
         messages,
         temperature: 0.2,
-      }),
-    });
+      });
 
     if (!response.ok) {
       if (response.status === 429) {

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
+import { callAIGateway } from "../_shared/aiGateway.ts";
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -118,13 +119,7 @@ You MUST respond with ONLY a valid JSON object (no markdown, no code blocks) in 
   "topLosers": ["card name 1", "card name 2", "card name 3"]
 }`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    const response = await callAIGateway({
         model: "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: "You are a trading card portfolio analyst. Always respond with valid JSON only, no markdown formatting." },
@@ -132,8 +127,7 @@ You MUST respond with ONLY a valid JSON object (no markdown, no code blocks) in 
         ],
         temperature: 0.7,
         max_tokens: 2500,
-      }),
-    });
+      });
 
     if (!response.ok) {
       const errorText = await response.text();

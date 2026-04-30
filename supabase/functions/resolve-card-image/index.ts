@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { callAIGateway } from "../_shared/aiGateway.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { validateImageUrl, SSRFError } from "../_shared/validateUrl.ts";
 
@@ -205,20 +206,13 @@ Search for this card image from these trusted sources:
 Return ONLY the direct image URL (must start with https:// and end with .jpg, .jpeg, .png, or .webp).
 If you cannot find a valid direct image URL, respond with exactly: NONE`;
 
-    const aiResp = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+    const aiResp = await callAIGateway({
         model: 'google/gemini-2.5-flash',
         messages: [
           { role: "system", content: "You are a sports card image finder. Return only direct image URLs from legitimate card sites. Never fabricate URLs." },
           { role: "user", content: prompt }
         ],
-      }),
-    });
+      });
 
     if (aiResp.ok) {
       const data = await aiResp.json();
