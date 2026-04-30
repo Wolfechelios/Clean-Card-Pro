@@ -162,23 +162,49 @@ serve(async (req) => {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 20000);
 
-        const resp = await fetch("https://api.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${LOVABLE_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "gpt-4o-mini",
-            messages: [{ role: "user", content: prompt }],
-            temperature: 0.2,
-          }),
-          signal: controller.signal,
-        }).finally(() => clearTimeout(timeout));
+        // Primary: Gemini 2.5 Flash via Lovable AI Gateway. Fallback to GPT-5-mini on rate limit / 5xx.
+        async function callModel(model: string) {
+          return fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${LOVABLE_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model,
+              messages: [{ role: "user", content: prompt }],
+              temperature: 0.2,
+            }),
+            signal: controller.signal,
+          });
+        }
+
+        let resp = await callModel("google/gemini-2.5-flash").finally(() =>
+          clearTimeout(timeout)
+        );
+
+        // Fallback to OpenAI on Gemini failure
+        if (!resp.ok && (resp.status === 429 || resp.status >= 500)) {
+          console.warn(`Gemini failed (${resp.status}), falling back to gpt-5-mini`);
+          const fbController = new AbortController();
+          const fbTimeout = setTimeout(() => fbController.abort(), 20000);
+          resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${LOVABLE_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "openai/gpt-5-mini",
+              messages: [{ role: "user", content: prompt }],
+            }),
+            signal: fbController.signal,
+          }).finally(() => clearTimeout(fbTimeout));
+        }
 
         if (!resp.ok) {
           const apiError = await resp.text();
-          console.error("Lovable API error:", apiError);
+          console.error("AI gateway error:", apiError);
           return {
             id: card.id,
             rarity: null,
