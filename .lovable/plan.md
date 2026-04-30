@@ -1,41 +1,42 @@
-## What's actually happening
+# Add Camo to camera choices
 
-You're right — Helmdale is a real card you own (saved 0 times in your collection — confirmed). The problem is the **Recent Scans list** keeps showing it many times.
+Camo (the Reincubate iPhone-as-webcam app) is already detected as a USB device by `src/hooks/use-camera-devices.tsx` (line 89), so it shows up in the camera dropdown — but it appears with its raw OS label (e.g. "Reincubate Camo") and a generic USB icon, which makes it easy to miss. This plan promotes Camo (and the other common phone-as-webcam apps) to a first-class, clearly labeled choice.
 
-Looking at `src/lib/recentScans.ts`, the `addRecentScan` function has **no deduplication at all**. Every single identification result gets pushed as a new entry, even if it's the same card scanned 5 seconds ago. So if you:
+## What changes
 
-- Re-scanned the Helmdale card a few times to get focus right, OR
-- The queue processed a buffered photo of it more than once, OR
-- The auto-save loop fired multiple times on the same physical card
+1. Give Camo a dedicated lens type + friendly label so it's instantly recognizable in the dropdown.
+2. Apply the same treatment to the other phone-as-camera apps already detected (Continuity Camera, EpocCam, DroidCam, Iriun) so the list reads consistently.
+3. Add a matching icon in the selector.
+4. Make sure refreshing the device list picks up Camo as soon as it's connected (it already does, via the `devicechange` listener — just verifying behavior).
 
-…each result gets its own row in Recent Scans, up to 500 deep. None of them duplicate to the database (your collection is fine — only 1 row would be added or quantity bumped via `insertCardDual`), but the *visual list* shows it 4–8 times.
+## User-visible result
 
-## Fix — dedupe in `recentScans.ts`
+The camera dropdown will show entries like:
 
-Change `addRecentScan` to merge same-card scans inside a short window instead of stacking them:
+```
+[icon] Camo (iPhone)
+[icon] Continuity Camera
+[icon] EpocCam
+[icon] Wide (Main)
+[icon] Ultra Wide
+```
 
-**Logic:**
-1. Build a dedupe key from `card_name + card_set + card_number` (lowercased, trimmed). If the card has a `dbId`, prefer that as the key.
-2. Before inserting, scan the existing list:
-   - If a matching scan exists within the **last 60 seconds** → **update it in place** (refresh `scanned_at`, refresh `price`/`psa10Price` if higher, increment a new `scanCount` field). Do NOT add a new row.
-   - Otherwise → insert as a new row (current behavior).
-3. Add an optional `scanCount?: number` field to `RecentScan` (default 1). Show "×N" badge on the chip when > 1.
+instead of raw OS strings buried among other USB devices.
 
-**Why 60s and not longer:** If you scan the same card again 5 minutes later you probably do want to see it as a fresh entry (you set it down and came back to it). A 60s window only collapses the rapid-fire re-scan / queue-replay case that's causing the spam.
+## Technical details
 
-## UI touch (optional, ~5 lines)
+**`src/hooks/use-camera-devices.tsx`**
+- Extend `LensType` with `"camo" | "continuity" | "epoccam" | "droidcam" | "iriun"` (keeping `"usb"` as the generic fallback).
+- Add a `classifyPhoneCam(label)` helper that runs before the generic USB branch and returns a friendly `lensLabel` (e.g. `"Camo (iPhone)"`, `"Continuity Camera"`).
+- In the `videoInputs.map` block, when `usb` is true, call `classifyPhoneCam` first; fall back to the existing label if no specific app matches.
+- Auto-select preference unchanged (still prefers rear "wide"); Camo remains user-selectable.
 
-In whichever component renders the Recent Scans chips (likely `src/components/scanner/RecentScansList.tsx` or similar), if `scan.scanCount && scan.scanCount > 1`, show a small `×{scanCount}` badge in the corner so you can tell at a glance which cards were re-scanned vs. truly new finds.
+**`src/components/scanner/CameraDeviceSelector.tsx`**
+- Extend `getLensIcon` to return a distinct icon for `camo` / `continuity` / `epoccam` / `droidcam` / `iriun` (e.g. `Smartphone` for phone-based, keeping `Webcam`-style for generic USB). Uses existing `lucide-react` icons — no new deps.
 
-## Files changed
+**No changes needed** to `MobileCameraScanner`, `ContinuityCameraIngest`, or scan pipeline — they consume `deviceId` only.
 
-- `src/lib/recentScans.ts` — add dedupe-merge logic in `addRecentScan`, add `scanCount` field to interface
-- The component rendering recent scan chips — render `×N` badge when scanCount > 1 (I'll locate it during implementation)
+## Out of scope
 
-No DB migration. No edge function changes. ~25 lines of code.
-
-## What you'll see after
-
-- Scan Helmdale 5 times in a row → **1 chip** in Recent Scans with "×5" badge (instead of 5 chips).
-- Scan Helmdale, then 10 other cards, then Helmdale again → 2 separate Helmdale chips (correct — that's a real second sighting).
-- Your collection database is and was unaffected — Helmdale is saved exactly once with quantity bumping handled by the existing `insertCardDual` dedupe.
+- Auto-switching to Camo when it appears (user still picks it from the dropdown).
+- Installing/configuring Camo itself — that's a user-side setup; the existing USBPhoneCameraScanner help text already mentions it.

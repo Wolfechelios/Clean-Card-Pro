@@ -1,6 +1,45 @@
 import { useState, useEffect, useCallback } from "react";
 
-export type LensType = "wide" | "ultrawide" | "telephoto" | "macro" | "depth" | "standard" | "usb" | "unknown";
+export type LensType =
+  | "wide"
+  | "ultrawide"
+  | "telephoto"
+  | "macro"
+  | "depth"
+  | "standard"
+  | "usb"
+  | "camo"
+  | "continuity"
+  | "epoccam"
+  | "droidcam"
+  | "iriun"
+  | "unknown";
+
+/**
+ * Recognize phone-as-webcam apps (Camo, Continuity Camera, EpocCam, DroidCam, Iriun)
+ * and return a friendly label + dedicated lens type so they stand out in the picker.
+ */
+function classifyPhoneCam(label: string): { lensType: LensType; lensLabel: string } | null {
+  const l = label.toLowerCase();
+  if (l.includes("camo")) {
+    // Reincubate Camo — labels often look like "Reincubate Camo" or "Camo"
+    const isIphone = l.includes("iphone") || l.includes("ios");
+    return { lensType: "camo", lensLabel: isIphone ? "Camo (iPhone)" : "Camo" };
+  }
+  if (l.includes("continuity") || l.includes("desk view")) {
+    return { lensType: "continuity", lensLabel: "Continuity Camera" };
+  }
+  if (l.includes("epoccam")) {
+    return { lensType: "epoccam", lensLabel: "EpocCam" };
+  }
+  if (l.includes("droidcam")) {
+    return { lensType: "droidcam", lensLabel: "DroidCam" };
+  }
+  if (l.includes("iriun")) {
+    return { lensType: "iriun", lensLabel: "Iriun Webcam" };
+  }
+  return null;
+}
 
 export interface CameraDevice {
   deviceId: string;
