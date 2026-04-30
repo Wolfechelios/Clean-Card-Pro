@@ -1,6 +1,6 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, Smartphone, Camera, Scan, ZoomIn, Focus, Layers } from "lucide-react";
+import { RefreshCw, Smartphone, Camera, Scan, ZoomIn, Focus, Layers, Webcam, Monitor } from "lucide-react";
 import { CameraDevice, LensType } from "@/hooks/use-camera-devices";
 
 interface CameraDeviceSelectorProps {
@@ -23,8 +23,14 @@ function getLensIcon(lensType: LensType) {
     case "macro":
     case "depth":
       return <Focus className="h-4 w-4 text-primary" />;
+    case "camo":
+    case "continuity":
+    case "epoccam":
+    case "droidcam":
+    case "iriun":
+      return <Smartphone className="h-4 w-4 text-accent-foreground" />;
     case "usb":
-      return <Smartphone className="h-4 w-4 text-primary" />;
+      return <Webcam className="h-4 w-4 text-primary" />;
     default:
       return <Layers className="h-4 w-4 text-muted-foreground" />;
   }
