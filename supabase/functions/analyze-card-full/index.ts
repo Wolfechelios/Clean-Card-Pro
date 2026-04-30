@@ -194,13 +194,40 @@ Be thorough with OCR extraction. Analyze card condition carefully. Grade estimat
       }),
     });
 
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error("Lovable AI error:", aiResponse.status, errorText);
-      throw new Error(`AI analysis failed: ${aiResponse.status}`);
+    // Fallback to OpenAI vision (gpt-5-mini) if Gemini fails with 429/5xx
+    let finalResponse = aiResponse;
+    if (!aiResponse.ok && (aiResponse.status === 429 || aiResponse.status >= 500)) {
+      const errText = await aiResponse.text().catch(() => "");
+      console.warn(`Gemini vision failed (${aiResponse.status}): ${errText}. Falling back to gpt-5-mini.`);
+      finalResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "openai/gpt-5-mini",
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: `Analyze this trading card image and return the SAME JSON shape as before (ocr_text, card_details, condition, labels). Image: ${image_url}` },
+                { type: "image_url", image_url: { url: image_url } },
+              ],
+            },
+          ],
+          response_format: { type: "json_object" },
+        }),
+      });
     }
 
-    const aiResult = await aiResponse.json();
+    if (!finalResponse.ok) {
+      const errorText = await finalResponse.text();
+      console.error("AI gateway error:", finalResponse.status, errorText);
+      throw new Error(`AI analysis failed: ${finalResponse.status}`);
+    }
+
+    const aiResult = await finalResponse.json();
     const content = aiResult.choices[0]?.message?.content;
     
     if (!content) {
