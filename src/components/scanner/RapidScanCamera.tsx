@@ -1581,7 +1581,7 @@ export default function RapidScanCamera() {
         )}
 
         {/* ── Overlay: top-left camera selector pill ── */}
-        {!isNative && cameraDevices.length > 1 && cameraOn && (
+        {!isNative && cameraOn && (
           <div className="absolute top-3 left-3 z-10">
             <CameraDeviceSelector
               devices={cameraDevices}
@@ -1590,12 +1590,12 @@ export default function RapidScanCamera() {
                 setSelectedDeviceId(deviceId);
                 if (cameraOn) {
                   await stopCamera();
-                  setTimeout(() => startCamera(), 100);
+                  window.setTimeout(() => void startCamera(), 100);
                 }
               }}
               onRefresh={refreshDevices}
               isLoading={devicesLoading}
-              className="bg-black/60 backdrop-blur-sm rounded-full"
+              className="rounded-xl bg-black/60 p-2 backdrop-blur-sm"
             />
           </div>
         )}
