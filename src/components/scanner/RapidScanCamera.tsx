@@ -1386,7 +1386,7 @@ export default function RapidScanCamera() {
       )}
     >
       {/* ── Compact top bar ── */}
-      <div className="flex items-center justify-between gap-2 px-1">
+      <div className="flex flex-col gap-3 px-1 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           <Select
             value={settings.gameTypeFilter}
@@ -1466,6 +1466,33 @@ export default function RapidScanCamera() {
           </Button>
         </div>
       </div>
+
+      {!isNative && (
+        <div className="rounded-xl border bg-card/80 p-3 shadow-sm">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 space-y-0.5">
+              <div className="text-sm font-semibold text-foreground">Camera Selection</div>
+              <p className="text-xs text-muted-foreground">
+                Choose Camo, iPad, USB, or built-in cameras before starting rapid scan.
+              </p>
+            </div>
+            <CameraDeviceSelector
+              devices={cameraDevices}
+              selectedDeviceId={selectedDeviceId}
+              onDeviceChange={async (deviceId) => {
+                setSelectedDeviceId(deviceId);
+                if (cameraOn) {
+                  await stopCamera();
+                  window.setTimeout(() => void startCamera(), 100);
+                }
+              }}
+              onRefresh={refreshDevices}
+              isLoading={devicesLoading}
+              className="sm:items-end"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Anomaly alert */}
       {isAnomalyPaused && (
@@ -1554,7 +1581,7 @@ export default function RapidScanCamera() {
         )}
 
         {/* ── Overlay: top-left camera selector pill ── */}
-        {!isNative && cameraDevices.length > 1 && cameraOn && (
+        {!isNative && cameraOn && (
           <div className="absolute top-3 left-3 z-10">
             <CameraDeviceSelector
               devices={cameraDevices}
@@ -1563,12 +1590,12 @@ export default function RapidScanCamera() {
                 setSelectedDeviceId(deviceId);
                 if (cameraOn) {
                   await stopCamera();
-                  setTimeout(() => startCamera(), 100);
+                  window.setTimeout(() => void startCamera(), 100);
                 }
               }}
               onRefresh={refreshDevices}
               isLoading={devicesLoading}
-              className="bg-black/60 backdrop-blur-sm rounded-full"
+              className="rounded-xl bg-black/60 p-2 backdrop-blur-sm"
             />
           </div>
         )}

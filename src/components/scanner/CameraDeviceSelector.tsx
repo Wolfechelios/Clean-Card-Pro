@@ -44,30 +44,35 @@ export const CameraDeviceSelector = ({
   isLoading,
   className = "",
 }: CameraDeviceSelectorProps) => {
-  if (devices.length === 0) return null;
-
   const hasPhoneCam = devices.some(d =>
     ["camo", "continuity", "epoccam", "droidcam", "iriun"].includes(d.lensType)
   );
 
   return (
-    <div className={`flex flex-col gap-1 ${className}`}>
-      <div className="flex items-center gap-2">
-        <Select value={selectedDeviceId} onValueChange={onDeviceChange}>
-          <SelectTrigger className="w-[220px] bg-background/80 backdrop-blur-sm">
-            <SelectValue placeholder="Select lens" />
-          </SelectTrigger>
-          <SelectContent>
-            {devices.map((device) => (
-              <SelectItem key={device.deviceId} value={device.deviceId}>
-                <div className="flex items-center gap-2">
-                  {getLensIcon(device.lensType)}
-                  <span className="truncate max-w-[160px]">{device.lensLabel}</span>
-                </div>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+    <div className={`flex w-full max-w-full flex-col gap-1 ${className}`}>
+      <div className="flex w-full max-w-full items-center gap-2">
+        {devices.length > 0 ? (
+          <Select value={selectedDeviceId} onValueChange={onDeviceChange}>
+            <SelectTrigger className="h-9 w-full min-w-[180px] max-w-[280px] bg-background/80 backdrop-blur-sm">
+              <SelectValue placeholder="Select camera" />
+            </SelectTrigger>
+            <SelectContent>
+              {devices.map((device) => (
+                <SelectItem key={device.deviceId} value={device.deviceId}>
+                  <div className="flex items-center gap-2">
+                    {getLensIcon(device.lensType)}
+                    <span className="max-w-[180px] truncate">{device.lensLabel}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <Button variant="outline" disabled className="h-9 w-full min-w-[180px] max-w-[280px] justify-start bg-background/80 backdrop-blur-sm">
+            <Camera className="mr-2 h-4 w-4 text-muted-foreground" />
+            {isLoading ? "Finding cameras…" : "No cameras found"}
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon"
@@ -79,7 +84,7 @@ export const CameraDeviceSelector = ({
           <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
         </Button>
       </div>
-      {!hasPhoneCam && (
+      {!hasPhoneCam && devices.length > 0 && (
         <span className="text-[11px] text-muted-foreground pl-1">
           Using Camo Studio? Start it, then tap refresh.
         </span>
