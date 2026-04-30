@@ -696,7 +696,11 @@ export default function RapidScanCamera() {
     }
   }
 
-  // Cleanup: stop camera & timers on unmount
+  // Cleanup: stop camera & timers on unmount.
+  // CRITICAL: if the user navigates away mid-scan without pressing Stop,
+  // any queued captures would otherwise sit in IndexedDB forever and never
+  // get processed/priced. Kick off the queue processor on unmount so the
+  // images they snapped get identified in the background.
   useEffect(() => {
     return () => {
       try {
@@ -707,6 +711,15 @@ export default function RapidScanCamera() {
         }
         useGlobalProcessControl.getState().setScannerActive(false);
       } catch {}
+      // Fire-and-forget: drain anything the user captured before leaving
+      idbCountQueued()
+        .then((n) => {
+          if (n > 0) {
+            console.log(`[RapidScan] Unmount with ${n} queued items — starting processor`);
+            useQueueProcessor.getState().start();
+          }
+        })
+        .catch(() => {});
     };
   }, []);
 
