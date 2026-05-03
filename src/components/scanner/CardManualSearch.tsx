@@ -18,6 +18,9 @@ interface SearchMatch {
 interface CardManualSearchProps {
   gameType: string | null;
   onSelect: (match: SearchMatch) => void;
+  defaultCardNumber?: string | null;
+  defaultSetCode?: string | null;
+  defaultSetName?: string | null;
 }
 
 export function CardManualSearch({ gameType, onSelect }: CardManualSearchProps) {
