@@ -839,6 +839,11 @@ Deno.serve(async (req) => {
 
     console.log("Pricing result:", JSON.stringify(result));
 
+    // Cache write (only if we got *some* data)
+    if (result.raw != null || result.psa10 != null || result.suggested != null) {
+      writeCache(identityHash, result).catch(() => {});
+    }
+
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
