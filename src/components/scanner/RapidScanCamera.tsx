@@ -1231,7 +1231,7 @@ export default function RapidScanCamera() {
         toast.error(e?.message ?? "Failed to save");
       }
     },
-    [cards, updateCard, userId]
+    [cards, updateCard, userId, removeCard]
   );
 
   const handleAddAllToLibrary = useCallback(async () => {
