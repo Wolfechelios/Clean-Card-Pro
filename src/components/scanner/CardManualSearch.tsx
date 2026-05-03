@@ -84,6 +84,28 @@ export function CardManualSearch({ gameType, onSelect, defaultCardNumber, defaul
                 {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
               </Button>
             </div>
+            <div className="flex gap-2">
+              <Input
+                placeholder="Card # (optional)"
+                value={cardNumber}
+                onChange={(e) => setCardNumber(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                className="flex-1"
+              />
+              <Input
+                placeholder="Set name/code (optional)"
+                value={setHint}
+                onChange={(e) => setSetHint(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                className="flex-1"
+              />
+            </div>
+
+            {searchResults.length > 0 && (
+              <div className="text-xs text-muted-foreground">
+                Matched on name{cardNumber && " + #"}{setHint && " + set"}. Image previews shown when available.
+              </div>
+            )}
 
             {searchResults.length > 0 && (
               <div className="space-y-2 max-h-64 overflow-y-auto">
