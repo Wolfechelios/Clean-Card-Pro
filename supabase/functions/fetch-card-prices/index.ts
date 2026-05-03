@@ -1,4 +1,157 @@
 import { corsHeaders } from "../_shared/cors.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+
+// ─── Supabase admin client (for price_cache) ────────────────────────
+const supabaseAdmin = createClient(
+  Deno.env.get("SUPABASE_URL") ?? "",
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+  { auth: { persistSession: false } }
+);
+
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+
+async function sha256(s: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function buildIdentityKey(input: {
+  cardName: string;
+  cardSet?: string | null;
+  cardNumber?: string | null;
+  gameType?: string | null;
+  sportType?: string | null;
+  condition?: string | null;
+}): string {
+  return [
+    input.cardName?.toLowerCase().trim(),
+    (input.cardSet || "").toLowerCase().trim(),
+    (input.cardNumber || "").toLowerCase().trim(),
+    (input.gameType || "").toLowerCase().trim(),
+    (input.sportType || "").toLowerCase().trim(),
+    (input.condition || "").toLowerCase().trim(),
+  ].join("|");
+}
+
+async function readCache(identityHash: string): Promise<any | null> {
+  try {
+    const { data } = await supabaseAdmin
+      .from("price_cache")
+      .select("raw, updated_at")
+      .eq("identity_hash", identityHash)
+      .eq("source", "fetch-card-prices")
+      .maybeSingle();
+    if (!data?.raw || !data.updated_at) return null;
+    const age = Date.now() - new Date(data.updated_at).getTime();
+    if (age > CACHE_TTL_MS) return null;
+    return data.raw;
+  } catch (e) {
+    console.warn("[cache] read error:", e);
+    return null;
+  }
+}
+
+async function writeCache(identityHash: string, result: any): Promise<void> {
+  try {
+    await supabaseAdmin.from("price_cache").upsert(
+      {
+        identity_hash: identityHash,
+        source: "fetch-card-prices",
+        raw: result,
+        price: result?.raw ?? result?.suggested ?? null,
+        currency: "USD",
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "identity_hash,source" }
+    );
+  } catch (e) {
+    console.warn("[cache] write error:", e);
+  }
+}
+
+// ─── Free catalog API adapters (primary, no scraping) ───────────────
+async function fetchScryfallPrice(cardName: string, cardSet: string | null, cardNumber: string | null): Promise<SourcePrices> {
+  try {
+    let card: any = null;
+    if (cardSet && cardNumber) {
+      // try set+number direct lookup
+      const setCode = cardSet.toLowerCase().slice(0, 5).replace(/[^a-z0-9]/g, "");
+      const r = await fetch(`https://api.scryfall.com/cards/${setCode}/${encodeURIComponent(cardNumber)}`);
+      if (r.ok) card = await r.json();
+    }
+    if (!card) {
+      const r = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(cardName)}`);
+      if (!r.ok) return emptySource();
+      card = await r.json();
+    }
+    const usd = parseFloat(card?.prices?.usd) || parseFloat(card?.prices?.usd_foil) || parseFloat(card?.prices?.usd_etched) || null;
+    return {
+      ...emptySource(),
+      raw: usd,
+      url: card?.scryfall_uri || null,
+    };
+  } catch (e) {
+    console.warn("[Scryfall] error:", e);
+    return emptySource();
+  }
+}
+
+async function fetchYGOProDeckPrice(cardName: string): Promise<SourcePrices> {
+  try {
+    let r = await fetch(`https://db.ygoprodeck.com/api/v7/cardinfo.php?name=${encodeURIComponent(cardName)}`);
+    if (!r.ok) {
+      r = await fetch(`https://db.ygoprodeck.com/api/v7/cardinfo.php?fname=${encodeURIComponent(cardName)}`);
+    }
+    if (!r.ok) return emptySource();
+    const card = (await r.json())?.data?.[0];
+    if (!card) return emptySource();
+    const p = card.card_prices?.[0] || {};
+    const tcg = parseFloat(p.tcgplayer_price) || null;
+    const cm = parseFloat(p.cardmarket_price) || null;
+    const ebay = parseFloat(p.ebay_price) || null;
+    const raw = tcg || cm || ebay || null;
+    return {
+      ...emptySource(),
+      raw,
+      url: `https://db.ygoprodeck.com/card/?search=${encodeURIComponent(cardName)}`,
+    };
+  } catch (e) {
+    console.warn("[YGOProDeck] error:", e);
+    return emptySource();
+  }
+}
+
+async function fetchPokemonTCGPrice(cardName: string, cardSet: string | null, cardNumber: string | null): Promise<{ source: SourcePrices; tcg: { market: number | null; low: number | null; mid: number | null; high: number | null; url: string | null } }> {
+  try {
+    const queryParts = [`name:"${cardName}"`];
+    if (cardNumber) queryParts.push(`number:${cardNumber}`);
+    if (cardSet) queryParts.push(`set.name:"${cardSet}"`);
+    const q = queryParts.join(" ");
+    const r = await fetch(`https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(q)}&pageSize=1`);
+    if (!r.ok) return { source: emptySource(), tcg: { market: null, low: null, mid: null, high: null, url: null } };
+    const card = (await r.json())?.data?.[0];
+    if (!card) return { source: emptySource(), tcg: { market: null, low: null, mid: null, high: null, url: null } };
+    const p = card.tcgplayer?.prices || {};
+    const variant = p.holofoil || p.normal || p.reverseHolofoil || p["1stEditionHolofoil"] || {};
+    return {
+      source: {
+        ...emptySource(),
+        raw: variant.market || variant.mid || null,
+        url: card.tcgplayer?.url || null,
+      },
+      tcg: {
+        market: variant.market || null,
+        low: variant.low || null,
+        mid: variant.mid || null,
+        high: variant.high || null,
+        url: card.tcgplayer?.url || null,
+      },
+    };
+  } catch (e) {
+    console.warn("[PokemonTCG] error:", e);
+    return { source: emptySource(), tcg: { market: null, low: null, mid: null, high: null, url: null } };
+  }
+}
 
 interface PricingResult {
   raw: number | null;
@@ -62,30 +215,28 @@ async function scrapeWithFirecrawl(url: string): Promise<string> {
     console.error("FIRECRAWL_API_KEY not set");
     return "";
   }
-  try {
-    const resp = await fetch("https://api.firecrawl.dev/v1/scrape", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        url,
-        formats: ["markdown"],
-        onlyMainContent: true,
-        waitFor: 3000,
-      }),
-    });
-    if (!resp.ok) {
-      console.error(`Firecrawl ${resp.status} for ${url}`);
-      return "";
+  const attempt = async (): Promise<{ ok: boolean; status: number; md: string }> => {
+    try {
+      const resp = await fetch("https://api.firecrawl.dev/v1/scrape", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true }),
+      });
+      if (!resp.ok) return { ok: false, status: resp.status, md: "" };
+      const data = await resp.json();
+      return { ok: true, status: 200, md: data?.data?.markdown || data?.markdown || "" };
+    } catch (e) {
+      console.error("Firecrawl exception:", e);
+      return { ok: false, status: 0, md: "" };
     }
-    const data = await resp.json();
-    return data?.data?.markdown || data?.markdown || "";
-  } catch (e) {
-    console.error("Firecrawl error:", e);
-    return "";
+  };
+  let r = await attempt();
+  if (!r.ok && [408, 429, 500, 502, 503, 504].includes(r.status)) {
+    await new Promise((res) => setTimeout(res, 1000));
+    r = await attempt();
   }
+  if (!r.ok) console.error(`Firecrawl ${r.status} for ${url}`);
+  return r.md;
 }
 
 // ─── Price parsing helpers ──────────────────────────────────────────
@@ -232,32 +383,20 @@ async function fetchPriceChartingPrices(
       else if (gt.includes("mtg") || gt.includes("magic")) category = "magic-the-gathering";
     }
 
-    const slugParts = [cardName, cardSet || ""];
-    if (cardNumber) slugParts.push(cardNumber);
-    const slug = slugParts.join(" ")
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, "")
-      .replace(/\s+/g, "-");
+    // Skip "guess direct URL" — it 408s constantly. Go straight to search.
+    const searchQuery = encodeURIComponent(`${cardName} ${cardSet || ""}`.trim());
+    const searchUrl = `https://www.pricecharting.com/search-products?q=${searchQuery}&type=prices&category=${category}`;
+    console.log("[PriceCharting] Searching:", searchUrl);
+    let md = await scrapeWithFirecrawl(searchUrl);
 
-    const directUrl = `https://www.pricecharting.com/game/${category}/${slug}`;
-    console.log("[PriceCharting] Trying direct URL:", directUrl);
-
-    let md = await scrapeWithFirecrawl(directUrl);
-
-    if (!md || md.length < 200 || !md.match(/\$[0-9]/)) {
-      const searchQuery = encodeURIComponent(`${cardName} ${cardSet || ""}`.trim());
-      const searchUrl = `https://www.pricecharting.com/search-products?q=${searchQuery}&type=prices&category=${category}`;
-      console.log("[PriceCharting] Direct failed, trying search:", searchUrl);
-      md = await scrapeWithFirecrawl(searchUrl);
-
-      const productLinkMatch = md.match(/\[([^\]]+)\]\((\/game\/[^\)]+)\)/);
-      if (productLinkMatch) {
-        const productUrl = `https://www.pricecharting.com${productLinkMatch[2]}`;
-        console.log("[PriceCharting] Following product link:", productUrl);
-        md = await scrapeWithFirecrawl(productUrl);
-      }
+    const productLinkMatch = md?.match(/\[([^\]]+)\]\((\/game\/[^\)]+)\)/);
+    if (productLinkMatch) {
+      const productUrl = `https://www.pricecharting.com${productLinkMatch[2]}`;
+      console.log("[PriceCharting] Following product link:", productUrl);
+      md = await scrapeWithFirecrawl(productUrl);
     }
+
+    const directUrl = searchUrl;
 
     if (!md) return emptySource();
 
@@ -503,6 +642,17 @@ Deno.serve(async (req) => {
     const { cardName, cardSet, cardNumber, gameType, sportType, condition } = await req.json();
     console.log("Fetching prices for:", { cardName, cardSet, cardNumber, gameType, sportType, condition });
 
+    // ── Cache check ─────────────────────────────────────────────────
+    const identityKey = buildIdentityKey({ cardName, cardSet, cardNumber, gameType, sportType, condition });
+    const identityHash = await sha256(identityKey);
+    const cached = await readCache(identityHash);
+    if (cached) {
+      console.log("[cache] HIT for", identityKey);
+      return new Response(JSON.stringify({ ...cached, cached: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const conditionTerm = condition && !["unknown", ""].includes(condition.toLowerCase()) ? condition : "";
     const searchQuery = `${cardName} ${cardSet || ""} ${cardNumber || ""} ${conditionTerm}`.replace(/\s+/g, " ").trim();
     const sources: string[] = [];
@@ -518,45 +668,9 @@ Deno.serve(async (req) => {
     const isPokemon = gameType && /pokemon|pokémon/i.test(gameType);
     const isYGO = gameType && /yugioh|yu-gi-oh/i.test(gameType);
 
-    // ── Race-to-first-non-null pricing with 3.5s overall cap ──
-    // Game-specific priority: skip slow sources unless target source returns null.
     const PRICING_CAP_MS = 3500;
-
-    const raceFirstNonNull = async <T>(
-      promises: Array<Promise<T>>,
-      isNonNull: (v: T) => boolean,
-      capMs: number
-    ): Promise<T[]> => {
-      // Returns whatever resolved (with non-null preferred) before capMs
-      return await new Promise<T[]>((resolve) => {
-        const results: T[] = [];
-        let resolved = false;
-        let pending = promises.length;
-        const finish = () => {
-          if (resolved) return;
-          resolved = true;
-          resolve(results);
-        };
-        const timer = setTimeout(finish, capMs);
-        promises.forEach((p) => {
-          p.then((v) => {
-            results.push(v);
-            if (isNonNull(v)) {
-              clearTimeout(timer);
-              finish();
-            }
-          })
-            .catch(() => {})
-            .finally(() => {
-              pending--;
-              if (pending === 0) {
-                clearTimeout(timer);
-                finish();
-              }
-            });
-        });
-      });
-    };
+    const withTimeout = <T>(p: Promise<T>, fallback: T): Promise<T> =>
+      Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), PRICING_CAP_MS))]);
 
     let ebay: SourcePrices = emptySource();
     let pc: SourcePrices = emptySource();
@@ -564,51 +678,52 @@ Deno.serve(async (req) => {
       { lastSold: null, low: null, mid: null, high: null, market: null, url: null };
     let scp: SourcePrices = emptySource();
     let comc: SourcePrices = emptySource();
+    let api: SourcePrices = emptySource();
+    let apiSourceName: string | null = null;
 
-    if (isYGO) {
-      // Yu-Gi-Oh! ONLY: TCGPlayer is allowed alongside PriceCharting + eBay
-      const pcP = fetchPriceChartingPrices(cardName, cardSet, gameType, cardNumber).then((r) => { pc = r; return r; });
-      const tcgP = fetchTCGPlayerPrices(cardName, cardSet, cardNumber, gameType).then((r) => { tcg = r; return r; });
-      await raceFirstNonNull(
-        [pcP, tcgP],
-        (v: any) => (v && (v.raw != null || v.market != null || v.lastSold != null)) as boolean,
-        PRICING_CAP_MS
+    // ── API-FIRST: free catalog APIs (~100ms, no scraping) ──────────
+    if (isMTG) {
+      api = await withTimeout(fetchScryfallPrice(cardName, cardSet, cardNumber), emptySource());
+      if (api.raw) apiSourceName = "Scryfall";
+    } else if (isYGO) {
+      api = await withTimeout(fetchYGOProDeckPrice(cardName), emptySource());
+      if (api.raw) apiSourceName = "YGOProDeck";
+    } else if (isPokemon) {
+      const r = await withTimeout(
+        fetchPokemonTCGPrice(cardName, cardSet, cardNumber),
+        { source: emptySource(), tcg: { market: null, low: null, mid: null, high: null, url: null } }
       );
-      if (!pc.raw && !tcg.market && !tcg.lastSold) {
-        ebay = await Promise.race([
-          fetchEbayPrices(searchQuery, condition),
-          new Promise<SourcePrices>((r) => setTimeout(() => r(emptySource()), PRICING_CAP_MS)),
-        ]);
-      }
-    } else if (isMTG || isPokemon || isSportsCard) {
-      // All other games: eBay + PriceCharting only (no TCGPlayer)
-      const [pcRes, ebayRes] = await Promise.all([
-        Promise.race([
-          fetchPriceChartingPrices(cardName, cardSet, gameType, cardNumber),
-          new Promise<SourcePrices>((r) => setTimeout(() => r(emptySource()), PRICING_CAP_MS)),
-        ]),
-        Promise.race([
-          fetchEbayPrices(searchQuery, condition),
-          new Promise<SourcePrices>((r) => setTimeout(() => r(emptySource()), PRICING_CAP_MS)),
-        ]),
-      ]);
-      pc = pcRes; ebay = ebayRes;
-    } else {
-      // Unknown game type: eBay + PriceCharting only
-      const [pcRes, ebayRes] = await Promise.all([
-        Promise.race([
-          fetchPriceChartingPrices(cardName, cardSet, gameType, cardNumber),
-          new Promise<SourcePrices>((r) => setTimeout(() => r(emptySource()), PRICING_CAP_MS)),
-        ]),
-        Promise.race([
-          fetchEbayPrices(searchQuery, condition),
-          new Promise<SourcePrices>((r) => setTimeout(() => r(emptySource()), PRICING_CAP_MS)),
-        ]),
-      ]);
-      pc = pcRes; ebay = ebayRes;
+      api = r.source;
+      tcg = r.tcg;
+      if (api.raw) apiSourceName = "PokémonTCG";
     }
 
+    // ── SCRAPE FALLBACK: only run if APIs didn't return raw price ──
+    const needScrape = !api.raw;
+    if (needScrape) {
+      if (isYGO) {
+        const [pcRes, tcgRes] = await Promise.all([
+          withTimeout(fetchPriceChartingPrices(cardName, cardSet, gameType, cardNumber), emptySource()),
+          withTimeout(fetchTCGPlayerPrices(cardName, cardSet, cardNumber, gameType), { lastSold: null, low: null, mid: null, high: null, market: null, url: null }),
+        ]);
+        pc = pcRes; tcg = tcgRes;
+        if (!pc.raw && !tcg.market && !tcg.lastSold) {
+          ebay = await withTimeout(fetchEbayPrices(searchQuery, condition), emptySource());
+        }
+      } else {
+        const [pcRes, ebayRes] = await Promise.all([
+          withTimeout(fetchPriceChartingPrices(cardName, cardSet, gameType, cardNumber), emptySource()),
+          withTimeout(fetchEbayPrices(searchQuery, condition), emptySource()),
+        ]);
+        pc = pcRes; ebay = ebayRes;
+      }
+    }
+
+    // Merge API source values into pc (treat as "primary catalog") if pc empty
+    if (api.raw && !pc.raw) pc = { ...pc, raw: api.raw, url: pc.url || api.url };
+
     // Build sources list
+    if (apiSourceName) sources.push(apiSourceName);
     if (comc.raw || comc.psa10) sources.push("COMC");
     if (pc.raw || pc.psa10) sources.push("PriceCharting");
     if (scp.raw || scp.psa10) sources.push("SportsCardPro");
@@ -723,6 +838,11 @@ Deno.serve(async (req) => {
     };
 
     console.log("Pricing result:", JSON.stringify(result));
+
+    // Cache write (only if we got *some* data)
+    if (result.raw != null || result.psa10 != null || result.suggested != null) {
+      writeCache(identityHash, result).catch(() => {});
+    }
 
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

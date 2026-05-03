@@ -2,17 +2,27 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+interface Match {
+  card_name: string;
+  card_set: string | null;
+  card_number: string | null;
+  rarity: string | null;
+  market_price: number | null;
+  product_id: string | null;
+  tcgplayer_url: string | null;
+  image_url?: string | null;
+  game?: string | null;
+}
+
 serve(async (req: Request): Promise<Response> => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
     const { card_name, game_type } = await req.json();
-
     if (!card_name) {
       return new Response(JSON.stringify({ error: "Missing card_name" }), {
         status: 400,
@@ -20,139 +30,160 @@ serve(async (req: Request): Promise<Response> => {
       });
     }
 
-    const game = (game_type || "yugioh").toLowerCase();
-    console.log(`Searching for: "${card_name}" (${game})`);
+    const game = (game_type || "").toLowerCase();
+    console.log(`[search-card-details] "${card_name}" (${game || "any"})`);
 
-    let matches: any[] = [];
+    let matches: Match[] = [];
 
-    // Route to the right API based on game type
-    if (["yugioh", "yu-gi-oh", "yu-gi-oh!", "ygo"].includes(game)) {
+    if (/yugioh|yu-gi-oh|ygo/.test(game)) {
       matches = await searchYGOProDeck(card_name);
-    } else if (["pokemon", "pokémon"].includes(game)) {
+    } else if (/pokemon|pokémon/.test(game)) {
       matches = await searchPokemonTCG(card_name);
+    } else if (/mtg|magic/.test(game)) {
+      matches = await searchScryfall(card_name);
     } else {
-      // Fallback: try YGOProDeck first (most cards in this app are Yu-Gi-Oh)
-      matches = await searchYGOProDeck(card_name);
+      // Unknown game — race all 3 in parallel
+      const [s, y, p] = await Promise.all([
+        searchScryfall(card_name).catch(() => []),
+        searchYGOProDeck(card_name).catch(() => []),
+        searchPokemonTCG(card_name).catch(() => []),
+      ]);
+      matches = [...s, ...y, ...p].slice(0, 10);
     }
 
-    console.log(`Found ${matches.length} matches for "${card_name}"`);
-
-    return new Response(
-      JSON.stringify({ success: true, matches }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    console.log(`[search-card-details] returned ${matches.length} matches`);
+    return new Response(JSON.stringify({ success: true, matches }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   } catch (error: any) {
     console.error("search-card-details error:", error);
     return new Response(
-      JSON.stringify({ error: "Search failed", details: error.message }),
+      JSON.stringify({ error: "Search failed", details: error?.message }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
 
-// ── YGOProDeck API (free, no key required) ──────────────────────────
-async function searchYGOProDeck(cardName: string): Promise<any[]> {
+// ── Scryfall (MTG) ──────────────────────────────────────────────────
+async function searchScryfall(cardName: string): Promise<Match[]> {
   try {
-    // Try exact name first
-    const exactUrl = `https://db.ygoprodeck.com/api/v7/cardinfo.php?name=${encodeURIComponent(cardName)}`;
-    let resp = await fetch(exactUrl, {
-      headers: { Accept: "application/json" },
-    });
-
-    // If exact match fails, try fuzzy search
+    const url = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(
+      `!"${cardName}" or ${cardName}`
+    )}&unique=prints&order=released&dir=desc`;
+    const resp = await fetch(url, { headers: { Accept: "application/json" } });
     if (!resp.ok) {
-      const fuzzyUrl = `https://db.ygoprodeck.com/api/v7/cardinfo.php?fname=${encodeURIComponent(cardName)}`;
-      resp = await fetch(fuzzyUrl, {
-        headers: { Accept: "application/json" },
-      });
+      // Fallback to fuzzy named lookup → return single card
+      const named = await fetch(
+        `https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(cardName)}`
+      );
+      if (!named.ok) return [];
+      const c = await named.json();
+      return [scryfallToMatch(c)];
     }
-
-    if (!resp.ok) {
-      console.warn(`YGOProDeck returned ${resp.status} for "${cardName}"`);
-      return [];
-    }
-
     const data = await resp.json();
-    const cards = data?.data || [];
+    return (data?.data || []).slice(0, 10).map(scryfallToMatch);
+  } catch (e) {
+    console.warn("[Scryfall] error:", e);
+    return [];
+  }
+}
 
-    // Each card can have multiple sets (card_sets array)
-    const matches: any[] = [];
+function scryfallToMatch(c: any): Match {
+  return {
+    card_name: c.name,
+    card_set: c.set_name || null,
+    card_number: c.collector_number || null,
+    rarity: c.rarity ? c.rarity.charAt(0).toUpperCase() + c.rarity.slice(1) : null,
+    market_price: parseFloat(c.prices?.usd) || parseFloat(c.prices?.usd_foil) || null,
+    product_id: c.id || null,
+    tcgplayer_url: c.purchase_uris?.tcgplayer || null,
+    image_url: c.image_uris?.normal || c.card_faces?.[0]?.image_uris?.normal || null,
+    game: "mtg",
+  };
+}
 
+// ── YGOProDeck (Yu-Gi-Oh!) ──────────────────────────────────────────
+async function searchYGOProDeck(cardName: string): Promise<Match[]> {
+  try {
+    let resp = await fetch(
+      `https://db.ygoprodeck.com/api/v7/cardinfo.php?name=${encodeURIComponent(cardName)}`,
+      { headers: { Accept: "application/json" } }
+    );
+    if (!resp.ok) {
+      resp = await fetch(
+        `https://db.ygoprodeck.com/api/v7/cardinfo.php?fname=${encodeURIComponent(cardName)}`,
+        { headers: { Accept: "application/json" } }
+      );
+    }
+    if (!resp.ok) return [];
+    const cards = (await resp.json())?.data || [];
+    const matches: Match[] = [];
     for (const card of cards.slice(0, 3)) {
       const sets = card.card_sets || [];
+      const tcgPrice = parseFloat(card.card_prices?.[0]?.tcgplayer_price) || null;
       if (sets.length === 0) {
-        // Card exists but no set info
         matches.push({
           card_name: card.name,
           card_set: null,
           card_number: null,
-          rarity: card.card_sets?.[0]?.set_rarity || mapYGORarity(card),
-          market_price: parseFloat(card.card_prices?.[0]?.tcgplayer_price) || null,
+          rarity: null,
+          market_price: tcgPrice,
           product_id: null,
-          tcgplayer_url: card.card_prices?.[0]?.tcgplayer_price
+          tcgplayer_url: tcgPrice
             ? `https://www.tcgplayer.com/search/yugioh/product?q=${encodeURIComponent(card.name)}`
             : null,
+          image_url: card.card_images?.[0]?.image_url || null,
+          game: "yugioh",
         });
       } else {
-        // Add each set printing as a separate match
         for (const s of sets.slice(0, 5)) {
           matches.push({
             card_name: card.name,
             card_set: s.set_name || null,
             card_number: s.set_code || null,
             rarity: s.set_rarity || null,
-            market_price: parseFloat(s.set_price) || parseFloat(card.card_prices?.[0]?.tcgplayer_price) || null,
+            market_price: parseFloat(s.set_price) || tcgPrice,
             product_id: null,
             tcgplayer_url: `https://www.tcgplayer.com/search/yugioh/product?q=${encodeURIComponent(card.name)}`,
+            image_url: card.card_images?.[0]?.image_url || null,
+            game: "yugioh",
           });
         }
       }
     }
-
     return matches.slice(0, 10);
   } catch (err) {
-    console.error("YGOProDeck search error:", err);
+    console.warn("[YGOProDeck] error:", err);
     return [];
   }
 }
 
-function mapYGORarity(card: any): string | null {
-  const type = (card.type || "").toLowerCase();
-  if (type.includes("normal")) return "Common";
-  if (type.includes("effect")) return "Common";
-  return null;
-}
-
-// ── Pokémon TCG API (free, no key required) ─────────────────────────
-async function searchPokemonTCG(cardName: string): Promise<any[]> {
+// ── Pokémon TCG ─────────────────────────────────────────────────────
+async function searchPokemonTCG(cardName: string): Promise<Match[]> {
   try {
-    const url = `https://api.pokemontcg.io/v2/cards?q=name:"${encodeURIComponent(cardName)}"&pageSize=10`;
-    const resp = await fetch(url, {
-      headers: { Accept: "application/json" },
-    });
-
-    if (!resp.ok) {
-      console.warn(`PokemonTCG API returned ${resp.status}`);
-      return [];
-    }
-
-    const data = await resp.json();
-    const cards = data?.data || [];
-
+    const resp = await fetch(
+      `https://api.pokemontcg.io/v2/cards?q=name:"${encodeURIComponent(cardName)}"&pageSize=10`,
+      { headers: { Accept: "application/json" } }
+    );
+    if (!resp.ok) return [];
+    const cards = (await resp.json())?.data || [];
     return cards.slice(0, 10).map((c: any) => ({
       card_name: c.name,
       card_set: c.set?.name || null,
       card_number: c.number || null,
       rarity: c.rarity || null,
-      market_price: c.tcgplayer?.prices?.holofoil?.market
-        || c.tcgplayer?.prices?.normal?.market
-        || c.tcgplayer?.prices?.reverseHolofoil?.market
-        || null,
+      market_price:
+        c.tcgplayer?.prices?.holofoil?.market ||
+        c.tcgplayer?.prices?.normal?.market ||
+        c.tcgplayer?.prices?.reverseHolofoil?.market ||
+        null,
       product_id: null,
       tcgplayer_url: c.tcgplayer?.url || null,
+      image_url: c.images?.large || c.images?.small || null,
+      game: "pokemon",
     }));
   } catch (err) {
-    console.error("PokemonTCG search error:", err);
+    console.warn("[PokemonTCG] error:", err);
     return [];
   }
 }

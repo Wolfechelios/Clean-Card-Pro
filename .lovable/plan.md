@@ -1,35 +1,65 @@
-# Fix: iPad via Camo Studio not appearing in camera picker
+## Problem
 
-## Why it's not showing today
+Looking at recent `fetch-card-prices` logs, almost every call returns `"source":"No data"`:
+- Firecrawl is returning **408 timeouts** on PriceCharting and eBay scrapes constantly.
+- PriceCharting "direct URL" guesser builds invalid slugs (e.g. `mountain-battle-for-zendikar-267274`, `benthic-explorers-mirage`) → 408 → falls back to search → also 408.
+- The pipeline is 100% scraping-based for MTG, Pokémon, and sports. That's slow, brittle, and costs Firecrawl credits even on failure.
+- The `price_cache` table exists in the DB but is never read or written by the edge function.
+- `search-card-details` (set lookups) only supports YGO + Pokémon. MTG falls through to YGOProDeck and gets nothing.
 
-Three problems compound:
+## Goal
 
-1. **Selector hides itself with 1 device.** `CameraDeviceSelector.tsx` returns `null` when `devices.length <= 1`. After we filter out the front camera, a Mac with FaceTime + Camo can end up with just **1** rear/USB device — so the dropdown never renders even though Camo *is* in the list.
-2. **No re-enumeration when Camo's source (the iPad) connects/disconnects.** Browsers cache `enumerateDevices()` and `devicechange` only fires when the *virtual driver itself* appears, not when its underlying source switches. Starting Camo Studio after the page loads often leaves the list stale until you hit Refresh.
-3. **Label match is too narrow.** Camo Studio on macOS can expose the virtual cam under names like `"Camo"`, `"Reincubate Camo"`, or — depending on version — `"Camo 2"`, `"Reincubate Cam"`, or even a generic `"FaceTime HD Camera (Camo)"`. The current check only handles strings containing the substring `camo`, which is fine for those, **but** if the OS shows the iPad as `"iPad (2)"` or `"Apple iPad"` (which Camo Studio sometimes does in newer builds), it never matches phone-cam.
+Make pricing and set lookups **API-first, scrape-fallback**: use the free official catalog APIs as the primary source, hit the DB cache before any network call, and only fall back to Firecrawl when APIs return nothing.
 
 ## Changes
 
-### 1. `src/components/scanner/CameraDeviceSelector.tsx`
-- Always render the dropdown when there is **≥1** device (drop the `<= 1` guard). A single-device user still benefits from the **Refresh** button to pull in Camo after starting it.
+### 1. `supabase/functions/fetch-card-prices/index.ts` — API-first pricing
 
-### 2. `src/hooks/use-camera-devices.tsx`
-- **Broaden phone-cam detection** in `classifyPhoneCam`:
-  - Match `camo`, `reincubate`, `ipad`, `apple ipad`, `ios camera`, `ios cam` → `lensType: "camo"`, label `"Camo (iPad)"` when `ipad` is present, otherwise `"Camo"`.
-- **Auto-refresh on focus + interval poll** (cheap):
-  - On `window` `focus` and `visibilitychange → visible`, call `refreshDevices()`.
-  - Add a lightweight 4 s poll while the page is visible that compares device count + label hash and only updates state if it changed. This catches Camo Studio being launched after page load without requiring the user to click Refresh.
-- **Better diagnostics**: `console.info("[camera-devices] enumerated", videoDevices.map(d => ({ label: d.label, lensType: d.lensType })))` so we can verify in DevTools exactly what the browser reports for the iPad.
+Add new fast adapters that run **before** any Firecrawl scrape:
 
-### 3. `src/components/scanner/CameraDeviceSelector.tsx` UX
-- When only Camo-style devices and no built-in webcam are present, keep the dropdown visible with a hint row "Refresh after starting Camo Studio" (small muted text under the select).
+- **Scryfall (MTG)** — `https://api.scryfall.com/cards/named?fuzzy=...` returns `prices.usd`, `prices.usd_foil`, `prices.usd_etched`. Free, no key, ~100ms. Becomes primary raw price for MTG.
+- **YGOProDeck (Yu-Gi-Oh!)** — `card_prices[].tcgplayer_price` / `cardmarket_price`. Free, no key. Primary raw for YGO; PriceCharting/eBay become fallback only.
+- **Pokémon TCG (`api.pokemontcg.io/v2`)** — `tcgplayer.prices.{normal,holofoil,reverseHolofoil}.market`. Primary raw for Pokémon.
+
+For each game, only fall back to Firecrawl/PriceCharting/eBay when the API returns null OR when we still need PSA9/PSA10 grades (the APIs only give raw).
+
+### 2. Add price cache read/write
+
+- Before any network call, `SELECT` from `price_cache` keyed by `identity_hash` (sha256 of `name|set|number|game|condition`) where `updated_at > now() - 24h`. If hit, return immediately.
+- After a successful pricing result, `INSERT` (upsert on `identity_hash`) into `price_cache` so subsequent calls within 24h skip all scraping.
+
+### 3. Firecrawl resilience
+
+- Add 1 retry with 1s backoff on 408/429/5xx (single retry, not infinite loops).
+- Drop the `waitFor: 3000` for PriceCharting (the page is server-rendered) — this is a major contributor to the 408s.
+- Skip the "guess direct URL" attempt for PriceCharting and go straight to the search endpoint, which is the only one that reliably returns markdown.
+
+### 4. `supabase/functions/search-card-details/index.ts` — add MTG + smarter routing
+
+- Add `searchScryfall(name)` that returns set name, collector number, rarity, set code, image, and `prices.usd`. Already free + fast.
+- Route MTG/Magic to Scryfall, YGO to YGOProDeck, Pokémon to PokémonTCG.io.
+- For unknown game type, run Scryfall + YGOProDeck + Pokémon in parallel and return the union (capped at 10 results).
+
+### 5. Schema migration: cache de-dup index
+
+Add a unique index on `price_cache.identity_hash` (currently nullable + no unique key) so the upsert in step 2 works:
+```sql
+CREATE UNIQUE INDEX IF NOT EXISTS price_cache_identity_source_idx
+  ON public.price_cache (identity_hash, source);
+```
+
+### 6. Client side
+
+No structural changes — `fetchCardPricesShared` and `EbaySoldAdapter` keep their existing shape. The new API-derived prices populate the same `raw`, `psa9`, `psa10`, `tcgPlayerMarket`, etc. fields, so all downstream consumers (BulkPriceRefresh, queueProcessor, RapidScanCamera, PriceConsensusPanel) work unchanged.
+
+## Files touched
+
+- `supabase/functions/fetch-card-prices/index.ts` (rewrite the source-routing block, add Scryfall/YGOProDeck/PokémonTCG fetchers, add cache layer, harden Firecrawl)
+- `supabase/functions/search-card-details/index.ts` (add Scryfall, route by game)
+- `supabase/migrations/<new>.sql` (unique index on `price_cache`)
 
 ## Out of scope
-- No changes to scan logic, OCR, pricing, or Yu-Gi-Oh routing.
-- No backend / Supabase changes.
 
-## Verification (after build)
-1. Open `/scan` with Camo Studio **closed** → dropdown shows built-ins only.
-2. Start Camo Studio + connect iPad → within ~4 s the dropdown should add **"Camo (iPad)"** with the phone icon (no manual refresh needed).
-3. Disconnect iPad → entry disappears on next poll.
-4. Console shows `[camera-devices] enumerated` with the actual OS-reported label, so if Camo uses an unexpected name we can extend the matcher.
+- No client UI changes.
+- No changes to graded-card pricing / PSA10 scrape flow (separate function, working).
+- No new external API keys required — all three catalog APIs are free + keyless.
