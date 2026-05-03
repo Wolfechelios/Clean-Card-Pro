@@ -97,9 +97,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(session?.user ?? null);
         setLoading(false);
 
-        if (session?.user?.id) {
-          triggerPriceUpdate(session.user.id);
-        }
       })
       .catch((err) => {
         if (isRefreshTokenError(err)) {
