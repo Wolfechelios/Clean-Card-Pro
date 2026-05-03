@@ -22,7 +22,7 @@ serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { card_name, game_type } = await req.json();
+    const { card_name, game_type, card_number, set_code, set_name } = await req.json();
     if (!card_name) {
       return new Response(JSON.stringify({ error: "Missing card_name" }), {
         status: 400,
@@ -31,7 +31,8 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     const game = (game_type || "").toLowerCase();
-    console.log(`[search-card-details] "${card_name}" (${game || "any"})`);
+    const hints = { card_number, set_code, set_name };
+    console.log(`[search-card-details] "${card_name}" (${game || "any"}) hints:`, hints);
 
     let matches: Match[] = [];
 
@@ -40,16 +41,18 @@ serve(async (req: Request): Promise<Response> => {
     } else if (/pokemon|pokémon/.test(game)) {
       matches = await searchPokemonTCG(card_name);
     } else if (/mtg|magic/.test(game)) {
-      matches = await searchScryfall(card_name);
+      matches = await searchScryfall(card_name, hints);
     } else {
       // Unknown game — race all 3 in parallel
       const [s, y, p] = await Promise.all([
-        searchScryfall(card_name).catch(() => []),
+        searchScryfall(card_name, hints).catch(() => []),
         searchYGOProDeck(card_name).catch(() => []),
         searchPokemonTCG(card_name).catch(() => []),
       ]);
       matches = [...s, ...y, ...p].slice(0, 10);
     }
+
+    matches = rankMatches(matches, hints);
 
     console.log(`[search-card-details] returned ${matches.length} matches`);
     return new Response(JSON.stringify({ success: true, matches }), {
