@@ -67,29 +67,6 @@ serve(async (req: Request): Promise<Response> => {
   }
 });
 
-// ── Scryfall (MTG) ──────────────────────────────────────────────────
-async function searchScryfall(cardName: string): Promise<Match[]> {
-  try {
-    const url = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(
-      `!"${cardName}" or ${cardName}`
-    )}&unique=prints&order=released&dir=desc`;
-    const resp = await fetch(url, { headers: { Accept: "application/json" } });
-    if (!resp.ok) {
-      // Fallback to fuzzy named lookup → return single card
-      const named = await fetch(
-        `https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(cardName)}`
-      );
-      if (!named.ok) return [];
-      const c = await named.json();
-      return [scryfallToMatch(c)];
-    }
-    const data = await resp.json();
-    return (data?.data || []).slice(0, 10).map(scryfallToMatch);
-  } catch (e) {
-    console.warn("[Scryfall] error:", e);
-    return [];
-  }
-}
 
 // ── Ranking by hints (number/set/image) ─────────────────────────────
 interface Hints { card_number?: string | null; set_code?: string | null; set_name?: string | null }
