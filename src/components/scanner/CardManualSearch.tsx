@@ -118,7 +118,12 @@ export function CardManualSearch({ gameType, onSelect, defaultCardNumber, defaul
                     onClick={() => onSelect(match)}
                     className="w-full p-3 rounded-lg border hover:border-primary hover:bg-accent transition-colors text-left"
                   >
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start gap-3">
+                      {match.image_url ? (
+                        <img src={match.image_url} alt={match.card_name} loading="lazy" className="w-12 h-16 object-cover rounded border bg-muted" />
+                      ) : (
+                        <div className="w-12 h-16 rounded border bg-muted flex items-center justify-center text-[10px] text-muted-foreground">No img</div>
+                      )}
                       <div className="flex-1 min-w-0">
                         <div className="font-medium truncate">{match.card_name}</div>
                         {match.card_set && (
@@ -126,6 +131,11 @@ export function CardManualSearch({ gameType, onSelect, defaultCardNumber, defaul
                         )}
                         {match.card_number && (
                           <div className="text-xs text-muted-foreground">#{match.card_number}</div>
+                        )}
+                        {match.tcgplayer_url && (
+                          <a href={match.tcgplayer_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-[11px] text-primary underline">
+                            View on TCGplayer
+                          </a>
                         )}
                       </div>
                       <div className="flex flex-col items-end gap-1">
