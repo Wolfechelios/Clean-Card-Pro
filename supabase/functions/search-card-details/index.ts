@@ -22,7 +22,7 @@ serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const { card_name, game_type } = await req.json();
+    const { card_name, game_type, card_number, set_code, set_name } = await req.json();
     if (!card_name) {
       return new Response(JSON.stringify({ error: "Missing card_name" }), {
         status: 400,
@@ -31,7 +31,8 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     const game = (game_type || "").toLowerCase();
-    console.log(`[search-card-details] "${card_name}" (${game || "any"})`);
+    const hints = { card_number, set_code, set_name };
+    console.log(`[search-card-details] "${card_name}" (${game || "any"}) hints:`, hints);
 
     let matches: Match[] = [];
 
@@ -40,16 +41,18 @@ serve(async (req: Request): Promise<Response> => {
     } else if (/pokemon|pokémon/.test(game)) {
       matches = await searchPokemonTCG(card_name);
     } else if (/mtg|magic/.test(game)) {
-      matches = await searchScryfall(card_name);
+      matches = await searchScryfall(card_name, hints);
     } else {
       // Unknown game — race all 3 in parallel
       const [s, y, p] = await Promise.all([
-        searchScryfall(card_name).catch(() => []),
+        searchScryfall(card_name, hints).catch(() => []),
         searchYGOProDeck(card_name).catch(() => []),
         searchPokemonTCG(card_name).catch(() => []),
       ]);
       matches = [...s, ...y, ...p].slice(0, 10);
     }
+
+    matches = rankMatches(matches, hints);
 
     console.log(`[search-card-details] returned ${matches.length} matches`);
     return new Response(JSON.stringify({ success: true, matches }), {
@@ -64,15 +67,57 @@ serve(async (req: Request): Promise<Response> => {
   }
 });
 
+
+// ── Ranking by hints (number/set/image) ─────────────────────────────
+interface Hints { card_number?: string | null; set_code?: string | null; set_name?: string | null }
+function norm(s?: string | null) { return (s || "").toString().toLowerCase().replace(/[^a-z0-9]/g, ""); }
+function rankMatches(matches: Match[], h: Hints): Match[] {
+  const num = norm(h.card_number);
+  const code = norm(h.set_code);
+  const setN = norm(h.set_name);
+  const scored = matches.map((m) => {
+    let score = 0;
+    if (num && norm(m.card_number) === num) score += 5;
+    else if (num && norm(m.card_number).endsWith(num)) score += 2;
+    if (code && norm(m.card_number).startsWith(code)) score += 2;
+    if (setN && norm(m.card_set).includes(setN)) score += 3;
+    if (m.image_url) score += 1;
+    if (m.market_price) score += 0.5;
+    return { m, score };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  return scored.map((s) => s.m);
+}
+
 // ── Scryfall (MTG) ──────────────────────────────────────────────────
-async function searchScryfall(cardName: string): Promise<Match[]> {
+async function searchScryfall(cardName: string, hints?: Hints): Promise<Match[]> {
   try {
-    const url = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(
-      `!"${cardName}" or ${cardName}`
-    )}&unique=prints&order=released&dir=desc`;
-    const resp = await fetch(url, { headers: { Accept: "application/json" } });
+    // If we have set + collector_number hints, try the exact endpoint first
+    if (hints?.set_code && hints?.card_number) {
+      const code = hints.set_code.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const cn = hints.card_number.replace(/[^a-z0-9]/gi, "");
+      try {
+        const exact = await fetch(`https://api.scryfall.com/cards/${code}/${cn}`);
+        if (exact.ok) {
+          const c = await exact.json();
+          return [scryfallToMatch(c)];
+        }
+      } catch { /* ignore */ }
+    }
+
+    let q = `!"${cardName}"`;
+    if (hints?.set_code) q += ` set:${hints.set_code}`;
+    if (hints?.card_number) q += ` cn:${hints.card_number}`;
+    const url = `https://api.scryfall.com/cards/search?q=${encodeURIComponent(q)}&unique=prints&order=released&dir=desc`;
+    let resp = await fetch(url, { headers: { Accept: "application/json" } });
     if (!resp.ok) {
-      // Fallback to fuzzy named lookup → return single card
+      // Broader search
+      resp = await fetch(
+        `https://api.scryfall.com/cards/search?q=${encodeURIComponent(cardName)}&unique=prints&order=released&dir=desc`,
+        { headers: { Accept: "application/json" } }
+      );
+    }
+    if (!resp.ok) {
       const named = await fetch(
         `https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(cardName)}`
       );
@@ -81,7 +126,7 @@ async function searchScryfall(cardName: string): Promise<Match[]> {
       return [scryfallToMatch(c)];
     }
     const data = await resp.json();
-    return (data?.data || []).slice(0, 10).map(scryfallToMatch);
+    return (data?.data || []).slice(0, 20).map(scryfallToMatch);
   } catch (e) {
     console.warn("[Scryfall] error:", e);
     return [];
@@ -95,8 +140,8 @@ function scryfallToMatch(c: any): Match {
     card_number: c.collector_number || null,
     rarity: c.rarity ? c.rarity.charAt(0).toUpperCase() + c.rarity.slice(1) : null,
     market_price: parseFloat(c.prices?.usd) || parseFloat(c.prices?.usd_foil) || null,
-    product_id: c.id || null,
-    tcgplayer_url: c.purchase_uris?.tcgplayer || null,
+    product_id: c.tcgplayer_id ? String(c.tcgplayer_id) : (c.id || null),
+    tcgplayer_url: c.purchase_uris?.tcgplayer || (c.tcgplayer_id ? `https://www.tcgplayer.com/product/${c.tcgplayer_id}` : null),
     image_url: c.image_uris?.normal || c.card_faces?.[0]?.image_uris?.normal || null,
     game: "mtg",
   };

@@ -13,16 +13,24 @@ interface SearchMatch {
   card_number: string | null;
   rarity: string | null;
   market_price: number | null;
+  image_url?: string | null;
+  tcgplayer_url?: string | null;
+  game?: string | null;
 }
 
 interface CardManualSearchProps {
   gameType: string | null;
   onSelect: (match: SearchMatch) => void;
+  defaultCardNumber?: string | null;
+  defaultSetCode?: string | null;
+  defaultSetName?: string | null;
 }
 
-export function CardManualSearch({ gameType, onSelect }: CardManualSearchProps) {
+export function CardManualSearch({ gameType, onSelect, defaultCardNumber, defaultSetCode, defaultSetName }: CardManualSearchProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [cardNumber, setCardNumber] = useState(defaultCardNumber || "");
+  const [setHint, setSetHint] = useState(defaultSetName || defaultSetCode || "");
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchMatch[]>([]);
 
@@ -33,7 +41,13 @@ export function CardManualSearch({ gameType, onSelect }: CardManualSearchProps) 
 
     try {
       const { data, error } = await supabase.functions.invoke("search-card-details", {
-        body: { card_name: searchQuery.trim(), game_type: gameType || "yugioh" },
+        body: {
+          card_name: searchQuery.trim(),
+          game_type: gameType || "yugioh",
+          card_number: cardNumber.trim() || undefined,
+          set_name: setHint.trim() || undefined,
+          set_code: defaultSetCode || undefined,
+        },
       });
 
       if (error) {
@@ -73,6 +87,28 @@ export function CardManualSearch({ gameType, onSelect }: CardManualSearchProps) 
                 {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
               </Button>
             </div>
+            <div className="flex gap-2">
+              <Input
+                placeholder="Card # (optional)"
+                value={cardNumber}
+                onChange={(e) => setCardNumber(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                className="flex-1"
+              />
+              <Input
+                placeholder="Set name/code (optional)"
+                value={setHint}
+                onChange={(e) => setSetHint(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                className="flex-1"
+              />
+            </div>
+
+            {searchResults.length > 0 && (
+              <div className="text-xs text-muted-foreground">
+                Matched on name{cardNumber && " + #"}{setHint && " + set"}. Image previews shown when available.
+              </div>
+            )}
 
             {searchResults.length > 0 && (
               <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -82,7 +118,12 @@ export function CardManualSearch({ gameType, onSelect }: CardManualSearchProps) 
                     onClick={() => onSelect(match)}
                     className="w-full p-3 rounded-lg border hover:border-primary hover:bg-accent transition-colors text-left"
                   >
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start gap-3">
+                      {match.image_url ? (
+                        <img src={match.image_url} alt={match.card_name} loading="lazy" className="w-12 h-16 object-cover rounded border bg-muted" />
+                      ) : (
+                        <div className="w-12 h-16 rounded border bg-muted flex items-center justify-center text-[10px] text-muted-foreground">No img</div>
+                      )}
                       <div className="flex-1 min-w-0">
                         <div className="font-medium truncate">{match.card_name}</div>
                         {match.card_set && (
@@ -90,6 +131,11 @@ export function CardManualSearch({ gameType, onSelect }: CardManualSearchProps) 
                         )}
                         {match.card_number && (
                           <div className="text-xs text-muted-foreground">#{match.card_number}</div>
+                        )}
+                        {match.tcgplayer_url && (
+                          <a href={match.tcgplayer_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-[11px] text-primary underline">
+                            View on TCGplayer
+                          </a>
                         )}
                       </div>
                       <div className="flex flex-col items-end gap-1">
