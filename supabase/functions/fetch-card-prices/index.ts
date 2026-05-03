@@ -1,4 +1,157 @@
 import { corsHeaders } from "../_shared/cors.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+
+// ─── Supabase admin client (for price_cache) ────────────────────────
+const supabaseAdmin = createClient(
+  Deno.env.get("SUPABASE_URL") ?? "",
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+  { auth: { persistSession: false } }
+);
+
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+
+async function sha256(s: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function buildIdentityKey(input: {
+  cardName: string;
+  cardSet?: string | null;
+  cardNumber?: string | null;
+  gameType?: string | null;
+  sportType?: string | null;
+  condition?: string | null;
+}): string {
+  return [
+    input.cardName?.toLowerCase().trim(),
+    (input.cardSet || "").toLowerCase().trim(),
+    (input.cardNumber || "").toLowerCase().trim(),
+    (input.gameType || "").toLowerCase().trim(),
+    (input.sportType || "").toLowerCase().trim(),
+    (input.condition || "").toLowerCase().trim(),
+  ].join("|");
+}
+
+async function readCache(identityHash: string): Promise<any | null> {
+  try {
+    const { data } = await supabaseAdmin
+      .from("price_cache")
+      .select("raw, updated_at")
+      .eq("identity_hash", identityHash)
+      .eq("source", "fetch-card-prices")
+      .maybeSingle();
+    if (!data?.raw || !data.updated_at) return null;
+    const age = Date.now() - new Date(data.updated_at).getTime();
+    if (age > CACHE_TTL_MS) return null;
+    return data.raw;
+  } catch (e) {
+    console.warn("[cache] read error:", e);
+    return null;
+  }
+}
+
+async function writeCache(identityHash: string, result: any): Promise<void> {
+  try {
+    await supabaseAdmin.from("price_cache").upsert(
+      {
+        identity_hash: identityHash,
+        source: "fetch-card-prices",
+        raw: result,
+        price: result?.raw ?? result?.suggested ?? null,
+        currency: "USD",
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "identity_hash,source" }
+    );
+  } catch (e) {
+    console.warn("[cache] write error:", e);
+  }
+}
+
+// ─── Free catalog API adapters (primary, no scraping) ───────────────
+async function fetchScryfallPrice(cardName: string, cardSet: string | null, cardNumber: string | null): Promise<SourcePrices> {
+  try {
+    let card: any = null;
+    if (cardSet && cardNumber) {
+      // try set+number direct lookup
+      const setCode = cardSet.toLowerCase().slice(0, 5).replace(/[^a-z0-9]/g, "");
+      const r = await fetch(`https://api.scryfall.com/cards/${setCode}/${encodeURIComponent(cardNumber)}`);
+      if (r.ok) card = await r.json();
+    }
+    if (!card) {
+      const r = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(cardName)}`);
+      if (!r.ok) return emptySource();
+      card = await r.json();
+    }
+    const usd = parseFloat(card?.prices?.usd) || parseFloat(card?.prices?.usd_foil) || parseFloat(card?.prices?.usd_etched) || null;
+    return {
+      ...emptySource(),
+      raw: usd,
+      url: card?.scryfall_uri || null,
+    };
+  } catch (e) {
+    console.warn("[Scryfall] error:", e);
+    return emptySource();
+  }
+}
+
+async function fetchYGOProDeckPrice(cardName: string): Promise<SourcePrices> {
+  try {
+    let r = await fetch(`https://db.ygoprodeck.com/api/v7/cardinfo.php?name=${encodeURIComponent(cardName)}`);
+    if (!r.ok) {
+      r = await fetch(`https://db.ygoprodeck.com/api/v7/cardinfo.php?fname=${encodeURIComponent(cardName)}`);
+    }
+    if (!r.ok) return emptySource();
+    const card = (await r.json())?.data?.[0];
+    if (!card) return emptySource();
+    const p = card.card_prices?.[0] || {};
+    const tcg = parseFloat(p.tcgplayer_price) || null;
+    const cm = parseFloat(p.cardmarket_price) || null;
+    const ebay = parseFloat(p.ebay_price) || null;
+    const raw = tcg || cm || ebay || null;
+    return {
+      ...emptySource(),
+      raw,
+      url: `https://db.ygoprodeck.com/card/?search=${encodeURIComponent(cardName)}`,
+    };
+  } catch (e) {
+    console.warn("[YGOProDeck] error:", e);
+    return emptySource();
+  }
+}
+
+async function fetchPokemonTCGPrice(cardName: string, cardSet: string | null, cardNumber: string | null): Promise<{ source: SourcePrices; tcg: { market: number | null; low: number | null; mid: number | null; high: number | null; url: string | null } }> {
+  try {
+    const queryParts = [`name:"${cardName}"`];
+    if (cardNumber) queryParts.push(`number:${cardNumber}`);
+    if (cardSet) queryParts.push(`set.name:"${cardSet}"`);
+    const q = queryParts.join(" ");
+    const r = await fetch(`https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(q)}&pageSize=1`);
+    if (!r.ok) return { source: emptySource(), tcg: { market: null, low: null, mid: null, high: null, url: null } };
+    const card = (await r.json())?.data?.[0];
+    if (!card) return { source: emptySource(), tcg: { market: null, low: null, mid: null, high: null, url: null } };
+    const p = card.tcgplayer?.prices || {};
+    const variant = p.holofoil || p.normal || p.reverseHolofoil || p["1stEditionHolofoil"] || {};
+    return {
+      source: {
+        ...emptySource(),
+        raw: variant.market || variant.mid || null,
+        url: card.tcgplayer?.url || null,
+      },
+      tcg: {
+        market: variant.market || null,
+        low: variant.low || null,
+        mid: variant.mid || null,
+        high: variant.high || null,
+        url: card.tcgplayer?.url || null,
+      },
+    };
+  } catch (e) {
+    console.warn("[PokemonTCG] error:", e);
+    return { source: emptySource(), tcg: { market: null, low: null, mid: null, high: null, url: null } };
+  }
+}
 
 interface PricingResult {
   raw: number | null;
