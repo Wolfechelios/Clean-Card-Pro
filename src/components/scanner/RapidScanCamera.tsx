@@ -1273,6 +1273,8 @@ export default function RapidScanCamera() {
         });
 
         added++;
+        // Clear from rapid scan queue once persisted
+        await removeCard(c.id);
       } catch (e: any) {
         console.error(`Failed to add ${c.cardName}:`, e);
         updateCard(c.id, { priceFetching: false });
@@ -1280,7 +1282,7 @@ export default function RapidScanCamera() {
     }
 
     toast.success(`Added ${added} of ${newCards.length} cards to library`, { id: "bulk-add" });
-  }, [cards, updateCard, userId]);
+  }, [cards, updateCard, userId, removeCard]);
 
   // ───────────────────────────────────────────────────────────────────────────
   // REMOVE FROM LIBRARY (for remove mode)
