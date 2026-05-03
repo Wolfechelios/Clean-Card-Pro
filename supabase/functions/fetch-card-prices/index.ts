@@ -383,32 +383,20 @@ async function fetchPriceChartingPrices(
       else if (gt.includes("mtg") || gt.includes("magic")) category = "magic-the-gathering";
     }
 
-    const slugParts = [cardName, cardSet || ""];
-    if (cardNumber) slugParts.push(cardNumber);
-    const slug = slugParts.join(" ")
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, "")
-      .replace(/\s+/g, "-");
+    // Skip "guess direct URL" — it 408s constantly. Go straight to search.
+    const searchQuery = encodeURIComponent(`${cardName} ${cardSet || ""}`.trim());
+    const searchUrl = `https://www.pricecharting.com/search-products?q=${searchQuery}&type=prices&category=${category}`;
+    console.log("[PriceCharting] Searching:", searchUrl);
+    let md = await scrapeWithFirecrawl(searchUrl);
 
-    const directUrl = `https://www.pricecharting.com/game/${category}/${slug}`;
-    console.log("[PriceCharting] Trying direct URL:", directUrl);
-
-    let md = await scrapeWithFirecrawl(directUrl);
-
-    if (!md || md.length < 200 || !md.match(/\$[0-9]/)) {
-      const searchQuery = encodeURIComponent(`${cardName} ${cardSet || ""}`.trim());
-      const searchUrl = `https://www.pricecharting.com/search-products?q=${searchQuery}&type=prices&category=${category}`;
-      console.log("[PriceCharting] Direct failed, trying search:", searchUrl);
-      md = await scrapeWithFirecrawl(searchUrl);
-
-      const productLinkMatch = md.match(/\[([^\]]+)\]\((\/game\/[^\)]+)\)/);
-      if (productLinkMatch) {
-        const productUrl = `https://www.pricecharting.com${productLinkMatch[2]}`;
-        console.log("[PriceCharting] Following product link:", productUrl);
-        md = await scrapeWithFirecrawl(productUrl);
-      }
+    const productLinkMatch = md?.match(/\[([^\]]+)\]\((\/game\/[^\)]+)\)/);
+    if (productLinkMatch) {
+      const productUrl = `https://www.pricecharting.com${productLinkMatch[2]}`;
+      console.log("[PriceCharting] Following product link:", productUrl);
+      md = await scrapeWithFirecrawl(productUrl);
     }
+
+    const directUrl = searchUrl;
 
     if (!md) return emptySource();
 
