@@ -215,30 +215,28 @@ async function scrapeWithFirecrawl(url: string): Promise<string> {
     console.error("FIRECRAWL_API_KEY not set");
     return "";
   }
-  try {
-    const resp = await fetch("https://api.firecrawl.dev/v1/scrape", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        url,
-        formats: ["markdown"],
-        onlyMainContent: true,
-        waitFor: 3000,
-      }),
-    });
-    if (!resp.ok) {
-      console.error(`Firecrawl ${resp.status} for ${url}`);
-      return "";
+  const attempt = async (): Promise<{ ok: boolean; status: number; md: string }> => {
+    try {
+      const resp = await fetch("https://api.firecrawl.dev/v1/scrape", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true }),
+      });
+      if (!resp.ok) return { ok: false, status: resp.status, md: "" };
+      const data = await resp.json();
+      return { ok: true, status: 200, md: data?.data?.markdown || data?.markdown || "" };
+    } catch (e) {
+      console.error("Firecrawl exception:", e);
+      return { ok: false, status: 0, md: "" };
     }
-    const data = await resp.json();
-    return data?.data?.markdown || data?.markdown || "";
-  } catch (e) {
-    console.error("Firecrawl error:", e);
-    return "";
+  };
+  let r = await attempt();
+  if (!r.ok && [408, 429, 500, 502, 503, 504].includes(r.status)) {
+    await new Promise((res) => setTimeout(res, 1000));
+    r = await attempt();
   }
+  if (!r.ok) console.error(`Firecrawl ${r.status} for ${url}`);
+  return r.md;
 }
 
 // ─── Price parsing helpers ──────────────────────────────────────────
