@@ -23,9 +23,11 @@ interface CardManualSearchProps {
   defaultSetName?: string | null;
 }
 
-export function CardManualSearch({ gameType, onSelect }: CardManualSearchProps) {
+export function CardManualSearch({ gameType, onSelect, defaultCardNumber, defaultSetCode, defaultSetName }: CardManualSearchProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [cardNumber, setCardNumber] = useState(defaultCardNumber || "");
+  const [setHint, setSetHint] = useState(defaultSetName || defaultSetCode || "");
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchMatch[]>([]);
 
@@ -36,7 +38,13 @@ export function CardManualSearch({ gameType, onSelect }: CardManualSearchProps) 
 
     try {
       const { data, error } = await supabase.functions.invoke("search-card-details", {
-        body: { card_name: searchQuery.trim(), game_type: gameType || "yugioh" },
+        body: {
+          card_name: searchQuery.trim(),
+          game_type: gameType || "yugioh",
+          card_number: cardNumber.trim() || undefined,
+          set_name: setHint.trim() || undefined,
+          set_code: defaultSetCode || undefined,
+        },
       });
 
       if (error) {
