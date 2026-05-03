@@ -723,6 +723,7 @@ Deno.serve(async (req) => {
     if (api.raw && !pc.raw) pc = { ...pc, raw: api.raw, url: pc.url || api.url };
 
     // Build sources list
+    if (apiSourceName) sources.push(apiSourceName);
     if (comc.raw || comc.psa10) sources.push("COMC");
     if (pc.raw || pc.psa10) sources.push("PriceCharting");
     if (scp.raw || scp.psa10) sources.push("SportsCardPro");
