@@ -1222,13 +1222,16 @@ export default function RapidScanCamera() {
         updateRecentScan(id, { dbId: inserted.id, isInLibrary: true, libraryQuantity: Math.max((c.libraryQuantity || 0) + 1, 1) });
 
         toast.success("Saved to library");
+
+        // Clear the card from the rapid-scan queue/list once it's safely in the library
+        await removeCard(id);
       } catch (e: any) {
         console.error(e);
         updateCard(id, { priceFetching: false });
         toast.error(e?.message ?? "Failed to save");
       }
     },
-    [cards, updateCard, userId]
+    [cards, updateCard, userId, removeCard]
   );
 
   const handleAddAllToLibrary = useCallback(async () => {
@@ -1270,6 +1273,8 @@ export default function RapidScanCamera() {
         });
 
         added++;
+        // Clear from rapid scan queue once persisted
+        await removeCard(c.id);
       } catch (e: any) {
         console.error(`Failed to add ${c.cardName}:`, e);
         updateCard(c.id, { priceFetching: false });
@@ -1277,7 +1282,7 @@ export default function RapidScanCamera() {
     }
 
     toast.success(`Added ${added} of ${newCards.length} cards to library`, { id: "bulk-add" });
-  }, [cards, updateCard, userId]);
+  }, [cards, updateCard, userId, removeCard]);
 
   // ───────────────────────────────────────────────────────────────────────────
   // REMOVE FROM LIBRARY (for remove mode)
