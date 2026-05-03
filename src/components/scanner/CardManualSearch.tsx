@@ -13,6 +13,9 @@ interface SearchMatch {
   card_number: string | null;
   rarity: string | null;
   market_price: number | null;
+  image_url?: string | null;
+  tcgplayer_url?: string | null;
+  game?: string | null;
 }
 
 interface CardManualSearchProps {
