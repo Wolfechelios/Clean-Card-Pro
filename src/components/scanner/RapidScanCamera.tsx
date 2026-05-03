@@ -1222,6 +1222,9 @@ export default function RapidScanCamera() {
         updateRecentScan(id, { dbId: inserted.id, isInLibrary: true, libraryQuantity: Math.max((c.libraryQuantity || 0) + 1, 1) });
 
         toast.success("Saved to library");
+
+        // Clear the card from the rapid-scan queue/list once it's safely in the library
+        await removeCard(id);
       } catch (e: any) {
         console.error(e);
         updateCard(id, { priceFetching: false });
