@@ -192,7 +192,7 @@ export function BulkRarityReanalyze({
             disabled={isProcessing}
           >
             <Zap className="h-4 w-4 mr-2" />
-            Reanalyze ALL
+            Reanalyze Review Queue
           </Button>
         </div>
       </CardContent>
@@ -200,11 +200,12 @@ export function BulkRarityReanalyze({
       <AlertDialog open={confirmAll} onOpenChange={setConfirmAll}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Reanalyze every card?</AlertDialogTitle>
+            <AlertDialogTitle>Reanalyze cards needing review?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will run AI rarity detection against every card in your collection
-              and overwrite the existing rarity field. This uses AI credits and may take
-              a while. Continue?
+              This runs AI rarity detection on every card currently in the
+              Cards Needing Review queue (low OCR confidence or missing
+              rarity / name / set) and overwrites their rarity field. Uses AI
+              credits. Continue?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
