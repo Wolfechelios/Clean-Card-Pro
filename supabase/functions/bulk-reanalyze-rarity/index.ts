@@ -94,18 +94,22 @@ serve(async (req) => {
     const body: RequestBody = await req.json().catch(() => ({}));
     const batchSize = Math.min(Math.max(Number(body.batchSize || 12), 1), 50);
     const cardIds = toSafeCardIds(body.cardIds);
+    const force = body.force === true;
 
     console.log(
-      `bulk-reanalyze-rarity user=${user.id} batchSize=${batchSize} cardIds=${cardIds.length}`
+      `bulk-reanalyze-rarity user=${user.id} batchSize=${batchSize} cardIds=${cardIds.length} force=${force}`
     );
 
     let query = supabase
       .from("cards")
       .select("id, image_url, card_name, rarity", { count: "exact" })
       .eq("user_id", user.id)
-      .or(MISSING_RARITY_FILTER)
       .order("created_at", { ascending: true, nullsFirst: true })
       .order("id", { ascending: true });
+
+    if (!force) {
+      query = query.or(MISSING_RARITY_FILTER);
+    }
 
     if (cardIds.length > 0) {
       query = query.in("id", cardIds);
