@@ -52,7 +52,13 @@ export function BulkRarityReanalyze({
         .eq("user_id", uid)
         .order("id", { ascending: true })
         .range(from, from + pageSize - 1);
-      if (!force) {
+      if (force) {
+        // "Reanalyze ALL" = every card currently in the Cards Needing Review queue
+        // (low OCR confidence OR missing rarity/name/set)
+        q = q.or(
+          "ocr_confidence.lt.80,rarity.is.null,rarity.eq.,rarity.eq.Unknown,rarity.eq.unknown,card_name.is.null,card_name.eq.,card_name.eq.Unknown,card_set.is.null,card_set.eq.,card_set.eq.Unknown"
+        );
+      } else {
         q = q.or("rarity.is.null,rarity.eq.,rarity.eq.Unknown,rarity.eq.unknown");
       }
       const { data, error } = await q;
