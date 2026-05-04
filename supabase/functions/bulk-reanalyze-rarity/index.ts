@@ -226,12 +226,13 @@ serve(async (req) => {
           return { id: card.id, rarity: null, success: false, reason: "no_rarity" };
         }
 
-        const { error: updateError } = await supabase
+        let updateQ = supabase
           .from("cards")
           .update({ rarity })
           .eq("id", card.id)
-          .eq("user_id", user.id)
-          .or(MISSING_RARITY_FILTER);
+          .eq("user_id", user.id);
+        if (!force) updateQ = updateQ.or(MISSING_RARITY_FILTER);
+        const { error: updateError } = await updateQ;
 
         if (updateError) {
           console.error("Update error:", updateError);
