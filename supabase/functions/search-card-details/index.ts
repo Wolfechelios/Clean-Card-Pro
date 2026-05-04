@@ -16,6 +16,8 @@ interface Match {
   tcgplayer_url: string | null;
   image_url?: string | null;
   game?: string | null;
+  scryfall_url?: string | null;
+  set_search_url?: string | null;
 }
 
 serve(async (req: Request): Promise<Response> => {
