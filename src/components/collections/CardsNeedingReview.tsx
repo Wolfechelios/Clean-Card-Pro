@@ -496,6 +496,13 @@ export function CardsNeedingReview() {
                           selectedCard?.id === card.id ? "bg-muted" : ""
                         }`}
                       >
+                        <Checkbox
+                          checked={selectedIds.has(card.id)}
+                          onCheckedChange={() => toggleSelect(card.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label="Select card"
+                          className="shrink-0"
+                        />
                         <button
                           type="button"
                           className="flex items-center gap-3 flex-1 min-w-0 text-left"
