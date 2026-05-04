@@ -398,6 +398,28 @@ export function CardsNeedingReview() {
                 ? `Searching ${bulkSearchProgress.done}/${bulkSearchProgress.total}...`
                 : `Bulk Search Set (${cards.length})`}
             </Button>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleApproveSelected}
+              disabled={approving || selectedIds.size === 0}
+            >
+              {approving ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <CheckCircle className="h-4 w-4 mr-2" />
+              )}
+              Approve Selected ({selectedIds.size})
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleApproveAll}
+              disabled={approving || cards.length === 0}
+            >
+              <CheckCircle className="h-4 w-4 mr-2" />
+              Yes to All ({cards.length})
+            </Button>
             <Button 
               variant="destructive" 
               size="sm" 
