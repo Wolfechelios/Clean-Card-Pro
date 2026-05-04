@@ -20,6 +20,7 @@ const MISSING_RARITY_FILTER =
 type RequestBody = {
   batchSize?: number;
   cardIds?: string[];
+  force?: boolean;
 };
 
 function toSafeCardIds(input: unknown): string[] {
@@ -93,18 +94,22 @@ serve(async (req) => {
     const body: RequestBody = await req.json().catch(() => ({}));
     const batchSize = Math.min(Math.max(Number(body.batchSize || 12), 1), 50);
     const cardIds = toSafeCardIds(body.cardIds);
+    const force = body.force === true;
 
     console.log(
-      `bulk-reanalyze-rarity user=${user.id} batchSize=${batchSize} cardIds=${cardIds.length}`
+      `bulk-reanalyze-rarity user=${user.id} batchSize=${batchSize} cardIds=${cardIds.length} force=${force}`
     );
 
     let query = supabase
       .from("cards")
       .select("id, image_url, card_name, rarity", { count: "exact" })
       .eq("user_id", user.id)
-      .or(MISSING_RARITY_FILTER)
       .order("created_at", { ascending: true, nullsFirst: true })
       .order("id", { ascending: true });
+
+    if (!force) {
+      query = query.or(MISSING_RARITY_FILTER);
+    }
 
     if (cardIds.length > 0) {
       query = query.in("id", cardIds);
@@ -221,12 +226,13 @@ serve(async (req) => {
           return { id: card.id, rarity: null, success: false, reason: "no_rarity" };
         }
 
-        const { error: updateError } = await supabase
+        let updateQ = supabase
           .from("cards")
           .update({ rarity })
           .eq("id", card.id)
-          .eq("user_id", user.id)
-          .or(MISSING_RARITY_FILTER);
+          .eq("user_id", user.id);
+        if (!force) updateQ = updateQ.or(MISSING_RARITY_FILTER);
+        const { error: updateError } = await updateQ;
 
         if (updateError) {
           console.error("Update error:", updateError);
