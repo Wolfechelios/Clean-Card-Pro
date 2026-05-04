@@ -20,6 +20,7 @@ const MISSING_RARITY_FILTER =
 type RequestBody = {
   batchSize?: number;
   cardIds?: string[];
+  force?: boolean;
 };
 
 function toSafeCardIds(input: unknown): string[] {
