@@ -51,7 +51,7 @@ const REASON_COLORS: Record<ReviewReason, string> = {
 };
 
 export function CardsNeedingReview() {
-  const { cards, counts, loading, fetchCards, fetchCounts, markAsReviewed, dismissCard, deleteCard, deleteAllByFilter } = useCardsNeedingReview();
+  const { cards, counts, loading, fetchCards, fetchCounts, markAsReviewed, dismissCard, deleteCard, deleteAllByFilter, bulkApproveCards } = useCardsNeedingReview();
   const [activeTab, setActiveTab] = useState<ReviewReason | "all">("all");
   const [selectedCard, setSelectedCard] = useState<CardNeedingReview | null>(null);
   const [editValues, setEditValues] = useState({ card_name: "", card_set: "", rarity: "" });
