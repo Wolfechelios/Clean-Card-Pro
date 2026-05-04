@@ -465,9 +465,16 @@ export function CardsNeedingReview() {
           <div className="grid md:grid-cols-2 gap-4">
             {/* Card List */}
             <div className="border rounded-lg">
-              <div className="p-2 border-b bg-muted/50">
+              <div className="p-2 border-b bg-muted/50 flex items-center gap-2">
+                {cards.length > 0 && (
+                  <Checkbox
+                    checked={selectedIds.size === cards.length && cards.length > 0}
+                    onCheckedChange={toggleSelectAll}
+                    aria-label="Select all"
+                  />
+                )}
                 <p className="text-sm font-medium">
-                  {loading ? "Loading..." : `${cards.length} cards`}
+                  {loading ? "Loading..." : `${cards.length} cards${selectedIds.size > 0 ? ` · ${selectedIds.size} selected` : ""}`}
                 </p>
               </div>
               <ScrollArea className="h-[400px]">
