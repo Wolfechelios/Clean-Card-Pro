@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -51,7 +52,7 @@ const REASON_COLORS: Record<ReviewReason, string> = {
 };
 
 export function CardsNeedingReview() {
-  const { cards, counts, loading, fetchCards, fetchCounts, markAsReviewed, dismissCard, deleteCard, deleteAllByFilter } = useCardsNeedingReview();
+  const { cards, counts, loading, fetchCards, fetchCounts, markAsReviewed, dismissCard, deleteCard, deleteAllByFilter, bulkApproveCards } = useCardsNeedingReview();
   const [activeTab, setActiveTab] = useState<ReviewReason | "all">("all");
   const [selectedCard, setSelectedCard] = useState<CardNeedingReview | null>(null);
   const [editValues, setEditValues] = useState({ card_name: "", card_set: "", rarity: "" });
@@ -63,6 +64,60 @@ export function CardsNeedingReview() {
   const [searchMatches, setSearchMatches] = useState<any[]>([]);
   const [bulkSearching, setBulkSearching] = useState(false);
   const [bulkSearchProgress, setBulkSearchProgress] = useState({ done: 0, total: 0, updated: 0 });
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [approving, setApproving] = useState(false);
+
+  // Clear selection when tab changes or list refreshes
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [activeTab]);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === cards.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(cards.map((c) => c.id)));
+    }
+  };
+
+  const handleApproveSelected = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    setApproving(true);
+    const result = await bulkApproveCards(ids);
+    if (result.success) {
+      toast.success(`Approved ${result.approved} card(s)`);
+      setSelectedIds(new Set());
+      if (selectedCard && ids.includes(selectedCard.id)) setSelectedCard(null);
+    } else {
+      toast.error("Failed to approve cards");
+    }
+    setApproving(false);
+  };
+
+  const handleApproveAll = async () => {
+    const ids = cards.map((c) => c.id);
+    if (ids.length === 0) return;
+    setApproving(true);
+    const result = await bulkApproveCards(ids);
+    if (result.success) {
+      toast.success(`Approved all ${result.approved} card(s)`);
+      setSelectedIds(new Set());
+      setSelectedCard(null);
+    } else {
+      toast.error("Failed to approve cards");
+    }
+    setApproving(false);
+  };
 
   useEffect(() => {
     if (activeTab === "all") {
@@ -343,6 +398,28 @@ export function CardsNeedingReview() {
                 ? `Searching ${bulkSearchProgress.done}/${bulkSearchProgress.total}...`
                 : `Bulk Search Set (${cards.length})`}
             </Button>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleApproveSelected}
+              disabled={approving || selectedIds.size === 0}
+            >
+              {approving ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <CheckCircle className="h-4 w-4 mr-2" />
+              )}
+              Approve Selected ({selectedIds.size})
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleApproveAll}
+              disabled={approving || cards.length === 0}
+            >
+              <CheckCircle className="h-4 w-4 mr-2" />
+              Yes to All ({cards.length})
+            </Button>
             <Button 
               variant="destructive" 
               size="sm" 
@@ -388,9 +465,16 @@ export function CardsNeedingReview() {
           <div className="grid md:grid-cols-2 gap-4">
             {/* Card List */}
             <div className="border rounded-lg">
-              <div className="p-2 border-b bg-muted/50">
+              <div className="p-2 border-b bg-muted/50 flex items-center gap-2">
+                {cards.length > 0 && (
+                  <Checkbox
+                    checked={selectedIds.size === cards.length && cards.length > 0}
+                    onCheckedChange={toggleSelectAll}
+                    aria-label="Select all"
+                  />
+                )}
                 <p className="text-sm font-medium">
-                  {loading ? "Loading..." : `${cards.length} cards`}
+                  {loading ? "Loading..." : `${cards.length} cards${selectedIds.size > 0 ? ` · ${selectedIds.size} selected` : ""}`}
                 </p>
               </div>
               <ScrollArea className="h-[400px]">
@@ -412,6 +496,13 @@ export function CardsNeedingReview() {
                           selectedCard?.id === card.id ? "bg-muted" : ""
                         }`}
                       >
+                        <Checkbox
+                          checked={selectedIds.has(card.id)}
+                          onCheckedChange={() => toggleSelect(card.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label="Select card"
+                          className="shrink-0"
+                        />
                         <button
                           type="button"
                           className="flex items-center gap-3 flex-1 min-w-0 text-left"
