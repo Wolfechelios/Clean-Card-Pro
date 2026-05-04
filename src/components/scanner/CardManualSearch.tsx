@@ -134,11 +134,23 @@ export function CardManualSearch({ gameType, onSelect, defaultCardNumber, defaul
                         {match.card_number && (
                           <div className="text-xs text-muted-foreground">#{match.card_number}</div>
                         )}
-                        {match.tcgplayer_url && (
-                          <a href={match.tcgplayer_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-[11px] text-primary underline">
-                            View on TCGplayer
-                          </a>
-                        )}
+                        <div className="flex gap-2 flex-wrap">
+                          {match.tcgplayer_url && (
+                            <a href={match.tcgplayer_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-[11px] text-primary underline">
+                              TCGplayer
+                            </a>
+                          )}
+                          {match.scryfall_url && (
+                            <a href={match.scryfall_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-[11px] text-primary underline">
+                              Scryfall
+                            </a>
+                          )}
+                          {match.set_search_url && (
+                            <a href={match.set_search_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-[11px] text-primary underline">
+                              View Set
+                            </a>
+                          )}
+                        </div>
                       </div>
                       <div className="flex flex-col items-end gap-1">
                         {match.rarity && <Badge variant="outline" className="text-xs">{match.rarity}</Badge>}
