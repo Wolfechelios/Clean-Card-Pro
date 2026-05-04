@@ -16,6 +16,8 @@ interface Match {
   tcgplayer_url: string | null;
   image_url?: string | null;
   game?: string | null;
+  scryfall_url?: string | null;
+  set_search_url?: string | null;
 }
 
 serve(async (req: Request): Promise<Response> => {
@@ -144,7 +146,9 @@ function scryfallToMatch(c: any): Match {
     tcgplayer_url: c.purchase_uris?.tcgplayer || (c.tcgplayer_id ? `https://www.tcgplayer.com/product/${c.tcgplayer_id}` : null),
     image_url: c.image_uris?.normal || c.card_faces?.[0]?.image_uris?.normal || null,
     game: "mtg",
-  };
+    scryfall_url: c.scryfall_uri || (c.set && c.collector_number ? `https://scryfall.com/card/${c.set}/${c.collector_number}` : null),
+    set_search_url: c.set ? `https://scryfall.com/sets/${c.set}` : null,
+  } as Match;
 }
 
 // ── YGOProDeck (Yu-Gi-Oh!) ──────────────────────────────────────────
