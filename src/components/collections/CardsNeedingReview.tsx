@@ -64,6 +64,60 @@ export function CardsNeedingReview() {
   const [searchMatches, setSearchMatches] = useState<any[]>([]);
   const [bulkSearching, setBulkSearching] = useState(false);
   const [bulkSearchProgress, setBulkSearchProgress] = useState({ done: 0, total: 0, updated: 0 });
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [approving, setApproving] = useState(false);
+
+  // Clear selection when tab changes or list refreshes
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [activeTab]);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === cards.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(cards.map((c) => c.id)));
+    }
+  };
+
+  const handleApproveSelected = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    setApproving(true);
+    const result = await bulkApproveCards(ids);
+    if (result.success) {
+      toast.success(`Approved ${result.approved} card(s)`);
+      setSelectedIds(new Set());
+      if (selectedCard && ids.includes(selectedCard.id)) setSelectedCard(null);
+    } else {
+      toast.error("Failed to approve cards");
+    }
+    setApproving(false);
+  };
+
+  const handleApproveAll = async () => {
+    const ids = cards.map((c) => c.id);
+    if (ids.length === 0) return;
+    setApproving(true);
+    const result = await bulkApproveCards(ids);
+    if (result.success) {
+      toast.success(`Approved all ${result.approved} card(s)`);
+      setSelectedIds(new Set());
+      setSelectedCard(null);
+    } else {
+      toast.error("Failed to approve cards");
+    }
+    setApproving(false);
+  };
 
   useEffect(() => {
     if (activeTab === "all") {
