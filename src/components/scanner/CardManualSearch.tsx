@@ -15,6 +15,8 @@ interface SearchMatch {
   market_price: number | null;
   image_url?: string | null;
   tcgplayer_url?: string | null;
+  scryfall_url?: string | null;
+  set_search_url?: string | null;
   game?: string | null;
 }
 
