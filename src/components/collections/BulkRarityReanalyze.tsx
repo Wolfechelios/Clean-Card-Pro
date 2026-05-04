@@ -52,7 +52,13 @@ export function BulkRarityReanalyze({
         .eq("user_id", uid)
         .order("id", { ascending: true })
         .range(from, from + pageSize - 1);
-      if (!force) {
+      if (force) {
+        // "Reanalyze ALL" = every card currently in the Cards Needing Review queue
+        // (low OCR confidence OR missing rarity/name/set)
+        q = q.or(
+          "ocr_confidence.lt.80,rarity.is.null,rarity.eq.,rarity.eq.Unknown,rarity.eq.unknown,card_name.is.null,card_name.eq.,card_name.eq.Unknown,card_set.is.null,card_set.eq.,card_set.eq.Unknown"
+        );
+      } else {
         q = q.or("rarity.is.null,rarity.eq.,rarity.eq.Unknown,rarity.eq.unknown");
       }
       const { data, error } = await q;
@@ -186,7 +192,7 @@ export function BulkRarityReanalyze({
             disabled={isProcessing}
           >
             <Zap className="h-4 w-4 mr-2" />
-            Reanalyze ALL
+            Reanalyze Review Queue
           </Button>
         </div>
       </CardContent>
@@ -194,11 +200,12 @@ export function BulkRarityReanalyze({
       <AlertDialog open={confirmAll} onOpenChange={setConfirmAll}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Reanalyze every card?</AlertDialogTitle>
+            <AlertDialogTitle>Reanalyze cards needing review?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will run AI rarity detection against every card in your collection
-              and overwrite the existing rarity field. This uses AI credits and may take
-              a while. Continue?
+              This runs AI rarity detection on every card currently in the
+              Cards Needing Review queue (low OCR confidence or missing
+              rarity / name / set) and overwrites their rarity field. Uses AI
+              credits. Continue?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
