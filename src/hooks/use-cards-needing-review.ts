@@ -290,6 +290,7 @@ export function useCardsNeedingReview() {
     markAsReviewed,
     dismissCard,
     deleteCard,
+    bulkApproveCards,
     deleteAllByFilter,
   };
 }
