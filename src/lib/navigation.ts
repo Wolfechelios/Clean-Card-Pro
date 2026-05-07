@@ -14,6 +14,7 @@ import {
   HelpCircle,
   Wand2,
   Database,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 
@@ -53,6 +54,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { icon: Wand2, label: "Deck Builder", path: "/deck-builder", keywords: ["ai", "value", "battle", "competitive"] },
       { icon: Megaphone, label: "Sell Assist", path: "/sell-assist", keywords: ["listing", "ebay", "tcgplayer", "whatnot", "market"] },
       { icon: Database, label: "Price DB", path: "/price-database", keywords: ["pricecharting", "import", "xlsx", "set", "completion"] },
+      { icon: Wrench, label: "Bulk Tools", path: "/bulk-tools", keywords: ["bulk", "prices", "images", "rarity", "reid", "repair"] },
     ],
   },
   {
