@@ -40,6 +40,7 @@ const SellAssistPage = lazy(() => import("./pages/SellAssistPage"));
 const InstallPage = lazy(() => import("./pages/InstallPage"));
 const DeckBuilderPage = lazy(() => import("./pages/DeckBuilderPage"));
 const PriceDatabasePage = lazy(() => import("./pages/PriceDatabasePage"));
+const BulkToolsPage = lazy(() => import("./pages/BulkToolsPage"));
 const BinderPage = lazy(() => import("./pages/BinderPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
@@ -97,6 +98,7 @@ function AppRoutes() {
         <Route path="/help" element={session ? <Authed><HelpPage /></Authed> : <Navigate to="/auth" />} />
         <Route path="/deck-builder" element={session ? <Authed><DeckBuilderPage /></Authed> : <Navigate to="/auth" />} />
         <Route path="/price-database" element={session ? <Authed><PriceDatabasePage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/bulk-tools" element={session ? <Authed><BulkToolsPage /></Authed> : <Navigate to="/auth" />} />
         <Route path="/binder" element={session ? <Authed><BinderPage /></Authed> : <Navigate to="/auth" />} />
 
         <Route path="*" element={<NotFound />} />
