@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -21,6 +21,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { BulkSetNumberReanalyze } from "@/components/collections/BulkSetNumberReanalyze";
 
 interface BulkRarityReanalyzeProps {
   nullRarityCount: number;
@@ -36,6 +37,35 @@ export function BulkRarityReanalyze({
   const [processed, setProcessed] = useState(0);
   const [updated, setUpdated] = useState(0);
   const [confirmAll, setConfirmAll] = useState(false);
+  const [suspectSetNumberCount, setSuspectSetNumberCount] = useState(0);
+
+  const loadSetNumberCount = async () => {
+    const { data: userData } = await supabase.auth.getUser();
+    const uid = userData.user?.id;
+    if (!uid) return;
+
+    const { count, error } = await supabase
+      .from("cards")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", uid)
+      .or("card_set.is.null,card_set.eq.,card_number.is.null,card_number.eq.");
+
+    if (error) {
+      console.error("Error loading Set/# review count:", error);
+      return;
+    }
+
+    setSuspectSetNumberCount(count || 0);
+  };
+
+  useEffect(() => {
+    loadSetNumberCount();
+  }, []);
+
+  const handleComplete = () => {
+    loadSetNumberCount();
+    onComplete?.();
+  };
 
   const fetchCardIds = async (force: boolean): Promise<string[]> => {
     const pageSize = 1000;
@@ -87,7 +117,7 @@ export function BulkRarityReanalyze({
       if (ids.length === 0) {
         toast.info("No cards to process");
         setIsProcessing(false);
-        onComplete?.();
+        handleComplete();
         return;
       }
 
@@ -134,7 +164,7 @@ export function BulkRarityReanalyze({
       } else {
         toast.success(`Done! Updated rarity for ${totalUpdated} cards`);
       }
-      onComplete?.();
+      handleComplete();
     } catch (err: any) {
       console.error("Reanalyze error:", err);
       toast.error(err?.message || "Error during reanalysis");
@@ -144,83 +174,90 @@ export function BulkRarityReanalyze({
   };
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-primary" />
-          Rarity Reanalysis
-        </CardTitle>
-        <CardDescription>
-          Fill missing rarity, or force a fresh AI pass on every card in your collection.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex items-center justify-between text-sm">
-          <div className="flex items-center gap-2 text-muted-foreground">
-            {nullRarityCount === 0 ? (
-              <>
-                <CheckCircle2 className="h-4 w-4 text-success" />
-                <span>No missing rarity</span>
-              </>
-            ) : (
-              <>
-                <AlertCircle className="h-4 w-4" />
-                <span>{nullRarityCount} cards need rarity</span>
-              </>
+    <div className="grid gap-4 lg:grid-cols-2">
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-primary" />
+            Rarity Reanalysis
+          </CardTitle>
+          <CardDescription>
+            Fill missing rarity, or force a fresh AI pass on every card in your collection.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              {nullRarityCount === 0 ? (
+                <>
+                  <CheckCircle2 className="h-4 w-4 text-success" />
+                  <span>No missing rarity</span>
+                </>
+              ) : (
+                <>
+                  <AlertCircle className="h-4 w-4" />
+                  <span>{nullRarityCount} cards need rarity</span>
+                </>
+              )}
+            </div>
+            {isProcessing && (
+              <div className="text-muted-foreground">
+                Updated {updated} / Processed {processed}
+              </div>
             )}
           </div>
-          {isProcessing && (
-            <div className="text-muted-foreground">
-              Updated {updated} / Processed {processed}
-            </div>
-          )}
-        </div>
 
-        {isProcessing && <Progress value={progress} />}
+          {isProcessing && <Progress value={progress} />}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <Button
-            onClick={() => runReanalyze(false)}
-            disabled={isProcessing || nullRarityCount === 0}
-            variant="outline"
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${isProcessing ? "animate-spin" : ""}`} />
-            Fix Missing ({nullRarityCount})
-          </Button>
-          <Button
-            onClick={() => setConfirmAll(true)}
-            disabled={isProcessing}
-          >
-            <Zap className="h-4 w-4 mr-2" />
-            Reanalyze Review Queue
-          </Button>
-        </div>
-      </CardContent>
-
-      <AlertDialog open={confirmAll} onOpenChange={setConfirmAll}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Reanalyze cards needing review?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This runs AI rarity detection on every card currently in the
-              Cards Needing Review queue (low OCR confidence or missing
-              rarity / name / set) and overwrites their rarity field. Uses AI
-              credits. Continue?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setConfirmAll(false);
-                runReanalyze(true);
-              }}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <Button
+              onClick={() => runReanalyze(false)}
+              disabled={isProcessing || nullRarityCount === 0}
+              variant="outline"
             >
-              Reanalyze All
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </Card>
+              <RefreshCw className={`h-4 w-4 mr-2 ${isProcessing ? "animate-spin" : ""}`} />
+              Fix Missing ({nullRarityCount})
+            </Button>
+            <Button
+              onClick={() => setConfirmAll(true)}
+              disabled={isProcessing}
+            >
+              <Zap className="h-4 w-4 mr-2" />
+              Reanalyze Review Queue
+            </Button>
+          </div>
+        </CardContent>
+
+        <AlertDialog open={confirmAll} onOpenChange={setConfirmAll}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Reanalyze cards needing review?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This runs AI rarity detection on every card currently in the
+                Cards Needing Review queue (low OCR confidence or missing
+                rarity / name / set) and overwrites their rarity field. Uses AI
+                credits. Continue?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  setConfirmAll(false);
+                  runReanalyze(true);
+                }}
+              >
+                Reanalyze All
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </Card>
+
+      <BulkSetNumberReanalyze
+        suspectSetNumberCount={suspectSetNumberCount}
+        onComplete={handleComplete}
+      />
+    </div>
   );
 }
