@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Trash2, ImagePlus, Loader2, ImageOff, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -9,6 +9,7 @@ import { GradedPriceChip } from "@/components/pricing/GradedPriceChip";
 import { TCGPlayerPriceChip } from "@/components/pricing/TCGPlayerPriceChip";
 import { isPremiumYugiohSet } from "@/lib/premiumSets";
 import { Crown } from "lucide-react";
+import { isPlaceholderUrl, toPublicImageUrl } from "@/lib/storage/getPublicImageUrl";
 
 interface CardThumbnailProps {
   id: string;
@@ -54,32 +55,44 @@ export function CardThumbnail({
 }: CardThumbnailProps) {
   const [isLookingUp, setIsLookingUp] = useState(false);
   const [imageError, setImageError] = useState(false);
-  const [currentImageUrl, setCurrentImageUrl] = useState(thumbnailUrl || imageUrl);
+  const imageCandidates = useMemo(() => {
+    const normalized = [thumbnailUrl, imageUrl]
+      .map((url) => toPublicImageUrl(url))
+      .filter((url): url is string => Boolean(url && !isPlaceholderUrl(url)));
+
+    return Array.from(new Set(normalized));
+  }, [thumbnailUrl, imageUrl]);
+  const [candidateIndex, setCandidateIndex] = useState(0);
+  const currentImageUrl = imageCandidates[candidateIndex] || "";
   const isPremium = isPremiumYugiohSet(cardSet);
 
   useEffect(() => {
-    const newUrl = thumbnailUrl || imageUrl;
-    if (newUrl !== currentImageUrl) {
-      setCurrentImageUrl(newUrl);
-      setImageError(false);
-    }
-  }, [thumbnailUrl, imageUrl]);
+    setCandidateIndex(0);
+    setImageError(false);
+  }, [imageCandidates.join("|")]);
 
-  // Try local device cache for the image
+  // Try local device cache for the image before hitting remote URLs.
   useEffect(() => {
     let cancelled = false;
-    getLocalImageUrl(id, currentImageUrl).then((localUrl) => {
+    const primaryUrl = imageCandidates[0];
+    if (!primaryUrl) return;
+
+    getLocalImageUrl(id, primaryUrl).then((localUrl) => {
       if (!cancelled && localUrl) {
-        setCurrentImageUrl(localUrl);
-        setImageError(false);
+        const localNormalized = toPublicImageUrl(localUrl);
+        if (localNormalized && !imageCandidates.includes(localNormalized)) {
+          imageCandidates.unshift(localNormalized);
+          setCandidateIndex(0);
+          setImageError(false);
+        }
       }
     });
-    return () => { cancelled = true; };
-  }, [id]);
 
-  const isPlaceholderUrl = !currentImageUrl || currentImageUrl.length === 0 || currentImageUrl.includes("placehold");
-  const showImage = Boolean(currentImageUrl && currentImageUrl.length > 0 && !isPlaceholderUrl);
-  const showFindImageButton = isPlaceholderUrl || imageError;
+    return () => { cancelled = true; };
+  }, [id, imageCandidates]);
+
+  const showImage = Boolean(currentImageUrl && !imageError);
+  const showFindImageButton = imageCandidates.length === 0 || imageError;
 
   const handleImageLookup = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -96,7 +109,7 @@ export function CardThumbnail({
 
       if (lookupError) throw lookupError;
 
-      if (!lookupData?.found || !lookupData?.imageUrl || lookupData.imageUrl.includes("placehold")) {
+      if (!lookupData?.found || !lookupData?.imageUrl || isPlaceholderUrl(lookupData.imageUrl)) {
         toast.info("No image found for this card");
         return;
       }
@@ -111,7 +124,7 @@ export function CardThumbnail({
       if (attachError) throw attachError;
 
       if (attachData?.success && attachData?.imageUrl) {
-        setCurrentImageUrl(attachData.imageUrl);
+        setCandidateIndex(0);
         setImageError(false);
         toast.success("Image found and saved");
         onImageUpdated?.();
@@ -124,6 +137,17 @@ export function CardThumbnail({
     } finally {
       setIsLookingUp(false);
     }
+  };
+
+  const handleImageError = () => {
+    const nextIndex = candidateIndex + 1;
+    if (nextIndex < imageCandidates.length) {
+      setCandidateIndex(nextIndex);
+      setImageError(false);
+      return;
+    }
+
+    setImageError(true);
   };
 
   return (
@@ -202,15 +226,16 @@ export function CardThumbnail({
 
       {/* Square thumbnail */}
       <div className="aspect-square w-full overflow-hidden bg-muted flex items-center justify-center relative">
-        {showImage && !imageError ? (
+        {showImage ? (
           <img
             src={currentImageUrl}
             alt={cardName}
             loading="lazy"
-            onError={() => setImageError(true)}
+            referrerPolicy="no-referrer"
+            onError={handleImageError}
             className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
           />
-        ) : imageError && currentImageUrl ? (
+        ) : imageError && imageCandidates.length > 0 ? (
           <div className="flex flex-col items-center justify-center text-muted-foreground/50 p-2">
             <ImageOff className="h-6 w-6 mb-1" />
             <span className="text-[8px] text-center">Image unavailable</span>
@@ -222,7 +247,7 @@ export function CardThumbnail({
           </div>
         )}
 
-        {(isPlaceholderUrl || imageError) && (
+        {(imageCandidates.length === 0 || imageError) && (
           <div className="absolute bottom-1.5 right-1.5 bg-warning text-warning-foreground rounded-full p-0.5 shadow-md">
             <AlertCircle className="h-4 w-4" />
           </div>
