@@ -2,22 +2,31 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ImagePlus, RefreshCw, Loader2, CheckCircle, XCircle, AlertCircle } from "lucide-react";
+import { ImagePlus, RefreshCw, Loader2, CheckCircle, XCircle, AlertCircle, Wrench } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
+import { isPlaceholderUrl, toPublicImageUrl } from "@/lib/storage/getPublicImageUrl";
 
 interface BulkImageSearchProps {
   onComplete?: () => void;
 }
 
+type ImageAuditCard = {
+  id: string;
+  image_url: string | null;
+  thumbnail_url: string | null;
+};
+
 export function BulkImageSearch({ onComplete }: BulkImageSearchProps) {
   const { userId } = useAuth();
   const [missingCount, setMissingCount] = useState<number | null>(null);
   const [externalCount, setExternalCount] = useState<number | null>(null);
+  const [repairableCount, setRepairableCount] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isRepairing, setIsRepairing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<{
     found: number;
@@ -40,33 +49,32 @@ export function BulkImageSearch({ onComplete }: BulkImageSearchProps) {
         .select("*", { count: "exact", head: true })
         .eq("user_id", userId)
         .eq("image_locked", false)
-        .or("image_url.is.null,image_url.ilike.%placehold%");
+        .or("image_url.is.null,image_url.eq.,image_url.ilike.%placehold%,image_url.ilike.%placeholder%,image_url.eq.null,image_url.eq.undefined");
 
       if (error) throw error;
       setMissingCount(count || 0);
 
-      // Count cards with external URLs (not from our storage)
+      // Pull image refs once and classify locally. This catches raw bucket paths and expired signed URLs
+      // without needing extra database columns or destructive cleanup.
       const { data: allCards, error: allError } = await supabase
         .from("cards")
-        .select("image_url")
+        .select("id, image_url, thumbnail_url")
         .eq("user_id", userId)
-        .eq("image_locked", false)
-        .not("image_url", "is", null)
-        .not("image_url", "ilike", "%placehold%");
+        .eq("image_locked", false);
 
       if (allError) throw allError;
 
-      // Filter to external URLs only (not from our Supabase storage)
-      const externalCards = (allCards || []).filter(card => {
-        const url = card.image_url || "";
-        return url && !url.includes("supabase") && !url.includes("cyyaapagcftbhafhlofb");
-      });
-      setExternalCount(externalCards.length);
+      const cards = (allCards || []) as ImageAuditCard[];
+      const externalCards = cards.filter(card => isExternalImageUrl(card.image_url));
+      const repairableCards = cards.filter(card => needsUrlRepair(card));
 
+      setExternalCount(externalCards.length);
+      setRepairableCount(repairableCards.length);
     } catch (error) {
       console.error("Error loading counts:", error);
       setMissingCount(0);
       setExternalCount(0);
+      setRepairableCount(0);
     } finally {
       setIsLoading(false);
     }
@@ -176,6 +184,65 @@ export function BulkImageSearch({ onComplete }: BulkImageSearchProps) {
     }
   };
 
+  const handleRepairStoredUrls = async () => {
+    if (!userId || repairableCount === 0) return;
+
+    setIsRepairing(true);
+    setProgress(0);
+    setResults(null);
+
+    try {
+      const { data, error } = await supabase
+        .from("cards")
+        .select("id, image_url, thumbnail_url")
+        .eq("user_id", userId)
+        .eq("image_locked", false);
+
+      if (error) throw error;
+
+      const cards = ((data || []) as ImageAuditCard[]).filter(needsUrlRepair);
+      let repaired = 0;
+      let failed = 0;
+
+      for (let i = 0; i < cards.length; i++) {
+        const card = cards[i];
+        const updates: Record<string, string | null> = {};
+
+        const fixedImageUrl = normalizeStoredField(card.image_url);
+        const fixedThumbnailUrl = normalizeStoredField(card.thumbnail_url);
+
+        if (fixedImageUrl !== card.image_url) updates.image_url = fixedImageUrl;
+        if (fixedThumbnailUrl !== card.thumbnail_url) updates.thumbnail_url = fixedThumbnailUrl;
+
+        if (Object.keys(updates).length > 0) {
+          const { error: updateError } = await supabase
+            .from("cards")
+            .update({ ...updates, updated_at: new Date().toISOString() })
+            .eq("id", card.id);
+
+          if (updateError) failed++;
+          else repaired++;
+        }
+
+        setProgress(Math.round(((i + 1) / Math.max(1, cards.length)) * 100));
+      }
+
+      setResults({ found: repaired, not_found: 0, errors: failed });
+
+      if (repaired > 0) toast.success(`Repaired ${repaired} stored image URL${repaired === 1 ? "" : "s"}`);
+      else toast.info("No repairable image URLs found");
+      if (failed > 0) toast.warning(`${failed} image URL repair${failed === 1 ? "" : "s"} failed`);
+
+      await loadCounts();
+      onComplete?.();
+    } catch (error) {
+      console.error("Repair image URLs error:", error);
+      toast.error("Failed to repair stored image URLs");
+    } finally {
+      setIsRepairing(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <Card>
@@ -191,7 +258,7 @@ export function BulkImageSearch({ onComplete }: BulkImageSearchProps) {
     );
   }
 
-  const isWorking = isProcessing || isRefreshing;
+  const isWorking = isProcessing || isRefreshing || isRepairing;
 
   return (
     <Card>
@@ -201,16 +268,21 @@ export function BulkImageSearch({ onComplete }: BulkImageSearchProps) {
           Image Management
         </CardTitle>
         <CardDescription>
-          Find missing images and store external images to cloud storage
+          Find missing images, repair stale links, and store external images to cloud storage
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Stats */}
-        <div className="grid grid-cols-2 gap-4 text-sm">
+        <div className="grid grid-cols-3 gap-3 text-sm">
           <div className="flex items-center gap-2">
             <AlertCircle className="h-4 w-4 text-muted-foreground" />
             <span className="text-muted-foreground">Missing:</span>
             <span className="font-medium">{missingCount}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Wrench className="h-4 w-4 text-muted-foreground" />
+            <span className="text-muted-foreground">Repairable:</span>
+            <span className="font-medium">{repairableCount}</span>
           </div>
           <div className="flex items-center gap-2">
             <RefreshCw className="h-4 w-4 text-muted-foreground" />
@@ -234,6 +306,20 @@ export function BulkImageSearch({ onComplete }: BulkImageSearchProps) {
             Find Missing Images ({missingCount})
           </Button>
 
+          <Button
+            onClick={handleRepairStoredUrls}
+            disabled={isWorking || repairableCount === 0}
+            variant="outline"
+            className="w-full"
+          >
+            {isRepairing ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : (
+              <Wrench className="h-4 w-4 mr-2" />
+            )}
+            Repair Stored Image Links ({repairableCount})
+          </Button>
+
           <Button 
             onClick={handleRefreshExternal} 
             disabled={isWorking || externalCount === 0}
@@ -254,7 +340,7 @@ export function BulkImageSearch({ onComplete }: BulkImageSearchProps) {
           <div className="space-y-2">
             <Progress value={progress} className="h-2" />
             <p className="text-sm text-muted-foreground text-center">
-              {isProcessing ? "Searching..." : "Storing..."} {progress}%
+              {isProcessing ? "Searching..." : isRepairing ? "Repairing..." : "Storing..."} {progress}%
             </p>
           </div>
         )}
@@ -282,13 +368,36 @@ export function BulkImageSearch({ onComplete }: BulkImageSearchProps) {
         )}
 
         {/* All good message */}
-        {missingCount === 0 && externalCount === 0 && (
+        {missingCount === 0 && externalCount === 0 && repairableCount === 0 && (
           <div className="flex items-center gap-2 text-success">
             <CheckCircle className="h-5 w-5" />
-            <span>All images are stored in cloud storage!</span>
+            <span>All images are stored with clean cloud links.</span>
           </div>
         )}
       </CardContent>
     </Card>
   );
+}
+
+function normalizeStoredField(value: string | null): string | null {
+  if (!value || isPlaceholderUrl(value)) return value;
+  const fixed = toPublicImageUrl(value);
+  return fixed || value;
+}
+
+function needsUrlRepair(card: ImageAuditCard): boolean {
+  return fieldNeedsRepair(card.image_url) || fieldNeedsRepair(card.thumbnail_url);
+}
+
+function fieldNeedsRepair(value: string | null): boolean {
+  if (!value || isPlaceholderUrl(value)) return false;
+  const fixed = toPublicImageUrl(value);
+  return Boolean(fixed && fixed !== value);
+}
+
+function isExternalImageUrl(value: string | null): boolean {
+  if (!value || isPlaceholderUrl(value)) return false;
+  const url = value.trim();
+  if (!/^https?:\/\//i.test(url)) return false;
+  return !url.includes("/storage/v1/object/public/card-images/") && !url.includes("/storage/v1/object/sign/card-images/");
 }
