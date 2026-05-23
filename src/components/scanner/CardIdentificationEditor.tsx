@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { CardIdentificationAlternatives } from "./CardIdentificationAlternatives";
 import { CardManualSearch } from "./CardManualSearch";
+import { MTGIdentificationInsights } from "./MTGIdentificationInsights";
 
 interface CardData {
   card_name: string;
@@ -220,6 +221,8 @@ export function CardIdentificationEditor({
           onSelect={handleSelectAlternative}
         />
       )}
+
+      <MTGIdentificationInsights card={primaryCard} />
 
       {/* Manual search — always available */}
       <CardManualSearch

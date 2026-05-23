@@ -3,7 +3,6 @@
 // Uses Lovable AI gateway (Gemini) — same pattern as other AI functions.
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { callAIGateway } from "../_shared/aiGateway.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 
 type RequestBody = {
@@ -152,11 +151,18 @@ Return JSON in this exact shape:
   "note": "one short practical tip or warning"
 }`;
 
-    const aiResponse = await callAIGateway({
+    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
         model: "google/gemini-2.5-flash",
         messages: [{ role: "user", content: prompt }],
         response_format: { type: "json_object" },
-      });
+      }),
+    });
 
     if (!aiResponse.ok) {
       const t = await aiResponse.text();

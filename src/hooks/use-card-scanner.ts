@@ -7,6 +7,7 @@ import { withRetry } from "@/lib/retry";
 import { getScannerSettings, type ScanMode } from "./use-scanner-settings";
 import { addRecentScan } from "@/lib/recentScans";
 import { singleScanDetector } from "@/lib/scanAnomalyDetector";
+import { analyzeMtgIdentification, buildMtgNotes } from "@/lib/mtg/alphaBetaDetector";
 
 export interface OCRResult {
   cardName: string;
@@ -200,7 +201,7 @@ export function useCardScanner({
     setIsScanning(true);
     setScanProgress(0);
 
-    const { scanMode, autoConfirmEnabled, autoConfirmThreshold } = getScannerSettings();
+    const { scanMode, autoConfirmEnabled, autoConfirmThreshold, gameTypeFilter } = getScannerSettings();
 
     try {
       const fileExt = file.name.split(".").pop();
@@ -236,7 +237,7 @@ export function useCardScanner({
         const enhancedResult = await withRetry(
           async () => {
             const { data, error } = await supabase.functions.invoke("enhanced-card-identify", {
-              body: { imageUrl, ocrText: ocr.rawText },
+              body: { imageUrl, ocrText: ocr.rawText, gameTypeHint: gameTypeFilter !== "auto" ? gameTypeFilter : undefined },
             });
             if (error) throw new Error(error.message);
             return data;
@@ -266,7 +267,7 @@ export function useCardScanner({
         const cardIdentification = await withRetry(
           async () => {
             const { data, error } = await supabase.functions.invoke("identify-card", {
-              body: { imageUrl, ocrText: ocr.rawText },
+              body: { imageUrl, ocrText: ocr.rawText, gameTypeHint: gameTypeFilter !== "auto" ? gameTypeFilter : undefined },
             });
             if (error) throw new Error(error.message);
             return data;
@@ -295,6 +296,17 @@ export function useCardScanner({
         confidence: enhancedData?.confidence || pricingData?.confidence || ocr.confidence,
         description: pricingData?.notes || "",
       };
+
+      const mtgInsights = analyzeMtgIdentification(identifiedCard, ocr.rawText);
+      const mtgNotes = buildMtgNotes(mtgInsights);
+      if (mtgNotes) {
+        identifiedCard.description = [identifiedCard.description, mtgNotes].filter(Boolean).join("\n\n");
+        if (!identifiedCard.edition && mtgInsights.alphaBeta.status === "confirmed_alpha") {
+          identifiedCard.edition = "Alpha";
+        } else if (!identifiedCard.edition && mtgInsights.alphaBeta.status === "confirmed_beta") {
+          identifiedCard.edition = "Beta";
+        }
+      }
 
       const dup = await checkForDuplicate(identifiedCard.card_name, identifiedCard.card_set);
 

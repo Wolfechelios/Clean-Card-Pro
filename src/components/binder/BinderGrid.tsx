@@ -1,13 +1,11 @@
 import { useState, useMemo, useCallback, useRef } from "react";
-import { ChevronLeft, ChevronRight, Camera } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { BinderSlotCard } from "./BinderSlotCard";
 import { BinderSlotModal } from "./BinderSlotModal";
 import type { BinderSlot } from "@/hooks/use-binder-data";
-import type { BinderSettings } from "@/hooks/use-binder-settings";
-import { CARD_SIZE_PX } from "@/hooks/use-binder-settings";
 
 const SLOTS_PER_PAGE = 9; // 3x3
 
@@ -16,20 +14,9 @@ interface BinderGridProps {
   showPrices: boolean;
   heatmapMode: boolean;
   flipStyle: "3d" | "slide";
-  pictureSettings: BinderSettings;
-  selectedSetName?: string | null;
-  onCaptureClick?: () => void;
 }
 
-export function BinderGrid({
-  slots,
-  showPrices,
-  heatmapMode,
-  flipStyle,
-  pictureSettings,
-  selectedSetName,
-  onCaptureClick,
-}: BinderGridProps) {
+export function BinderGrid({ slots, showPrices, heatmapMode, flipStyle }: BinderGridProps) {
   const [currentPage, setCurrentPage] = useState(0);
   const [selectedSlot, setSelectedSlot] = useState<BinderSlot | null>(null);
   const [direction, setDirection] = useState<"left" | "right">("right");
@@ -43,6 +30,7 @@ export function BinderGrid({
     return slots.slice(start, start + SLOTS_PER_PAGE);
   }, [slots, currentPage]);
 
+  // Check near-complete pages
   const pageCompletion = useMemo(() => {
     const owned = pageSlots.filter((s) => s.owned).length;
     return { owned, total: pageSlots.length, nearComplete: owned >= pageSlots.length - 1 && pageSlots.length > 0 };
@@ -60,6 +48,7 @@ export function BinderGrid({
     }, 350);
   }, [currentPage, totalPages, animating]);
 
+  // Keyboard navigation
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "ArrowLeft") navigate("left");
     if (e.key === "ArrowRight") navigate("right");
@@ -72,12 +61,11 @@ export function BinderGrid({
         ? "animate-[slideOutLeft_0.35s_ease-in-out_forwards]"
         : "animate-[slideOutRight_0.35s_ease-in-out_forwards]";
     }
+    // 3D page turn
     return direction === "right"
       ? "animate-[pageTurnRight_0.35s_ease-in-out_forwards]"
       : "animate-[pageTurnLeft_0.35s_ease-in-out_forwards]";
   };
-
-  const minPx = CARD_SIZE_PX[pictureSettings.cardSize];
 
   return (
     <div
@@ -86,10 +74,10 @@ export function BinderGrid({
       tabIndex={0}
       onKeyDown={handleKeyDown}
     >
-      {/* Page indicator + capture button */}
-      <div className="flex items-center justify-between mb-3 gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-sm text-muted-foreground font-medium truncate">
+      {/* Page indicator */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground font-medium">
             Page {currentPage + 1} of {totalPages || 1}
           </span>
           {pageCompletion.nearComplete && pageCompletion.total > 0 && (
@@ -98,21 +86,9 @@ export function BinderGrid({
             </Badge>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground hidden sm:inline">
-            #{pageSlots[0]?.cardNumber || "—"} – #{pageSlots[pageSlots.length - 1]?.cardNumber || "—"}
-          </span>
-          {onCaptureClick && (
-            <Button
-              size="sm"
-              onClick={onCaptureClick}
-              className="h-8"
-            >
-              <Camera className="h-3.5 w-3.5 mr-1.5" />
-              Capture Page
-            </Button>
-          )}
-        </div>
+        <span className="text-xs text-muted-foreground">
+          #{pageSlots[0]?.cardNumber || "—"} – #{pageSlots[pageSlots.length - 1]?.cardNumber || "—"}
+        </span>
       </div>
 
       {/* Binder page */}
@@ -123,13 +99,10 @@ export function BinderGrid({
       )}>
         <div
           className={cn(
-            "grid gap-2 sm:gap-3",
+            "grid grid-cols-3 gap-2 sm:gap-3",
             "[perspective:1200px]",
             getAnimClass()
           )}
-          style={{
-            gridTemplateColumns: `repeat(3, minmax(${minPx}px, 1fr))`,
-          }}
         >
           {pageSlots.map((slot) => (
             <BinderSlotCard
@@ -137,10 +110,10 @@ export function BinderGrid({
               slot={slot}
               showPrices={showPrices}
               heatmapMode={heatmapMode}
-              pictureSettings={pictureSettings}
               onClick={() => setSelectedSlot(slot)}
             />
           ))}
+          {/* Fill empty slots to maintain 3x3 */}
           {pageSlots.length < SLOTS_PER_PAGE &&
             Array.from({ length: SLOTS_PER_PAGE - pageSlots.length }).map((_, i) => (
               <div key={`empty-${i}`} className="aspect-[2.5/3.5] rounded-lg bg-muted/10 border border-dashed border-border/20" />
@@ -159,6 +132,7 @@ export function BinderGrid({
           <ChevronLeft className="h-4 w-4" />
         </Button>
 
+        {/* Page dots (max 10 visible) */}
         <div className="flex items-center gap-1">
           {Array.from({ length: Math.min(totalPages, 10) }).map((_, i) => {
             const pageIndex = totalPages <= 10 ? i : Math.round((i / 9) * (totalPages - 1));

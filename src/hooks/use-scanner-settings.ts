@@ -1,15 +1,20 @@
 import { useState, useEffect, useCallback } from "react";
+import type { ProCaptureMode } from "@/lib/iphoneProCapture";
 
 const SCANNER_SETTINGS_KEY = "card-scanner-settings";
 
 export type ScanMode = "SAVE" | "SCAN_ONLY" | "REMOVE";
-export type ScanEngineProfileId = "balanced_default" | "ipad_mac_paired" | "redmagic_standalone";
 
 export interface ScannerSettings {
   autoConfirmEnabled: boolean;
   autoConfirmThreshold: number;
   scanMode: ScanMode;
-  scanEngineProfile: ScanEngineProfileId;
+
+  // iPhone Pro / high-detail capture profiles
+  proCaptureEnabled: boolean;
+  proCaptureMode: ProCaptureMode;
+  proCaptureQualityGate: boolean;
+  proCaptureMinConfidence: number;
 
   hapticsOnCapture: boolean;
   flashOnCapture: boolean;
@@ -34,22 +39,17 @@ export interface ScannerSettings {
 
   // Game type filter for identification
   gameTypeFilter: "auto" | "mtg" | "yugioh" | "pokemon" | "sports" | "gpk" | "marvel" | "onepiece" | "other";
-
-  // Remote scanning (phone-as-camera pairing)
-  remoteAutoQueue: boolean;
-  remoteSessionTimeoutMin: number;
-  remotePhoneImageQuality: "low" | "medium" | "high";
-  remoteBurstIntervalSec: number;
-  remoteShowPhotoGrid: boolean;
-  remoteSoundOnReceive: boolean;
-  defaultScanTab: "rapid" | "usb" | "upload";
 }
 
 const DEFAULT_SETTINGS: ScannerSettings = {
   autoConfirmEnabled: true,
   autoConfirmThreshold: 75,
   scanMode: "SAVE",
-  scanEngineProfile: "balanced_default",
+
+  proCaptureEnabled: true,
+  proCaptureMode: "rapid",
+  proCaptureQualityGate: true,
+  proCaptureMinConfidence: 62,
 
   hapticsOnCapture: true,
   flashOnCapture: true,
@@ -71,14 +71,6 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   foilDetectionMode: "fast",
 
   gameTypeFilter: "auto",
-
-  remoteAutoQueue: true,
-  remoteSessionTimeoutMin: 30,
-  remotePhoneImageQuality: "high",
-  remoteBurstIntervalSec: 1.5,
-  remoteShowPhotoGrid: true,
-  remoteSoundOnReceive: true,
-  defaultScanTab: "rapid",
 };
 
 export function useScannerSettings() {

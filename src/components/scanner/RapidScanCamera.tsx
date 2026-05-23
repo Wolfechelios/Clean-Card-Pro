@@ -25,7 +25,7 @@ import {
   Save,
   Eye,
   SunDim,
-  DollarSign,
+  ShieldCheck,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 
@@ -63,7 +63,6 @@ import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 import { getMultiFrameAnalyzer, resetMultiFrameAnalyzer, type MultiFrameResult } from "@/lib/foilTrainer/multiFrameAnalyzer";
 import { FoilDetectionOverlay } from "./FoilDetectionOverlay";
 import { getScannerSettings, useScannerSettings, type ScannerSettings } from "@/hooks/use-scanner-settings";
-import { getScanEngineProfile } from "@/lib/performance/scanProfiles";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { hapticTap } from "@/lib/haptics";
 import { useVoiceCommand } from "@/hooks/use-voice-command";
@@ -71,6 +70,21 @@ import { useCameraDevices } from "@/hooks/use-camera-devices";
 import { CameraDeviceSelector } from "./CameraDeviceSelector";
 import { WhiteBalanceControl } from "./WhiteBalanceControl";
 import { playKachingBeep, playShutterBeep, playJackpotBeep, warmUpAudio } from "@/lib/audioBeeps";
+import { IPhoneProCapturePanel } from "./IPhoneProCapturePanel";
+import {
+  analyzeCanvasCaptureQuality,
+  analyzeBlobCaptureQuality,
+  formatQualityFlags,
+  getProCaptureProfile,
+  getProVideoConstraints,
+  type CaptureConfidenceBreakdown,
+} from "@/lib/iphoneProCapture";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TUNING
+// ─────────────────────────────────────────────────────────────────────────────
+
+const QUEUE_MAX = 500; // large buffer - uses IndexedDB (device storage)
 
 type ScannedCard = {
   id: string;
@@ -95,6 +109,9 @@ type ScannedCard = {
   year?: string;
   team?: string;
   manufacturer?: string;
+  captureMode?: string;
+  captureConfidence?: number;
+  qualityFlags?: string[];
 };
 
 type LastOverlay = {
@@ -124,9 +141,8 @@ function money(n: number | null | undefined) {
 
 export default function RapidScanCamera() {
   const { settings, updateSettings } = useScannerSettings();
-  const engineProfile = useMemo(() => getScanEngineProfile(settings.scanEngineProfile), [settings.scanEngineProfile]);
-  const queueMax = engineProfile.queueMax;
   const isMobile = useIsMobile();
+  const activeProProfile = getProCaptureProfile(settings.proCaptureMode);
 
 
   // Camera devices (for selecting different lenses/optics)
@@ -156,6 +172,7 @@ export default function RapidScanCamera() {
 
   const [cameraOn, setCameraOn] = useState(false);
   const [support, setSupport] = useState<MediaSupport>({ torch: false, focus: false, zoom: false });
+  const [lastCaptureQuality, setLastCaptureQuality] = useState<CaptureConfidenceBreakdown | null>(null);
   const [torchOn, setTorchOn] = useState(false);
   const [torchDimmer, setTorchDimmer] = useState(100);
   const [statusLine, setStatusLine] = useState("Tap Start to begin");
@@ -172,12 +189,6 @@ export default function RapidScanCamera() {
   const [autoTimerCountdown, setAutoTimerCountdown] = useState(0);
 
   const autoTimerSeconds = settings.autoTimerIntervalSeconds ?? 2;
-
-  useEffect(() => {
-    if (!cameraOn) {
-      setStatusLine(`${engineProfile.label} ready — ${engineProfile.targetResolution} target, queue ${queueMax}, ${engineProfile.maxWorkers} worker${engineProfile.maxWorkers === 1 ? "" : "s"}`);
-    }
-  }, [cameraOn, engineProfile, queueMax]);
 
   const triggerFlash = useCallback(() => {
     if (!settings.flashOnCapture) return;
@@ -471,93 +482,6 @@ export default function RapidScanCamera() {
     return cards.reduce((sum, c) => sum + (c.status === "completed" ? c.value || 0 : 0), 0);
   }, [cards]);
 
-  // Number of completed cards still missing a price
-  const missingPriceCount = useMemo(() => {
-    return cards.filter(
-      (c) => c.status === "completed" && (c.value == null) && c.cardName
-    ).length;
-  }, [cards]);
-
-  const [findingPrices, setFindingPrices] = useState(false);
-
-  // Manually fetch prices for any completed cards missing them.
-  // Hits fetch-card-prices, then updates UI state, recentScans, and DB row if saved.
-  const findPricesNow = useCallback(async () => {
-    if (findingPrices) return;
-    const targets = cards.filter(
-      (c) => c.status === "completed" && c.value == null && c.cardName
-    );
-    if (targets.length === 0) {
-      toast.info("All scanned cards already have prices");
-      return;
-    }
-    setFindingPrices(true);
-    toast.loading(`Looking up ${targets.length} prices...`, { id: "find-prices" });
-    let updated = 0;
-    const BATCH = 4;
-    try {
-      for (let i = 0; i < targets.length; i += BATCH) {
-        const batch = targets.slice(i, i + BATCH);
-        await Promise.all(
-          batch.map(async (card) => {
-            updateCard(card.id, { priceFetching: true });
-            try {
-              const { data, error } = await supabase.functions.invoke(
-                "fetch-card-prices",
-                {
-                  body: {
-                    cardName: card.cardName,
-                    cardSet: card.cardSet ?? null,
-                    cardNumber: card.cardNumber ?? null,
-                    gameType: card.gameType ?? null,
-                    sportType: card.sportType ?? null,
-                    condition: null,
-                  },
-                }
-              );
-              if (error) throw error;
-              const raw = money((data as any)?.raw ?? (data as any)?.suggested ?? null);
-              const psa10 = money((data as any)?.psa10 ?? null);
-              updateCard(card.id, {
-                value: raw,
-                psa10Price: psa10,
-                priceFetching: false,
-              });
-              try {
-                updateRecentScan(card.id, { price: raw, psa10Price: psa10 });
-              } catch {}
-              if (card.dbId && raw != null) {
-                try {
-                  await supabase
-                    .from("cards")
-                    .update({
-                      current_price_raw: raw,
-                      current_price_psa10: psa10,
-                      suggested_price: raw,
-                      last_price_update: new Date().toISOString(),
-                    })
-                    .eq("id", card.dbId);
-                } catch {}
-              }
-              if (raw != null) updated++;
-            } catch (e) {
-              console.warn("[FindPrices] Lookup failed for", card.cardName, e);
-              updateCard(card.id, { priceFetching: false });
-            }
-          })
-        );
-      }
-      toast.success(`Found prices for ${updated} of ${targets.length} cards`, {
-        id: "find-prices",
-      });
-    } catch (e) {
-      console.error("[FindPrices] Batch failed:", e);
-      toast.error("Price lookup failed", { id: "find-prices" });
-    } finally {
-      setFindingPrices(false);
-    }
-  }, [cards, findingPrices, updateCard]);
-
   // ───────────────────────────────────────────────────────────────────────────
   // CAMERA
   // ───────────────────────────────────────────────────────────────────────────
@@ -569,21 +493,14 @@ export default function RapidScanCamera() {
     startingCameraRef.current = true;
 
     try {
-      const videoConstraints: MediaTrackConstraints = {
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
-      };
-      
-      if (selectedDeviceId) {
-        videoConstraints.deviceId = { exact: selectedDeviceId };
-      } else {
-        videoConstraints.facingMode = "environment";
-      }
-      
-      const constraints: MediaStreamConstraints = {
-        video: videoConstraints,
-        audio: false,
-      };
+      const constraints: MediaStreamConstraints = settings.proCaptureEnabled
+        ? getProVideoConstraints(settings.proCaptureMode, selectedDeviceId || undefined)
+        : {
+            video: selectedDeviceId
+              ? { deviceId: { exact: selectedDeviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+              : { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
+            audio: false,
+          };
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
@@ -642,7 +559,7 @@ export default function RapidScanCamera() {
       }
 
       setCameraOn(true);
-      setStatusLine("Camera live — tap Capture for each card");
+      setStatusLine(settings.proCaptureEnabled ? `${activeProProfile.label} live — capture locally, price after stop` : "Camera live — tap Capture for each card");
       
       useGlobalProcessControl.getState().setScannerActive(true);
 
@@ -696,11 +613,7 @@ export default function RapidScanCamera() {
     }
   }
 
-  // Cleanup: stop camera & timers on unmount.
-  // CRITICAL: if the user navigates away mid-scan without pressing Stop,
-  // any queued captures would otherwise sit in IndexedDB forever and never
-  // get processed/priced. Kick off the queue processor on unmount so the
-  // images they snapped get identified in the background.
+  // Cleanup: stop camera & timers on unmount
   useEffect(() => {
     return () => {
       try {
@@ -711,15 +624,6 @@ export default function RapidScanCamera() {
         }
         useGlobalProcessControl.getState().setScannerActive(false);
       } catch {}
-      // Fire-and-forget: drain anything the user captured before leaving
-      idbCountQueued()
-        .then((n) => {
-          if (n > 0) {
-            console.log(`[RapidScan] Unmount with ${n} queued items — starting processor`);
-            useQueueProcessor.getState().start();
-          }
-        })
-        .catch(() => {});
     };
   }, []);
 
@@ -836,8 +740,8 @@ export default function RapidScanCamera() {
 
     try {
       const current = await idbCount();
-      if (current >= queueMax) {
-        toast.error(`Buffer full (${queueMax}). Let it process or clear.`);
+      if (current >= QUEUE_MAX) {
+        toast.error(`Buffer full (${QUEUE_MAX}). Let it process or clear.`);
         setBusyCapture(false);
         return;
       }
@@ -847,6 +751,16 @@ export default function RapidScanCamera() {
         toast.error("Native camera not available");
         setBusyCapture(false);
         return;
+      }
+
+      const quality = settings.proCaptureEnabled
+        ? await analyzeBlobCaptureQuality(result.blob, settings.proCaptureMode).catch(() => null)
+        : null;
+      if (quality) {
+        setLastCaptureQuality(quality);
+        if (settings.proCaptureQualityGate && quality.overall < settings.proCaptureMinConfidence) {
+          toast.warning(`Low capture confidence (${quality.overall}%) — ${formatQualityFlags(quality.flags)}`);
+        }
       }
 
       const id = safeUUID();
@@ -860,6 +774,9 @@ export default function RapidScanCamera() {
           priceFetching: true,
           isInLibrary: false,
           libraryQuantity: 0,
+          captureMode: settings.proCaptureMode,
+          captureConfidence: quality?.overall,
+          qualityFlags: quality?.flags ?? [],
         },
         ...prev,
       ]);
@@ -872,11 +789,16 @@ export default function RapidScanCamera() {
         status: "queued",
         blob: compressedBlob,
         mime: compressedBlob.type || "image/jpeg",
-        filename: "card.jpg",
-      });
+        filename: `card-${settings.proCaptureMode}.jpg`,
+        captureMode: settings.proCaptureMode,
+        captureProfile: activeProProfile.label,
+        preflightConfidence: quality?.overall,
+        qualityFlags: quality?.flags ?? [],
+        source: settings.proCaptureEnabled ? "iphone-pro" : "native-camera",
+      } as any);
 
-      setStatusLine("Captured — pricing will run after you stop");
-      setOverlay({ label: "Captured…" });
+      setStatusLine(quality ? `Captured — local quality ${quality.overall}% — pricing after stop` : "Captured — pricing will run after you stop");
+      setOverlay({ label: quality ? `Captured • ${quality.overall}% quality` : "Captured…" });
 
       // Progressive zoom-out after each snap to keep card in frame
       try {
@@ -915,8 +837,8 @@ export default function RapidScanCamera() {
 
     try {
       const current = await idbCount();
-      if (current >= queueMax) {
-        toast.error(`Buffer full (${queueMax}). Let it process or clear.`);
+      if (current >= QUEUE_MAX) {
+        toast.error(`Buffer full (${QUEUE_MAX}). Let it process or clear.`);
         setBusyCapture(false);
         return;
       }
@@ -944,6 +866,16 @@ export default function RapidScanCamera() {
         clarityZoom.analyzeAndAdjustZoom(v).catch(() => {});
       }
 
+      const quality = settings.proCaptureEnabled
+        ? analyzeCanvasCaptureQuality(c, settings.proCaptureMode)
+        : null;
+      if (quality) {
+        setLastCaptureQuality(quality);
+        if (settings.proCaptureQualityGate && quality.overall < settings.proCaptureMinConfidence) {
+          toast.warning(`Low capture confidence (${quality.overall}%) — ${formatQualityFlags(quality.flags)}`);
+        }
+      }
+
       const blob: Blob | null = await new Promise((resolve) =>
         c.toBlob(resolve, "image/jpeg", 0.95)
       );
@@ -960,6 +892,9 @@ export default function RapidScanCamera() {
           priceFetching: true,
           isInLibrary: false,
           libraryQuantity: 0,
+          captureMode: settings.proCaptureMode,
+          captureConfidence: quality?.overall,
+          qualityFlags: quality?.flags ?? [],
         },
         ...prev,
       ]);
@@ -972,11 +907,16 @@ export default function RapidScanCamera() {
         status: "queued",
         blob: compressedBlob,
         mime: compressedBlob.type || "image/jpeg",
-        filename: "card.jpg",
-      });
+        filename: `card-${settings.proCaptureMode}.jpg`,
+        captureMode: settings.proCaptureMode,
+        captureProfile: activeProProfile.label,
+        preflightConfidence: quality?.overall,
+        qualityFlags: quality?.flags ?? [],
+        source: settings.proCaptureEnabled ? "iphone-pro" : "web-camera",
+      } as any);
 
-      setStatusLine("Captured — pricing will run after you stop");
-      setOverlay({ label: "Captured…" });
+      setStatusLine(quality ? `Captured — local quality ${quality.overall}% — pricing after stop` : "Captured — pricing will run after you stop");
+      setOverlay({ label: quality ? `Captured • ${quality.overall}% quality` : "Captured…" });
 
       // Progressive zoom-out after each snap to keep card in frame
       try {
@@ -1107,60 +1047,31 @@ export default function RapidScanCamera() {
     requestRefreshMeta();
   }, [queueProcessor.lastProcessedCard, updateCard, requestRefreshMeta]);
 
-  // Sync cards from recent-scan-added events (background queue processing).
-  // Uses upsert semantics so background-completed scans (e.g. captured from
-  // another route or while this component was unmounted) appear in the list.
+  // Sync cards from recent-scan-added events (background queue processing)
   useEffect(() => {
     const handleRecentScanAdded = () => {
       const recentScans = getRecentScans();
-      if (recentScans.length === 0) return;
-      setCards((prev) => {
-        const byId = new Map(prev.map((c) => [c.id, c]));
-        for (const scan of recentScans) {
-          const patch: Partial<ScannedCard> = {
-            status: "completed",
-            cardName: scan.card_name,
-            cardSet: scan.card_set || undefined,
-            cardNumber: scan.card_number || undefined,
-            playerName: scan.player_name || undefined,
-            rarity: scan.rarity || undefined,
-            gameType: scan.gameType || undefined,
-            sportType: scan.sportType || undefined,
-            value: scan.price ?? undefined,
-            psa10Price: scan.psa10Price ?? undefined,
-            imageUrl: scan.image_url,
-            isInLibrary: scan.isInLibrary,
-            libraryQuantity: scan.libraryQuantity,
-            dbId: scan.dbId || undefined,
-            priceFetching: false,
-            year: scan.year || undefined,
-            team: scan.team || undefined,
-            manufacturer: scan.manufacturer || undefined,
-          };
-          const existing = byId.get(scan.id);
-          if (existing) {
-            byId.set(scan.id, { ...existing, ...patch });
-          } else {
-            // Inject scans processed in background (different route/unmounted)
-            byId.set(scan.id, {
-              id: scan.id,
-              preview: scan.image_url,
-              ...patch,
-            } as ScannedCard);
-          }
-        }
-        // Preserve recentScans ordering (newest first); append any in-session
-        // cards not present in recentScans (still queued/processing).
-        const ordered: ScannedCard[] = [];
-        const consumed = new Set<string>();
-        for (const scan of recentScans) {
-          const c = byId.get(scan.id);
-          if (c) { ordered.push(c); consumed.add(scan.id); }
-        }
-        for (const c of prev) {
-          if (!consumed.has(c.id)) ordered.push(c);
-        }
-        return ordered;
+      recentScans.forEach((scan) => {
+        updateCard(scan.id, {
+          status: "completed",
+          cardName: scan.card_name,
+          cardSet: scan.card_set || undefined,
+          cardNumber: scan.card_number || undefined,
+          playerName: scan.player_name || undefined,
+          rarity: scan.rarity || undefined,
+          gameType: scan.gameType || undefined,
+          sportType: scan.sportType || undefined,
+          value: scan.price ?? undefined,
+          psa10Price: scan.psa10Price ?? undefined,
+          imageUrl: scan.image_url,
+          isInLibrary: scan.isInLibrary,
+          libraryQuantity: scan.libraryQuantity,
+          dbId: scan.dbId || undefined,
+          priceFetching: false,
+          year: scan.year || undefined,
+          team: scan.team || undefined,
+          manufacturer: scan.manufacturer || undefined,
+        });
       });
     };
 
@@ -1222,16 +1133,13 @@ export default function RapidScanCamera() {
         updateRecentScan(id, { dbId: inserted.id, isInLibrary: true, libraryQuantity: Math.max((c.libraryQuantity || 0) + 1, 1) });
 
         toast.success("Saved to library");
-
-        // Clear the card from the rapid-scan queue/list once it's safely in the library
-        await removeCard(id);
       } catch (e: any) {
         console.error(e);
         updateCard(id, { priceFetching: false });
         toast.error(e?.message ?? "Failed to save");
       }
     },
-    [cards, updateCard, userId, removeCard]
+    [cards, updateCard, userId]
   );
 
   const handleAddAllToLibrary = useCallback(async () => {
@@ -1273,8 +1181,6 @@ export default function RapidScanCamera() {
         });
 
         added++;
-        // Clear from rapid scan queue once persisted
-        await removeCard(c.id);
       } catch (e: any) {
         console.error(`Failed to add ${c.cardName}:`, e);
         updateCard(c.id, { priceFetching: false });
@@ -1282,7 +1188,7 @@ export default function RapidScanCamera() {
     }
 
     toast.success(`Added ${added} of ${newCards.length} cards to library`, { id: "bulk-add" });
-  }, [cards, updateCard, userId, removeCard]);
+  }, [cards, updateCard, userId]);
 
   // ───────────────────────────────────────────────────────────────────────────
   // REMOVE FROM LIBRARY (for remove mode)
@@ -1404,7 +1310,7 @@ export default function RapidScanCamera() {
       )}
     >
       {/* ── Compact top bar ── */}
-      <div className="flex flex-col gap-3 px-1 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-center justify-between gap-2 px-1">
         <div className="flex items-center gap-2">
           <Select
             value={settings.gameTypeFilter}
@@ -1485,33 +1391,6 @@ export default function RapidScanCamera() {
         </div>
       </div>
 
-      {!isNative && (
-        <div className="rounded-xl border bg-card/80 p-3 shadow-sm">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0 space-y-0.5">
-              <div className="text-sm font-semibold text-foreground">Camera Selection</div>
-              <p className="text-xs text-muted-foreground">
-                Choose Camo, iPad, USB, or built-in cameras before starting rapid scan.
-              </p>
-            </div>
-            <CameraDeviceSelector
-              devices={cameraDevices}
-              selectedDeviceId={selectedDeviceId}
-              onDeviceChange={async (deviceId) => {
-                setSelectedDeviceId(deviceId);
-                if (cameraOn) {
-                  await stopCamera();
-                  window.setTimeout(() => void startCamera(), 100);
-                }
-              }}
-              onRefresh={refreshDevices}
-              isLoading={devicesLoading}
-              className="sm:items-end"
-            />
-          </div>
-        </div>
-      )}
-
       {/* Anomaly alert */}
       {isAnomalyPaused && (
         <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-3">
@@ -1540,6 +1419,10 @@ export default function RapidScanCamera() {
         </div>
       )}
 
+
+      {/* iPhone Pro capture profile strip */}
+      <IPhoneProCapturePanel compact lastQuality={lastCaptureQuality} />
+
       {/* ── Viewfinder ── */}
       <div className={cn(
         "relative overflow-hidden rounded-2xl bg-black shadow-xl",
@@ -1567,15 +1450,45 @@ export default function RapidScanCamera() {
 
         {/* Alignment frame */}
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div 
-            className="border-2 border-dashed border-white/30 rounded-lg relative"
-            style={{ width: "min(80%, 320px)", aspectRatio: "5/7" }}
-          >
-            <div className="absolute -top-1.5 -left-1.5 w-8 h-8 border-t-[3px] border-l-[3px] border-primary/80 rounded-tl-lg" />
-            <div className="absolute -top-1.5 -right-1.5 w-8 h-8 border-t-[3px] border-r-[3px] border-primary/80 rounded-tr-lg" />
-            <div className="absolute -bottom-1.5 -left-1.5 w-8 h-8 border-b-[3px] border-l-[3px] border-primary/80 rounded-bl-lg" />
-            <div className="absolute -bottom-1.5 -right-1.5 w-8 h-8 border-b-[3px] border-r-[3px] border-primary/80 rounded-br-lg" />
-          </div>
+          {activeProProfile.frameGuide === "binder" ? (
+            <div
+              className="relative grid grid-cols-3 grid-rows-3 gap-1 rounded-xl border-2 border-dashed border-white/40 p-1"
+              style={{ width: "min(92%, 520px)", aspectRatio: "3/4" }}
+            >
+              {Array.from({ length: 9 }).map((_, index) => (
+                <div key={index} className="flex items-center justify-center rounded-md border border-white/25 bg-white/5 text-[10px] font-bold text-white/50">
+                  {index + 1}
+                </div>
+              ))}
+            </div>
+          ) : activeProProfile.frameGuide === "text" ? (
+            <div
+              className="relative rounded-lg border-2 border-dashed border-white/40"
+              style={{ width: "min(86%, 440px)", aspectRatio: "6/1" }}
+            >
+              <div className="absolute inset-x-6 top-1/2 h-px bg-primary/80" />
+            </div>
+          ) : activeProProfile.frameGuide === "label" ? (
+            <div
+              className="relative rounded-xl border-2 border-dashed border-white/40"
+              style={{ width: "min(82%, 380px)", aspectRatio: "3/4" }}
+            >
+              <div className="absolute inset-x-4 top-5 h-14 rounded-md border border-primary/70 bg-primary/10" />
+              <div className="absolute bottom-4 left-4 right-4 flex items-center gap-2 text-[10px] text-white/55">
+                <ShieldCheck className="h-3 w-3" /> label + full card
+              </div>
+            </div>
+          ) : (
+            <div 
+              className="border-2 border-dashed border-white/30 rounded-lg relative"
+              style={{ width: "min(80%, 320px)", aspectRatio: "5/7" }}
+            >
+              <div className="absolute -top-1.5 -left-1.5 w-8 h-8 border-t-[3px] border-l-[3px] border-primary/80 rounded-tl-lg" />
+              <div className="absolute -top-1.5 -right-1.5 w-8 h-8 border-t-[3px] border-r-[3px] border-primary/80 rounded-tr-lg" />
+              <div className="absolute -bottom-1.5 -left-1.5 w-8 h-8 border-b-[3px] border-l-[3px] border-primary/80 rounded-bl-lg" />
+              <div className="absolute -bottom-1.5 -right-1.5 w-8 h-8 border-b-[3px] border-r-[3px] border-primary/80 rounded-br-lg" />
+            </div>
+          )}
         </div>
 
         {/* Foil detection overlay */}
@@ -1599,7 +1512,7 @@ export default function RapidScanCamera() {
         )}
 
         {/* ── Overlay: top-left camera selector pill ── */}
-        {!isNative && cameraOn && (
+        {!isNative && cameraDevices.length > 1 && cameraOn && (
           <div className="absolute top-3 left-3 z-10">
             <CameraDeviceSelector
               devices={cameraDevices}
@@ -1608,12 +1521,12 @@ export default function RapidScanCamera() {
                 setSelectedDeviceId(deviceId);
                 if (cameraOn) {
                   await stopCamera();
-                  window.setTimeout(() => void startCamera(), 100);
+                  setTimeout(() => startCamera(), 100);
                 }
               }}
               onRefresh={refreshDevices}
               isLoading={devicesLoading}
-              className="rounded-xl bg-black/60 p-2 backdrop-blur-sm"
+              className="bg-black/60 backdrop-blur-sm rounded-full"
             />
           </div>
         )}
@@ -1781,6 +1694,7 @@ export default function RapidScanCamera() {
       <div className="flex items-center justify-between px-2 text-xs text-muted-foreground">
         <span>
           Captured waiting: {queuedItemsCount} • Pricing now: {processingItemsCount}
+          {lastCaptureQuality && <> • Last quality: {lastCaptureQuality.overall}%</>}
         </span>
         <div className="flex items-center gap-2">
           {!isNative && cameraOn && zoomLevel > 1 && (
@@ -1804,30 +1718,6 @@ export default function RapidScanCamera() {
           </Button>
         </div>
       </div>
-
-      {/* ── Find Prices Now button ── */}
-      {cards.some((c) => c.status === "completed") && (
-        <div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-border bg-card/50 px-3 py-2">
-          <div className="text-xs text-muted-foreground">
-            {missingPriceCount > 0
-              ? `${missingPriceCount} scanned ${missingPriceCount === 1 ? "card has" : "cards have"} no price yet`
-              : "All scanned cards have prices"}
-          </div>
-          <Button
-            size="sm"
-            variant={missingPriceCount > 0 ? "default" : "outline"}
-            onClick={findPricesNow}
-            disabled={findingPrices || missingPriceCount === 0}
-          >
-            {findingPrices ? (
-              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-            ) : (
-              <DollarSign className="h-4 w-4 mr-1" />
-            )}
-            Find Prices Now {missingPriceCount > 0 ? `(${missingPriceCount})` : ""}
-          </Button>
-        </div>
-      )}
 
       {/* ── Scanned cards list ── */}
       {cards.length > CARD_LIST_RENDER_LIMIT && (

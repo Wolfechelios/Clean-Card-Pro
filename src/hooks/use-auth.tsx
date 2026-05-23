@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
 import { User, Session, AuthError } from "@supabase/supabase-js";
-import { clearCleanCardAuthCache, supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/supabase/client";
 import { SessionExpiredDialog } from "@/components/auth/SessionExpiredDialog";
 
 interface AuthContextType {
@@ -36,7 +36,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [lastEmail, setLastEmail] = useState<string | null>(null);
 
   const clearAuthState = useCallback(async () => {
-    await clearCleanCardAuthCache();
+    // Force sign-out and clear local storage keys
+    try {
+      await supabase.auth.signOut({ scope: "local" });
+    } catch {
+      // Ignore errors during force sign-out
+    }
+    // Clear any stale tokens from local storage
+    try {
+      const keys = Object.keys(localStorage);
+      keys.forEach((key) => {
+        if (key.startsWith("sb-") && key.includes("-auth-token")) {
+          localStorage.removeItem(key);
+        }
+      });
+    } catch {
+      // Ignore
+    }
     setSession(null);
     setUser(null);
   }, []);

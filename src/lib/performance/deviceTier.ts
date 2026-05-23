@@ -1,25 +1,36 @@
 /**
  * Device Performance Tier Detection
+ * 
+ * Detects hardware capabilities and returns a performance tier
+ * that scales concurrency, delays, and limits accordingly.
+ * 
+ * Desktop (e.g. Mac M3 Pro 36GB): max concurrency, minimal delays
+ * Mobile: conservative settings to avoid thermal throttling
  */
-
-import { getActiveScanEngineProfile } from "@/lib/performance/scanProfiles";
 
 export type PerformanceTier = "high" | "mid" | "low";
 
 export interface TierConfig {
   tier: PerformanceTier;
+  /** Max concurrent workers for queue processing */
   maxWorkers: number;
+  /** Max in-flight frames for camera pipeline */
   maxInFlightFrames: number;
+  /** Delay between bulk API calls (ms) */
   bulkApiDelayMs: number;
+  /** Delay between queue jobs (ms) */
   jobDelayMs: number;
+  /** Queue poll interval (ms) */
   pollIntervalMs: number;
+  /** Max concurrent bulk API calls */
   bulkConcurrency: number;
+  /** Image compression quality (0-1) */
   captureQuality: number;
 }
 
 const HIGH_TIER: TierConfig = {
   tier: "high",
-  maxWorkers: 8,
+  maxWorkers: 6,
   maxInFlightFrames: 6,
   bulkApiDelayMs: 20,
   jobDelayMs: 5,
@@ -30,7 +41,7 @@ const HIGH_TIER: TierConfig = {
 
 const MID_TIER: TierConfig = {
   tier: "mid",
-  maxWorkers: 5,
+  maxWorkers: 3,
   maxInFlightFrames: 3,
   bulkApiDelayMs: 100,
   jobDelayMs: 15,
@@ -41,69 +52,67 @@ const MID_TIER: TierConfig = {
 
 const LOW_TIER: TierConfig = {
   tier: "low",
-  maxWorkers: 4,
+  maxWorkers: 2,
   maxInFlightFrames: 2,
   bulkApiDelayMs: 400,
   jobDelayMs: 50,
   pollIntervalMs: 100,
   bulkConcurrency: 1,
-  captureQuality: 0.9,
+  captureQuality: 0.90,
 };
 
 let cachedTier: TierConfig | null = null;
-let cachedProfileKey = "";
 
 function detectTier(): TierConfig {
-  const profile = getActiveScanEngineProfile();
   const cores = navigator.hardwareConcurrency || 2;
-  const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+  const memory = (navigator as any).deviceMemory as number | undefined; // GB, Chrome only
   const isTouchOnly = "ontouchstart" in window && navigator.maxTouchPoints > 0 && !window.matchMedia("(pointer: fine)").matches;
-  const isStandalone = window.matchMedia("(display-mode: standalone)").matches || (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
+  const isStandalone = window.matchMedia("(display-mode: standalone)").matches || (window.navigator as any).standalone === true;
   const screenWidth = window.screen.width;
 
+  // Heuristic scoring
   let score = 0;
-  if (cores >= 10) score += 3;
-  else if (cores >= 6) score += 2;
-  else if (cores >= 4) score += 1;
 
+  // Core count (most reliable signal)
+  if (cores >= 10) score += 3;      // Desktop Apple Silicon, modern x86
+  else if (cores >= 6) score += 2;   // Mid-range desktop or high-end mobile
+  else if (cores >= 4) score += 1;   // Most phones
+
+  // Memory (Chrome-only, undefined on Safari/Firefox)
   if (memory !== undefined) {
     if (memory >= 16) score += 3;
     else if (memory >= 8) score += 2;
     else if (memory >= 4) score += 1;
-  } else if (!isTouchOnly && screenWidth >= 1280) {
-    score += 2;
+  } else {
+    // No memory API = likely Safari/Firefox desktop, assume decent
+    if (!isTouchOnly && screenWidth >= 1280) score += 2;
   }
 
+  // Input method: fine pointer = mouse = likely desktop
   if (!isTouchOnly) score += 1;
+
+  // Large screen = likely desktop
   if (screenWidth >= 1440) score += 1;
+
+  // Running as PWA on mobile = constrain
   if (isStandalone && isTouchOnly) score -= 1;
-  if (profile.id === "ipad_mac_paired") score += 1;
-  if (profile.id === "redmagic_standalone") score += 1;
 
-  const base = score >= 5 ? HIGH_TIER : score >= 3 ? MID_TIER : LOW_TIER;
+  console.log(`[DeviceTier] cores=${cores} mem=${memory ?? "?"} touch=${isTouchOnly} screen=${screenWidth} → score=${score}`);
 
-  return {
-    ...base,
-    maxWorkers: Math.max(1, Math.min(base.maxWorkers, profile.maxWorkers)),
-    maxInFlightFrames: Math.max(1, Math.min(base.maxInFlightFrames + (profile.maxInFlightFrames > base.maxInFlightFrames ? 1 : 0), profile.maxInFlightFrames)),
-    bulkConcurrency: Math.max(1, Math.min(base.bulkConcurrency, profile.bulkConcurrency)),
-    jobDelayMs: Math.max(profile.jobDelayMs, Math.min(base.jobDelayMs, profile.jobDelayMs)),
-    pollIntervalMs: Math.max(8, Math.min(base.pollIntervalMs, profile.pollIntervalMs)),
-    captureQuality: Math.min(base.captureQuality, profile.compressionQuality),
-  };
+  if (score >= 5) return HIGH_TIER;
+  if (score >= 3) return MID_TIER;
+  return LOW_TIER;
 }
 
 export function getDeviceTier(): TierConfig {
-  const profile = getActiveScanEngineProfile();
-  if (!cachedTier || cachedProfileKey !== profile.id) {
-    cachedProfileKey = profile.id;
+  if (!cachedTier) {
     cachedTier = detectTier();
-    console.log(`[DeviceTier] ${cachedTier.tier} using ${profile.shortLabel} (workers=${cachedTier.maxWorkers}, frames=${cachedTier.maxInFlightFrames})`);
+    console.log(`[DeviceTier] Detected: ${cachedTier.tier} (workers=${cachedTier.maxWorkers}, bulk=${cachedTier.bulkConcurrency})`);
   }
   return cachedTier;
 }
 
+/** Force re-detection (e.g. after display mode change) */
 export function resetDeviceTier(): void {
   cachedTier = null;
-  cachedProfileKey = "";
 }

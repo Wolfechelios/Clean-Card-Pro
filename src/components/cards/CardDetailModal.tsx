@@ -34,9 +34,8 @@ import { usePriceConsensus } from "@/hooks/use-price-consensus";
 import type { CardPriceIdentity } from "@/lib/pricing/types";
 import { toast } from "sonner";
 import { Pencil, Trash2, X, Save, Search, ImageIcon, CheckCircle2, XCircle, Box, Image, Sparkles, ShieldCheck } from "lucide-react";
-import { CardVerificationDialog } from "@/components/pricing/CardVerificationDialog";
-import { MtgEditionFinder } from "@/components/mtg/MtgEditionFinder";
 import { useNavigate } from "react-router-dom";
+import { CardVerifyDialog, type VerifyTarget } from "@/components/verification/CardVerifyDialog";
 
 export interface CardData {
   id: string;
@@ -86,8 +85,7 @@ export function CardDetailModal({
   const [isVerifying, setIsVerifying] = useState(false);
   const [referenceImageUrl, setReferenceImageUrl] = useState<string | null>(null);
   const [showVerification, setShowVerification] = useState(false);
-  const [showVerifyDialog, setShowVerifyDialog] = useState(false);
-  const [showEditionFinder, setShowEditionFinder] = useState(false);
+  const [showVerifyCompare, setShowVerifyCompare] = useState(false);
   const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
   const [cardState, setCardState] = useState<CardData | null>(null);
   const { consensus, loading: consensusLoading, error: consensusError, needsReview, fetchConsensus, reset: resetConsensus } = usePriceConsensus();
@@ -170,6 +168,7 @@ export function CardDetailModal({
     if (!open) {
       setIsEditing(false);
       setShowVerification(false);
+      setShowVerifyCompare(false);
       setReferenceImageUrl(null);
     }
   }, [card, open]);
@@ -245,6 +244,60 @@ export function CardDetailModal({
     
     setShowVerification(false);
     setReferenceImageUrl(null);
+  };
+
+  const handleApplyVerifiedMatch = async (updates: {
+    cardName: string;
+    cardSet: string | null;
+    cardNumber: string | null;
+    rarity: string | null;
+    value: number | null;
+    psa10Price: number | null;
+    imageUrl?: string | null;
+    matchConfidence?: number | null;
+  }) => {
+    if (!card) return;
+
+    try {
+      setIsSaving(true);
+      const { error } = await supabase
+        .from("cards")
+        .update({
+          card_name: updates.cardName,
+          card_set: updates.cardSet,
+          card_number: updates.cardNumber,
+          rarity: updates.rarity,
+          current_price_raw: updates.value,
+          psa10_price: updates.psa10Price,
+          image_url: updates.imageUrl || card.image_url || null,
+          updated_at: new Date().toISOString(),
+        } as any)
+        .eq("id", card.id);
+
+      if (error) throw error;
+
+      const updatedCard: CardData = {
+        ...card,
+        card_name: updates.cardName,
+        card_set: updates.cardSet,
+        card_number: updates.cardNumber,
+        rarity: updates.rarity,
+        current_price_raw: updates.value,
+        psa10_price: updates.psa10Price,
+        image_url: updates.imageUrl || card.image_url,
+      };
+
+      setCardState(updatedCard);
+      onUpdate?.(updatedCard);
+      toast.success("Verified card applied");
+      setShowVerifyCompare(false);
+    } catch (error) {
+      console.error("Failed to apply verified card:", error);
+      toast.error("Failed to apply verified card");
+      throw error;
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleSave = async () => {
@@ -505,22 +558,7 @@ export function CardDetailModal({
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="card_set" className="flex items-center justify-between">
-                      <span>Card Set</span>
-                      {((editData.game_type || cardState?.game_type || "").toLowerCase().includes("mtg") ||
-                        (editData.game_type || cardState?.game_type || "").toLowerCase().includes("magic")) && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setShowEditionFinder(true)}
-                          className="h-6 px-2 text-xs"
-                        >
-                          <Sparkles className="h-3 w-3 mr-1" />
-                          Find Edition
-                        </Button>
-                      )}
-                    </Label>
+                    <Label htmlFor="card_set">Card Set</Label>
                     <Input
                       id="card_set"
                       value={editData.card_set}
@@ -780,14 +818,15 @@ export function CardDetailModal({
                   disabled={isVerifying}
                 >
                   <Search className="h-4 w-4 mr-2" />
-                  {isVerifying ? "Verifying..." : "Verify Image"}
+                  {isVerifying ? "Verifying..." : "Image Verify"}
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => setShowVerifyDialog(true)}
+                  onClick={() => setShowVerifyCompare(true)}
+                  disabled={isSaving}
                 >
                   <ShieldCheck className="h-4 w-4 mr-2" />
-                  Verify Match
+                  Verify & Compare
                 </Button>
                 <Button variant="outline" onClick={() => setIsEditing(true)}>
                   <Pencil className="h-4 w-4 mr-2" />
@@ -814,6 +853,24 @@ export function CardDetailModal({
         </DialogContent>
       </Dialog>
 
+      <CardVerifyDialog
+        open={showVerifyCompare}
+        onOpenChange={setShowVerifyCompare}
+        card={card ? ({
+          cardName: card.card_name,
+          cardSet: card.card_set,
+          cardNumber: card.card_number,
+          rarity: card.rarity,
+          value: card.current_price_raw,
+          psa10Price: card.psa10_price,
+          imageUrl: card.image_url,
+          gameType: card.game_type,
+          sportType: card.sport_type,
+        } satisfies VerifyTarget) : null}
+        title="Verify & compare collection card"
+        onApply={handleApplyVerifiedMatch}
+      />
+
       {/* Delete Confirmation */}
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent>
@@ -835,103 +892,6 @@ export function CardDetailModal({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      <CardVerificationDialog
-        open={showVerifyDialog}
-        onOpenChange={setShowVerifyDialog}
-        card={
-          card
-            ? {
-                id: card.id,
-                imageUrl: card.image_url,
-                cardName: card.card_name,
-                cardSet: card.card_set,
-                cardNumber: card.card_number,
-                rarity: card.rarity,
-                condition: card.condition,
-                gameType: card.game_type,
-                sportType: card.sport_type,
-              }
-            : null
-        }
-        onAccept={async (patch) => {
-          if (!card) return;
-          console.log("[Verify] Accept patch:", patch);
-          const setVal = patch.card_set || card.card_set || null;
-          const skipPrice = !patch.current_price_raw || patch.current_price_raw <= 0;
-          const baseUpdates = {
-            card_name: patch.card_name,
-            card_set: setVal,
-            collection_name: setVal,
-            card_number: patch.card_number,
-            rarity: patch.rarity,
-            game_type: patch.game_type,
-            sport_type: patch.sport_type,
-            updated_at: new Date().toISOString(),
-          };
-          const updates = skipPrice
-            ? baseUpdates
-            : {
-                ...baseUpdates,
-                current_price_raw: patch.current_price_raw,
-                suggested_price: patch.current_price_raw,
-                last_price_update: new Date().toISOString(),
-              };
-          const { error } = await supabase
-            .from("cards")
-            .update(updates)
-            .eq("id", card.id);
-          if (error) {
-            console.error("[Verify] Update failed:", error);
-            toast.error("Failed to save: " + error.message);
-            return;
-          }
-          // Audit trail
-          if (!skipPrice) {
-            await supabase.from("price_history").insert({
-              card_id: card.id,
-              price_raw: patch.current_price_raw,
-              source: "verification",
-            });
-          }
-          toast.success(
-            skipPrice
-              ? `Verified identity — price flagged for review`
-              : `Verified — ${patch.card_name} ($${patch.current_price_raw.toFixed(2)})`
-          );
-          const updated: CardData = {
-            ...card,
-            card_name: patch.card_name,
-            card_set: setVal,
-            collection_name: setVal,
-            card_number: patch.card_number,
-            rarity: patch.rarity,
-            game_type: patch.game_type,
-            sport_type: patch.sport_type,
-            current_price_raw: skipPrice ? card.current_price_raw : patch.current_price_raw,
-          };
-          setCardState(updated);
-          onUpdate?.(updated);
-        }}
-      />
-
-      <MtgEditionFinder
-        open={showEditionFinder}
-        onOpenChange={setShowEditionFinder}
-        initialCardName={editData.card_name || cardState?.card_name || null}
-        initialSetCode={null}
-        onSelect={(picked) => {
-          setEditData((prev) => ({
-            ...prev,
-            card_set: picked.setName,
-            collection_name: picked.setName,
-            card_number: picked.collectorNumber || prev.card_number,
-            rarity: picked.rarity || prev.rarity,
-          }));
-          setIsEditing(true);
-          toast.success(`Selected ${picked.setName}${picked.year ? ` (${picked.year})` : ""}`);
-        }}
-      />
     </>
   );
 }

@@ -143,16 +143,6 @@ RARITY RULES (non-YGO):
 - If holographic/prismatic/numbered - NOT Common
 - NEVER return null for rarity
 
-MTG EARLY EDITION DETECTION (cards with NO set symbol):
-- Black border + heavily rounded corners → Alpha (set_code "lea"), card_set "Limited Edition Alpha"
-- Black border + sharp corners → Beta (set_code "leb"), card_set "Limited Edition Beta"
-- White border + "© 1993" → Unlimited (set_code "2ed"), card_set "Unlimited Edition"
-- White border + "© 1994" → Revised (set_code "3ed"), card_set "Revised Edition"
-- White border + "© 1995" → 4th Edition (set_code "4ed"), card_set "Fourth Edition"
-- White border + "© 1997" → 5th Edition (set_code "5ed"), card_set "Fifth Edition"
-- When detected, add to JSON: "early_edition": { "detected": true, "set_code": "...", "confidence": "high|medium|low", "visual_evidence": "..." }
-- Misidentifying these is catastrophic (Alpha Black Lotus ~$100k vs Unlimited ~$8k). If unsure, set confidence "low".
-
 ALTERNATIVES: ALWAYS include 2-3 alternative identifications in the "alternatives" array — even when confidence is high. Show different printings, sets, or similar-looking cards.
 
 ${ocrEvidenceSection}
@@ -179,7 +169,7 @@ JSON only.`;
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'google/gemini-2.5-flash',
+              model: 'google/gemini-2.5-flash-lite',
               messages: [{
                 role: "user",
                 content: [
@@ -223,8 +213,8 @@ JSON only.`;
       }
     }
 
-    // Fallback to Gemini Direct if Lovable AI failed/exhausted/empty AND user has valid key
-    if (!content && useGeminiDirect) {
+    // Fallback to Gemini Direct if Lovable AI failed/exhausted AND user has valid key
+    if (!content && useGeminiDirect && lovableExhausted) {
       console.log('Falling back to Gemini Direct (user key)...');
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
@@ -332,21 +322,8 @@ JSON only.`;
   } catch (error) {
     console.error('Rapid identify error:', error);
     const message = error instanceof Error ? error.message : 'Error';
-
-    // Bad/empty image input: return 200 with success:false so the queue marks
-    // the job as unidentifiable instead of retrying forever on a 500.
-    if (/Invalid base64 image data|Image fetch (failed|returned empty)|btoa returned empty/i.test(message)) {
-      return new Response(
-        JSON.stringify({
-          error: message,
-          success: false,
-          cardData: { card_name: 'Unknown Card', confidence: 0, reason: 'bad_image' }
-        }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
     const status = /rate limit/i.test(message) ? 429 : 500;
+
     return new Response(
       JSON.stringify({
         error: message,
@@ -358,67 +335,15 @@ JSON only.`;
   }
 });
 
-function cleanBase64(b64: string): string {
-  const rawLen = (b64 || "").length;
-  let cleaned = (b64 || "").trim();
-  if (cleaned.startsWith("data:")) {
-    const commaIdx = cleaned.indexOf(",");
-    if (commaIdx === -1) {
-      throw new Error(`Invalid base64 image data: data URL missing comma (rawLen=${rawLen}, sample=${cleaned.slice(0, 60)})`);
-    }
-    cleaned = cleaned.slice(commaIdx + 1);
-  }
-  // Strip whitespace and convert URL-safe base64 to standard base64
-  cleaned = cleaned.replace(/\s/g, "").replace(/-/g, "+").replace(/_/g, "/");
-  if (!cleaned) {
-    throw new Error(`Invalid base64 image data: empty after cleaning (rawLen=${rawLen})`);
-  }
-  if (cleaned.length < 100) {
-    throw new Error(`Invalid base64 image data: too small (${cleaned.length} chars, rawLen=${rawLen}) — image likely failed to encode on the client`);
-  }
-  // Pad to multiple of 4
-  const pad = cleaned.length % 4;
-  if (pad === 2) cleaned += "==";
-  else if (pad === 3) cleaned += "=";
-  else if (pad === 1) {
-    throw new Error(`Invalid base64 image data: bad length ${cleaned.length}`);
-  }
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(cleaned)) {
-    throw new Error(`Invalid base64 image data: contains invalid chars (sample: ${cleaned.slice(0, 40)})`);
-  }
-  return cleaned;
-}
-
 async function fetchImageAsBase64(url: string): Promise<string> {
-  // Fast path: caller already provided a data URL — strip the prefix.
-  if (typeof url === "string" && url.startsWith("data:")) {
-    return cleanBase64(url);
-  }
-
-  console.log(`[fetchImageAsBase64] Fetching: ${url.slice(0, 120)}`);
   const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Image fetch failed: ${response.status} ${response.statusText} for ${url.slice(0, 120)}`);
-  }
   const arrayBuffer = await response.arrayBuffer();
-  if (!arrayBuffer || arrayBuffer.byteLength === 0) {
-    throw new Error(`Image fetch returned empty body for ${url.slice(0, 120)}`);
-  }
   const uint8Array = new Uint8Array(arrayBuffer);
-  console.log(`[fetchImageAsBase64] Got ${uint8Array.length} bytes`);
-
-  // Chunked conversion to avoid call-stack overflow on large images.
-  let binary = "";
-  const CHUNK = 0x8000;
-  for (let i = 0; i < uint8Array.length; i += CHUNK) {
-    const chunk = uint8Array.subarray(i, Math.min(i + CHUNK, uint8Array.length));
-    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+  let binary = '';
+  for (let i = 0; i < uint8Array.length; i++) {
+    binary += String.fromCharCode(uint8Array[i]);
   }
-  const encoded = btoa(binary);
-  if (!encoded) {
-    throw new Error(`btoa returned empty for ${uint8Array.length} bytes`);
-  }
-  return cleanBase64(encoded);
+  return btoa(binary);
 }
 
 function normalizeOcrText(value: unknown): string | null {

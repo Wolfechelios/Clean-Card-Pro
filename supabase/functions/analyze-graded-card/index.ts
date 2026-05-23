@@ -1,5 +1,4 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { callAIGateway } from "../_shared/aiGateway.ts";
 import { validateImageUrl, SSRFError } from "../_shared/validateUrl.ts";
 
 const corsHeaders = {
@@ -55,7 +54,13 @@ Return ONLY valid JSON in this exact format:
   "year": "string"
 }`;
 
-    const response = await callAIGateway({
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
         model: "google/gemini-2.5-flash",
         messages: [
           {
@@ -66,7 +71,8 @@ Return ONLY valid JSON in this exact format:
             ],
           },
         ],
-      });
+      }),
+    });
 
     if (!response.ok) {
       const errorText = await response.text();

@@ -1,5 +1,4 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { callAIGateway } from "../_shared/aiGateway.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -146,7 +145,13 @@ Return JSON:
 }`;
     }
 
-    const response = await callAIGateway({
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
         model: "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
@@ -159,7 +164,8 @@ Return JSON:
           },
         ],
         temperature: 0.3,
-      });
+      }),
+    });
 
     if (!response.ok) {
       const errorText = await response.text();

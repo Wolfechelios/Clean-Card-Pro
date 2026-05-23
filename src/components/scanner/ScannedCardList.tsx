@@ -8,15 +8,14 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Edit2, DollarSign, Hash, Sparkles, Trash2, Loader2, Library, Plus, List, Copy, Check, User, Gamepad2, Download, ImageIcon, Package, Crown, ShieldCheck } from "lucide-react";
-import { CardVerificationDialog, type VerifyAcceptPatch } from "@/components/pricing/CardVerificationDialog";
-import type { VerifyCardInput } from "@/lib/verification/verifyCard";
+import { Edit2, DollarSign, ShieldCheck, Hash, Sparkles, Trash2, Loader2, Library, Plus, List, Copy, Check, User, Gamepad2, Download, ImageIcon, Package, Crown } from "lucide-react";
 import { isPremiumYugiohSet } from "@/lib/premiumSets";
 import JSZip from "jszip";
 import { toPublicImageUrl } from "@/lib/storage/getPublicImageUrl";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { CardVerifyDialog, type VerifyTarget } from "@/components/verification/CardVerifyDialog";
 
 interface ScannedCard {
   id: string;
@@ -41,6 +40,9 @@ interface ScannedCard {
   year?: string;
   team?: string;
   manufacturer?: string;
+  captureMode?: string;
+  captureConfidence?: number;
+  qualityFlags?: string[];
 }
 
 interface ScannedCardListProps {
@@ -108,14 +110,13 @@ export const ScannedCardList = ({
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [isAddingAll, setIsAddingAll] = useState(false);
   const [isRemovingAll, setIsRemovingAll] = useState(false);
-  const [verifyingCard, setVerifyingCard] = useState<VerifyCardInput | null>(null);
-  const [verifyTargetId, setVerifyTargetId] = useState<string | null>(null);
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showListDialog, setShowListDialog] = useState(false);
   const [listCopied, setListCopied] = useState(false);
 
   const [dragId, setDragId] = useState<string | null>(null);
+  const [verifyCard, setVerifyCard] = useState<ScannedCard | null>(null);
 
   const completedCards = useMemo(() => cards.filter((c) => c.status === "completed"), [cards]);
 
@@ -360,6 +361,56 @@ export const ScannedCardList = ({
     }
   }, [editingCard, editForm, onCardUpdate]);
 
+
+  const handleApplyVerifiedCard = useCallback(async (updates: {
+    cardName: string;
+    cardSet: string | null;
+    cardNumber: string | null;
+    rarity: string | null;
+    value: number | null;
+    psa10Price: number | null;
+    imageUrl?: string | null;
+    matchConfidence?: number | null;
+  }) => {
+    if (!verifyCard) return;
+
+    try {
+      onCardUpdate(verifyCard.id, {
+        cardName: updates.cardName,
+        cardSet: updates.cardSet,
+        cardNumber: updates.cardNumber,
+        rarity: updates.rarity,
+        value: updates.value,
+        psa10Price: updates.psa10Price,
+        imageUrl: updates.imageUrl || verifyCard.imageUrl,
+      });
+
+      if (verifyCard.dbId) {
+        const { error } = await supabase
+          .from("cards")
+          .update({
+            card_name: updates.cardName,
+            card_set: updates.cardSet,
+            card_number: updates.cardNumber,
+            rarity: updates.rarity,
+            current_price_raw: updates.value,
+            psa10_price: updates.psa10Price,
+            image_url: updates.imageUrl || verifyCard.imageUrl || null,
+            updated_at: new Date().toISOString(),
+          } as any)
+          .eq("id", verifyCard.dbId);
+        if (error) throw error;
+      }
+
+      toast.success("Verified match applied");
+      setVerifyCard(null);
+    } catch (error) {
+      console.error("Failed to apply verified card:", error);
+      toast.error("Failed to apply verified card");
+      throw error;
+    }
+  }, [verifyCard, onCardUpdate]);
+
   // --- Manual virtualization (NO extra deps) ---
   const VROW_H = 92;
   const V_OVERSCAN = 8;
@@ -516,6 +567,17 @@ export const ScannedCardList = ({
               {card.gameType}
             </Badge>
           )}
+
+          {typeof card.captureConfidence === "number" && (
+            <Badge
+              variant={card.captureConfidence >= 80 ? "default" : card.captureConfidence >= 62 ? "secondary" : "destructive"}
+              className="text-[10px] px-1.5 py-0 h-5"
+              title={card.qualityFlags?.join(", ") || "capture quality"}
+            >
+              <Camera className="h-2.5 w-2.5 mr-0.5" />
+              {card.captureMode || "pro"} {card.captureConfidence}%
+            </Badge>
+          )}
         </div>
 
         <div className="flex items-center gap-1 mt-1.5">
@@ -567,20 +629,8 @@ export const ScannedCardList = ({
               variant="ghost"
               size="icon"
               className="h-7 w-7"
-              title="Verify identity & price"
-              onClick={() => {
-                setVerifyTargetId(card.id);
-                setVerifyingCard({
-                  id: card.id,
-                  imageUrl: card.imageUrl || card.preview,
-                  cardName: card.cardName,
-                  cardSet: card.cardSet,
-                  cardNumber: card.cardNumber,
-                  rarity: card.rarity,
-                  gameType: card.gameType,
-                  sportType: card.sportType,
-                });
-              }}
+              onClick={() => setVerifyCard(card)}
+              title="Verify card"
             >
               <ShieldCheck className="h-3.5 w-3.5" />
             </Button>
@@ -759,6 +809,25 @@ export const ScannedCardList = ({
         </DialogContent>
       </Dialog>
 
+      <CardVerifyDialog
+        open={!!verifyCard}
+        onOpenChange={(open) => !open && setVerifyCard(null)}
+        card={verifyCard ? ({
+          cardName: verifyCard.cardName,
+          cardSet: verifyCard.cardSet,
+          cardNumber: verifyCard.cardNumber,
+          rarity: verifyCard.rarity,
+          value: verifyCard.value,
+          psa10Price: verifyCard.psa10Price,
+          imageUrl: verifyCard.imageUrl,
+          preview: verifyCard.preview,
+          gameType: verifyCard.gameType,
+          sportType: verifyCard.sportType,
+        } satisfies VerifyTarget) : null}
+        title="Verify rapid scan match"
+        onApply={handleApplyVerifiedCard}
+      />
+
       {/* Edit Dialog */}
       <Dialog open={!!editingCard} onOpenChange={(open) => !open && setEditingCard(null)}>
         <DialogContent className="sm:max-w-lg">
@@ -878,74 +947,6 @@ export const ScannedCardList = ({
           )}
         </DialogContent>
       </Dialog>
-
-      <CardVerificationDialog
-        open={!!verifyingCard}
-        onOpenChange={(o) => {
-          if (!o) {
-            setVerifyingCard(null);
-            setVerifyTargetId(null);
-          }
-        }}
-        card={verifyingCard}
-        onAccept={async (patch) => {
-          if (!verifyTargetId) return;
-          console.log("[Verify] Scan accept patch:", patch);
-          const skipPrice = !patch.current_price_raw || patch.current_price_raw <= 0;
-          onCardUpdate(verifyTargetId, {
-            cardName: patch.card_name,
-            cardSet: patch.card_set || undefined,
-            cardNumber: patch.card_number || undefined,
-            rarity: patch.rarity || undefined,
-            gameType: patch.game_type || undefined,
-            sportType: patch.sport_type || undefined,
-            ...(skipPrice ? {} : { value: patch.current_price_raw }),
-          });
-          const target = cards.find((c) => c.id === verifyTargetId);
-          if (target?.dbId) {
-            const setVal = patch.card_set || target.cardSet || null;
-            const baseUpdates = {
-              card_name: patch.card_name,
-              card_set: setVal,
-              collection_name: setVal,
-              card_number: patch.card_number,
-              rarity: patch.rarity,
-              game_type: patch.game_type,
-              sport_type: patch.sport_type,
-              updated_at: new Date().toISOString(),
-            };
-            const updates = skipPrice
-              ? baseUpdates
-              : {
-                  ...baseUpdates,
-                  current_price_raw: patch.current_price_raw,
-                  suggested_price: patch.current_price_raw,
-                  last_price_update: new Date().toISOString(),
-                };
-            const { error } = await supabase
-              .from("cards")
-              .update(updates)
-              .eq("id", target.dbId);
-            if (error) {
-              console.error("[Verify] Scan update failed:", error);
-              toast.error("Verified locally, but failed to save: " + error.message);
-              return;
-            }
-            if (!skipPrice) {
-              await supabase.from("price_history").insert({
-                card_id: target.dbId,
-                price_raw: patch.current_price_raw,
-                source: "verification",
-              });
-            }
-          }
-          toast.success(
-            skipPrice
-              ? `Verified identity — price flagged for review`
-              : `Verified — ${patch.card_name} ($${patch.current_price_raw.toFixed(2)})`
-          );
-        }}
-      />
     </>
   );
 };

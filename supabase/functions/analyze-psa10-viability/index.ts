@@ -2,7 +2,6 @@
 // Uses Lovable AI to examine card condition and determine grading potential
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { callAIGateway } from "../_shared/aiGateway.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -66,7 +65,13 @@ serve(async (req) => {
     console.log(`Analyzing PSA 10 viability for image: ${cardImageUrl}`);
 
     // Use Lovable AI to analyze card condition for PSA 10 potential
-    const aiResponse = await callAIGateway({
+    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
         model: "google/gemini-2.5-flash",
         messages: [
           {
@@ -118,7 +123,8 @@ If the image quality is too low to properly assess, set confidence to under 50.`
           }
         ],
         response_format: { type: "json_object" }
-      });
+      }),
+    });
 
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();

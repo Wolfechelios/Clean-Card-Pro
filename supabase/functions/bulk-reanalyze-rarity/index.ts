@@ -20,7 +20,6 @@ const MISSING_RARITY_FILTER =
 type RequestBody = {
   batchSize?: number;
   cardIds?: string[];
-  force?: boolean;
 };
 
 function toSafeCardIds(input: unknown): string[] {
@@ -94,22 +93,18 @@ serve(async (req) => {
     const body: RequestBody = await req.json().catch(() => ({}));
     const batchSize = Math.min(Math.max(Number(body.batchSize || 12), 1), 50);
     const cardIds = toSafeCardIds(body.cardIds);
-    const force = body.force === true;
 
     console.log(
-      `bulk-reanalyze-rarity user=${user.id} batchSize=${batchSize} cardIds=${cardIds.length} force=${force}`
+      `bulk-reanalyze-rarity user=${user.id} batchSize=${batchSize} cardIds=${cardIds.length}`
     );
 
     let query = supabase
       .from("cards")
       .select("id, image_url, card_name, rarity", { count: "exact" })
       .eq("user_id", user.id)
+      .or(MISSING_RARITY_FILTER)
       .order("created_at", { ascending: true, nullsFirst: true })
       .order("id", { ascending: true });
-
-    if (!force) {
-      query = query.or(MISSING_RARITY_FILTER);
-    }
 
     if (cardIds.length > 0) {
       query = query.in("id", cardIds);
@@ -167,49 +162,23 @@ serve(async (req) => {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 20000);
 
-        // Primary: Gemini 2.5 Flash via Lovable AI Gateway. Fallback to GPT-5-mini on rate limit / 5xx.
-        async function callModel(model: string) {
-          return fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${LOVABLE_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model,
-              messages: [{ role: "user", content: prompt }],
-              temperature: 0.2,
-            }),
-            signal: controller.signal,
-          });
-        }
-
-        let resp = await callModel("google/gemini-2.5-flash").finally(() =>
-          clearTimeout(timeout)
-        );
-
-        // Fallback to OpenAI on Gemini failure
-        if (!resp.ok && (resp.status === 429 || resp.status >= 500)) {
-          console.warn(`Gemini failed (${resp.status}), falling back to gpt-5-mini`);
-          const fbController = new AbortController();
-          const fbTimeout = setTimeout(() => fbController.abort(), 20000);
-          resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${LOVABLE_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: "openai/gpt-5-mini",
-              messages: [{ role: "user", content: prompt }],
-            }),
-            signal: fbController.signal,
-          }).finally(() => clearTimeout(fbTimeout));
-        }
+        const resp = await fetch("https://api.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: [{ role: "user", content: prompt }],
+            temperature: 0.2,
+          }),
+          signal: controller.signal,
+        }).finally(() => clearTimeout(timeout));
 
         if (!resp.ok) {
           const apiError = await resp.text();
-          console.error("AI gateway error:", apiError);
+          console.error("Lovable API error:", apiError);
           return {
             id: card.id,
             rarity: null,
@@ -226,13 +195,12 @@ serve(async (req) => {
           return { id: card.id, rarity: null, success: false, reason: "no_rarity" };
         }
 
-        let updateQ = supabase
+        const { error: updateError } = await supabase
           .from("cards")
           .update({ rarity })
           .eq("id", card.id)
-          .eq("user_id", user.id);
-        if (!force) updateQ = updateQ.or(MISSING_RARITY_FILTER);
-        const { error: updateError } = await updateQ;
+          .eq("user_id", user.id)
+          .or(MISSING_RARITY_FILTER);
 
         if (updateError) {
           console.error("Update error:", updateError);

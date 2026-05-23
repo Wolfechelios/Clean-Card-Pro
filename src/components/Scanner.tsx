@@ -1,7 +1,6 @@
-import { useCallback, useMemo, useEffect, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useCallback } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Camera, Usb, Trash2, Upload, Smartphone } from "lucide-react";
+import { Camera, Usb, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 import { useCardScanner } from "@/hooks/use-card-scanner";
@@ -16,8 +15,6 @@ import { CardIdentificationEditor } from "./scanner/CardIdentificationEditor";
 import { NeedsFoilReviewQueue } from "./scanner/NeedsFoilReviewQueue";
 import RapidScanCamera from "./scanner/RapidScanCamera";
 import { USBPhoneCameraScanner } from "./scanner/USBPhoneCameraScanner";
-import { ContinuityCameraIngest } from "./scanner/ContinuityCameraIngest";
-import { RemoteScanDesktop } from "./scanner/RemoteScanDesktop";
 import { USBBulkImport } from "./scanner/USBBulkImport";
 import { DuplicateCardDialog } from "./scanner/DuplicateCardDialog";
 import { RecentScansBox } from "./scanner/RecentScansBox";
@@ -28,29 +25,6 @@ interface ScannerProps {
 
 const Scanner = ({ userId }: ScannerProps) => {
   const { settings, updateSettings } = useScannerSettings();
-  const location = useLocation();
-
-  // Resolve initial tab: ?tab=usb URL param > settings.defaultScanTab
-  const initialTab = useMemo<"rapid" | "phone" | "usb" | "upload">(() => {
-    const params = new URLSearchParams(location.search);
-    const tabParam = params.get("tab");
-    if (tabParam === "rapid" || tabParam === "phone" || tabParam === "usb" || tabParam === "upload") return tabParam;
-    if (location.hash === "#remote") return "phone";
-    return (settings.defaultScanTab as any) || "rapid";
-  }, [location.search, location.hash, settings.defaultScanTab]);
-
-  const [activeTab, setActiveTab] = useState<string>(initialTab);
-
-  // If user navigates with a hash like #remote, scroll the remote card into view once tab is mounted
-  useEffect(() => {
-    if (location.hash === "#remote" && (activeTab === "phone" || activeTab === "usb")) {
-      const t = setTimeout(() => {
-        const el = document.getElementById("remote");
-        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-      }, 200);
-      return () => clearTimeout(t);
-    }
-  }, [location.hash, activeTab]);
 
   const {
     file,
@@ -130,15 +104,11 @@ const Scanner = ({ userId }: ScannerProps) => {
         </Button>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-4" role="tablist">
+      <Tabs defaultValue="rapid" className="w-full">
+        <TabsList className="grid w-full grid-cols-3" role="tablist">
           <TabsTrigger value="rapid" className="flex items-center gap-2">
             <Camera className="h-4 w-4" aria-hidden="true" />
             Rapid Scan
-          </TabsTrigger>
-          <TabsTrigger value="phone" className="flex items-center gap-2">
-            <Smartphone className="h-4 w-4" aria-hidden="true" />
-            Phone (QR)
           </TabsTrigger>
           <TabsTrigger value="usb" className="flex items-center gap-2">
             <Usb className="h-4 w-4" aria-hidden="true" />
@@ -152,28 +122,6 @@ const Scanner = ({ userId }: ScannerProps) => {
 
         <TabsContent value="rapid">
           <RapidScanCamera />
-        </TabsContent>
-
-        <TabsContent value="phone">
-          {pendingCard ? (
-            <CardIdentificationEditor
-              userId={userId}
-              primaryCard={pendingCard.identifiedCard}
-              alternatives={pendingCard.alternatives}
-              imageUrl={preview || undefined}
-              scanMode={pendingCard.scanMode}
-              ownedCount={pendingCard.ownedCount}
-              isInLibrary={pendingCard.isInLibrary}
-              currentPriceRaw={pendingCard.fallbackData?.currentPriceRaw ?? null}
-              onConfirm={handleConfirmCard}
-              onSelectAlternative={handleSelectAlternative}
-              onCancel={handleCancelCard}
-            />
-          ) : (
-            <div id="remote" className="space-y-6">
-              <RemoteScanDesktop userId={userId} onImageReceived={handleUSBCapture} />
-            </div>
-          )}
         </TabsContent>
 
         <TabsContent value="usb">
@@ -193,7 +141,6 @@ const Scanner = ({ userId }: ScannerProps) => {
             />
           ) : (
             <div className="space-y-6">
-              <ContinuityCameraIngest onImageCaptured={handleUSBCapture} />
               <USBBulkImport />
               <USBPhoneCameraScanner onImageCaptured={handleUSBCapture} />
             </div>

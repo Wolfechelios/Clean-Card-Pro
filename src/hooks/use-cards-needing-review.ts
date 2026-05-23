@@ -245,42 +245,6 @@ export function useCardsNeedingReview() {
     }
   }, [userId, fetchCounts]);
 
-  const bulkApproveCards = useCallback(async (cardIds: string[]): Promise<{ approved: number; success: boolean }> => {
-    if (!userId || cardIds.length === 0) return { approved: 0, success: false };
-    try {
-      const { error } = await supabase
-        .from("cards")
-        .update({ ocr_confidence: 100 })
-        .in("id", cardIds)
-        .eq("user_id", userId);
-      if (error) throw error;
-      setCards((prev) => prev.filter((c) => !cardIds.includes(c.id)));
-      fetchCounts();
-      return { approved: cardIds.length, success: true };
-    } catch (err) {
-      console.error("Error bulk approving cards:", err);
-      return { approved: 0, success: false };
-    }
-  }, [userId, fetchCounts]);
-
-  const deleteCard = useCallback(async (cardId: string) => {
-    if (!userId) return false;
-    try {
-      const { error } = await supabase
-        .from("cards")
-        .delete()
-        .eq("id", cardId)
-        .eq("user_id", userId);
-      if (error) throw error;
-      setCards((prev) => prev.filter((c) => c.id !== cardId));
-      fetchCounts();
-      return true;
-    } catch (err) {
-      console.error("Error deleting card:", err);
-      return false;
-    }
-  }, [userId, fetchCounts]);
-
   return {
     cards,
     counts,
@@ -289,8 +253,6 @@ export function useCardsNeedingReview() {
     fetchCounts,
     markAsReviewed,
     dismissCard,
-    deleteCard,
-    bulkApproveCards,
     deleteAllByFilter,
   };
 }

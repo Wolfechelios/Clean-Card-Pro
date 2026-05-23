@@ -17,6 +17,9 @@ import {
   triggerFastFocus 
 } from "@/lib/camera-optimizations";
 import { WhiteBalanceControl } from "./WhiteBalanceControl";
+import { useScannerSettings } from "@/hooks/use-scanner-settings";
+import { IPhoneProCapturePanel } from "./IPhoneProCapturePanel";
+import { analyzeBlobCaptureQuality, formatQualityFlags, getProVideoConstraints } from "@/lib/iphoneProCapture";
 
 interface MobileCameraScannerProps {
   userId: string;
@@ -29,6 +32,7 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
   const cameraFacing = 'environment' as const;
   const [isInitializing, setIsInitializing] = useState(true);
   const [useNativeMode, setUseNativeMode] = useState(isNativePlatform());
+  const { settings } = useScannerSettings();
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   
@@ -54,7 +58,13 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
 
       const result = await takeNativePhoto();
       if (result) {
-        const file = new File([result.blob], `card-${Date.now()}.jpg`, { type: 'image/jpeg' });
+        if (settings.proCaptureEnabled) {
+          const quality = await analyzeBlobCaptureQuality(result.blob, settings.proCaptureMode).catch(() => null);
+          if (quality && settings.proCaptureQualityGate && quality.overall < settings.proCaptureMinConfidence) {
+            toast.warning(`Low capture confidence (${quality.overall}%) — ${formatQualityFlags(quality.flags)}`);
+          }
+        }
+        const file = new File([result.blob], `card-${Date.now()}-${settings.proCaptureMode}.jpg`, { type: 'image/jpeg' });
         onImageCaptured(file);
         toast.success("Photo captured!");
       }
@@ -113,7 +123,11 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
 
       // Build constraint strategies for maximum quality
       
-      const constraintStrategies = targetDeviceId ? [
+      const proConstraint = settings.proCaptureEnabled
+        ? getProVideoConstraints(settings.proCaptureMode, targetDeviceId || undefined)
+        : null;
+
+      const constraintStrategies = proConstraint ? [proConstraint] : targetDeviceId ? [
         // 8K/4K with device ID
         {
           video: {
@@ -304,7 +318,13 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
         quality: 0.95,
       });
       
-      const file = new File([blob], `card-${Date.now()}.jpg`, { type: 'image/jpeg' });
+      if (settings.proCaptureEnabled) {
+        const quality = await analyzeBlobCaptureQuality(blob, settings.proCaptureMode).catch(() => null);
+        if (quality && settings.proCaptureQualityGate && quality.overall < settings.proCaptureMinConfidence) {
+          toast.warning(`Low capture confidence (${quality.overall}%) — ${formatQualityFlags(quality.flags)}`);
+        }
+      }
+      const file = new File([blob], `card-${Date.now()}-${settings.proCaptureMode}.jpg`, { type: 'image/jpeg' });
       onImageCaptured(file);
       toast.success("Photo captured!");
       
@@ -343,6 +363,7 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <IPhoneProCapturePanel compact />
           <div className="relative aspect-[3/4] bg-card rounded-lg overflow-hidden flex flex-col items-center justify-center border-2 border-dashed border-border">
             <Camera className="h-16 w-16 text-muted-foreground mb-4" />
             <p className="text-muted-foreground text-center px-4">
@@ -399,13 +420,16 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <CameraDeviceSelector
-          devices={devices}
-          selectedDeviceId={selectedDeviceId}
-          onDeviceChange={handleDeviceChange}
-          onRefresh={refreshDevices}
-          isLoading={devicesLoading}
-        />
+        <IPhoneProCapturePanel compact />
+        {devices.length > 1 && (
+          <CameraDeviceSelector
+            devices={devices}
+            selectedDeviceId={selectedDeviceId}
+            onDeviceChange={handleDeviceChange}
+            onRefresh={refreshDevices}
+            isLoading={devicesLoading}
+          />
+        )}
         
         <div className="relative w-full bg-black rounded-lg overflow-hidden" style={{ aspectRatio: "3/4", maxHeight: "70vh" }}>
           <video

@@ -1,65 +1,39 @@
-## Problem
 
-Looking at recent `fetch-card-prices` logs, almost every call returns `"source":"No data"`:
-- Firecrawl is returning **408 timeouts** on PriceCharting and eBay scrapes constantly.
-- PriceCharting "direct URL" guesser builds invalid slugs (e.g. `mountain-battle-for-zendikar-267274`, `benthic-explorers-mirage`) → 408 → falls back to search → also 408.
-- The pipeline is 100% scraping-based for MTG, Pokémon, and sports. That's slow, brittle, and costs Firecrawl credits even on failure.
-- The `price_cache` table exists in the DB but is never read or written by the edge function.
-- `search-card-details` (set lookups) only supports YGO + Pokémon. MTG falls through to YGOProDeck and gets nothing.
 
-## Goal
+## Plan: Fix Build Errors, COMC Category Bug, and Scan Reliability
 
-Make pricing and set lookups **API-first, scrape-fallback**: use the free official catalog APIs as the primary source, hit the DB cache before any network call, and only fall back to Firecrawl when APIs return nothing.
+### Problem Summary
+Three issues are causing scan failures and build problems:
 
-## Changes
+1. **Build errors** — Three files use `Record<string, any>` for Supabase `.update()` calls, which the new strict typing rejects.
+2. **COMC wrong category** — Sports cards (Dave Winfield, Eddie Murray, etc.) are searched under "Pokemon" on COMC because the category logic only handles MTG; everything else defaults to "Pokemon". This returns zero results for all sports cards.
+3. **Rate limiting delays** — Lovable AI is consistently rate-limited, causing every scan to wait 3+ seconds before falling back to your Gemini key. Not a code bug, but adds latency.
 
-### 1. `supabase/functions/fetch-card-prices/index.ts` — API-first pricing
+### Changes
 
-Add new fast adapters that run **before** any Firecrawl scrape:
+**1. Fix build errors (3 files)**
 
-- **Scryfall (MTG)** — `https://api.scryfall.com/cards/named?fuzzy=...` returns `prices.usd`, `prices.usd_foil`, `prices.usd_etched`. Free, no key, ~100ms. Becomes primary raw price for MTG.
-- **YGOProDeck (Yu-Gi-Oh!)** — `card_prices[].tcgplayer_price` / `cardmarket_price`. Free, no key. Primary raw for YGO; PriceCharting/eBay become fallback only.
-- **Pokémon TCG (`api.pokemontcg.io/v2`)** — `tcgplayer.prices.{normal,holofoil,reverseHolofoil}.market`. Primary raw for Pokémon.
+| File | Fix |
+|------|-----|
+| `src/components/collections/CardsNeedingReview.tsx` (lines 168, 251) | Cast `dbUpdates`/`updates` from `Record<string, any>` to the proper Supabase update type using `as any` on the `.update()` call |
+| `src/components/settings/BulkCardReidentify.tsx` (line 148) | Same fix — cast `updateData` with `as any` in the `.update()` call |
 
-For each game, only fall back to Firecrawl/PriceCharting/eBay when the API returns null OR when we still need PSA9/PSA10 grades (the APIs only give raw).
+**2. Fix COMC category mapping (`supabase/functions/fetch-card-prices/index.ts`)**
 
-### 2. Add price cache read/write
+The `fetchCOMCPrices` function (line 384) currently defaults to `"Pokemon"` for all non-MTG cards, including sports cards. Fix:
 
-- Before any network call, `SELECT` from `price_cache` keyed by `identity_hash` (sha256 of `name|set|number|game|condition`) where `updated_at > now() - 24h`. If hit, return immediately.
-- After a successful pricing result, `INSERT` (upsert on `identity_hash`) into `price_cache` so subsequent calls within 24h skip all scraping.
+- Add `"Baseball"`, `"Football"`, `"Basketball"`, `"Hockey"` categories based on `gameType` and `sportType` (need to pass `sportType` into the function)
+- Add `"Yu-Gi-Oh"` category
+- Only default to `"Pokemon"` when the game type is actually Pokemon
+- For unknown types, use a generic COMC search without category
 
-### 3. Firecrawl resilience
+**3. Skip Lovable AI retry delay (optional optimization)**
 
-- Add 1 retry with 1s backoff on 408/429/5xx (single retry, not infinite loops).
-- Drop the `waitFor: 3000` for PriceCharting (the page is server-rendered) — this is a major contributor to the 408s.
-- Skip the "guess direct URL" attempt for PriceCharting and go straight to the search endpoint, which is the only one that reliably returns markdown.
+In the `rapid-card-identify` edge function, reduce the rate-limit retry wait from 2 attempts (1s + 2s = 3s) to 1 attempt (1s) before falling back to the user's Gemini key, cutting wasted time in half.
 
-### 4. `supabase/functions/search-card-details/index.ts` — add MTG + smarter routing
+### Technical Details
 
-- Add `searchScryfall(name)` that returns set name, collector number, rarity, set code, image, and `prices.usd`. Already free + fast.
-- Route MTG/Magic to Scryfall, YGO to YGOProDeck, Pokémon to PokémonTCG.io.
-- For unknown game type, run Scryfall + YGOProDeck + Pokémon in parallel and return the union (capped at 10 results).
+- The COMC function signature needs `sportType` added as a parameter
+- The caller in the main handler (~line 460-470) needs to pass `sportType` through
+- COMC category map: `baseball` → `"Baseball"`, `football` → `"Football"`, `basketball` → `"Basketball"`, `hockey` → `"Hockey"`, `yugioh` → `"Yu-Gi-Oh"`, `pokemon` → `"Pokemon"`, `mtg/magic` → `"Magic"`
 
-### 5. Schema migration: cache de-dup index
-
-Add a unique index on `price_cache.identity_hash` (currently nullable + no unique key) so the upsert in step 2 works:
-```sql
-CREATE UNIQUE INDEX IF NOT EXISTS price_cache_identity_source_idx
-  ON public.price_cache (identity_hash, source);
-```
-
-### 6. Client side
-
-No structural changes — `fetchCardPricesShared` and `EbaySoldAdapter` keep their existing shape. The new API-derived prices populate the same `raw`, `psa9`, `psa10`, `tcgPlayerMarket`, etc. fields, so all downstream consumers (BulkPriceRefresh, queueProcessor, RapidScanCamera, PriceConsensusPanel) work unchanged.
-
-## Files touched
-
-- `supabase/functions/fetch-card-prices/index.ts` (rewrite the source-routing block, add Scryfall/YGOProDeck/PokémonTCG fetchers, add cache layer, harden Firecrawl)
-- `supabase/functions/search-card-details/index.ts` (add Scryfall, route by game)
-- `supabase/migrations/<new>.sql` (unique index on `price_cache`)
-
-## Out of scope
-
-- No client UI changes.
-- No changes to graded-card pricing / PSA10 scrape flow (separate function, working).
-- No new external API keys required — all three catalog APIs are free + keyless.

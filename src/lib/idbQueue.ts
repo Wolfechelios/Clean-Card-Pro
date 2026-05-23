@@ -14,6 +14,14 @@ export type QueueItem = {
   blob: Blob
   mime: string
   filename: string
+
+  // Optional capture metadata used by iPhone Pro / high-detail scanner modes.
+  // Queue processors can ignore these safely; UI and future local models can use them.
+  captureMode?: string
+  captureProfile?: string
+  preflightConfidence?: number
+  qualityFlags?: string[]
+  source?: string
 }
 
 export type QueueItemMeta = Omit<QueueItem, "blob">
@@ -157,6 +165,11 @@ export async function idbListMetaFast(limit = 500): Promise<QueueItemMeta[]> {
         error: v.error,
         mime: v.mime,
         filename: v.filename,
+        captureMode: v.captureMode,
+        captureProfile: v.captureProfile,
+        preflightConfidence: v.preflightConfidence,
+        qualityFlags: v.qualityFlags,
+        source: v.source,
       })
       cursor.continue()
     }
@@ -173,63 +186,6 @@ export async function idbListMetaFast(limit = 500): Promise<QueueItemMeta[]> {
  * Also picks up stuck "processing" items older than 5s (orphaned from crashes/scaling).
  * Returns full item (includes blob).
  */
-
-export async function idbClaimNextQueued(): Promise<QueueItem | null> {
-  const db = await openDB()
-  const STUCK_THRESHOLD_MS = 5_000
-  const stuckCutoff = Date.now() - STUCK_THRESHOLD_MS
-
-  const next = await new Promise<QueueItem | null>((resolve, reject) => {
-    const t = db.transaction(STORE, "readwrite")
-    const store = t.objectStore(STORE)
-    const idx = store.index("status_createdAt")
-
-    const claimCursor = (range: IDBKeyRange, allowStuckCheck: boolean) => {
-      const req = idx.openCursor(range, "next")
-      req.onsuccess = () => {
-        const cursor = req.result as IDBCursorWithValue | null
-        if (!cursor) {
-          if (allowStuckCheck) {
-            const processingRange = IDBKeyRange.bound(["processing", 0], ["processing", Number.MAX_SAFE_INTEGER])
-            claimCursor(processingRange, false)
-          } else {
-            resolve(null)
-          }
-          return
-        }
-
-        const item = cursor.value as QueueItem
-        if (item.status === "processing") {
-          const startedAt = item.processingStartedAt || item.createdAt
-          if (startedAt >= stuckCutoff) {
-            cursor.continue()
-            return
-          }
-        }
-
-        const claimed: QueueItem = {
-          ...item,
-          status: "processing",
-          processingStartedAt: Date.now(),
-          error: undefined,
-        }
-        cursor.update(claimed)
-        resolve(claimed)
-      }
-      req.onerror = () => reject(req.error)
-    }
-
-    const queuedRange = IDBKeyRange.bound(["queued", 0], ["queued", Number.MAX_SAFE_INTEGER])
-    claimCursor(queuedRange, true)
-
-    t.onerror = () => reject(t.error)
-    t.onabort = () => reject(t.error)
-  })
-
-  db.close()
-  return next
-}
-
 export async function idbGetNextQueued(): Promise<QueueItem | null> {
   const db = await openDB()
   const STUCK_THRESHOLD_MS = 5_000 // 5 seconds - reduced for faster recovery
