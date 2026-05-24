@@ -35,7 +35,7 @@ export function UploadTab({
   onClear,
 }: UploadTabProps) {
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    <div className="grid gap-4 sm:gap-6 lg:grid-cols-2 w-full min-w-0">
       <Card className="shadow-card">
         <CardHeader>
           <CardTitle>Upload Card Image(s)</CardTitle>
