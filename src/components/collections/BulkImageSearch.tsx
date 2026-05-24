@@ -34,13 +34,13 @@ export function BulkImageSearch({ onComplete }: BulkImageSearchProps) {
   const loadCounts = async () => {
     setIsLoading(true);
     try {
-      // Count cards that truly need images (placeholders or null)
+      // Count cards that need repair (missing, placeholder, failed, or unresolved external links)
       const { count, error } = await supabase
         .from("cards")
         .select("*", { count: "exact", head: true })
         .eq("user_id", userId)
         .eq("image_locked", false)
-        .or("image_url.is.null,image_url.ilike.%placehold%");
+        .or("image_url.is.null,image_url.eq.,image_url.ilike.%placehold%,image_status.eq.failed,image_status.eq.external,image_search_status.eq.not_found,image_search_status.eq.error");
 
       if (error) throw error;
       setMissingCount(count || 0);
@@ -88,7 +88,7 @@ export function BulkImageSearch({ onComplete }: BulkImageSearchProps) {
 
       for (let i = 0; i < totalBatches; i++) {
         const { data, error } = await supabase.functions.invoke("resolve-missing-images", {
-          body: { limit: batchSize },
+          body: { limit: batchSize, includeBroken: true },
         });
 
         if (error) throw error;
@@ -231,7 +231,7 @@ export function BulkImageSearch({ onComplete }: BulkImageSearchProps) {
             ) : (
               <ImagePlus className="h-4 w-4 mr-2" />
             )}
-            Find Missing Images ({missingCount})
+            Repair Missing/Broken Images ({missingCount})
           </Button>
 
           <Button 

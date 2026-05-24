@@ -245,6 +245,64 @@ export function useCardsNeedingReview() {
     }
   }, [userId, fetchCounts]);
 
+  const bulkApproveCards = useCallback(async (cardIds: string[]): Promise<{ approved: number; success: boolean }> => {
+    if (!userId || cardIds.length === 0) return { approved: 0, success: false };
+    try {
+      // Fetch current state to fill missing fields with placeholders so they leave the review queue
+      const { data: existing, error: fetchErr } = await supabase
+        .from("cards")
+        .select("id, card_name, card_set, rarity")
+        .in("id", cardIds)
+        .eq("user_id", userId);
+      if (fetchErr) throw fetchErr;
+
+      const isMissing = (v: string | null) =>
+        !v || v === "" || v.toLowerCase() === "unknown";
+
+      let approved = 0;
+      // Update in parallel batches
+      await Promise.all(
+        (existing || []).map(async (c: any) => {
+          const updates: Record<string, any> = { ocr_confidence: 100 };
+          if (isMissing(c.card_name)) updates.card_name = "N/A";
+          if (isMissing(c.card_set)) updates.card_set = "N/A";
+          if (isMissing(c.rarity)) updates.rarity = "N/A";
+          const { error } = await supabase
+            .from("cards")
+            .update(updates as any)
+            .eq("id", c.id)
+            .eq("user_id", userId);
+          if (!error) approved++;
+        })
+      );
+
+      setCards((prev) => prev.filter((c) => !cardIds.includes(c.id)));
+      fetchCounts();
+      return { approved, success: approved > 0 };
+    } catch (err) {
+      console.error("Error bulk approving cards:", err);
+      return { approved: 0, success: false };
+    }
+  }, [userId, fetchCounts]);
+
+  const deleteCard = useCallback(async (cardId: string) => {
+    if (!userId) return false;
+    try {
+      const { error } = await supabase
+        .from("cards")
+        .delete()
+        .eq("id", cardId)
+        .eq("user_id", userId);
+      if (error) throw error;
+      setCards((prev) => prev.filter((c) => c.id !== cardId));
+      fetchCounts();
+      return true;
+    } catch (err) {
+      console.error("Error deleting card:", err);
+      return false;
+    }
+  }, [userId, fetchCounts]);
+
   return {
     cards,
     counts,
@@ -253,6 +311,8 @@ export function useCardsNeedingReview() {
     fetchCounts,
     markAsReviewed,
     dismissCard,
+    deleteCard,
+    bulkApproveCards,
     deleteAllByFilter,
   };
 }

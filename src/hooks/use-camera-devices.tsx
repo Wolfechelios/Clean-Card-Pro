@@ -1,6 +1,51 @@
 import { useState, useEffect, useCallback } from "react";
 
-export type LensType = "wide" | "ultrawide" | "telephoto" | "macro" | "depth" | "standard" | "usb" | "unknown";
+export type LensType =
+  | "wide"
+  | "ultrawide"
+  | "telephoto"
+  | "macro"
+  | "depth"
+  | "standard"
+  | "usb"
+  | "camo"
+  | "continuity"
+  | "epoccam"
+  | "droidcam"
+  | "iriun"
+  | "unknown";
+
+/**
+ * Recognize phone-as-webcam apps (Camo, Continuity Camera, EpocCam, DroidCam, Iriun)
+ * and return a friendly label + dedicated lens type so they stand out in the picker.
+ */
+function classifyPhoneCam(label: string): { lensType: LensType; lensLabel: string } | null {
+  const l = label.toLowerCase();
+  if (l.includes("camo") || l.includes("reincubate")) {
+    // Reincubate Camo / Camo Studio — "Reincubate Camo", "Camo", "Camo 2", etc.
+    const isIpad = l.includes("ipad");
+    const isIphone = !isIpad && (l.includes("iphone") || l.includes("ios"));
+    const suffix = isIpad ? " (iPad)" : isIphone ? " (iPhone)" : "";
+    return { lensType: "camo", lensLabel: `Camo${suffix}` };
+  }
+  if (l.includes("ipad") || l.includes("apple ipad") || l === "ipad" || l.includes("ios camera") || l.includes("ios cam")) {
+    // Camo Studio sometimes exposes the iPad directly under its device name
+    return { lensType: "camo", lensLabel: "Camo (iPad)" };
+  }
+  if (l.includes("continuity") || l.includes("desk view")) {
+    return { lensType: "continuity", lensLabel: "Continuity Camera" };
+  }
+  if (l.includes("epoccam")) {
+    return { lensType: "epoccam", lensLabel: "EpocCam" };
+  }
+  if (l.includes("droidcam")) {
+    return { lensType: "droidcam", lensLabel: "DroidCam" };
+  }
+  if (l.includes("iriun")) {
+    return { lensType: "iriun", lensLabel: "Iriun Webcam" };
+  }
+  return null;
+}
 
 export interface CameraDevice {
   deviceId: string;
@@ -8,59 +53,6 @@ export interface CameraDevice {
   isUSB: boolean;
   lensType: LensType;
   lensLabel: string;
-}
-
-export type PreferredCameraLens = "auto" | "ultra_wide" | "main_48mp" | "telephoto" | "macro";
-
-const CAMERA_DEVICE_STORAGE_KEY = "clean-card-pro-selected-camera-device-v1";
-
-function readStoredDeviceId(): string {
-  if (typeof window === "undefined") return "";
-  try {
-    return localStorage.getItem(CAMERA_DEVICE_STORAGE_KEY) || "";
-  } catch {
-    return "";
-  }
-}
-
-function writeStoredDeviceId(deviceId: string) {
-  if (typeof window === "undefined") return;
-  try {
-    if (deviceId) localStorage.setItem(CAMERA_DEVICE_STORAGE_KEY, deviceId);
-    else localStorage.removeItem(CAMERA_DEVICE_STORAGE_KEY);
-  } catch {
-    // ignore private-mode storage failures
-  }
-}
-
-export function resolvePreferredCameraDevice(
-  devices: CameraDevice[],
-  selectedDeviceId: string,
-  preferredLens: PreferredCameraLens = "auto"
-): string {
-  if (selectedDeviceId && devices.some((device) => device.deviceId === selectedDeviceId)) {
-    return selectedDeviceId;
-  }
-
-  if (preferredLens === "main_48mp") {
-    return devices.find((device) => device.lensType === "wide")?.deviceId || devices[0]?.deviceId || "";
-  }
-  if (preferredLens === "ultra_wide") {
-    return devices.find((device) => device.lensType === "ultrawide")?.deviceId || devices[0]?.deviceId || "";
-  }
-  if (preferredLens === "telephoto") {
-    return devices.find((device) => device.lensType === "telephoto")?.deviceId || devices[0]?.deviceId || "";
-  }
-  if (preferredLens === "macro") {
-    return (
-      devices.find((device) => device.lensType === "macro" || device.lensType === "depth")?.deviceId ||
-      devices.find((device) => device.lensType === "telephoto")?.deviceId ||
-      devices[0]?.deviceId ||
-      ""
-    );
-  }
-
-  return devices.find((device) => device.lensType === "wide")?.deviceId || devices[0]?.deviceId || "";
 }
 
 /**
@@ -133,10 +125,14 @@ function isUSBDevice(label: string): boolean {
     l.includes("phone") ||
     l.includes("android") ||
     l.includes("iphone") ||
+    l.includes("ipad") ||
+    l.includes("continuity") ||
+    l.includes("desk view") ||
     l.includes("webcam") ||
     l.includes("droidcam") ||
     l.includes("iriun") ||
     l.includes("camo") ||
+    l.includes("reincubate") ||
     l.includes("epoccam") ||
     (!l.includes("front") &&
       !l.includes("back") &&
@@ -148,7 +144,7 @@ function isUSBDevice(label: string): boolean {
 
 export const useCameraDevices = () => {
   const [devices, setDevices] = useState<CameraDevice[]>([]);
-  const [selectedDeviceIdState, setSelectedDeviceIdState] = useState<string>(() => readStoredDeviceId());
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
 
   const refreshDevices = useCallback(async () => {
@@ -183,8 +179,14 @@ export const useCameraDevices = () => {
         let lensLabel = label;
 
         if (usb) {
-          lensType = "usb";
-          lensLabel = label;
+          const phoneCam = classifyPhoneCam(label);
+          if (phoneCam) {
+            lensType = phoneCam.lensType;
+            lensLabel = phoneCam.lensLabel;
+          } else {
+            lensType = "usb";
+            lensLabel = label;
+          }
         } else if (rear) {
           const classification = classifyLens(label, rearCounter, rearIndices.length);
           lensType = classification.lensType;
@@ -205,22 +207,27 @@ export const useCameraDevices = () => {
         };
       }).filter(Boolean) as CameraDevice[];
 
-      setDevices(videoDevices);
+      // Diagnostics: log exactly what the OS reports so we can extend matchers if needed
+      try {
+        // eslint-disable-next-line no-console
+        console.info(
+          "[camera-devices] enumerated",
+          videoDevices.map(d => ({ label: d.label, lensType: d.lensType, lensLabel: d.lensLabel }))
+        );
+      } catch {}
 
-      // Preserve the user's exact camera/lens choice across refreshes and remounts.
-      setSelectedDeviceIdState(prev => {
-        const stored = readStoredDeviceId();
-        const preferred = prev || stored;
-        if (preferred && videoDevices.some(d => d.deviceId === preferred)) {
-          writeStoredDeviceId(preferred);
-          return preferred;
-        }
-        if (videoDevices.length === 0) {
-          writeStoredDeviceId("");
-          return "";
-        }
+      setDevices(prev => {
+        // Skip state update when nothing changed (avoids re-render churn from polling)
+        const sig = (arr: CameraDevice[]) =>
+          arr.map(d => `${d.deviceId}|${d.label}`).sort().join("~~");
+        return sig(prev) === sig(videoDevices) ? prev : videoDevices;
+      });
+
+      // Auto-select main wide lens or first device
+      setSelectedDeviceId(prev => {
+        if (prev && videoDevices.some(d => d.deviceId === prev)) return prev;
+        if (videoDevices.length === 0) return "";
         const mainLens = videoDevices.find(d => d.lensType === "wide") || videoDevices[0];
-        writeStoredDeviceId(mainLens.deviceId);
         return mainLens.deviceId;
       });
     } catch (error) {
@@ -234,19 +241,34 @@ export const useCameraDevices = () => {
     refreshDevices();
 
     navigator.mediaDevices.addEventListener("devicechange", refreshDevices);
+
+    // Re-enumerate when the tab regains focus / visibility — Camo Studio is often
+    // launched after the page loads, and `devicechange` doesn't always fire for
+    // virtual cameras whose underlying source (the iPad) hot-plugs.
+    const onFocus = () => refreshDevices();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refreshDevices();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    // Lightweight poll while visible: catches Camo iPad connection events the
+    // browser silently misses. Cheap because state only updates on real change.
+    const poll = window.setInterval(() => {
+      if (document.visibilityState === "visible") refreshDevices();
+    }, 4000);
+
     return () => {
       navigator.mediaDevices.removeEventListener("devicechange", refreshDevices);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.clearInterval(poll);
     };
   }, [refreshDevices]);
 
-  const setSelectedDeviceId = useCallback((deviceId: string) => {
-    writeStoredDeviceId(deviceId);
-    setSelectedDeviceIdState(deviceId);
-  }, []);
-
   return {
     devices,
-    selectedDeviceId: selectedDeviceIdState,
+    selectedDeviceId,
     setSelectedDeviceId,
     isLoading,
     refreshDevices,

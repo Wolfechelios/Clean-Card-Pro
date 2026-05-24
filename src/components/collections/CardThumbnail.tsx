@@ -86,37 +86,19 @@ export function CardThumbnail({
     setIsLookingUp(true);
 
     try {
-      const { data: lookupData, error: lookupError } = await supabase.functions.invoke("generate-card-image-url", {
-        body: {
-          cardName,
-          cardSet,
-          gameType: gameType || sportType,
-        },
+      const { data, error } = await supabase.functions.invoke("resolve-card-image", {
+        body: { card_id: id },
       });
 
-      if (lookupError) throw lookupError;
+      if (error) throw error;
 
-      if (!lookupData?.found || !lookupData?.imageUrl || lookupData.imageUrl.includes("placehold")) {
-        toast.info("No image found for this card");
-        return;
-      }
-
-      const { data: attachData, error: attachError } = await supabase.functions.invoke("attach-image", {
-        body: {
-          cardId: id,
-          remoteImageUrl: lookupData.imageUrl,
-        },
-      });
-
-      if (attachError) throw attachError;
-
-      if (attachData?.success && attachData?.imageUrl) {
-        setCurrentImageUrl(attachData.imageUrl);
+      if (data?.status === "found" || data?.status === "cached") {
+        if (data.image_url) setCurrentImageUrl(data.image_url);
         setImageError(false);
         toast.success("Image found and saved");
         onImageUpdated?.();
       } else {
-        throw new Error(attachData?.error || "Failed to save image");
+        toast.info("No image found for this card");
       }
     } catch (error: any) {
       console.error("Image lookup error:", error);
@@ -207,7 +189,17 @@ export function CardThumbnail({
             src={currentImageUrl}
             alt={cardName}
             loading="lazy"
-            onError={() => setImageError(true)}
+            onError={() => {
+              setImageError(true);
+              void supabase
+                .from("cards")
+                .update({
+                  image_status: "failed",
+                  image_search_status: "error",
+                  image_error: "Stored image URL failed to load",
+                })
+                .eq("id", id);
+            }}
             className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
           />
         ) : imageError && currentImageUrl ? (

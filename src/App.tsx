@@ -17,6 +17,7 @@ import { PWAInstallBanner } from "@/components/pwa/PWAInstallBanner";
 import { PwaUpdateBanner } from "@/components/pwa/PwaUpdateBanner";
 import { usePWAOnboarding } from "@/hooks/use-pwa-onboarding";
 import { useQueueAutoResume } from "@/hooks/use-queue-auto-resume";
+import { PreviewReloadButton } from "@/components/dev/PreviewReloadButton";
 
 const Auth = lazy(() => import("./pages/Auth"));
 const NewDashboard = lazy(() => import("./pages/NewDashboard"));
@@ -40,7 +41,7 @@ const InstallPage = lazy(() => import("./pages/InstallPage"));
 const DeckBuilderPage = lazy(() => import("./pages/DeckBuilderPage"));
 const PriceDatabasePage = lazy(() => import("./pages/PriceDatabasePage"));
 const BinderPage = lazy(() => import("./pages/BinderPage"));
-const IPhoneProScanPage = lazy(() => import("./pages/IPhoneProScanPage"));
+const BulkToolsPage = lazy(() => import("./pages/BulkToolsPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient({
@@ -98,7 +99,7 @@ function AppRoutes() {
         <Route path="/deck-builder" element={session ? <Authed><DeckBuilderPage /></Authed> : <Navigate to="/auth" />} />
         <Route path="/price-database" element={session ? <Authed><PriceDatabasePage /></Authed> : <Navigate to="/auth" />} />
         <Route path="/binder" element={session ? <Authed><BinderPage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/iphone-pro" element={session ? <Authed><IPhoneProScanPage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/bulk-tools" element={session ? <Authed><BulkToolsPage /></Authed> : <Navigate to="/auth" />} />
 
         <Route path="*" element={<NotFound />} />
       </Routes>
@@ -147,6 +148,7 @@ const App = () => {
                   <AppRoutes />
                   <QueueStatusIndicator />
                   <OfflineIndicator />
+                  <PreviewReloadButton />
                 </PWAWrapper>
               </AuthProvider>
             </BrowserRouter>

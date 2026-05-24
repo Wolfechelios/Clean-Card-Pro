@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { rateLimitResponse } from "../_shared/rateLimiter.ts";
+import { requireAuth } from "../_shared/requireAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -219,18 +220,13 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // Rate limit by user
-  try {
-    const authHeader = req.headers.get('Authorization') || '';
-    const token = authHeader.replace('Bearer ', '');
-    if (token) {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      if (payload.sub) {
-        const rl = rateLimitResponse(payload.sub, "graded-card-pricing", corsHeaders, 20, 60_000);
-        if (rl) return rl;
-      }
-    }
-  } catch { /* continue */ }
+  // Require auth + rate limit
+  const authResult = await requireAuth(req, corsHeaders);
+  if (authResult instanceof Response) return authResult;
+  {
+    const rl = rateLimitResponse(authResult.userId, "graded-card-pricing", corsHeaders, 20, 60_000);
+    if (rl) return rl;
+  }
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;

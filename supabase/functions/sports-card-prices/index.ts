@@ -1,4 +1,5 @@
 import { corsHeaders } from "../_shared/cors.ts";
+import { requireAuth } from "../_shared/requireAuth.ts";
 
 interface SportsCardPriceResult {
   sportsCardPro: SourceResult;
@@ -264,6 +265,9 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+
+  const authResult = await requireAuth(req, corsHeaders);
+  if (authResult instanceof Response) return authResult;
 
   try {
     const { cardName, cardSet, cardNumber, playerName, year, sportType } = await req.json();

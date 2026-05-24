@@ -111,8 +111,13 @@ export function RecentScansBox() {
                 />
               )}
               <div className="flex-1 min-w-0">
-                <div className="truncate font-medium text-sm">
-                  {scan.card_name}
+                <div className="truncate font-medium text-sm flex items-center gap-1.5">
+                  <span className="truncate">{scan.card_name}</span>
+                  {scan.scanCount && scan.scanCount > 1 && (
+                    <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 shrink-0">
+                      ×{scan.scanCount}
+                    </Badge>
+                  )}
                 </div>
                 <div className="text-muted-foreground truncate text-xs">
                   {scan.player_name && <span>{scan.player_name}</span>}

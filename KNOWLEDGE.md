@@ -279,7 +279,7 @@ deleteCardDual(id) → Supabase DELETE + localforage delete
 - Bucket: `card-images` (public)
 - Path: `cards/{game}/{id}.jpg`
 - Server-side download via edge functions to avoid CORS
-- `toPublicImageUrl()` recovers expired signed URLs to permanent public URLs
+- Stored image URLs must be permanent public storage URLs; repair utilities recover expired signed/authenticated URLs and broken statuses from `image_storage_path`
 - Source priority: Game DB (Scryfall, PokémonTCG, YGOProDeck) → PriceCharting → eBay (last resort)
 
 ### 5.6 Valuation Formula

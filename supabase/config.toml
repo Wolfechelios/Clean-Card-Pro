@@ -117,7 +117,7 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.delete-user-account]
-verify_jwt = false
+verify_jwt = true
 
 [functions.deck-builder]
 verify_jwt = true

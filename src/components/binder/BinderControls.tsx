@@ -3,6 +3,13 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import type { BinderSet } from "@/hooks/use-binder-data";
+import type {
+  BinderSettings,
+  ImageDisplayMode,
+  ImageFitMode,
+  CardSizeMode,
+  MissingStyle,
+} from "@/hooks/use-binder-settings";
 
 interface BinderControlsProps {
   sets: BinderSet[];
@@ -19,6 +26,8 @@ interface BinderControlsProps {
   flipStyle: "3d" | "slide";
   onFlipStyle: (v: "3d" | "slide") => void;
   stats: { total: number; owned: number; completion: number; totalValue: number };
+  pictureSettings: BinderSettings;
+  onPictureSettingsChange: (patch: Partial<BinderSettings>) => void;
 }
 
 export function BinderControls({
@@ -29,6 +38,8 @@ export function BinderControls({
   heatmapMode, onHeatmapMode,
   flipStyle, onFlipStyle,
   stats,
+  pictureSettings,
+  onPictureSettingsChange,
 }: BinderControlsProps) {
   return (
     <div className="space-y-4">
@@ -84,8 +95,89 @@ export function BinderControls({
         </div>
       </div>
 
+      {/* Pictures */}
+      <div className="space-y-3 pt-3 border-t border-border/60">
+        <Label className="text-xs uppercase tracking-wide text-muted-foreground">Pictures</Label>
+
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">Image Display</Label>
+          <Select
+            value={pictureSettings.imageDisplay}
+            onValueChange={(v) => onPictureSettingsChange({ imageDisplay: v as ImageDisplayMode })}
+          >
+            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="full">Full image</SelectItem>
+              <SelectItem value="thumbnail">Thumbnail (fast)</SelectItem>
+              <SelectItem value="hidden">Hide images (text only)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">Image Fit</Label>
+          <Select
+            value={pictureSettings.imageFit}
+            onValueChange={(v) => onPictureSettingsChange({ imageFit: v as ImageFitMode })}
+          >
+            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="cover">Cover (fill slot)</SelectItem>
+              <SelectItem value="contain">Contain (show full art)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">Card Size</Label>
+          <Select
+            value={pictureSettings.cardSize}
+            onValueChange={(v) => onPictureSettingsChange({ cardSize: v as CardSizeMode })}
+          >
+            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="compact">Compact</SelectItem>
+              <SelectItem value="standard">Standard</SelectItem>
+              <SelectItem value="large">Large</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">Missing Card Style</Label>
+          <Select
+            value={pictureSettings.missingStyle}
+            onValueChange={(v) => onPictureSettingsChange({ missingStyle: v as MissingStyle })}
+          >
+            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="empty">Empty slot</SelectItem>
+              <SelectItem value="silhouette">Card silhouette</SelectItem>
+              <SelectItem value="logo">Set logo</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <Label htmlFor="foilGlow" className="text-sm">Foil Glow</Label>
+          <Switch
+            id="foilGlow"
+            checked={pictureSettings.foilGlow}
+            onCheckedChange={(v) => onPictureSettingsChange({ foilGlow: v })}
+          />
+        </div>
+        <div className="flex items-center justify-between">
+          <Label htmlFor="showName" className="text-sm">Show Card Name</Label>
+          <Switch
+            id="showName"
+            checked={pictureSettings.showCardName}
+            onCheckedChange={(v) => onPictureSettingsChange({ showCardName: v })}
+          />
+        </div>
+      </div>
+
       {/* Page flip style */}
-      <div className="space-y-1.5">
+      <div className="space-y-1.5 pt-3 border-t border-border/60">
         <Label className="text-xs text-muted-foreground">Page Transition</Label>
         <Select value={flipStyle} onValueChange={(v) => onFlipStyle(v as "3d" | "slide")}>
           <SelectTrigger className="w-full">

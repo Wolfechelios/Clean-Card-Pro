@@ -48,6 +48,7 @@ import { Badge } from "@/components/ui/badge";
 import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 import { RecentScansBox } from "@/components/scanner/RecentScansBox";
 import { toPublicImageUrl } from "@/lib/storage/getPublicImageUrl";
+import { DisplayScaleControl } from "@/components/layout/DisplayScaleControl";
 
 type CardType = Database["public"]["Tables"]["cards"]["Row"];
 
@@ -414,8 +415,8 @@ export default function NewDashboard() {
             throw new Error(uploadError.message);
           }
 
-          const { data } = supabase.storage.from("card-images").getPublicUrl(filePath);
-          const publicUrl = data.publicUrl;
+          const { data: publicData } = supabase.storage.from("card-images").getPublicUrl(filePath);
+          const publicUrl = publicData.publicUrl;
           item.imageUrl = publicUrl;
 
           await analyzeCardFull(publicUrl);
@@ -524,7 +525,10 @@ export default function NewDashboard() {
           <Button onClick={fetchDashboardData} variant="outline" size="icon-sm" disabled={isRefreshing} aria-label="Refresh dashboard" className="shrink-0">
             <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} aria-hidden="true" />
           </Button>
-        </div>
+      </div>
+
+      {/* Global display scale / zoom */}
+      <DisplayScaleControl variant="full" />
       </div>
 
       {/* Stats Grid */}

@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { callAIGateway } from "../_shared/aiGateway.ts";
 import { rateLimitResponse } from "../_shared/rateLimiter.ts";
 
 const corsHeaders = {
@@ -73,20 +74,13 @@ Provide specific, actionable advice including:
 5. 🔍 **Acquisition Targets** - Cards to look for that complement this collection
 6. ⚠️ **Risk Assessment** - Any concerns about the collection composition?`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    const response = await callAIGateway({
         model: "google/gemini-2.5-flash",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-      }),
-    });
+      });
 
     if (!response.ok) {
       const errorText = await response.text();

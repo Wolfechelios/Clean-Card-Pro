@@ -14,8 +14,9 @@ async function downloadAndUploadImage(
   gameType: string
 ): Promise<string> {
   console.log(`Downloading image from: ${remoteUrl}`);
-  
-  const response = await fetch(remoteUrl);
+
+  const safeUrl = validateImageUrl(remoteUrl);
+  const response = await fetch(safeUrl);
   if (!response.ok) {
     throw new Error(`Failed to download: ${response.status}`);
   }

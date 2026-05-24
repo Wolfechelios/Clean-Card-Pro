@@ -3,7 +3,9 @@
 // Uses Lovable AI gateway (Gemini) — same pattern as other AI functions.
 
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { callAIGateway } from "../_shared/aiGateway.ts";
 import { corsHeaders } from "../_shared/cors.ts";
+import { requireAuth } from "../_shared/requireAuth.ts";
 
 type RequestBody = {
   goal?: "fast" | "max";
@@ -85,6 +87,9 @@ function heuristicFallback(body: RequestBody): SellAssistResult {
 serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  const authResult = await requireAuth(req, corsHeaders);
+  if (authResult instanceof Response) return authResult;
+
   try {
     const body: RequestBody = await req.json();
 
@@ -151,18 +156,11 @@ Return JSON in this exact shape:
   "note": "one short practical tip or warning"
 }`;
 
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    const aiResponse = await callAIGateway({
         model: "google/gemini-2.5-flash",
         messages: [{ role: "user", content: prompt }],
         response_format: { type: "json_object" },
-      }),
-    });
+      });
 
     if (!aiResponse.ok) {
       const t = await aiResponse.text();

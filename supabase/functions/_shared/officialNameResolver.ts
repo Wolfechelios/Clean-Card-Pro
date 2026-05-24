@@ -281,6 +281,33 @@ async function lookupMtgBySetAndNumber(
   };
 }
 
+/**
+ * Look up an MTG card by name + an explicitly-detected early-edition set code
+ * (lea/leb/2ed/3ed/4ed/5ed). Used when the AI vision pass returns an
+ * `early_edition` block. Confirms via Scryfall and grabs official metadata.
+ */
+export async function lookupMtgByEarlyEdition(
+  cardName: string,
+  setCode: string,
+): Promise<{ card_name: string; card_set: string | null; card_number: string | null; year?: number } | null> {
+  const code = String(setCode || "").toLowerCase();
+  if (!["lea", "leb", "2ed", "3ed", "4ed", "5ed"].includes(code)) return null;
+  const name = clean(cardName);
+  if (!name) return null;
+
+  const url = `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&set=${code}`;
+  const data = await fetchJson(url, 6000);
+  if (!data?.name) return null;
+
+  const year = data.released_at ? parseInt(String(data.released_at).slice(0, 4)) : undefined;
+  return {
+    card_name: clean(data.name) || name,
+    card_set: clean(data.set_name),
+    card_number: clean(data.collector_number) || null,
+    ...(year && !isNaN(year) ? { year } : {}),
+  };
+}
+
 async function lookupMtgByNameAndSet(
   candidateNames: string[],
   cardSet: string | null,
@@ -370,6 +397,22 @@ export async function resolveOfficialCardIdentity<T extends NameResolvableCard>(
       verified = await lookupPokemonByNumber(candidateNames, cardNumber, cardSet);
     } else if (game === "mtg") {
       verified = await lookupMtgBySetAndNumber(cardSet, cardNumber);
+    }
+  }
+
+  // MTG: prioritize AI-detected early edition (Alpha/Beta/Unlimited/Revised/4ED/5ED)
+  if (!verified && game === "mtg") {
+    const earlyEdition = (card as any).early_edition;
+    if (earlyEdition?.detected && earlyEdition?.set_code) {
+      const earlyResult = await lookupMtgByEarlyEdition(currentName, earlyEdition.set_code);
+      if (earlyResult) {
+        verified = {
+          card_name: earlyResult.card_name,
+          card_set: earlyResult.card_set,
+          card_number: earlyResult.card_number ?? "",
+          ...(earlyResult.year ? { year: earlyResult.year } : {}),
+        };
+      }
     }
   }
 

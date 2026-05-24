@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { callAIGateway } from "../_shared/aiGateway.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { validateImageUrl, SSRFError } from "../_shared/validateUrl.ts";
 
@@ -205,20 +206,13 @@ Search for this card image from these trusted sources:
 Return ONLY the direct image URL (must start with https:// and end with .jpg, .jpeg, .png, or .webp).
 If you cannot find a valid direct image URL, respond with exactly: NONE`;
 
-    const aiResp = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+    const aiResp = await callAIGateway({
         model: 'google/gemini-2.5-flash',
         messages: [
           { role: "system", content: "You are a sports card image finder. Return only direct image URLs from legitimate card sites. Never fabricate URLs." },
           { role: "user", content: prompt }
         ],
-      }),
-    });
+      });
 
     if (aiResp.ok) {
       const data = await aiResp.json();
@@ -296,17 +290,8 @@ async function downloadAndStore(
       return null;
     }
 
-    // Get signed URL (valid for 1 year)
-    const { data: signedData, error: signedError } = await supabase.storage
-      .from('card-images')
-      .createSignedUrl(storagePath, 60 * 60 * 24 * 365);
-
-    if (signedError || !signedData?.signedUrl) {
-      console.error(`Signed URL error: ${signedError?.message}`);
-      return null;
-    }
-
-    return { storagePath, publicUrl: signedData.signedUrl };
+    const { data } = supabase.storage.from('card-images').getPublicUrl(storagePath);
+    return { storagePath, publicUrl: data.publicUrl };
   } catch (error: any) {
     console.error(`Download/store error: ${error.message}`);
     return null;
@@ -328,6 +313,12 @@ function detectGameType(card: CardData): string {
   if (card.player_name) return 'sports';
   
   return 'unknown';
+}
+
+function extractStoragePath(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const match = url.match(/\/object\/(?:public|sign|authenticated)\/card-images\/(.+?)(?:\?|$)/);
+  return match?.[1] ?? null;
 }
 
 serve(async (req) => {
@@ -396,14 +387,23 @@ serve(async (req) => {
       });
     }
 
-    // Check cache (30 days)
-    if (card.image_updated_at && card.image_url && !card.image_url.includes('placehold')) {
+    // Check cache (30 days) only for successfully stored cloud images.
+    const storedPath = card.image_storage_path || extractStoragePath(card.image_url) || extractStoragePath(card.thumbnail_url);
+    const hasStoredImage = Boolean(storedPath);
+    if (card.image_status === 'ok' && hasStoredImage && card.image_updated_at && card.image_url && !card.image_url.includes('placehold')) {
       const lastUpdate = new Date(card.image_updated_at).getTime();
       const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
       if (lastUpdate > thirtyDaysAgo) {
+        const { data: publicData } = supabase.storage.from('card-images').getPublicUrl(storedPath);
+        if (publicData.publicUrl !== card.image_url) {
+          await supabase
+            .from('cards')
+            .update({ image_url: publicData.publicUrl, thumbnail_url: publicData.publicUrl, image_storage_path: storedPath })
+            .eq('id', card.id);
+        }
         return new Response(JSON.stringify({ 
           status: 'cached',
-          image_url: card.image_url,
+          image_url: publicData.publicUrl,
           source: card.image_source
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -190,14 +190,15 @@ export function PriceConsensusPanel({
         </span>
       </div>
 
-      {/* Flags */}
+      {/* Flags (deduped — same flag may be emitted twice by consensus engine) */}
       {flags.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {flags.map((flag) => {
+          {Array.from(new Set(flags)).map((flag, i) => {
             const meta = FLAG_LABELS[flag];
+            if (!meta) return null;
             return (
               <Badge
-                key={flag}
+                key={`${flag}-${i}`}
                 variant={meta.severity === "error" ? "destructive" : "secondary"}
                 className="text-[10px]"
               >

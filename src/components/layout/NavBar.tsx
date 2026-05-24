@@ -1,4 +1,4 @@
-import { Bell, User, LogOut, Settings, Sparkles, ScanLine, Moon, Sun, Monitor, Minus, Plus } from "lucide-react";
+import { Bell, User, LogOut, Settings, Sparkles, ScanLine, Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -13,12 +13,11 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Breadcrumbs } from "./Breadcrumbs";
 import { useTheme } from "next-themes";
-import { useDisplayScale } from "@/hooks/use-display-scale";
+import { DisplayScaleControl } from "./DisplayScaleControl";
 
 export function NavBar() {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
-  const { scale, setScale, scaleOptions } = useDisplayScale();
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -64,6 +63,9 @@ export function NavBar() {
         >
           <ScanLine className="h-3.5 w-3.5 xs:h-4 xs:w-4" aria-hidden="true" />
         </Button>
+
+        {/* Global zoom / display scale (always visible) */}
+        <DisplayScaleControl variant="compact" className="hidden xs:flex" />
 
         {/* Theme toggle */}
         <Button
@@ -118,58 +120,7 @@ export function NavBar() {
             </DropdownMenuItem>
             <DropdownMenuSeparator className="bg-border/60" />
             <div className="px-3 py-2">
-              <div className="flex items-center gap-1.5 mb-1.5">
-                <Monitor className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-xs font-medium text-foreground">Display Scale</span>
-                <span className="text-[10px] text-muted-foreground ml-auto">{scale}%</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="h-6 w-6 shrink-0"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const idx = scaleOptions.indexOf(scale as any);
-                    if (idx > 0) setScale(scaleOptions[idx - 1]);
-                  }}
-                  disabled={scale <= scaleOptions[0]}
-                >
-                  <Minus className="h-3 w-3" />
-                </Button>
-                <div className="flex-1 grid grid-cols-5 gap-0.5">
-                  {[75, 90, 100, 110, 125].map((opt) => (
-                    <Button
-                      key={opt}
-                      size="sm"
-                      variant={scale === opt ? "default" : "ghost"}
-                      className="h-6 text-[10px] px-0"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setScale(opt);
-                      }}
-                    >
-                      {opt}%
-                    </Button>
-                  ))}
-                </div>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="h-6 w-6 shrink-0"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const idx = scaleOptions.indexOf(scale as any);
-                    if (idx < scaleOptions.length - 1) setScale(scaleOptions[idx + 1]);
-                  }}
-                  disabled={scale >= scaleOptions[scaleOptions.length - 1]}
-                >
-                  <Plus className="h-3 w-3" />
-                </Button>
-              </div>
+              <DisplayScaleControl variant="compact" className="w-full justify-between" />
             </div>
             <DropdownMenuItem
               onClick={handleSignOut}

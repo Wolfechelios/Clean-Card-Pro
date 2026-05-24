@@ -1,26 +1,19 @@
 import { useState, useEffect, useCallback } from "react";
-import type { ProCaptureMode, ProCaptureLens, ProOrientationLock } from "@/lib/iphoneProCapture";
 
 const SCANNER_SETTINGS_KEY = "card-scanner-settings";
 
 export type ScanMode = "SAVE" | "SCAN_ONLY" | "REMOVE";
+export type ScanEngineProfileId = "balanced_default" | "ipad_mac_paired" | "redmagic_standalone";
 
 export interface ScannerSettings {
   autoConfirmEnabled: boolean;
   autoConfirmThreshold: number;
   scanMode: ScanMode;
-
-  // iPhone Pro / high-detail capture profiles
-  proCaptureEnabled: boolean;
-  proCaptureMode: ProCaptureMode;
-  proCaptureQualityGate: boolean;
-  proCaptureMinConfidence: number;
-  proPreferredLens: ProCaptureLens;
-  proOrientationLock: ProOrientationLock;
+  scanEngineProfile: ScanEngineProfileId;
 
   hapticsOnCapture: boolean;
   flashOnCapture: boolean;
-  autoTimerIntervalSeconds: 1 | 1.25 | 1.5 | 2 | 5;
+  autoTimerIntervalSeconds: number;
   voiceCaptureEnabled: boolean;
   voiceCaptureKeyword: string;
   manualFocusLock: boolean;
@@ -41,19 +34,25 @@ export interface ScannerSettings {
 
   // Game type filter for identification
   gameTypeFilter: "auto" | "mtg" | "yugioh" | "pokemon" | "sports" | "gpk" | "marvel" | "onepiece" | "other";
+
+  // Remote scanning (phone-as-camera pairing)
+  remoteAutoQueue: boolean;
+  remoteSessionTimeoutMin: number;
+  remotePhoneImageQuality: "low" | "medium" | "high";
+  remoteBurstIntervalSec: number;
+  remoteShowPhotoGrid: boolean;
+  remoteSoundOnReceive: boolean;
+  defaultScanTab: "rapid" | "usb" | "upload";
+
+  // Override device-tier worker count for the scan queue processor (1-8). 0 = auto.
+  maxWorkersOverride: number;
 }
 
 const DEFAULT_SETTINGS: ScannerSettings = {
   autoConfirmEnabled: true,
   autoConfirmThreshold: 75,
   scanMode: "SAVE",
-
-  proCaptureEnabled: true,
-  proCaptureMode: "rapid",
-  proCaptureQualityGate: true,
-  proCaptureMinConfidence: 62,
-  proPreferredLens: "main_48mp",
-  proOrientationLock: "portrait",
+  scanEngineProfile: "balanced_default",
 
   hapticsOnCapture: true,
   flashOnCapture: true,
@@ -75,6 +74,15 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   foilDetectionMode: "fast",
 
   gameTypeFilter: "auto",
+
+  remoteAutoQueue: true,
+  remoteSessionTimeoutMin: 30,
+  remotePhoneImageQuality: "high",
+  remoteBurstIntervalSec: 1.5,
+  remoteShowPhotoGrid: true,
+  remoteSoundOnReceive: true,
+  defaultScanTab: "rapid",
+  maxWorkersOverride: 0,
 };
 
 export function useScannerSettings() {

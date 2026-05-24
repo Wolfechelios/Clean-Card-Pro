@@ -60,15 +60,13 @@ serve(async (req: Request): Promise<Response> => {
       throw new Error("LOVABLE_API_KEY is not set");
     }
 
-    // Rate limit: extract user from auth header
-    const authHeader = req.headers.get('authorization');
-    if (authHeader) {
-      const sb = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_ANON_KEY') ?? '', { global: { headers: { Authorization: authHeader } } });
-      const { data: { user } } = await sb.auth.getUser();
-      if (user) {
-        const rl = rateLimitResponse(user.id, "analyze-card-full", corsHeaders, 20, 60_000);
-        if (rl) return rl;
-      }
+    // Require auth + rate limit
+    const { requireAuth } = await import("../_shared/requireAuth.ts");
+    const authResult = await requireAuth(req, corsHeaders);
+    if (authResult instanceof Response) return authResult;
+    {
+      const rl = rateLimitResponse(authResult.userId, "analyze-card-full", corsHeaders, 20, 60_000);
+      if (rl) return rl;
     }
 
     const body: RequestBody = await req.json();
@@ -93,15 +91,9 @@ serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    // Convert expired signed URLs to public URLs (card-images bucket is public)
+    // Card images are stored as permanent public storage URLs so analysis and
+    // display do not depend on expiring signed tokens.
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
-    if (image_url.includes("/storage/v1/object/sign/")) {
-      const match = image_url.match(/\/storage\/v1\/object\/sign\/([^?]+)/);
-      if (match) {
-        image_url = `${SUPABASE_URL}/storage/v1/object/public/${match[1]}`;
-        console.log(`Converted signed URL to public: ${image_url}`);
-      }
-    }
 
     console.log(`Analyzing card image: ${image_url}`);
 
@@ -194,13 +186,40 @@ Be thorough with OCR extraction. Analyze card condition carefully. Grade estimat
       }),
     });
 
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error("Lovable AI error:", aiResponse.status, errorText);
-      throw new Error(`AI analysis failed: ${aiResponse.status}`);
+    // Fallback to OpenAI vision (gpt-5-mini) if Gemini fails with 429/5xx
+    let finalResponse = aiResponse;
+    if (!aiResponse.ok && (aiResponse.status === 429 || aiResponse.status >= 500)) {
+      const errText = await aiResponse.text().catch(() => "");
+      console.warn(`Gemini vision failed (${aiResponse.status}): ${errText}. Falling back to gpt-5-mini.`);
+      finalResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "openai/gpt-5-mini",
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: `Analyze this trading card image and return the SAME JSON shape as before (ocr_text, card_details, condition, labels). Image: ${image_url}` },
+                { type: "image_url", image_url: { url: image_url } },
+              ],
+            },
+          ],
+          response_format: { type: "json_object" },
+        }),
+      });
     }
 
-    const aiResult = await aiResponse.json();
+    if (!finalResponse.ok) {
+      const errorText = await finalResponse.text();
+      console.error("AI gateway error:", finalResponse.status, errorText);
+      throw new Error(`AI analysis failed: ${finalResponse.status}`);
+    }
+
+    const aiResult = await finalResponse.json();
     const content = aiResult.choices[0]?.message?.content;
     
     if (!content) {

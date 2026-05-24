@@ -1,8 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { callAIGateway } from "../_shared/aiGateway.ts";
 import { resolveOfficialCardIdentity, verifyYgoSetCode } from "../_shared/officialNameResolver.ts";
 import { buildYgoRarityPromptSection } from "../_shared/ygoRarityMatrix.ts";
 import { validateImageUrl, SSRFError } from "../_shared/validateUrl.ts";
 import { rateLimitResponse } from "../_shared/rateLimiter.ts";
+import { requireAuth } from "../_shared/requireAuth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -14,18 +16,13 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // Rate limit by user (extract sub from JWT)
-  try {
-    const authHeader = req.headers.get('Authorization') || '';
-    const token = authHeader.replace('Bearer ', '');
-    if (token) {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      if (payload.sub) {
-        const rl = rateLimitResponse(payload.sub, "enhanced-card-identify", corsHeaders, 30, 60_000);
-        if (rl) return rl;
-      }
-    }
-  } catch { /* continue without rate limiting if JWT parse fails */ }
+  // Require auth + rate limit
+  const authResult = await requireAuth(req, corsHeaders);
+  if (authResult instanceof Response) return authResult;
+  {
+    const rl = rateLimitResponse(authResult.userId, "enhanced-card-identify", corsHeaders, 30, 60_000);
+    if (rl) return rl;
+  }
 
   try {
     const { imageUrl: rawImageUrl, ocrText, gameTypeHint } = await req.json();
@@ -114,6 +111,18 @@ ${ygoRaritySection}
 
 CRITICAL FOR MAGIC: THE GATHERING CARDS — SET & YEAR IDENTIFICATION:
 
+STEP 0 — EARLY EDITION DETECTION (cards with NO set symbol — set symbols started Exodus 1998):
+1. Check border color: BLACK → Alpha or Beta. WHITE → Unlimited / Revised / 4ED / 5ED.
+2. If BLACK border with no set symbol: examine corner radius. Heavily rounded corners = Alpha (LEA). Sharp / square corners = Beta (LEB).
+3. If WHITE border with no set symbol: read the copyright year EXACTLY from bottom-center.
+   - "© 1993" → Unlimited (set_code: 2ed)
+   - "© 1994" → Revised (set_code: 3ed)
+   - "© 1995" → 4th Edition (set_code: 4ed)
+   - "© 1997" → 5th Edition (set_code: 5ed)
+4. When detected, populate "early_edition" object: { detected: true, set_code: "lea|leb|2ed|3ed|4ed|5ed", confidence: "high|medium|low", visual_evidence: "what you saw" }.
+5. Also set card_set to the full English name (e.g. "Limited Edition Alpha", "Unlimited Edition", "Revised Edition", "Fourth Edition", "Fifth Edition").
+6. PRICE WARNING: misidentifying these sets is catastrophic (Alpha Black Lotus is ~$100k vs Unlimited ~$8k). If unsure between two early sets, set early_edition.confidence to "low" and pick the lower-value option.
+
 STEP 1 — SET SYMBOL (bottom-center-right of card, to the right of the type line):
 Describe the shape and color of the set symbol. Color indicates rarity: black/grey = Common, silver = Uncommon, gold = Rare, orange-red/mythic orange = Mythic Rare. Use the symbol shape to determine the exact set (e.g., a stylized 'M' for Core Sets, a dragon head for Dragons of Tarkir, etc.).
 
@@ -152,6 +161,12 @@ Return JSON in this exact format:
     "manufacturer": "manufacturer name",
     "confidence": "confidence score 0-1",
     "description": "brief description of the card",
+    "early_edition": {
+      "detected": false,
+      "set_code": "lea|leb|2ed|3ed|4ed|5ed or null",
+      "confidence": "high|medium|low",
+      "visual_evidence": "what visual cues led to this conclusion"
+    },
     "foilFeatures": {
       "nameFoil": "none|silver|gold|rainbow",
       "artPattern": "none|secretDiagonal|starlight|lattice|ghost|foil",
@@ -193,18 +208,11 @@ For non-Yu-Gi-Oh cards, omit the foilFeatures object.`;
       }
     ];
 
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+    const response = await callAIGateway({
         model: 'google/gemini-2.5-flash',
         messages,
         temperature: 0.2,
-      }),
-    });
+      });
 
     if (!response.ok) {
       if (response.status === 429) {

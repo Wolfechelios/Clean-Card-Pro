@@ -1,39 +1,46 @@
+## Goal
+Make the Vintage Audit tab faster to triage by adding multi-select + bulk action buttons, instead of clicking "Mark Alpha/Beta" one card at a time.
 
+## UX changes (`src/components/bulk/VintageAuditTab.tsx`)
 
-## Plan: Fix Build Errors, COMC Category Bug, and Scan Reliability
+1. **Per-card checkbox** in the top-left of each candidate tile (using existing `Checkbox` from `components/ui/checkbox`).
+2. **Selection toolbar** that appears above the grid whenever ≥1 card is selected, showing:
+   - "X selected" count
+   - **Select all visible** / **Clear selection** toggles
+   - Bulk action buttons (context-aware based on the active game filter):
+     - MTG filter: `Mark all as Alpha (1993)`, `Mark all as Beta (1993)`, `Mark all as Unlimited (1993)`
+     - Pokémon filter: `Mark all as 1st Edition`, `Mark all as Shadowless`
+     - Yu-Gi-Oh filter: `Mark all as 1st Edition`
+     - All games / Sports: `Confirm vintage` (writes the per-card `guess` into `edition` and `year` if present)
+   - **Dismiss selected** — sets a flag so they stop appearing in future audits (see "Dismiss" below).
+3. **"Select all high-confidence (≥70%)"** quick chip for one-click batch confirms.
+4. Keep the existing single-card buttons for fine-grained control.
 
-### Problem Summary
-Three issues are causing scan failures and build problems:
+## Bulk write behavior
 
-1. **Build errors** — Three files use `Record<string, any>` for Supabase `.update()` calls, which the new strict typing rejects.
-2. **COMC wrong category** — Sports cards (Dave Winfield, Eddie Murray, etc.) are searched under "Pokemon" on COMC because the category logic only handles MTG; everything else defaults to "Pokemon". This returns zero results for all sports cards.
-3. **Rate limiting delays** — Lovable AI is consistently rate-limited, causing every scan to wait 3+ seconds before falling back to your Gemini key. Not a code bug, but adds latency.
+- Reuse the existing `cards` table update path. Replace the single-card `markMutation` with a `bulkMarkMutation` that takes `{ ids: string[], edition: string, year?: number }` and runs `supabase.from("cards").update(update).in("id", ids)` in one round-trip.
+- Toast shows `Marked N cards as <edition>`.
+- On success: clear selection, invalidate `["vintage-audit"]`.
 
-### Changes
+## Dismiss (optional, recommended)
 
-**1. Fix build errors (3 files)**
+To let users hide false positives without editing them:
+- Add a lightweight `audit_dismissed_at timestamptz` column to `cards` via migration.
+- Audit edge function (`supabase/functions/audit-alpha-beta/index.ts`) filters out rows where `audit_dismissed_at is not null`.
+- "Dismiss selected" sets that column to `now()` for the selected ids.
 
-| File | Fix |
-|------|-----|
-| `src/components/collections/CardsNeedingReview.tsx` (lines 168, 251) | Cast `dbUpdates`/`updates` from `Record<string, any>` to the proper Supabase update type using `as any` on the `.update()` call |
-| `src/components/settings/BulkCardReidentify.tsx` (line 148) | Same fix — cast `updateData` with `as any` in the `.update()` call |
+If you'd rather skip the schema change for now, we can drop the Dismiss button and only ship select + bulk-mark.
 
-**2. Fix COMC category mapping (`supabase/functions/fetch-card-prices/index.ts`)**
+## Out of scope
 
-The `fetchCOMCPrices` function (line 384) currently defaults to `"Pokemon"` for all non-MTG cards, including sports cards. Fix:
+- No changes to scoring logic.
+- No changes to other audit/bulk tabs.
 
-- Add `"Baseball"`, `"Football"`, `"Basketball"`, `"Hockey"` categories based on `gameType` and `sportType` (need to pass `sportType` into the function)
-- Add `"Yu-Gi-Oh"` category
-- Only default to `"Pokemon"` when the game type is actually Pokemon
-- For unknown types, use a generic COMC search without category
+## Files touched
 
-**3. Skip Lovable AI retry delay (optional optimization)**
+- `src/components/bulk/VintageAuditTab.tsx` — selection state, toolbar, checkboxes, bulk mutation.
+- (Optional) `supabase/functions/audit-alpha-beta/index.ts` + migration — only if you want the Dismiss feature.
 
-In the `rapid-card-identify` edge function, reduce the rate-limit retry wait from 2 attempts (1s + 2s = 3s) to 1 attempt (1s) before falling back to the user's Gemini key, cutting wasted time in half.
+## Question before I build
 
-### Technical Details
-
-- The COMC function signature needs `sportType` added as a parameter
-- The caller in the main handler (~line 460-470) needs to pass `sportType` through
-- COMC category map: `baseball` → `"Baseball"`, `football` → `"Football"`, `basketball` → `"Basketball"`, `hockey` → `"Hockey"`, `yugioh` → `"Yu-Gi-Oh"`, `pokemon` → `"Pokemon"`, `mtg/magic` → `"Magic"`
-
+Do you want the **Dismiss** action (requires a small DB column add), or just **select + bulk mark** for now?

@@ -114,7 +114,7 @@ export function CardVerificationDialog({ open, onOpenChange, card, onAccept }: P
 
   const referenceImageUrl = result?.referenceImageUrl ?? null;
   const candidates = result?.candidates ?? [];
-  const hasAlternatives = candidates.length > 1;
+  const hasCandidates = candidates.length > 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -227,39 +227,51 @@ export function CardVerificationDialog({ open, onOpenChange, card, onAccept }: P
           </div>
         </div>
 
-        {/* Alternative matches */}
-        {hasAlternatives && !loading && !error && (
+        {/* All candidate matches (primary + alternatives) — tap to choose */}
+        {hasCandidates && !loading && !error && (
           <div className="space-y-2 pt-2 border-t border-border/50">
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Alternative matches
+                All matches — tap to choose
               </span>
               <Badge variant="outline" className="text-[10px]">
-                {candidates.length - 1} other{candidates.length - 1 === 1 ? "" : "s"}
+                {candidates.length} option{candidates.length === 1 ? "" : "s"}
               </Badge>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {candidates.map((c, i) => {
                 const isSelected = i === selectedIndex;
+                const isPrimary = i === 0;
                 return (
                   <button
                     key={`${c.cardName}-${c.cardSet ?? "noset"}-${i}`}
                     type="button"
-                    onClick={() => selectCandidate(i)}
-                    disabled={switching || isSelected}
+                    onClick={() => !isSelected && selectCandidate(i)}
+                    disabled={switching}
+                    aria-pressed={isSelected}
                     className={cn(
                       "text-left rounded-md border p-2.5 transition-all",
                       isSelected
-                        ? "border-primary bg-primary/5 ring-1 ring-primary"
-                        : "border-border bg-card hover:bg-accent/50 hover:border-primary/30",
+                        ? "border-primary bg-primary/5 ring-1 ring-primary cursor-default"
+                        : "border-border bg-card hover:bg-accent/50 hover:border-primary/30 cursor-pointer",
                       switching && "opacity-50 cursor-wait"
                     )}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           {isSelected && <CheckCircle2 className="h-3 w-3 text-primary shrink-0" />}
                           <p className="text-xs font-semibold truncate">{c.cardName}</p>
+                          {isPrimary && (
+                            <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4">
+                              Primary
+                            </Badge>
+                          )}
+                          {isSelected && !isPrimary && (
+                            <Badge variant="default" className="text-[9px] px-1 py-0 h-4">
+                              Selected
+                            </Badge>
+                          )}
                         </div>
                         {c.cardSet && (
                           <p className="text-[10px] text-muted-foreground truncate">
@@ -282,7 +294,7 @@ export function CardVerificationDialog({ open, onOpenChange, card, onAccept }: P
               })}
             </div>
             <p className="text-[10px] text-muted-foreground">
-              Tap an alternative to re-price and re-fetch its reference image.
+              The primary match is selected by default. Tap any option to re-price and re-fetch its reference image.
             </p>
           </div>
         )}

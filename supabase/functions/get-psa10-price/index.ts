@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { rateLimitResponse } from "../_shared/rateLimiter.ts";
+import { requireAuth, isServiceRoleRequest } from "../_shared/requireAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -165,18 +166,16 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // Rate limit by user
-  try {
-    const authHeader = req.headers.get('Authorization') || '';
-    const token = authHeader.replace('Bearer ', '');
-    if (token) {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      if (payload.sub) {
-        const rl = rateLimitResponse(payload.sub, "get-psa10-price", corsHeaders, 20, 60_000);
-        if (rl) return rl;
-      }
-    }
-  } catch { /* continue */ }
+  // Authenticate caller (allow service-role server-to-server calls from run-psa10-job)
+  const isServiceCall = isServiceRoleRequest(req);
+  let callerUserId: string | null = null;
+  if (!isServiceCall) {
+    const authResult = await requireAuth(req, corsHeaders);
+    if (authResult instanceof Response) return authResult;
+    callerUserId = authResult.userId;
+    const rl = rateLimitResponse(callerUserId, "get-psa10-price", corsHeaders, 20, 60_000);
+    if (rl) return rl;
+  }
 
   try {
     const { card_id, skip_api } = await req.json();
@@ -203,6 +202,14 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ error: "Card not found" }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Ownership check (skipped for service-role internal calls)
+    if (!isServiceCall && card.user_id !== callerUserId) {
+      return new Response(
+        JSON.stringify({ error: "Forbidden" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 

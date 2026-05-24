@@ -67,17 +67,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user?.email, clearAuthState]);
 
   useEffect(() => {
-    const triggerPriceUpdate = (userId: string) => {
-      if (priceUpdateTriggered) return;
-      priceUpdateTriggered = true;
-
-      setTimeout(() => {
-        supabase.functions
-          .invoke("update-prices", { body: { user_id: userId } })
-          .then(() => console.log("Background price update started"))
-          .catch((err) => console.error("Price update error:", err));
-      }, 100);
-    };
+    // Auto price refresh on sign-in disabled — was sweeping the entire collection
+    // and hammering Firecrawl on every login. Prices now only update via rapid scan
+    // or the manual "Refresh Prices" button in Settings/Collections.
 
     // Set up auth state listener FIRST
     const {
@@ -87,11 +79,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(session?.user ?? null);
       setLoading(false);
 
-      // Reset flag on sign out so next sign in can trigger update
       if (event === "SIGNED_OUT") {
         priceUpdateTriggered = false;
-      } else if (session?.user?.id) {
-        triggerPriceUpdate(session.user.id);
       }
     });
 
@@ -108,9 +97,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(session?.user ?? null);
         setLoading(false);
 
-        if (session?.user?.id) {
-          triggerPriceUpdate(session.user.id);
-        }
       })
       .catch((err) => {
         if (isRefreshTokenError(err)) {

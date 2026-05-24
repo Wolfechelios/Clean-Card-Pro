@@ -9,9 +9,9 @@ export interface CompressionOptions {
 }
 
 const DEFAULT_OPTIONS: CompressionOptions = {
-  maxWidth: 1600,  // Sufficient for card identification
-  maxHeight: 2200, // ~5:7 ratio card at high-ish res
-  quality: 0.82,
+  maxWidth: 1200,  // OCR-readable, not display-grade
+  maxHeight: 1680, // ~5:7 ratio card
+  quality: 0.75,
   format: "jpeg",
 };
 

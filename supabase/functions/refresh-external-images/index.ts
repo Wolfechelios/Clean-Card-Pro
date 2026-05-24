@@ -12,7 +12,7 @@ async function downloadAndUploadImage(
   remoteUrl: string,
   cardId: string,
   gameType: string
-): Promise<{ success: boolean; url?: string; error?: string }> {
+): Promise<{ success: boolean; url?: string; path?: string; error?: string }> {
   try {
     console.log(`Downloading: ${remoteUrl}`);
     
@@ -63,15 +63,8 @@ async function downloadAndUploadImage(
       return { success: false, error: uploadError.message };
     }
 
-    const { data: signedData, error: signedError } = await supabase.storage
-      .from('card-images')
-      .createSignedUrl(filePath, 60 * 60 * 24 * 365);
-
-    if (signedError) {
-      return { success: false, error: signedError.message };
-    }
-
-    return { success: true, url: signedData.signedUrl };
+    const { data } = supabase.storage.from('card-images').getPublicUrl(filePath);
+    return { success: true, url: data.publicUrl, path: filePath };
   } catch (error: any) {
     return { success: false, error: error.message };
   }
@@ -165,7 +158,7 @@ serve(async (req) => {
           .update({
             image_url: result.url,
             thumbnail_url: result.url,
-            image_storage_path: `cards/${gameType.toLowerCase().replace(/[^a-z0-9]/g, '_')}/${card.id}.jpg`,
+            image_storage_path: result.path,
             image_source: 'refreshed',
             image_status: 'ok',
             image_updated_at: new Date().toISOString(),

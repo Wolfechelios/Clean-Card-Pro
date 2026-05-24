@@ -14,7 +14,7 @@ import {
   HelpCircle,
   Wand2,
   Database,
-  Smartphone,
+  Layers,
   type LucideIcon,
 } from "lucide-react";
 
@@ -54,7 +54,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { icon: Wand2, label: "Deck Builder", path: "/deck-builder", keywords: ["ai", "value", "battle", "competitive"] },
       { icon: Megaphone, label: "Sell Assist", path: "/sell-assist", keywords: ["listing", "ebay", "tcgplayer", "whatnot", "market"] },
       { icon: Database, label: "Price DB", path: "/price-database", keywords: ["pricecharting", "import", "xlsx", "set", "completion"] },
-      { icon: Smartphone, label: "iPhone Pro", path: "/iphone-pro", keywords: ["iphone", "camera", "pro", "capture", "binder"] },
+      { icon: Layers, label: "Bulk Tools", path: "/bulk-tools", keywords: ["bulk", "tcgplayer", "alpha", "beta", "enrich", "audit"] },
     ],
   },
   {

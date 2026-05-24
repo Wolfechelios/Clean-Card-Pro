@@ -87,9 +87,7 @@ export default function VisualSearchPage() {
 
       if (uploadError) throw uploadError;
 
-      const { data: urlData } = supabase.storage
-        .from("card-images")
-        .getPublicUrl(filePath);
+      const { data: urlData } = supabase.storage.from("card-images").getPublicUrl(filePath);
 
       // Call visual similarity function
       const { data, error } = await supabase.functions.invoke("visual-similarity", {

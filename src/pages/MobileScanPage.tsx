@@ -39,9 +39,8 @@ export default function MobileScanPage() {
         return;
       }
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('card-images')
-        .getPublicUrl(filePath);
+      const { data: publicData } = supabase.storage.from('card-images').getPublicUrl(filePath);
+      const publicUrl = publicData.publicUrl;
 
       console.log("Image uploaded:", publicUrl);
       toast.success("Image uploaded! Processing...");

@@ -123,7 +123,7 @@ async function downloadAndUploadImage(
   remoteUrl: string,
   cardId: string,
   gameType: string
-): Promise<string | null> {
+): Promise<{ url: string; path: string } | null> {
   try {
     console.log(`Downloading image from: ${remoteUrl}`);
     
@@ -176,16 +176,8 @@ async function downloadAndUploadImage(
       throw new Error(`Upload failed: ${uploadError.message}`);
     }
 
-    // Get signed URL (valid for 1 year)
-    const { data: signedData, error: signedError } = await supabase.storage
-      .from('card-images')
-      .createSignedUrl(filePath, 60 * 60 * 24 * 365);
-
-    if (signedError) {
-      throw new Error(`Failed to create signed URL: ${signedError.message}`);
-    }
-
-    return signedData.signedUrl;
+    const { data } = supabase.storage.from('card-images').getPublicUrl(filePath);
+    return { url: data.publicUrl, path: filePath };
   } catch (error) {
     console.error('Download/upload error:', error);
     throw error;
@@ -259,9 +251,9 @@ async function processCard(
     }
 
     // Download and upload to our storage
-    const storedUrl = await downloadAndUploadImage(supabase, remoteImageUrl, card.id, gameType);
+    const stored = await downloadAndUploadImage(supabase, remoteImageUrl, card.id, gameType);
 
-    if (!storedUrl) {
+    if (!stored) {
       await supabase
         .from('cards')
         .update({
@@ -276,8 +268,9 @@ async function processCard(
     await supabase
       .from('cards')
       .update({
-        image_url: storedUrl,
-        thumbnail_url: storedUrl,
+        image_url: stored.url,
+        thumbnail_url: stored.url,
+        image_storage_path: stored.path,
         image_status: 'ok',
         image_error: null,
         updated_at: new Date().toISOString(),
@@ -349,7 +342,7 @@ serve(async (req) => {
 
     // Filter by status
     if (onlyStatus === 'missing') {
-      query = query.or('image_url.is.null,image_url.ilike.%placehold%,image_status.eq.missing');
+      query = query.or('image_url.is.null,image_url.eq.,image_url.ilike.%placehold%,image_status.eq.missing,image_status.eq.failed,image_status.eq.external,image_search_status.eq.not_found,image_search_status.eq.error');
     } else if (onlyStatus === 'failed') {
       query = query.eq('image_status', 'failed');
     } else if (onlyStatus === 'needs_review') {

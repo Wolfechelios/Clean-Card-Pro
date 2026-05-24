@@ -35,17 +35,17 @@ serve(async (req) => {
 
     console.log(`Fixing image URLs for user ${user.id}`);
 
-    // Find all cards with signed URLs (contain /object/sign/ and ?token=)
+    // Find cards with expired signed URLs, bad status, or recoverable storage paths.
     const { data: cards, error: fetchError } = await supabase
       .from('cards')
-      .select('id, image_url, thumbnail_url, image_storage_path')
+      .select('id, image_url, thumbnail_url, image_storage_path, image_status, image_search_status')
       .eq('user_id', user.id)
-      .or('image_url.like.%/object/sign/%,thumbnail_url.like.%/object/sign/%');
+      .or('image_url.like.%/object/sign/%,thumbnail_url.like.%/object/sign/%,image_url.like.%/object/authenticated/%,thumbnail_url.like.%/object/authenticated/%,image_status.in.(failed,external),image_search_status.in.(error,not_found)');
 
     if (fetchError) throw fetchError;
 
     if (!cards || cards.length === 0) {
-      return new Response(JSON.stringify({ fixed: 0, message: 'No signed URLs found' }), {
+      return new Response(JSON.stringify({ fixed: 0, message: 'No broken image URLs found' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -58,9 +58,11 @@ serve(async (req) => {
     for (const card of cards) {
       const updates: Record<string, string> = {};
 
-      if (card.image_url?.includes('/object/sign/')) {
+      const storedPath = card.image_storage_path || null;
+
+      if (card.image_url?.includes('/object/sign/') || card.image_url?.includes('/object/authenticated/')) {
         // Extract the storage path from the signed URL
-        const match = card.image_url.match(/\/object\/sign\/([^?]+)/);
+        const match = card.image_url.match(/\/object\/(?:sign|authenticated)\/([^?]+)/);
         if (match) {
           const bucketAndPath = match[1]; // e.g. "card-images/cards/game/id.jpg"
           const storagePath = bucketAndPath.replace('card-images/', '');
@@ -70,8 +72,8 @@ serve(async (req) => {
         }
       }
 
-      if (card.thumbnail_url?.includes('/object/sign/')) {
-        const match = card.thumbnail_url.match(/\/object\/sign\/([^?]+)/);
+      if (card.thumbnail_url?.includes('/object/sign/') || card.thumbnail_url?.includes('/object/authenticated/')) {
+        const match = card.thumbnail_url.match(/\/object\/(?:sign|authenticated)\/([^?]+)/);
         if (match) {
           const storagePath = match[1].replace('card-images/', '');
           const { data } = supabase.storage.from('card-images').getPublicUrl(storagePath);
@@ -79,8 +81,15 @@ serve(async (req) => {
         }
       }
 
+      if (storedPath && Object.keys(updates).length === 0) {
+        const { data } = supabase.storage.from('card-images').getPublicUrl(storedPath);
+        updates.image_url = data.publicUrl;
+        updates.thumbnail_url = data.publicUrl;
+      }
+
       if (Object.keys(updates).length > 0) {
         updates.image_status = 'ok';
+        updates.image_search_status = 'found';
         const { error: updateError } = await supabase
           .from('cards')
           .update(updates)

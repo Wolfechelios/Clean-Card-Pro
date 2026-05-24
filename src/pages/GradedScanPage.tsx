@@ -189,10 +189,8 @@ export default function GradedScanPage() {
       return;
     }
 
-    const { data: publicUrlData } = supabase.storage
-      .from("card-images")
-      .getPublicUrl(fileName);
-    await processImage(publicUrlData.publicUrl);
+    const { data: publicData } = supabase.storage.from("card-images").getPublicUrl(fileName);
+    await processImage(publicData.publicUrl);
   };
 
   const startCamera = async () => {
@@ -288,10 +286,8 @@ export default function GradedScanPage() {
         return;
       }
 
-      const { data: publicUrlData } = supabase.storage
-        .from("card-images")
-        .getPublicUrl(fileName);
-      await processImage(publicUrlData.publicUrl);
+      const { data: publicData } = supabase.storage.from("card-images").getPublicUrl(fileName);
+      await processImage(publicData.publicUrl);
     } catch (err) {
       console.error("Capture error:", err);
       toast.error("Failed to capture photo");

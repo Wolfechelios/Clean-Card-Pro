@@ -40,18 +40,22 @@ serve(async (req) => {
       });
     }
 
-    const { limit = 50 } = await req.json();
+    const { limit = 50, includeBroken = true } = await req.json();
     const processLimit = Math.min(limit, 100); // Max 100 at a time
 
     console.log(`Resolving missing images for user ${user.id}, limit: ${processLimit}`);
 
-    // Find cards with missing images (only placeholder or null URLs)
+    const missingFilter = includeBroken
+      ? 'image_url.is.null,image_url.eq.,image_url.ilike.%placehold%,image_status.eq.failed,image_status.eq.external,image_search_status.eq.not_found,image_search_status.eq.error'
+      : 'image_url.is.null,image_url.eq.,image_url.ilike.%placehold%';
+
+    // Find cards with missing or previously broken images
     const { data: cards, error: cardsError } = await supabase
       .from('cards')
       .select('id, card_name, card_set, set_code, card_number, year, variant, game_type, sport_type, player_name, image_locked, image_url')
       .eq('user_id', user.id)
       .eq('image_locked', false)
-      .or('image_url.is.null,image_url.ilike.%placehold%')
+      .or(missingFilter)
       .limit(processLimit);
 
     if (cardsError) {

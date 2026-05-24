@@ -4,18 +4,31 @@ import { useLocalStorageState } from "@/lib/useLocalStorageState";
 const SCALE_KEY = "display-scale";
 const SCALE_OPTIONS = [75, 80, 85, 90, 95, 100, 110, 120, 125, 150] as const;
 
-/** Auto-detect a good default for high-res mobile screens (e.g. Red Magic 10 Pro) */
+/** Auto-detect a good default scale based on device characteristics.
+ * High-res mobile screens (high DPR, narrow CSS width) get scaled DOWN so more
+ * content fits comfortably; small/low-res screens get scaled UP for legibility. */
 function getSmartDefault(): number {
   if (typeof window === "undefined") return 100;
-  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-  if (!isMobile) return 100;
-  // High-res phones with small CSS pixels need bigger UI
+  const ua = navigator.userAgent;
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(ua);
   const cssWidth = window.screen.width;
   const dpr = window.devicePixelRatio || 1;
-  // Phones with very high DPR (≥3) or narrow CSS widths benefit from scaling up
-  if (dpr >= 3.5 || (dpr >= 3 && cssWidth <= 400)) return 125;
-  if (dpr >= 2.5) return 110;
-  return 100;
+
+  if (!isMobile) {
+    // Desktops: leave at 100% unless screen is very small
+    if (cssWidth < 1100) return 95;
+    return 100;
+  }
+
+  // Tablet-ish widths: keep close to 100%
+  if (cssWidth >= 700) return 95;
+
+  // Phones — pick a default that maximizes usable space without shrinking text too far.
+  // Modern flagships report ~390-430 CSS px with DPR 3+. We slightly shrink so dashboards fit.
+  if (cssWidth <= 360) return 90;          // small phones
+  if (cssWidth <= 414) return 85;          // standard phones (iPhone 12-15, most Androids)
+  if (cssWidth <= 480) return 80;          // large/high-res phones (Red Magic, Pixel Pro, Note)
+  return 85;                               // foldables / very wide phones
 }
 
 export type ScaleValue = (typeof SCALE_OPTIONS)[number];

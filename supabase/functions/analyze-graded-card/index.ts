@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { callAIGateway } from "../_shared/aiGateway.ts";
 import { validateImageUrl, SSRFError } from "../_shared/validateUrl.ts";
+import { requireAuth } from "../_shared/requireAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -10,6 +12,9 @@ serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+
+  const authResult = await requireAuth(req, corsHeaders);
+  if (authResult instanceof Response) return authResult;
 
   try {
     const { imageUrl: rawImageUrl } = await req.json();
@@ -54,13 +59,7 @@ Return ONLY valid JSON in this exact format:
   "year": "string"
 }`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    const response = await callAIGateway({
         model: "google/gemini-2.5-flash",
         messages: [
           {
@@ -71,8 +70,7 @@ Return ONLY valid JSON in this exact format:
             ],
           },
         ],
-      }),
-    });
+      });
 
     if (!response.ok) {
       const errorText = await response.text();

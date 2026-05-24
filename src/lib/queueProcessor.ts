@@ -16,7 +16,7 @@ import { queueAnomalyDetector } from "@/lib/scanAnomalyDetector";
 import { addRecentScan } from "@/lib/recentScans";
 import { insertCardDual } from "@/lib/localCards";
 import {
-  idbGetNextQueued,
+  idbClaimNextQueued,
   idbUpdateMeta,
   idbDelete,
   idbCount,
@@ -87,12 +87,11 @@ type ProcessorStore = ProcessorState & {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
-const WORKER_SCALE_INTERVAL_MS = 500;
+const WORKER_SCALE_INTERVAL_MS = 250;
 const QUEUE_REFRESH_INTERVAL_MS = 1000;
-const MIN_SERIAL_JOB_DELAY_MS = 800;
+const MIN_SERIAL_JOB_DELAY_MS = 50;
 const ANOMALY_PAUSE_STORAGE_KEY = "rapid-scan-anomaly-paused";
-const IDENTIFY_TIMEOUT_MS = 3500;
-const OCR_TIMEOUT_MS = 2500;
+const IDENTIFY_TIMEOUT_MS = 5000;
 const UPLOAD_TIMEOUT_MS = 8000;
 
 function readAnomalyPauseFlag(): boolean {
@@ -114,6 +113,26 @@ function writeAnomalyPauseFlag(isPaused: boolean): void {
     }
   } catch {
     // ignore storage failures
+  }
+}
+
+/**
+ * Re-queue items that were mass-failed by the old anomaly detector.
+ * Users legitimately scan duplicates; those scans should never have errored.
+ */
+async function recoverAnomalyErroredItems(): Promise<void> {
+  try {
+    const all = await idbListMetaFast(1000);
+    const stuck = all.filter(
+      (m) => m.status === "error" && typeof m.error === "string" && m.error.startsWith("Anomaly:")
+    );
+    if (stuck.length === 0) return;
+    await Promise.all(
+      stuck.map((m) => idbUpdateMeta(m.id, { status: "queued", error: undefined }))
+    );
+    console.log(`[QueueProcessor] Recovered ${stuck.length} items previously failed by anomaly detector`);
+  } catch (e) {
+    console.warn("[QueueProcessor] recoverAnomalyErroredItems error", e);
   }
 }
 
@@ -155,8 +174,10 @@ function getJobDelayMs(): number { return Math.max(getDeviceTier().jobDelayMs, M
 function getPollIntervalMs(): number { return getDeviceTier().pollIntervalMs; }
 
 function getMaxWorkerCount(): number {
-  // Rapid queue must stay serialized to avoid cross-card result collapse.
-  return 1;
+  const tierMax = Math.max(1, getDeviceTier().maxWorkers);
+  const override = getScannerSettings().maxWorkersOverride ?? 0;
+  if (!override || override <= 0) return tierMax;
+  return Math.max(1, Math.min(override, 8));
 }
 
 // Adaptive scaling
@@ -205,11 +226,13 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
 
   start: () => {
     if (get().isRunning) return;
-    if (readAnomalyPauseFlag()) {
-      set({ isPaused: true, isPausedByAnomaly: true });
-      return;
-    }
+    // Always clear the anomaly-pause flag when the user explicitly starts.
+    writeAnomalyPauseFlag(false);
     queueAnomalyDetector.resetSession();
+    // Recover items previously mass-failed by the old anomaly logic
+    recoverAnomalyErroredItems().catch((e) =>
+      console.warn("[QueueProcessor] anomaly recovery failed", e)
+    );
     set({ isRunning: true, isPaused: false, isPausedByAnomaly: false });
     startWorkers();
   },
@@ -229,7 +252,9 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
 
   resume: () => {
     writeAnomalyPauseFlag(false);
+    queueAnomalyDetector.resetSession();
     set({ isPaused: false, isPausedByAnomaly: false });
+    recoverAnomalyErroredItems().catch(() => {});
 
     if (!get().isRunning) {
       idbCountQueued()
@@ -280,10 +305,21 @@ function sleep(ms: number) {
 
 function blobToBase64DataUrl(blob: Blob, mime: string): Promise<string> {
   return new Promise((resolve, reject) => {
+    if (!blob || blob.size === 0) {
+      reject(new Error(`blobToBase64DataUrl: empty blob (size=${blob?.size ?? "null"})`));
+      return;
+    }
     const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(new Blob([blob], { type: mime }));
+    reader.onloadend = () => {
+      const result = reader.result as string;
+      if (!result || typeof result !== "string" || result.length < 200 || !result.includes(",")) {
+        reject(new Error(`blobToBase64DataUrl: encoded result too small (len=${result?.length ?? 0}, blobSize=${blob.size})`));
+        return;
+      }
+      resolve(result);
+    };
+    reader.onerror = () => reject(reader.error || new Error("FileReader failed"));
+    reader.readAsDataURL(new Blob([blob], { type: mime || blob.type || "image/jpeg" }));
   });
 }
 
@@ -350,7 +386,7 @@ async function cachedFetchPrice(args: {
         sportType: args.sportType,
         condition: args.condition,
       },
-      { timeoutMs: 6000, retries: 1, retryDelayMs: 200 }
+      { timeoutMs: 6000, retries: 0, retryDelayMs: 200 }
     );
 
     let v: number | null = null;
@@ -385,6 +421,7 @@ async function getUserId(): Promise<string | null> {
 
 let workersActive = 0;
 let scalingInterval: ReturnType<typeof setInterval> | null = null;
+let lowConfWarned = false;
 
 let rateLimitUntil = 0;
 function isRateLimitError(e: unknown): boolean {
@@ -393,8 +430,12 @@ function isRateLimitError(e: unknown): boolean {
 
 function startWorkers() {
   if (workersActive <= 0) {
-    workersActive = 1;
-    workerLoop(0);
+    const initialWorkers = getMaxWorkerCount();
+    console.log(`[QueueProcessor] Spawning ${initialWorkers} initial workers (full tier capacity)`);
+    for (let i = 0; i < initialWorkers; i++) {
+      workersActive++;
+      workerLoop(i);
+    }
   }
   
   if (!scalingInterval) {
@@ -460,7 +501,7 @@ async function workerLoop(workerId: number) {
       }
     }
 
-    const next = await idbGetNextQueued();
+    const next = await idbClaimNextQueued();
     if (!next) {
       consecutiveEmpty++;
       
@@ -518,11 +559,35 @@ async function workerLoop(workerId: number) {
   }
 }
 
+let authPauseWarned = false;
+
 async function processJob(item: QueueItem): Promise<void> {
   const store = useQueueProcessor.getState();
   store._setCurrentItem(item.id);
 
-  await idbUpdateMeta(item.id, { status: "processing" });
+  // ─── Auth guard for SAVE mode ───
+  // If the user signed out (or session expired) mid-batch and we're in SAVE
+  // mode, we'd silently drop work into recentScans without ever persisting to
+  // the library. Pause the processor and requeue this item instead.
+  const earlyScanSettings = getScannerSettings();
+  if (earlyScanSettings.scanMode === "SAVE") {
+    const earlyUserId = await getUserId();
+    if (!earlyUserId) {
+      await idbUpdateMeta(item.id, { status: "queued", error: undefined });
+      useQueueProcessor.setState({ isPaused: true });
+      store._setCurrentItem(null);
+      if (!authPauseWarned) {
+        authPauseWarned = true;
+        try {
+          const { toast } = await import("sonner");
+          toast.error("Signed out — sign back in to resume scanning.");
+        } catch { /* ignore */ }
+      }
+      console.warn("[QueueProcessor] Paused: lost auth in SAVE mode, requeued", item.id);
+      return;
+    }
+    authPauseWarned = false;
+  }
 
   // Create a base64 data URL for AI identification only.
   // Keep the first pass as light as possible: identify first, OCR only on weak/failing results,
@@ -543,64 +608,15 @@ async function processJob(item: QueueItem): Promise<void> {
   ).catch((e: any) => ({ success: false, cardData: null, source: "cloud" as const, error: e }));
 
   let identify: any = null;
-  let shouldUseOcrFallback = false;
 
   if (!(identifyInitial as any)?.error && (identifyInitial as any)?.success) {
     identify = (identifyInitial as any).cardData;
     const initialConfidence = Number(identify?.confidence ?? 0);
-    const initialName = String(identify?.card_name ?? "").trim().toLowerCase();
-    shouldUseOcrFallback = !initialName || initialName === "unknown card" || initialConfidence < 0.5;
     console.log(`[QueueProcessor] Card identified via ${(identifyInitial as any).source}:`, identify?.card_name, `conf=${initialConfidence}`);
   } else {
     const err = (identifyInitial as any)?.error;
     if (err?.message?.includes("max attempts reached")) {
       throw new Error("Offline: requires internet connection to identify this card");
-    }
-    shouldUseOcrFallback = true;
-  }
-
-  let ocrText: string | null = null;
-  let ocrSetCode: string | null = null;
-  let ocrCardNumber: string | null = null;
-  let ocrConfidence = 0;
-
-  if (shouldUseOcrFallback) {
-    const ocrResult = await withTimeout(
-      supabase.functions.invoke("zai-ocr", {
-        body: { imageUrl: base64, mode: "meta" },
-      }),
-      OCR_TIMEOUT_MS,
-      "Z.AI OCR"
-    ).catch((e: any) => {
-      console.warn("[QueueProcessor] Z.AI OCR skipped:", e);
-      return { data: null, error: e } as any;
-    });
-
-    if (ocrResult && (ocrResult as any).data && !(ocrResult as any).error) {
-      const ocr = (ocrResult as any).data;
-      ocrText = ocr.text || null;
-      ocrSetCode = ocr.setCode || null;
-      ocrCardNumber = ocr.cardNumber || null;
-      ocrConfidence = ocr.confidence || 0;
-      console.log(`[QueueProcessor] Z.AI OCR: "${ocrText?.substring(0, 60)}" conf=${ocrConfidence} set=${ocrSetCode} num=${ocrCardNumber}`);
-    }
-
-    if (ocrText) {
-      const retryResult = await withTimeout(
-        hybridIdentifyCard(base64, {
-          cloudFunction: "rapid-card-identify",
-          skipOfflineGuard: false,
-          ocrText,
-          gameTypeHint,
-        }),
-        IDENTIFY_TIMEOUT_MS + 1500,
-        "Rapid identify OCR retry"
-      );
-      identify = retryResult.cardData;
-      console.log(`[QueueProcessor] Card identified via ${retryResult.source} (OCR retry):`, identify?.card_name);
-    } else if (!identify) {
-      const err = (identifyInitial as any)?.error;
-      throw err || new Error("Card identification failed");
     }
   }
 
@@ -608,55 +624,33 @@ async function processJob(item: QueueItem): Promise<void> {
     throw new Error("Card identification failed");
   }
 
-  // Enrich with OCR structured data only when we actually used OCR
-  if (ocrConfidence >= 0.5) {
-    if (ocrCardNumber && (!identify?.card_number || identify.confidence < 0.7)) {
-      identify.card_number = ocrCardNumber;
-    }
-    if (ocrSetCode && (!identify?.card_set || identify.confidence < 0.7) && !identify?.card_set) {
-      identify.card_set = ocrSetCode;
-    }
-  }
-
   const cardName: string = identify?.card_name || "Unknown Card";
 
   // ─── Anomaly detection ───
+  // Users legitimately scan multiple copies of the same card (playsets of 4, etc.).
+  // Only treat as anomaly at very high consecutive counts, and NEVER mass-fail
+  // queued items — just pause and let the user decide.
   const anomaly = queueAnomalyDetector.trackIdentification(cardName);
-  if (anomaly.consecutiveCount >= 10) {
+  if (anomaly.consecutiveCount >= 25) {
     writeAnomalyPauseFlag(true);
     const { toast } = await import("sonner");
-    toast.error(`Rapid scan stopped — "${cardName}" repeated 10 times. Clear the bad batch before continuing.`);
-    console.error(`[QueueProcessor] Auto-stopped: ${anomaly.message}`);
-    const remaining = await idbListMetaFast(1000);
-    await Promise.all(
-      remaining
-        .filter((meta) => meta.status === "queued")
-        .map((meta) =>
-          idbUpdateMeta(meta.id, {
-            status: "error",
-            error: `Anomaly: repeated identification "${cardName}"`,
-          })
-        )
+    toast.warning(
+      `Rapid scan paused — "${cardName}" identified 25 times in a row. Resume if this is intentional.`,
+      { duration: 8000 }
     );
-    useQueueProcessor.getState().stop();
+    console.warn(`[QueueProcessor] Auto-paused at 25 consecutive: ${cardName}`);
     useQueueProcessor.setState({ isPaused: true, isPausedByAnomaly: true });
-    throw new Error(`Rapid scan stopped after repeated "${cardName}" identifications`);
-  } else if (anomaly.consecutiveCount >= 5) {
-    writeAnomalyPauseFlag(true);
+    // Do NOT throw — let this card finish processing normally.
+  } else if (anomaly.consecutiveCount === 10) {
+    // One-time soft notice, no pause, no failure
     const { toast } = await import("sonner");
-    toast.warning(`Rapid scan paused — "${cardName}" keeps repeating. Resume manually or clear the bad batch.`);
-    useQueueProcessor.setState({ isPaused: true, isPausedByAnomaly: true });
-    console.warn(`[QueueProcessor] Auto-paused: ${anomaly.message}`);
-    throw new Error(`Rapid scan paused after repeated "${cardName}" identifications`);
-  } else if (anomaly.isAnomaly) {
-    const { toast } = await import("sonner");
-    toast.warning(anomaly.message);
+    toast.info(`"${cardName}" scanned 10 times in a row — looking good if intentional.`);
   }
 
   const cardSet: string | null = identify?.card_set ?? null;
   const cardNumber: string | null = identify?.card_number ?? null;
   const rarity: string | null = identify?.rarity ?? null;
-  const gameType: string | null = identify?.game_type ?? null;
+  let gameType: string | null = identify?.game_type ?? null;
   const sportType: string | null = identify?.sport_type ?? null;
   const cardCondition: string | null = identify?.condition ?? null;
   const confidence: number = identify?.confidence ?? 0;
@@ -665,11 +659,40 @@ async function processJob(item: QueueItem): Promise<void> {
   const team: string | null = identify?.team ?? null;
   const manufacturer: string | null = identify?.manufacturer ?? null;
 
+  // Backfill gameType from user filter when AI returns null
+  if (!gameType && scanSettings.gameTypeFilter && scanSettings.gameTypeFilter !== "auto") {
+    const GAME_TYPE_MAP: Record<string, string> = {
+      mtg: "MTG",
+      yugioh: "Yu-Gi-Oh!",
+      pokemon: "Pokemon",
+      sports: "Sports",
+      gpk: "GPK",
+      marvel: "Marvel",
+      onepiece: "One Piece",
+    };
+    const backfilled = GAME_TYPE_MAP[scanSettings.gameTypeFilter];
+    if (backfilled) {
+      gameType = backfilled;
+      console.log(`[QueueProcessor] Backfilled gameType from user setting: ${gameType}`);
+    }
+  }
+
   const MIN_CONFIDENCE = 0.3;
   if (cardName === "Unknown Card" || confidence < MIN_CONFIDENCE) {
-    console.log(`[QueueProcessor] Discarding unreadable card (confidence: ${(confidence * 100).toFixed(0)}%, name: ${cardName})`);
-    await idbDelete(item.id);
+    console.log(`[QueueProcessor] Low-confidence scan preserved for review (confidence: ${(confidence * 100).toFixed(0)}%, name: ${cardName})`);
+    await idbUpdateMeta(item.id, {
+      status: "error",
+      error: `Low confidence (${(confidence * 100).toFixed(0)}%) — needs review`,
+    });
+    if (!lowConfWarned) {
+      lowConfWarned = true;
+      try {
+        const { toast } = await import("sonner");
+        toast.warning("Some scans had low confidence and are flagged for review in the queue.");
+      } catch { /* ignore */ }
+    }
     store._setCurrentItem(null);
+    store._incrementError();
     return;
   }
 
@@ -694,14 +717,14 @@ async function processJob(item: QueueItem): Promise<void> {
 
   const userIdPromise = getUserId();
 
-  const [priceResult, userId, _uploadResult] = await Promise.all([
+  const [priceResult, userId, uploadResult] = await Promise.all([
     cachedFetchPrice({ cardName, cardSet, cardNumber, gameType, sportType, condition: cardCondition })
       .catch(() => ({ raw: null as number | null, psa10: null as number | null })),
     userIdPromise,
     uploadPromise,
   ]);
 
-  const ownershipResult = userId
+  const ownershipResult = userId && scanSettings.scanMode === "SAVE"
     ? await (async () => {
         try {
           const { count } = await supabase
@@ -728,8 +751,29 @@ async function processJob(item: QueueItem): Promise<void> {
       })()
     : { ownedCount: 0, isInLibrary: false, existingId: undefined as string | undefined };
 
-  const { data: publicUrlData } = supabase.storage.from("card-images").getPublicUrl(filePath);
-  const imageUrl = publicUrlData.publicUrl;
+  // If upload failed, fall back to a local blob URL so the card is still
+  // visible in the UI (even though it won't survive a refresh / other devices).
+  let imageUrl: string;
+  let imageStatus: "stored" | "local-only" = "stored";
+  if (uploadResult) {
+    try {
+      const { data: publicData } = supabase.storage.from("card-images").getPublicUrl(filePath);
+      imageUrl = publicData.publicUrl;
+    } catch (e) {
+      console.warn(`[QueueProcessor] Failed to build public URL for ${filePath}, falling back to blob`, e);
+      imageUrl = URL.createObjectURL(item.blob);
+      imageStatus = "local-only";
+    }
+  } else {
+    try {
+      imageUrl = URL.createObjectURL(item.blob);
+      imageStatus = "local-only";
+      console.warn(`[QueueProcessor] Using local blob URL for ${item.id} (upload failed)`);
+    } catch {
+      imageUrl = "";
+      imageStatus = "local-only";
+    }
+  }
 
   const rawPrice = priceResult.raw;
   const psa10Price = priceResult.psa10;
@@ -762,6 +806,7 @@ async function processJob(item: QueueItem): Promise<void> {
   const confPct = confidence * 100;
   const threshold = settings.autoConfirmThreshold ?? 75;
 
+  let saveAttemptedAndFailed = false;
   if (settings.scanMode === "SAVE" && userId && confPct >= threshold) {
     try {
       const inserted = await insertCardDual({
@@ -773,10 +818,10 @@ async function processJob(item: QueueItem): Promise<void> {
         game_type: gameType,
         sport_type: sportType,
         image_url: imageUrl,
-        image_storage_path: `cards/${item.id}.jpg`,
+        image_storage_path: imageStatus === "stored" ? `cards/${item.id}.jpg` : null,
         image_source: "scan",
-        image_status: "stored",
-        image_search_status: "found",
+        image_status: imageStatus === "stored" ? "stored" : "pending",
+        image_search_status: imageStatus === "stored" ? "found" : "pending",
         current_price_raw: rawPrice,
         suggested_price: rawPrice,
         last_price_update: rawPrice ? new Date().toISOString() : null,
@@ -800,10 +845,11 @@ async function processJob(item: QueueItem): Promise<void> {
       console.log(`[QueueProcessor] Auto-saved to library: ${cardName} (${confPct.toFixed(0)}% confidence)`);
     } catch (e: any) {
       console.error(`[QueueProcessor] Auto-save failed for ${cardName}:`, e);
+      saveAttemptedAndFailed = true;
     }
   }
 
-  addRecentScan({
+  const recentScanSaved = addRecentScan({
     id: item.id,
     card_name: cardName,
     card_set: cardSet,
@@ -825,7 +871,25 @@ async function processJob(item: QueueItem): Promise<void> {
   });
   window.dispatchEvent(new CustomEvent("recent-scan-added"));
 
-  await idbDelete(item.id);
+  // Only delete the queue item if work was actually persisted somewhere.
+  // - SAVE mode: require a successful library insert (or fall back to recentScans persisting it).
+  // - Non-SAVE: require addRecentScan to have actually stored it.
+  // Otherwise leave it as "error" so the user can retry without losing the capture.
+  if (saveAttemptedAndFailed && !recentScanSaved) {
+    await idbUpdateMeta(item.id, {
+      status: "error",
+      error: "Save failed — capture preserved for retry",
+    });
+    store._incrementError();
+  } else if (!recentScanSaved && settings.scanMode !== "SAVE") {
+    await idbUpdateMeta(item.id, {
+      status: "error",
+      error: "Scan rejected (low confidence / unreadable)",
+    });
+    store._incrementError();
+  } else {
+    await idbDelete(item.id);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -858,3 +922,24 @@ export async function checkAndResumeQueue(): Promise<void> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export { idbAdd, idbCount, idbCountQueued, idbClear, idbGetAll, idbDelete } from "@/lib/idbQueue";
+
+/**
+ * Re-queue every error item so the workers will retry them.
+ */
+export async function retryAllErrors(): Promise<number> {
+  const all = await idbListMetaFast(1000);
+  const errs = all.filter((m) => m.status === "error");
+  await Promise.all(errs.map((m) => idbUpdateMeta(m.id, { status: "queued", error: undefined })));
+  useQueueProcessor.getState().refreshQueue();
+  return errs.length;
+}
+
+/**
+ * Wipe everything in the scan queue (useful for clearing stuck/error backlog).
+ */
+export async function clearScanQueue(): Promise<void> {
+  const { idbClear } = await import("@/lib/idbQueue");
+  await idbClear();
+  useQueueProcessor.getState().refreshQueue();
+}
+

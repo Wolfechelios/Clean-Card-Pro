@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireAuth } from "../_shared/requireAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,6 +16,11 @@ serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+
+  // Require authenticated user
+  const authResult = await requireAuth(req, corsHeaders);
+  if (authResult instanceof Response) return authResult;
+  const callerUserId = authResult.userId;
 
   try {
     const { job_id, limit, use_estimation, card_ids } = await req.json();
@@ -47,6 +53,14 @@ serve(async (req) => {
       );
     }
 
+    // Ownership check
+    if (job.user_id !== callerUserId) {
+      return new Response(
+        JSON.stringify({ error: "Forbidden" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Update job to running
     await supabase
       .from("price_jobs")
@@ -55,12 +69,16 @@ serve(async (req) => {
 
     let cards: { id: string }[] = [];
 
-    // If card_ids provided, use those; otherwise query for cards needing update
+    // If card_ids provided, validate they belong to the caller before using
     if (card_ids && Array.isArray(card_ids) && card_ids.length > 0) {
-      // Use provided card IDs (limited to MAX_CARDS_PER_JOB)
       const limitedIds = card_ids.slice(0, cardLimit);
-      cards = limitedIds.map((id: string) => ({ id }));
-      console.log(`Using ${cards.length} provided card IDs`);
+      const { data: ownedCards } = await supabase
+        .from("cards")
+        .select("id")
+        .eq("user_id", callerUserId)
+        .in("id", limitedIds);
+      cards = (ownedCards || []).map((c: { id: string }) => ({ id: c.id }));
+      console.log(`Using ${cards.length} owned card IDs (of ${limitedIds.length} provided)`);
     } else {
       // Fallback: get cards that need updating
       const twentyFourHoursAgo = new Date();
