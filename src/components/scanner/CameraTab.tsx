@@ -102,8 +102,8 @@ export function CameraTab({
               />
             </div>
             
-            <div className="flex gap-2">
-              <Button onClick={onCapture} size="lg" className="flex-1">
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={onCapture} size="lg" className="flex-1 min-w-[160px]">
                 <Camera className="mr-2 h-5 w-5" />
                 Capture Card
               </Button>
