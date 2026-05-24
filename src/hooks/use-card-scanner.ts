@@ -229,54 +229,61 @@ export function useCardScanner({
 
       let enhancedData: any;
       let alternatives: Alternative[] = [];
+      let pricingData: any;
 
-      try {
-        const enhancedResult = await withRetry(
-          async () => {
-            const { data, error } = await supabase.functions.invoke("enhanced-card-identify", {
-              body: { imageUrl, ocrText: ocr.rawText },
-            });
-            if (error) throw new Error(error.message);
-            return data;
-          },
-          { retries: 3, baseMs: 600, maxMs: 5000 }
-        );
-
-        if (enhancedResult?.success) {
-          const cardData = enhancedResult.cardData;
-          if (cardData.primary) {
-            enhancedData = cardData.primary;
-            alternatives = cardData.alternatives || [];
-          } else {
-            enhancedData = cardData;
-          }
-          toast.success(`Card identified: ${enhancedData.card_name}`);
-        }
-      } catch (error) {
+      // Run the two identification calls in parallel — previously they were
+      // serial (enhanced → identify), which doubled the post-capture wait.
+      const enhancedPromise = withRetry(
+        async () => {
+          const { data, error } = await supabase.functions.invoke("enhanced-card-identify", {
+            body: { imageUrl, ocrText: ocr.rawText },
+          });
+          if (error) throw new Error(error.message);
+          return data;
+        },
+        { retries: 2, baseMs: 500, maxMs: 4000 }
+      ).catch((error) => {
         console.error("Enhanced identification error:", error);
-        toast.warning("Using fallback identification...");
-      }
+        return null;
+      });
+
+      const pricingPromise = withRetry(
+        async () => {
+          const { data, error } = await supabase.functions.invoke("identify-card", {
+            body: { imageUrl, ocrText: ocr.rawText },
+          });
+          if (error) throw new Error(error.message);
+          return data;
+        },
+        { retries: 2, baseMs: 500, maxMs: 4000 }
+      ).catch((error) => {
+        console.error("Pricing fetch error:", error);
+        return null;
+      });
 
       setScanProgress(70);
 
-      let pricingData: any;
-      try {
-        const cardIdentification = await withRetry(
-          async () => {
-            const { data, error } = await supabase.functions.invoke("identify-card", {
-              body: { imageUrl, ocrText: ocr.rawText },
-            });
-            if (error) throw new Error(error.message);
-            return data;
-          },
-          { retries: 3, baseMs: 600, maxMs: 7000 }
-        );
+      const [enhancedResult, cardIdentification] = await Promise.all([
+        enhancedPromise,
+        pricingPromise,
+      ]);
 
-        if (cardIdentification) pricingData = cardIdentification;
-      } catch (error) {
-        console.error("Pricing fetch error:", error);
-        toast.warning("Could not fetch pricing data");
+      if (enhancedResult?.success) {
+        const cardData = enhancedResult.cardData;
+        if (cardData?.primary) {
+          enhancedData = cardData.primary;
+          alternatives = cardData.alternatives || [];
+        } else {
+          enhancedData = cardData;
+        }
+        if (enhancedData?.card_name) {
+          toast.success(`Card identified: ${enhancedData.card_name}`);
+        }
+      } else {
+        toast.warning("Using fallback identification...");
       }
+
+      if (cardIdentification) pricingData = cardIdentification;
 
       setScanProgress(90);
 
