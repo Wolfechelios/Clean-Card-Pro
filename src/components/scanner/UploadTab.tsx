@@ -229,9 +229,9 @@ export function UploadTab({
                 </div>
               </div>
 
-              <div className="rounded-lg border bg-muted/30 p-3">
+              <div className="rounded-lg border bg-muted/30 p-3 min-w-0">
                 <Label className="text-muted-foreground">Raw OCR Text</Label>
-                <p className="mt-2 text-sm font-mono">{ocrResult.rawText}</p>
+                <p className="mt-2 text-sm font-mono whitespace-pre-wrap break-words">{ocrResult.rawText}</p>
               </div>
             </div>
           ) : (
