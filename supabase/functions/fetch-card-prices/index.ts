@@ -640,8 +640,18 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const auth = await requireAuth(req, corsHeaders);
+    if (auth instanceof Response) return auth;
+
     const { cardName, cardSet, cardNumber, gameType, sportType, condition } = await req.json();
+    if (!cardName || typeof cardName !== "string" || !cardName.trim()) {
+      return new Response(
+        JSON.stringify({ error: "cardName is required" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
     console.log("Fetching prices for:", { cardName, cardSet, cardNumber, gameType, sportType, condition });
+
 
     // ── Cache check ─────────────────────────────────────────────────
     const identityKey = buildIdentityKey({ cardName, cardSet, cardNumber, gameType, sportType, condition });
