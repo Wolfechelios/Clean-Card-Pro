@@ -10,25 +10,29 @@ const SCALE_OPTIONS = [75, 80, 85, 90, 95, 100, 110, 120, 125, 150] as const;
 function getSmartDefault(): number {
   if (typeof window === "undefined") return 100;
   const ua = navigator.userAgent;
-  const isMobile = /Android|iPhone|iPad|iPod/i.test(ua);
+  const isIOS = /iPhone|iPad|iPod/i.test(ua);
+  const isAndroid = /Android/i.test(ua);
+  const isMobile = isIOS || isAndroid;
   const cssWidth = window.screen.width;
-  const dpr = window.devicePixelRatio || 1;
+  const cssHeight = window.screen.height;
 
   if (!isMobile) {
-    // Desktops: leave at 100% unless screen is very small
     if (cssWidth < 1100) return 95;
     return 100;
   }
 
-  // Tablet-ish widths: keep close to 100%
+  // Tablet-ish widths
   if (cssWidth >= 700) return 95;
 
-  // Phones — pick a default that maximizes usable space without shrinking text too far.
-  // Modern flagships report ~390-430 CSS px with DPR 3+. We slightly shrink so dashboards fit.
-  if (cssWidth <= 360) return 90;          // small phones
-  if (cssWidth <= 414) return 85;          // standard phones (iPhone 12-15, most Androids)
-  if (cssWidth <= 480) return 80;          // large/high-res phones (Red Magic, Pixel Pro, Note)
-  return 85;                               // foldables / very wide phones
+  // iPhone 17 family (iOS 26): 17/17 Pro ~402×874, 17 Air ~430×932, 17 Pro Max ~440×956.
+  if (isIOS && cssWidth >= 430) return 80;                       // 17 Pro Max / 17 Air
+  if (isIOS && cssWidth >= 400 && cssHeight >= 850) return 85;   // 17 / 17 Pro
+
+  // General phone buckets
+  if (cssWidth <= 360) return 90;
+  if (cssWidth <= 414) return 85;
+  if (cssWidth <= 480) return 80;
+  return 85;
 }
 
 export type ScaleValue = (typeof SCALE_OPTIONS)[number];
