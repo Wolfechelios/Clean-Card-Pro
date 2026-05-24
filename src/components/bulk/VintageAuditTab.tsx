@@ -56,7 +56,6 @@ export default function VintageAuditTab() {
   const qc = useQueryClient();
   const [game, setGame] = useState<typeof GAME_FILTERS[number]["id"]>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
   const auditQuery = useQuery({
     queryKey: ["vintage-audit", game],
@@ -68,7 +67,7 @@ export default function VintageAuditTab() {
     },
   });
 
-  const candidates = (auditQuery.data?.candidates ?? []).filter((c) => !dismissed.has(c.id));
+  const candidates = auditQuery.data?.candidates ?? [];
 
   const toggleOne = (id: string) =>
     setSelected((prev) => {
@@ -93,11 +92,6 @@ export default function VintageAuditTab() {
     },
     onSuccess: (count, vars) => {
       toast({ title: "Marked", description: `${count} card${count === 1 ? "" : "s"} marked as ${vars.edition}` });
-      setDismissed((prev) => {
-        const next = new Set(prev);
-        vars.ids.forEach((id) => next.add(id));
-        return next;
-      });
       clearSelection();
       qc.invalidateQueries({ queryKey: ["vintage-audit"] });
     },
@@ -111,9 +105,8 @@ export default function VintageAuditTab() {
       const { error } = await supabase.from("cards").update(update).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: (_d, vars) => {
+    onSuccess: () => {
       toast({ title: "Marked", description: "Card updated" });
-      setDismissed((prev) => new Set(prev).add(vars.id));
       qc.invalidateQueries({ queryKey: ["vintage-audit"] });
     },
     onError: (e: any) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
