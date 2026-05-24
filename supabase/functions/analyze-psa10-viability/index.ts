@@ -174,7 +174,9 @@ If the image quality is too low to properly assess, set confidence to under 50.`
           psa10_viable_notes: analysis.notes,
           psa10_analyzed_at: new Date().toISOString()
         })
-        .eq("id", card_id);
+        .eq("id", card_id)
+        .eq("user_id", userId);
+
 
       if (updateError) {
         console.error("Failed to update card:", updateError);
