@@ -34,6 +34,20 @@ const modeIcon: Record<ProCaptureMode, typeof Camera> = {
   verify: CheckCircle2,
 };
 
+const lensOptions = [
+  { value: "auto", label: "Auto by mode" },
+  { value: "main_48mp", label: "Main / Wide" },
+  { value: "ultra_wide", label: "Ultra Wide" },
+  { value: "telephoto", label: "Telephoto" },
+  { value: "macro", label: "Macro/Text" },
+] as const;
+
+const orientationOptions = [
+  { value: "portrait", label: "Portrait lock" },
+  { value: "landscape", label: "Landscape lock" },
+  { value: "auto", label: "Auto by mode" },
+] as const;
+
 function confidenceTone(score: number | undefined) {
   if (score == null) return "text-muted-foreground";
   if (score >= 80) return "text-emerald-600";
@@ -67,7 +81,7 @@ export function IPhoneProCapturePanel({ compact = false, lastQuality, className 
               <p className="truncate text-xs text-muted-foreground">{getCaptureModeBadge(activeProfile.mode)}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Select
               value={settings.proCaptureMode}
               onValueChange={(value) => updateSettings({ proCaptureMode: value as ProCaptureMode })}
@@ -80,6 +94,32 @@ export function IPhoneProCapturePanel({ compact = false, lastQuality, className 
                   <SelectItem key={profile.mode} value={profile.mode}>
                     {profile.label}
                   </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={settings.proPreferredLens}
+              onValueChange={(value) => updateSettings({ proPreferredLens: value as typeof settings.proPreferredLens })}
+            >
+              <SelectTrigger className="h-9 w-[140px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {lensOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={settings.proOrientationLock}
+              onValueChange={(value) => updateSettings({ proOrientationLock: value as typeof settings.proOrientationLock })}
+            >
+              <SelectTrigger className="h-9 w-[150px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {orientationOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -181,6 +221,40 @@ export function IPhoneProCapturePanel({ compact = false, lastQuality, className 
               </div>
               <div className="rounded-lg bg-muted/50 p-2">
                 <span className="font-medium text-foreground">Zoom target:</span> {activeProfile.recommendedZoom}×
+              </div>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Preferred iPhone lens</Label>
+                <Select
+                  value={settings.proPreferredLens}
+                  onValueChange={(value) => updateSettings({ proPreferredLens: value as typeof settings.proPreferredLens })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {lensOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Viewfinder orientation</Label>
+                <Select
+                  value={settings.proOrientationLock}
+                  onValueChange={(value) => updateSettings({ proOrientationLock: value as typeof settings.proOrientationLock })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {orientationOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div className="mt-3 space-y-1">

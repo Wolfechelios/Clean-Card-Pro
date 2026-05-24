@@ -10,6 +10,59 @@ export interface CameraDevice {
   lensLabel: string;
 }
 
+export type PreferredCameraLens = "auto" | "ultra_wide" | "main_48mp" | "telephoto" | "macro";
+
+const CAMERA_DEVICE_STORAGE_KEY = "clean-card-pro-selected-camera-device-v1";
+
+function readStoredDeviceId(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return localStorage.getItem(CAMERA_DEVICE_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function writeStoredDeviceId(deviceId: string) {
+  if (typeof window === "undefined") return;
+  try {
+    if (deviceId) localStorage.setItem(CAMERA_DEVICE_STORAGE_KEY, deviceId);
+    else localStorage.removeItem(CAMERA_DEVICE_STORAGE_KEY);
+  } catch {
+    // ignore private-mode storage failures
+  }
+}
+
+export function resolvePreferredCameraDevice(
+  devices: CameraDevice[],
+  selectedDeviceId: string,
+  preferredLens: PreferredCameraLens = "auto"
+): string {
+  if (selectedDeviceId && devices.some((device) => device.deviceId === selectedDeviceId)) {
+    return selectedDeviceId;
+  }
+
+  if (preferredLens === "main_48mp") {
+    return devices.find((device) => device.lensType === "wide")?.deviceId || devices[0]?.deviceId || "";
+  }
+  if (preferredLens === "ultra_wide") {
+    return devices.find((device) => device.lensType === "ultrawide")?.deviceId || devices[0]?.deviceId || "";
+  }
+  if (preferredLens === "telephoto") {
+    return devices.find((device) => device.lensType === "telephoto")?.deviceId || devices[0]?.deviceId || "";
+  }
+  if (preferredLens === "macro") {
+    return (
+      devices.find((device) => device.lensType === "macro" || device.lensType === "depth")?.deviceId ||
+      devices.find((device) => device.lensType === "telephoto")?.deviceId ||
+      devices[0]?.deviceId ||
+      ""
+    );
+  }
+
+  return devices.find((device) => device.lensType === "wide")?.deviceId || devices[0]?.deviceId || "";
+}
+
 /**
  * Classify a rear camera lens based on its label and capabilities.
  * Mobile OS labels vary: Android often includes focal-length hints,
@@ -95,7 +148,7 @@ function isUSBDevice(label: string): boolean {
 
 export const useCameraDevices = () => {
   const [devices, setDevices] = useState<CameraDevice[]>([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
+  const [selectedDeviceIdState, setSelectedDeviceIdState] = useState<string>(() => readStoredDeviceId());
   const [isLoading, setIsLoading] = useState(true);
 
   const refreshDevices = useCallback(async () => {
@@ -154,11 +207,20 @@ export const useCameraDevices = () => {
 
       setDevices(videoDevices);
 
-      // Auto-select main wide lens or first device
-      setSelectedDeviceId(prev => {
-        if (prev && videoDevices.some(d => d.deviceId === prev)) return prev;
-        if (videoDevices.length === 0) return "";
+      // Preserve the user's exact camera/lens choice across refreshes and remounts.
+      setSelectedDeviceIdState(prev => {
+        const stored = readStoredDeviceId();
+        const preferred = prev || stored;
+        if (preferred && videoDevices.some(d => d.deviceId === preferred)) {
+          writeStoredDeviceId(preferred);
+          return preferred;
+        }
+        if (videoDevices.length === 0) {
+          writeStoredDeviceId("");
+          return "";
+        }
         const mainLens = videoDevices.find(d => d.lensType === "wide") || videoDevices[0];
+        writeStoredDeviceId(mainLens.deviceId);
         return mainLens.deviceId;
       });
     } catch (error) {
@@ -177,9 +239,14 @@ export const useCameraDevices = () => {
     };
   }, [refreshDevices]);
 
+  const setSelectedDeviceId = useCallback((deviceId: string) => {
+    writeStoredDeviceId(deviceId);
+    setSelectedDeviceIdState(deviceId);
+  }, []);
+
   return {
     devices,
-    selectedDeviceId,
+    selectedDeviceId: selectedDeviceIdState,
     setSelectedDeviceId,
     isLoading,
     refreshDevices,

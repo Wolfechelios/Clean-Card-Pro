@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Camera, Loader2, AlertCircle, ImagePlus } from "lucide-react";
 import { toast } from "sonner";
-import { useCameraDevices } from "@/hooks/use-camera-devices";
+import { resolvePreferredCameraDevice, useCameraDevices } from "@/hooks/use-camera-devices";
 import { CameraDeviceSelector } from "./CameraDeviceSelector";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
 import { ZoomControls } from "./ZoomControls";
@@ -119,12 +119,18 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
       }
 
       let stream: MediaStream | null = null;
-      const targetDeviceId = deviceId || selectedDeviceId;
+      const targetDeviceId = deviceId || (settings.proCaptureEnabled
+        ? resolvePreferredCameraDevice(devices, selectedDeviceId, settings.proPreferredLens)
+        : selectedDeviceId);
+
+      if (targetDeviceId && targetDeviceId !== selectedDeviceId) {
+        setSelectedDeviceId(targetDeviceId);
+      }
 
       // Build constraint strategies for maximum quality
       
       const proConstraint = settings.proCaptureEnabled
-        ? getProVideoConstraints(settings.proCaptureMode, targetDeviceId || undefined)
+        ? getProVideoConstraints(settings.proCaptureMode, targetDeviceId || undefined, settings.proOrientationLock)
         : null;
 
       const constraintStrategies = proConstraint ? [proConstraint] : targetDeviceId ? [
@@ -431,7 +437,13 @@ export const MobileCameraScanner = ({ userId, onImageCaptured }: MobileCameraSca
           />
         )}
         
-        <div className="relative w-full bg-black rounded-lg overflow-hidden" style={{ aspectRatio: "3/4", maxHeight: "70vh" }}>
+        <div
+          className="relative w-full bg-black rounded-lg overflow-hidden"
+          style={{
+            aspectRatio: settings.proCaptureEnabled && settings.proOrientationLock === "landscape" ? "4/3" : "3/4",
+            maxHeight: settings.proCaptureEnabled && settings.proOrientationLock === "landscape" ? "56vh" : "70vh",
+          }}
+        >
           <video
             ref={videoRef}
             autoPlay

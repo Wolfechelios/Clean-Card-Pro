@@ -66,7 +66,7 @@ import { getScannerSettings, useScannerSettings, type ScannerSettings } from "@/
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { hapticTap } from "@/lib/haptics";
 import { useVoiceCommand } from "@/hooks/use-voice-command";
-import { useCameraDevices } from "@/hooks/use-camera-devices";
+import { resolvePreferredCameraDevice, useCameraDevices } from "@/hooks/use-camera-devices";
 import { CameraDeviceSelector } from "./CameraDeviceSelector";
 import { WhiteBalanceControl } from "./WhiteBalanceControl";
 import { playKachingBeep, playShutterBeep, playJackpotBeep, warmUpAudio } from "@/lib/audioBeeps";
@@ -143,7 +143,8 @@ export default function RapidScanCamera() {
   const { settings, updateSettings } = useScannerSettings();
   const isMobile = useIsMobile();
   const activeProProfile = getProCaptureProfile(settings.proCaptureMode);
-
+  const isLandscapeLocked = settings.proCaptureEnabled && settings.proOrientationLock === "landscape";
+  const isPortraitLocked = settings.proCaptureEnabled && settings.proOrientationLock === "portrait";
 
   // Camera devices (for selecting different lenses/optics)
   const {
@@ -493,11 +494,19 @@ export default function RapidScanCamera() {
     startingCameraRef.current = true;
 
     try {
+      const targetDeviceId = settings.proCaptureEnabled
+        ? resolvePreferredCameraDevice(cameraDevices, selectedDeviceId, settings.proPreferredLens)
+        : selectedDeviceId;
+
+      if (targetDeviceId && targetDeviceId !== selectedDeviceId) {
+        setSelectedDeviceId(targetDeviceId);
+      }
+
       const constraints: MediaStreamConstraints = settings.proCaptureEnabled
-        ? getProVideoConstraints(settings.proCaptureMode, selectedDeviceId || undefined)
+        ? getProVideoConstraints(settings.proCaptureMode, targetDeviceId || undefined, settings.proOrientationLock)
         : {
-            video: selectedDeviceId
-              ? { deviceId: { exact: selectedDeviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+            video: targetDeviceId
+              ? { deviceId: { exact: targetDeviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
               : { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
             audio: false,
           };
@@ -1432,14 +1441,17 @@ export default function RapidScanCamera() {
           ref={videoRef}
           className={cn(
             "w-full object-contain",
-            "h-[60vh] min-h-[350px] max-h-[600px]",
-            "sm:h-[55vh] sm:min-h-[400px] sm:max-h-[580px]",
-            "md:h-[520px] md:min-h-0 md:max-h-none",
-            "lg:h-[560px]",
-            "landscape:h-[65vh] landscape:min-h-[280px] landscape:max-h-[480px]",
+            isLandscapeLocked
+              ? "h-[42vh] min-h-[240px] max-h-[520px] md:h-[460px]"
+              : "h-[60vh] min-h-[350px] max-h-[600px]",
+            isPortraitLocked && "sm:h-[62vh] sm:min-h-[440px] sm:max-h-[680px] md:h-[620px]",
+            !isLandscapeLocked && !isPortraitLocked && "sm:h-[55vh] sm:min-h-[400px] sm:max-h-[580px] md:h-[520px] md:min-h-0 md:max-h-none lg:h-[560px] landscape:h-[65vh] landscape:min-h-[280px] landscape:max-h-[480px]",
             usingDigitalZoom && zoomLevel > 1 && "transition-transform duration-100"
           )}
-          style={usingDigitalZoom && zoomLevel > 1 ? { transform: `scale(${zoomLevel})` } : undefined}
+          style={{
+            aspectRatio: isLandscapeLocked ? "4 / 3" : isPortraitLocked ? "3 / 4" : undefined,
+            ...(usingDigitalZoom && zoomLevel > 1 ? { transform: `scale(${zoomLevel})` } : {}),
+          }}
           onClick={handleVideoTap}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}

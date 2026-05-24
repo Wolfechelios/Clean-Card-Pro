@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import type { ProCaptureMode } from "@/lib/iphoneProCapture";
+import type { ProCaptureMode, ProCaptureLens, ProOrientationLock } from "@/lib/iphoneProCapture";
 
 const SCANNER_SETTINGS_KEY = "card-scanner-settings";
 
@@ -15,6 +15,8 @@ export interface ScannerSettings {
   proCaptureMode: ProCaptureMode;
   proCaptureQualityGate: boolean;
   proCaptureMinConfidence: number;
+  proPreferredLens: ProCaptureLens;
+  proOrientationLock: ProOrientationLock;
 
   hapticsOnCapture: boolean;
   flashOnCapture: boolean;
@@ -50,6 +52,8 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   proCaptureMode: "rapid",
   proCaptureQualityGate: true,
   proCaptureMinConfidence: 62,
+  proPreferredLens: "main_48mp",
+  proOrientationLock: "portrait",
 
   hapticsOnCapture: true,
   flashOnCapture: true,

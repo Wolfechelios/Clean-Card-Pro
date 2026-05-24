@@ -8,6 +8,7 @@ export type ProCaptureMode =
   | "verify";
 
 export type ProCaptureLens = "auto" | "ultra_wide" | "main_48mp" | "telephoto" | "macro";
+export type ProOrientationLock = "auto" | "portrait" | "landscape";
 
 export interface ProCaptureProfile {
   mode: ProCaptureMode;
@@ -167,8 +168,31 @@ export function isProbablyIPhone(): boolean {
   return /iPhone/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1);
 }
 
-export function getProVideoConstraints(mode: ProCaptureMode, selectedDeviceId?: string): MediaStreamConstraints {
+export function getOrientationAspectRatio(mode: ProCaptureMode, orientationLock: ProOrientationLock = "auto"): number {
   const profile = getProCaptureProfile(mode);
+  if (orientationLock === "portrait") return 3 / 4;
+  if (orientationLock === "landscape") return 4 / 3;
+  return profile.frameGuide === "binder" ? 4 / 3 : 3 / 4;
+}
+
+export function getOrientationDimensions(
+  mode: ProCaptureMode,
+  orientationLock: ProOrientationLock = "auto"
+): { idealWidth: number; idealHeight: number } {
+  const profile = getProCaptureProfile(mode);
+  const portrait = orientationLock === "portrait" || (orientationLock === "auto" && profile.frameGuide !== "binder");
+  const longSide = Math.max(profile.idealWidth, profile.idealHeight);
+  const shortSide = Math.min(profile.idealWidth, profile.idealHeight);
+  return portrait ? { idealWidth: shortSide, idealHeight: longSide } : { idealWidth: longSide, idealHeight: shortSide };
+}
+
+export function getProVideoConstraints(
+  mode: ProCaptureMode,
+  selectedDeviceId?: string,
+  orientationLock: ProOrientationLock = "auto"
+): MediaStreamConstraints {
+  const profile = getProCaptureProfile(mode);
+  const dims = getOrientationDimensions(mode, orientationLock);
   const base: MediaTrackConstraints = selectedDeviceId
     ? { deviceId: { exact: selectedDeviceId } }
     : { facingMode: { ideal: "environment" } };
@@ -176,10 +200,10 @@ export function getProVideoConstraints(mode: ProCaptureMode, selectedDeviceId?: 
   return {
     video: {
       ...base,
-      width: { ideal: profile.idealWidth, min: Math.min(1280, profile.idealWidth) },
-      height: { ideal: profile.idealHeight, min: Math.min(720, profile.idealHeight) },
+      width: { ideal: dims.idealWidth, min: Math.min(1280, dims.idealWidth) },
+      height: { ideal: dims.idealHeight, min: Math.min(720, dims.idealHeight) },
       frameRate: { ideal: mode === "rapid" ? 30 : 24, min: 15 },
-      aspectRatio: { ideal: profile.frameGuide === "binder" ? 4 / 3 : 3 / 4 },
+      aspectRatio: { ideal: getOrientationAspectRatio(mode, orientationLock) },
       resizeMode: { ideal: "none" } as any,
       advanced: [
         { focusMode: mode === "macro_text" ? "manual" : "continuous" } as any,
