@@ -943,6 +943,8 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_card_owner_path: { Args: { _path: string }; Returns: boolean }
+      path_card_id: { Args: { _path: string }; Returns: string }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
     }
