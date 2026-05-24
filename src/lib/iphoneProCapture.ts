@@ -191,7 +191,6 @@ export function getProVideoConstraints(
   selectedDeviceId?: string,
   orientationLock: ProOrientationLock = "auto"
 ): MediaStreamConstraints {
-  const profile = getProCaptureProfile(mode);
   const dims = getOrientationDimensions(mode, orientationLock);
   const base: MediaTrackConstraints = selectedDeviceId
     ? { deviceId: { exact: selectedDeviceId } }
@@ -200,16 +199,10 @@ export function getProVideoConstraints(
   return {
     video: {
       ...base,
-      width: { ideal: dims.idealWidth, min: Math.min(1280, dims.idealWidth) },
-      height: { ideal: dims.idealHeight, min: Math.min(720, dims.idealHeight) },
-      frameRate: { ideal: mode === "rapid" ? 30 : 24, min: 15 },
+      width: { ideal: Math.min(dims.idealWidth, 3840) },
+      height: { ideal: Math.min(dims.idealHeight, 2160) },
+      frameRate: { ideal: mode === "rapid" ? 30 : 24 },
       aspectRatio: { ideal: getOrientationAspectRatio(mode, orientationLock) },
-      resizeMode: { ideal: "none" } as any,
-      advanced: [
-        { focusMode: mode === "macro_text" ? "manual" : "continuous" } as any,
-        { exposureMode: "continuous" } as any,
-        { whiteBalanceMode: "continuous" } as any,
-      ],
     },
     audio: false,
   };
