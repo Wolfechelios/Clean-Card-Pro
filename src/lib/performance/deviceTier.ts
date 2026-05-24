@@ -80,6 +80,13 @@ function detectTier(): TierConfig {
   if (profile.id === "ipad_mac_paired") score += 1;
   if (profile.id === "redmagic_standalone") score += 1;
 
+  // iPhone 17 family (A19 / A19 Pro, iOS 26) — treat as high-tier mobile.
+  const ua = navigator.userAgent;
+  const isIOS = /iPhone|iPad|iPod/i.test(ua);
+  const iosMatch = ua.match(/OS (\d+)_/);
+  const iosMajor = iosMatch ? parseInt(iosMatch[1], 10) : 0;
+  if (isIOS && iosMajor >= 26) score += 2;
+
   const base = score >= 5 ? HIGH_TIER : score >= 3 ? MID_TIER : LOW_TIER;
 
   return {
