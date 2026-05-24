@@ -35,7 +35,7 @@ export function UploadTab({
   onClear,
 }: UploadTabProps) {
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    <div className="grid gap-4 sm:gap-6 lg:grid-cols-2 w-full min-w-0">
       <Card className="shadow-card">
         <CardHeader>
           <CardTitle>Upload Card Image(s)</CardTitle>
@@ -75,11 +75,11 @@ export function UploadTab({
             />
       
             {preview ? (
-              <div className="relative w-full">
+              <div className="relative w-full min-w-0">
                 <img
                   src={preview}
                   alt="Card preview"
-                  className="mx-auto max-h-[300px] rounded-lg object-contain"
+                  className="mx-auto max-h-[min(50svh,300px)] w-auto max-w-full rounded-lg object-contain"
                 />
                 <Button
                   variant="destructive"
@@ -103,7 +103,7 @@ export function UploadTab({
                   <p className="font-medium">Drop your card images here</p>
                   <p className="text-sm text-muted-foreground">or use the buttons below to select files or folders</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap justify-center gap-2">
                   <Button
                     type="button"
                     variant="outline"
@@ -136,7 +136,7 @@ export function UploadTab({
             )}
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               onClick={onScan}
               disabled={!file || isScanning}
@@ -229,9 +229,9 @@ export function UploadTab({
                 </div>
               </div>
 
-              <div className="rounded-lg border bg-muted/30 p-3">
+              <div className="rounded-lg border bg-muted/30 p-3 min-w-0">
                 <Label className="text-muted-foreground">Raw OCR Text</Label>
-                <p className="mt-2 text-sm font-mono">{ocrResult.rawText}</p>
+                <p className="mt-2 text-sm font-mono whitespace-pre-wrap break-words">{ocrResult.rawText}</p>
               </div>
             </div>
           ) : (

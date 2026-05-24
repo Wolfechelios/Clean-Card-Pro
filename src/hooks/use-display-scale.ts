@@ -25,8 +25,9 @@ function getSmartDefault(): number {
   if (cssWidth >= 700) return 95;
 
   // iPhone 17 family (iOS 26): 17/17 Pro ~402×874, 17 Air ~430×932, 17 Pro Max ~440×956.
-  if (isIOS && cssWidth >= 430) return 80;                       // 17 Pro Max / 17 Air
-  if (isIOS && cssWidth >= 400 && cssHeight >= 850) return 85;   // 17 / 17 Pro
+  // Keep slightly larger scale than ratio alone suggests so upload/OCR cards don't clip.
+  if (isIOS && cssWidth >= 430) return 85;                       // 17 Pro Max / 17 Air
+  if (isIOS && cssWidth >= 400 && cssHeight >= 850) return 90;   // 17 / 17 Pro
 
   // General phone buckets
   if (cssWidth <= 360) return 90;
