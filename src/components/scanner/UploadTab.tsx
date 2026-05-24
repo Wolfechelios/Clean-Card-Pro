@@ -103,7 +103,7 @@ export function UploadTab({
                   <p className="font-medium">Drop your card images here</p>
                   <p className="text-sm text-muted-foreground">or use the buttons below to select files or folders</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap justify-center gap-2">
                   <Button
                     type="button"
                     variant="outline"
