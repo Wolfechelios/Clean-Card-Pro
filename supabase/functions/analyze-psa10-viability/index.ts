@@ -4,6 +4,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { callAIGateway } from "../_shared/aiGateway.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireAuth } from "../_shared/requireAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -16,6 +17,10 @@ serve(async (req) => {
   }
 
   try {
+    const auth = await requireAuth(req, corsHeaders);
+    if (auth instanceof Response) return auth;
+    const userId = auth.userId;
+
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
       throw new Error("LOVABLE_API_KEY not configured");
@@ -37,13 +42,15 @@ serve(async (req) => {
     let cardImageUrl = image_url;
     let cardData = null;
 
-    // If card_id provided, fetch the card
+    // If card_id provided, fetch the card (scoped to authed user)
     if (card_id) {
       const { data: card, error: cardError } = await supabase
         .from("cards")
         .select("*")
         .eq("id", card_id)
+        .eq("user_id", userId)
         .single();
+
 
       if (cardError || !card) {
         return new Response(
@@ -167,7 +174,9 @@ If the image quality is too low to properly assess, set confidence to under 50.`
           psa10_viable_notes: analysis.notes,
           psa10_analyzed_at: new Date().toISOString()
         })
-        .eq("id", card_id);
+        .eq("id", card_id)
+        .eq("user_id", userId);
+
 
       if (updateError) {
         console.error("Failed to update card:", updateError);
