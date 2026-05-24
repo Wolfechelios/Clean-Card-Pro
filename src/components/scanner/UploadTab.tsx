@@ -75,11 +75,11 @@ export function UploadTab({
             />
       
             {preview ? (
-              <div className="relative w-full">
+              <div className="relative w-full min-w-0">
                 <img
                   src={preview}
                   alt="Card preview"
-                  className="mx-auto max-h-[300px] rounded-lg object-contain"
+                  className="mx-auto max-h-[min(50svh,300px)] w-auto max-w-full rounded-lg object-contain"
                 />
                 <Button
                   variant="destructive"
