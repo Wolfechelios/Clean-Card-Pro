@@ -3,6 +3,7 @@
  */
 
 import { getActiveScanEngineProfile } from "@/lib/performance/scanProfiles";
+import { isIPhone17Class } from "@/lib/deviceClass";
 
 export type PerformanceTier = "high" | "mid" | "low";
 
@@ -89,6 +90,12 @@ function detectTier(): TierConfig {
 
   const base = score >= 5 ? HIGH_TIER : score >= 3 ? MID_TIER : LOW_TIER;
 
+  // iPhone 17 Pro class — sensor noise is low and ISP is excellent; squeeze
+  // every bit of fidelity out of capture + reduce inter-request delay.
+  const iphone17 = isIPhone17Class();
+  const tunedCaptureQuality = iphone17 ? 0.98 : base.captureQuality;
+  const tunedBulkDelay = iphone17 ? Math.min(base.bulkApiDelayMs, 10) : base.bulkApiDelayMs;
+
   return {
     ...base,
     maxWorkers: Math.max(1, Math.min(base.maxWorkers, profile.maxWorkers)),
@@ -96,7 +103,8 @@ function detectTier(): TierConfig {
     bulkConcurrency: Math.max(1, Math.min(base.bulkConcurrency, profile.bulkConcurrency)),
     jobDelayMs: Math.max(profile.jobDelayMs, Math.min(base.jobDelayMs, profile.jobDelayMs)),
     pollIntervalMs: Math.max(8, Math.min(base.pollIntervalMs, profile.pollIntervalMs)),
-    captureQuality: Math.min(base.captureQuality, profile.compressionQuality),
+    captureQuality: Math.min(tunedCaptureQuality, profile.compressionQuality),
+    bulkApiDelayMs: tunedBulkDelay,
   };
 }
 
