@@ -874,7 +874,12 @@ export default function RapidScanCamera() {
         ...prev,
       ]);
 
-      const compressedBlob = await compressImageForQueue(result.blob);
+      const compressedBlob = await compressImageForQueue(
+        result.blob,
+        isIPhone17Class()
+          ? { maxWidth: 2400, maxHeight: 2400, quality: 0.92 }
+          : undefined,
+      );
 
       await idbAdd({
         id,
