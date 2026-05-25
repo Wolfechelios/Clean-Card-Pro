@@ -570,8 +570,6 @@ export default function RapidScanCamera() {
     startingCameraRef.current = true;
 
     try {
-      const iphone17 = isIPhone17Class();
-
       const buildConstraints = (w: number, h: number): MediaStreamConstraints => {
         const video: MediaTrackConstraints = {
           width: { ideal: w },
@@ -586,10 +584,9 @@ export default function RapidScanCamera() {
         return { video, audio: false };
       };
 
-      // Try 4K on iPhone 17 class, soft-fall back to 1080p. NEVER put advanced
-      // focus/exposure/whiteBalance modes in getUserMedia — iOS WebKit can
-      // silently end the track if any one is unsupported, which made the
-      // viewfinder go black after ~1s.
+      // NEVER put advanced focus/exposure/whiteBalance modes in getUserMedia —
+      // iOS WebKit silently ends the track if any one is unsupported, which
+      // made the viewfinder go black after ~1s.
       // Default to 1080p everywhere — 4K on iOS WebKit has been ending the
       // track silently a few hundred ms after start. We can re-enable 4K
       // once we gate it behind a capability check.
