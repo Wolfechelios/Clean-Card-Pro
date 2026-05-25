@@ -947,15 +947,21 @@ export default function RapidScanCamera() {
       if (!ctx) throw new Error("Canvas not available");
 
       ctx.drawImage(v, 0, 0, w, h);
-      applyAutoColorBalance(ctx, c, 0.5);
-      applyAntiGlare(ctx, c, 0.2);
+      // iPhone 17 class has best-in-class ISP — skip JS color/glare passes
+      // because they soften the edges OCR depends on.
+      const iphone17 = isIPhone17Class();
+      if (!iphone17) {
+        applyAutoColorBalance(ctx, c, 0.5);
+        applyAntiGlare(ctx, c, 0.2);
+      }
 
       if (settings.autoZoomEnabled) {
         clarityZoom.analyzeAndAdjustZoom(v).catch(() => {});
       }
 
+      const captureQuality = iphone17 ? 0.98 : 0.95;
       const blob: Blob | null = await new Promise((resolve) =>
-        c.toBlob(resolve, "image/jpeg", 0.95)
+        c.toBlob(resolve, "image/jpeg", captureQuality)
       );
       if (!blob) throw new Error("Failed to capture image");
 
@@ -974,7 +980,13 @@ export default function RapidScanCamera() {
         ...prev,
       ]);
 
-      const compressedBlob = await compressImageForQueue(blob);
+      // On iPhone 17 class, keep more detail for OCR (longer edge ~2400px @ q0.92).
+      const compressedBlob = await compressImageForQueue(
+        blob,
+        iphone17
+          ? { maxWidth: 2400, maxHeight: 2400, quality: 0.92 }
+          : undefined,
+      );
       
       await idbAdd({
         id,
