@@ -17,7 +17,11 @@ serve(async (req) => {
   }
 
   try {
-    const { imageUrl: rawImageUrl, ocrText, gameTypeHint } = await req.json();
+    const { imageUrl: rawImageUrl, ocrText, gameTypeHint, clientHint } = await req.json();
+    const isIPhone17 = clientHint?.device === "iphone17pro";
+    if (isIPhone17) {
+      console.log("[rapid-card-identify] iPhone 17 class capture — using high-fidelity vision model");
+    }
 
     let imageUrl: string;
     try {
@@ -178,7 +182,7 @@ JSON only.`;
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              model: 'google/gemini-2.5-flash',
+              model: isIPhone17 ? 'google/gemini-2.5-pro' : 'google/gemini-2.5-flash',
               messages: [{
                 role: "user",
                 content: [
@@ -186,7 +190,7 @@ JSON only.`;
                   { type: "image_url", image_url: { url: imageUrl } }
                 ]
               }],
-              temperature: 0.1,
+              temperature: 0.05,
               max_tokens: 1024,
               response_format: { type: "json_object" },
             }),
