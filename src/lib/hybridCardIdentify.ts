@@ -115,8 +115,13 @@ async function identifyWithCloud(
   ocrText?: string,
   gameTypeHint?: string
 ): Promise<IdentifiedCardData> {
+  // Forward a small device hint so the edge function can pick a stronger
+  // vision model for high-resolution captures (e.g., iPhone 17 Pro).
+  const { getDeviceClassLabel } = await import("@/lib/deviceClass");
+  const clientHint = { device: getDeviceClassLabel() };
+
   const { data, error } = await supabase.functions.invoke(functionName, {
-    body: { imageUrl, ocrText, gameTypeHint },
+    body: { imageUrl, ocrText, gameTypeHint, clientHint },
   });
 
   if (error) throw new Error(error.message);
