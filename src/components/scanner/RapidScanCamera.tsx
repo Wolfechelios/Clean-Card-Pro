@@ -571,42 +571,49 @@ export default function RapidScanCamera() {
 
     try {
       const iphone17 = isIPhone17Class();
-      const videoConstraints: MediaTrackConstraints = {
-        width: { ideal: iphone17 ? 3840 : 1920 },
-        height: { ideal: iphone17 ? 2160 : 1080 },
-        frameRate: { ideal: 30, max: 60 },
-        aspectRatio: { ideal: 16 / 9 },
-        // Request continuous AF/AE/AWB upfront — Safari ignores unknown keys gracefully.
-        advanced: [
-          { focusMode: "continuous" } as MediaTrackConstraintSet,
-          { exposureMode: "continuous" } as MediaTrackConstraintSet,
-          { whiteBalanceMode: "continuous" } as MediaTrackConstraintSet,
-        ],
+
+      const buildConstraints = (w: number, h: number): MediaStreamConstraints => {
+        const video: MediaTrackConstraints = {
+          width: { ideal: w },
+          height: { ideal: h },
+          frameRate: { ideal: 30, max: 60 },
+        };
+        if (selectedDeviceId) {
+          video.deviceId = { exact: selectedDeviceId };
+        } else {
+          video.facingMode = "environment";
+        }
+        return { video, audio: false };
       };
 
-      if (selectedDeviceId) {
-        videoConstraints.deviceId = { exact: selectedDeviceId };
-      } else {
-        videoConstraints.facingMode = "environment";
+      // Try 4K on iPhone 17 class, soft-fall back to 1080p. NEVER put advanced
+      // focus/exposure/whiteBalance modes in getUserMedia — iOS WebKit can
+      // silently end the track if any one is unsupported, which made the
+      // viewfinder go black after ~1s.
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(
+          buildConstraints(iphone17 ? 3840 : 1920, iphone17 ? 2160 : 1080)
+        );
+      } catch (overErr) {
+        console.warn("[Camera] high-res getUserMedia failed, falling back to 1080p", overErr);
+        stream = await navigator.mediaDevices.getUserMedia(buildConstraints(1920, 1080));
       }
 
-      const constraints: MediaStreamConstraints = {
-        video: videoConstraints,
-        audio: false,
-      };
-
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
       trackRef.current = getVideoTrack(stream);
       setSupport(detectSupport(trackRef.current));
 
-      if (settings.manualFocusLock) {
-        try {
-          const track = trackRef.current;
-          await track?.applyConstraints?.({ advanced: [{ focusMode: "manual" } as MediaTrackConstraintSet] });
-        } catch {
-          // ignore
-        }
+      // Auto-recover if the track dies right after start (iOS WebKit edge case).
+      const track = trackRef.current;
+      if (track) {
+        const handleEnded = () => {
+          console.warn("[Camera] track ended unexpectedly");
+          setCameraOn(false);
+          setStatusLine("Camera dropped — tap Start to retry");
+        };
+        track.addEventListener?.("ended", handleEnded);
+        track.addEventListener?.("mute", () => console.warn("[Camera] track muted"));
       }
 
       const v = videoRef.current;
@@ -614,35 +621,35 @@ export default function RapidScanCamera() {
         startingCameraRef.current = false;
         return;
       }
-      
+
       if (v.srcObject) {
         const oldStream = v.srcObject as MediaStream;
-        oldStream.getTracks().forEach(t => t.stop());
+        if (oldStream !== stream) oldStream.getTracks().forEach(t => t.stop());
       }
-      
+
       v.srcObject = stream;
-      
+
       await new Promise<void>((resolve, reject) => {
         const onCanPlay = () => {
           v.removeEventListener('canplay', onCanPlay);
           v.removeEventListener('error', onError);
           resolve();
         };
-        const onError = (e: Event) => {
+        const onError = (_e: Event) => {
           v.removeEventListener('canplay', onCanPlay);
           v.removeEventListener('error', onError);
           reject(new Error('Video failed to load'));
         };
         v.addEventListener('canplay', onCanPlay);
         v.addEventListener('error', onError);
-        
+
         if (v.readyState >= 3) {
           v.removeEventListener('canplay', onCanPlay);
           v.removeEventListener('error', onError);
           resolve();
         }
       });
-      
+
       try {
         await v.play();
       } catch (playErr: any) {
@@ -651,22 +658,34 @@ export default function RapidScanCamera() {
         }
       }
 
+      const settings0 = track?.getSettings?.();
+      console.log(`[Camera] started ${settings0?.width ?? "?"}×${settings0?.height ?? "?"} @ ${settings0?.frameRate ?? "?"}fps`);
+
       setCameraOn(true);
       setStatusLine("Camera live — tap Capture for each card");
-      
+
       useGlobalProcessControl.getState().setScannerActive(true);
 
       detectZoomCapabilities();
       clarityZoom.reset();
 
-      try {
-        await applyFastAutofocus(stream, true);
-      } catch {
+      // Apply mode constraints AFTER the stream is live, each isolated so a
+      // single unsupported key cannot kill the track.
+      const safeApply = async (set: MediaTrackConstraintSet) => {
+        try { await track?.applyConstraints?.({ advanced: [set] }); } catch {}
+      };
+      await safeApply({ focusMode: "continuous" } as MediaTrackConstraintSet);
+      await safeApply({ exposureMode: "continuous" } as MediaTrackConstraintSet);
+      await safeApply({ whiteBalanceMode: "continuous" } as MediaTrackConstraintSet);
+
+      if (settings.manualFocusLock) {
+        await safeApply({ focusMode: "manual" } as MediaTrackConstraintSet);
+      } else {
         try {
-          await trackRef.current?.applyConstraints({
-            advanced: [{ focusMode: "continuous" } as any],
-          });
-        } catch {}
+          await applyFastAutofocus(stream, true);
+        } catch {
+          await safeApply({ focusMode: "continuous" } as MediaTrackConstraintSet);
+        }
       }
     } catch (err: any) {
       setStatusLine(`Camera error: ${err?.message ?? err}`);
