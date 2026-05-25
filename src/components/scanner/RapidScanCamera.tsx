@@ -569,17 +569,26 @@ export default function RapidScanCamera() {
     startingCameraRef.current = true;
 
     try {
+      const iphone17 = isIPhone17Class();
       const videoConstraints: MediaTrackConstraints = {
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
+        width: { ideal: iphone17 ? 3840 : 1920 },
+        height: { ideal: iphone17 ? 2160 : 1080 },
+        frameRate: { ideal: 30, max: 60 },
+        aspectRatio: { ideal: 16 / 9 },
+        // Request continuous AF/AE/AWB upfront — Safari ignores unknown keys gracefully.
+        advanced: [
+          { focusMode: "continuous" } as MediaTrackConstraintSet,
+          { exposureMode: "continuous" } as MediaTrackConstraintSet,
+          { whiteBalanceMode: "continuous" } as MediaTrackConstraintSet,
+        ],
       };
-      
+
       if (selectedDeviceId) {
         videoConstraints.deviceId = { exact: selectedDeviceId };
       } else {
         videoConstraints.facingMode = "environment";
       }
-      
+
       const constraints: MediaStreamConstraints = {
         video: videoConstraints,
         audio: false,
