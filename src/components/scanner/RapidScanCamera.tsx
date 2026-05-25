@@ -570,8 +570,6 @@ export default function RapidScanCamera() {
     startingCameraRef.current = true;
 
     try {
-      const iphone17 = isIPhone17Class();
-
       const buildConstraints = (w: number, h: number): MediaStreamConstraints => {
         const video: MediaTrackConstraints = {
           width: { ideal: w },
@@ -586,18 +584,18 @@ export default function RapidScanCamera() {
         return { video, audio: false };
       };
 
-      // Try 4K on iPhone 17 class, soft-fall back to 1080p. NEVER put advanced
-      // focus/exposure/whiteBalance modes in getUserMedia — iOS WebKit can
-      // silently end the track if any one is unsupported, which made the
-      // viewfinder go black after ~1s.
+      // NEVER put advanced focus/exposure/whiteBalance modes in getUserMedia —
+      // iOS WebKit silently ends the track if any one is unsupported, which
+      // made the viewfinder go black after ~1s.
+      // Default to 1080p everywhere — 4K on iOS WebKit has been ending the
+      // track silently a few hundred ms after start. We can re-enable 4K
+      // once we gate it behind a capability check.
       let stream: MediaStream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia(
-          buildConstraints(iphone17 ? 3840 : 1920, iphone17 ? 2160 : 1080)
-        );
-      } catch (overErr) {
-        console.warn("[Camera] high-res getUserMedia failed, falling back to 1080p", overErr);
         stream = await navigator.mediaDevices.getUserMedia(buildConstraints(1920, 1080));
+      } catch (overErr) {
+        console.warn("[Camera] 1080p getUserMedia failed, falling back to 720p", overErr);
+        stream = await navigator.mediaDevices.getUserMedia(buildConstraints(1280, 720));
       }
 
       streamRef.current = stream;
@@ -605,16 +603,27 @@ export default function RapidScanCamera() {
       setSupport(detectSupport(trackRef.current));
 
       // Auto-recover if the track dies right after start (iOS WebKit edge case).
+      // CRITICAL: only react if the ending track is still the active one —
+      // StrictMode (dev) and re-mounts can end a previous stream after a new
+      // one is already live, which would otherwise flip cameraOn to false.
       const track = trackRef.current;
       if (track) {
         const handleEnded = () => {
-          console.warn("[Camera] track ended unexpectedly");
+          if (trackRef.current !== track) {
+            console.log("[Camera] stale track ended (ignored)");
+            return;
+          }
+          console.warn("[Camera] active track ended unexpectedly");
           setCameraOn(false);
           setStatusLine("Camera dropped — tap Start to retry");
         };
         track.addEventListener?.("ended", handleEnded);
-        track.addEventListener?.("mute", () => console.warn("[Camera] track muted"));
+        track.addEventListener?.("mute", () => {
+          if (trackRef.current === track) console.warn("[Camera] active track muted");
+        });
       }
+      // Tells us in console exactly when the iPhone iOS lifecycle hits each step.
+      console.log(`[Camera] getUserMedia ok, track=${track?.id?.slice(0, 8)} live=${track?.readyState}`);
 
       const v = videoRef.current;
       if (!v) {
