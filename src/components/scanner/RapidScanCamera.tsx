@@ -9,6 +9,7 @@
 // - List of scanned cards with price + whether it's already in your library
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isIPhone17Class } from "@/lib/deviceClass";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -569,17 +570,26 @@ export default function RapidScanCamera() {
     startingCameraRef.current = true;
 
     try {
+      const iphone17 = isIPhone17Class();
       const videoConstraints: MediaTrackConstraints = {
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
+        width: { ideal: iphone17 ? 3840 : 1920 },
+        height: { ideal: iphone17 ? 2160 : 1080 },
+        frameRate: { ideal: 30, max: 60 },
+        aspectRatio: { ideal: 16 / 9 },
+        // Request continuous AF/AE/AWB upfront — Safari ignores unknown keys gracefully.
+        advanced: [
+          { focusMode: "continuous" } as MediaTrackConstraintSet,
+          { exposureMode: "continuous" } as MediaTrackConstraintSet,
+          { whiteBalanceMode: "continuous" } as MediaTrackConstraintSet,
+        ],
       };
-      
+
       if (selectedDeviceId) {
         videoConstraints.deviceId = { exact: selectedDeviceId };
       } else {
         videoConstraints.facingMode = "environment";
       }
-      
+
       const constraints: MediaStreamConstraints = {
         video: videoConstraints,
         audio: false,
@@ -864,7 +874,12 @@ export default function RapidScanCamera() {
         ...prev,
       ]);
 
-      const compressedBlob = await compressImageForQueue(result.blob);
+      const compressedBlob = await compressImageForQueue(
+        result.blob,
+        isIPhone17Class()
+          ? { maxWidth: 2400, maxHeight: 2400, quality: 0.92 }
+          : undefined,
+      );
 
       await idbAdd({
         id,
@@ -937,15 +952,21 @@ export default function RapidScanCamera() {
       if (!ctx) throw new Error("Canvas not available");
 
       ctx.drawImage(v, 0, 0, w, h);
-      applyAutoColorBalance(ctx, c, 0.5);
-      applyAntiGlare(ctx, c, 0.2);
+      // iPhone 17 class has best-in-class ISP — skip JS color/glare passes
+      // because they soften the edges OCR depends on.
+      const iphone17 = isIPhone17Class();
+      if (!iphone17) {
+        applyAutoColorBalance(ctx, c, 0.5);
+        applyAntiGlare(ctx, c, 0.2);
+      }
 
       if (settings.autoZoomEnabled) {
         clarityZoom.analyzeAndAdjustZoom(v).catch(() => {});
       }
 
+      const captureQuality = iphone17 ? 0.98 : 0.95;
       const blob: Blob | null = await new Promise((resolve) =>
-        c.toBlob(resolve, "image/jpeg", 0.95)
+        c.toBlob(resolve, "image/jpeg", captureQuality)
       );
       if (!blob) throw new Error("Failed to capture image");
 
@@ -964,7 +985,13 @@ export default function RapidScanCamera() {
         ...prev,
       ]);
 
-      const compressedBlob = await compressImageForQueue(blob);
+      // On iPhone 17 class, keep more detail for OCR (longer edge ~2400px @ q0.92).
+      const compressedBlob = await compressImageForQueue(
+        blob,
+        iphone17
+          ? { maxWidth: 2400, maxHeight: 2400, quality: 0.92 }
+          : undefined,
+      );
       
       await idbAdd({
         id,
