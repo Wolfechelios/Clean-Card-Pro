@@ -976,13 +976,23 @@ export default function RapidScanCamera() {
       c.width = w;
       c.height = h;
 
-      const ctx = c.getContext("2d", { willReadFrequently: false });
+      // iPhone 17 Pro captures in Display P3 wide gamut. Drawing a P3 video
+      // into a default (sRGB) canvas desaturates/shifts colors. Request a
+      // P3 canvas on capable devices so the JPEG matches the live preview.
+      const iphone17 = isIPhone17Class();
+      let ctx = c.getContext("2d", {
+        willReadFrequently: false,
+        colorSpace: iphone17 ? "display-p3" : "srgb",
+      } as CanvasRenderingContext2DSettings) as CanvasRenderingContext2D | null;
+      if (!ctx) {
+        // Fallback for browsers that reject the colorSpace option
+        ctx = c.getContext("2d", { willReadFrequently: false });
+      }
       if (!ctx) throw new Error("Canvas not available");
 
       ctx.drawImage(v, 0, 0, w, h);
       // iPhone 17 class has best-in-class ISP — skip JS color/glare passes
       // because they soften the edges OCR depends on.
-      const iphone17 = isIPhone17Class();
       if (!iphone17) {
         applyAutoColorBalance(ctx, c, 0.5);
         applyAntiGlare(ctx, c, 0.2);
@@ -996,6 +1006,7 @@ export default function RapidScanCamera() {
       const blob: Blob | null = await new Promise((resolve) =>
         c.toBlob(resolve, "image/jpeg", captureQuality)
       );
+
       if (!blob) throw new Error("Failed to capture image");
 
       const id = safeUUID();
