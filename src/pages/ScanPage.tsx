@@ -1,6 +1,8 @@
 import { useAuth } from "@/hooks/use-auth";
 import Scanner from "@/components/Scanner";
-import { Loader2 } from "lucide-react";
+import { Loader2, Bug } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Button } from "@/components/ui/button";
 
 export default function ScanPage() {
   const { userId, loading } = useAuth();
@@ -22,7 +24,23 @@ export default function ScanPage() {
   }
 
   return (
-    <div className="container mx-auto p-6">
+    <div className="container mx-auto space-y-4 p-6">
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-sm font-semibold">iPhone camera acting up?</div>
+            <p className="text-xs text-muted-foreground">
+              Open Camera Debug, run the 720p test, then copy the saved log.
+            </p>
+          </div>
+          <Button asChild size="sm" variant="outline">
+            <Link to="/camera-debug">
+              <Bug className="mr-2 h-4 w-4" />
+              Camera Debug
+            </Link>
+          </Button>
+        </div>
+      </div>
       <Scanner userId={userId} />
     </div>
   );
