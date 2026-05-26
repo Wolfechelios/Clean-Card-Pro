@@ -276,9 +276,15 @@ export default function RapidScanCamera() {
       }
     };
 
-    raf = requestAnimationFrame(tick);
+    // iOS: defer the RAF readback loop to avoid pressuring the freshly
+    // started camera track during its warm-up window.
+    const isIOSAuto = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const startTimer = setTimeout(() => {
+      raf = requestAnimationFrame(tick);
+    }, isIOSAuto ? 1500 : 0);
 
     return () => {
+      clearTimeout(startTimer);
       if (raf) cancelAnimationFrame(raf);
       autoCapturePrevGrayRef.current = null;
     };
