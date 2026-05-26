@@ -1,8 +1,6 @@
 // src/lib/queueProcessor.ts
 // Standalone, resilient queue processor for rapid scan jobs.
-// Runs independently of the RapidScanCamera component.
-// Auto-resumes on app start if there are queued items.
-// Now supports hybrid offline/cloud LLM routing.
+// Fast-lane update: SCAN_ONLY now identifies cards only and defers pricing/upload/save.
 
 import { create } from "zustand";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,25 +8,24 @@ import { withRetry } from "@/lib/retry";
 import { withTimeout } from "@/lib/async/withTimeout";
 import { getScannerSettings } from "@/hooks/use-scanner-settings";
 import { canProcessFrame, markFrameStart, markFrameEnd } from "@/lib/performance/pipelineGuards";
-import { MEMORY_CONFIG } from "@/lib/performance/memoryConfig";
-import { hybridIdentifyCard, clearOfflineAttempt } from "@/lib/hybridCardIdentify";
+import { hybridIdentifyCard } from "@/lib/hybridCardIdentify";
 import { queueAnomalyDetector } from "@/lib/scanAnomalyDetector";
 import { addRecentScan } from "@/lib/recentScans";
 import { insertCardDual } from "@/lib/localCards";
+import { getDeviceTier } from "@/lib/performance/deviceTier";
 import {
+  idbAdd,
   idbClaimNextQueued,
   idbUpdateMeta,
   idbDelete,
   idbCount,
   idbCountQueued,
   idbListMetaFast,
+  idbGetAll,
+  idbClear,
   type QueueItem,
   type QueueItemMeta,
 } from "@/lib/idbQueue";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TYPES
-// ─────────────────────────────────────────────────────────────────────────────
 
 export type ProcessedCard = {
   id: string;
@@ -63,13 +60,11 @@ export type ProcessorState = {
 };
 
 type ProcessorStore = ProcessorState & {
-  // Actions
   start: () => void;
   stop: () => void;
   pause: () => void;
   resume: () => void;
   refreshQueue: () => Promise<void>;
-  // Internal setters
   _setRunning: (v: boolean) => void;
   _setPaused: (v: boolean) => void;
   _setQueueCount: (v: number) => void;
@@ -82,17 +77,25 @@ type ProcessorStore = ProcessorState & {
   _incrementError: () => void;
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CONFIG
-// ─────────────────────────────────────────────────────────────────────────────
-
-const SIGNED_URL_TTL_SECONDS = 60 * 60 * 24; // 24h
-const WORKER_SCALE_INTERVAL_MS = 250;
+const WORKER_SCALE_INTERVAL_MS = 200;
 const QUEUE_REFRESH_INTERVAL_MS = 1000;
-const MIN_SERIAL_JOB_DELAY_MS = 50;
+const MIN_SERIAL_JOB_DELAY_MS = 0;
 const ANOMALY_PAUSE_STORAGE_KEY = "rapid-scan-anomaly-paused";
 const IDENTIFY_TIMEOUT_MS = 5000;
 const UPLOAD_TIMEOUT_MS = 8000;
+const PRICE_CACHE_TTL_MS = 10 * 60 * 1000;
+
+const priceCache = new Map<string, { ts: number; value: number | null }>();
+const priceInFlight = new Map<string, Promise<number | null>>();
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function money(n: number | null | undefined) {
+  if (n == null || Number.isNaN(n)) return null;
+  return Math.round(n * 100) / 100;
+}
 
 function readAnomalyPauseFlag(): boolean {
   if (typeof window === "undefined") return false;
@@ -106,20 +109,13 @@ function readAnomalyPauseFlag(): boolean {
 function writeAnomalyPauseFlag(isPaused: boolean): void {
   if (typeof window === "undefined") return;
   try {
-    if (isPaused) {
-      window.localStorage.setItem(ANOMALY_PAUSE_STORAGE_KEY, "1");
-    } else {
-      window.localStorage.removeItem(ANOMALY_PAUSE_STORAGE_KEY);
-    }
+    if (isPaused) window.localStorage.setItem(ANOMALY_PAUSE_STORAGE_KEY, "1");
+    else window.localStorage.removeItem(ANOMALY_PAUSE_STORAGE_KEY);
   } catch {
     // ignore storage failures
   }
 }
 
-/**
- * Re-queue items that were mass-failed by the old anomaly detector.
- * Users legitimately scan duplicates; those scans should never have errored.
- */
 async function recoverAnomalyErroredItems(): Promise<void> {
   try {
     const all = await idbListMetaFast(1000);
@@ -127,19 +123,12 @@ async function recoverAnomalyErroredItems(): Promise<void> {
       (m) => m.status === "error" && typeof m.error === "string" && m.error.startsWith("Anomaly:")
     );
     if (stuck.length === 0) return;
-    await Promise.all(
-      stuck.map((m) => idbUpdateMeta(m.id, { status: "queued", error: undefined }))
-    );
-    console.log(`[QueueProcessor] Recovered ${stuck.length} items previously failed by anomaly detector`);
+    await Promise.all(stuck.map((m) => idbUpdateMeta(m.id, { status: "queued", error: undefined })));
+    console.log(`[QueueProcessor] Recovered ${stuck.length} anomaly-paused items`);
   } catch (e) {
     console.warn("[QueueProcessor] recoverAnomalyErroredItems error", e);
   }
 }
-
-// Pricing cache: reduces repeated edge-function calls during rapid scanning
-const PRICE_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
-const priceCache = new Map<string, { ts: number; value: number | null }>();
-const priceInFlight = new Map<string, Promise<number | null>>();
 
 function priceKey(args: {
   cardName: string;
@@ -148,13 +137,9 @@ function priceKey(args: {
   gameType: string | null;
   sportType: string | null;
 }): string {
-  return [
-    args.cardName,
-    args.cardSet ?? "",
-    args.cardNumber ?? "",
-    args.gameType ?? "",
-    args.sportType ?? "",
-  ].join("|").toLowerCase();
+  return [args.cardName, args.cardSet ?? "", args.cardNumber ?? "", args.gameType ?? "", args.sportType ?? ""]
+    .join("|")
+    .toLowerCase();
 }
 
 function getCachedPrice(key: string): number | null | undefined {
@@ -167,11 +152,13 @@ function getCachedPrice(key: string): number | null | undefined {
   return hit.value;
 }
 
-// Dynamic config from device tier
-import { getDeviceTier } from "@/lib/performance/deviceTier";
+function getJobDelayMs(): number {
+  return Math.max(MIN_SERIAL_JOB_DELAY_MS, getDeviceTier().jobDelayMs || 0);
+}
 
-function getJobDelayMs(): number { return Math.max(getDeviceTier().jobDelayMs, MIN_SERIAL_JOB_DELAY_MS); }
-function getPollIntervalMs(): number { return getDeviceTier().pollIntervalMs; }
+function getPollIntervalMs(): number {
+  return Math.max(8, getDeviceTier().pollIntervalMs || 15);
+}
 
 function getMaxWorkerCount(): number {
   const tierMax = Math.max(1, getDeviceTier().maxWorkers);
@@ -180,13 +167,11 @@ function getMaxWorkerCount(): number {
   return Math.max(1, Math.min(override, 8));
 }
 
-// Adaptive scaling
 function getTargetWorkerCount(queueSize: number, maxWorkers: number): number {
   if (queueSize <= 0) return 0;
   return Math.min(queueSize, maxWorkers);
 }
 
-// Throttled queue refresh tracking
 let lastQueueRefreshAt = 0;
 let pendingQueueRefresh: ReturnType<typeof setTimeout> | null = null;
 
@@ -207,10 +192,6 @@ function scheduleQueueRefresh() {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ZUSTAND STORE
-// ─────────────────────────────────────────────────────────────────────────────
-
 const initialAnomalyPause = readAnomalyPauseFlag();
 
 export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
@@ -226,13 +207,9 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
 
   start: () => {
     if (get().isRunning) return;
-    // Always clear the anomaly-pause flag when the user explicitly starts.
     writeAnomalyPauseFlag(false);
     queueAnomalyDetector.resetSession();
-    // Recover items previously mass-failed by the old anomaly logic
-    recoverAnomalyErroredItems().catch((e) =>
-      console.warn("[QueueProcessor] anomaly recovery failed", e)
-    );
+    recoverAnomalyErroredItems().catch((e) => console.warn("[QueueProcessor] anomaly recovery failed", e));
     set({ isRunning: true, isPaused: false, isPausedByAnomaly: false });
     startWorkers();
   },
@@ -246,9 +223,7 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
     }
   },
 
-  pause: () => {
-    set({ isPaused: true });
-  },
+  pause: () => set({ isPaused: true }),
 
   resume: () => {
     writeAnomalyPauseFlag(false);
@@ -277,10 +252,7 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   refreshQueue: async () => {
     const queuedCount = await idbCountQueued();
     const all = await idbListMetaFast();
-    set({
-      queueCount: queuedCount,
-      queueMeta: all,
-    });
+    set({ queueCount: queuedCount, queueMeta: all });
   },
 
   _setRunning: (v) => set({ isRunning: v }),
@@ -294,14 +266,6 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   _incrementProcessed: () => set((s) => ({ processedCount: s.processedCount + 1 })),
   _incrementError: () => set((s) => ({ errorCount: s.errorCount + 1 })),
 }));
-
-// ─────────────────────────────────────────────────────────────────────────────
-// HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
 
 function blobToBase64DataUrl(blob: Blob, mime: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -323,11 +287,6 @@ function blobToBase64DataUrl(blob: Blob, mime: string): Promise<string> {
   });
 }
 
-function money(n: number | null | undefined) {
-  if (n == null || Number.isNaN(n)) return null;
-  return Math.round(n * 100) / 100;
-}
-
 async function invokeEdgeFunction<T = any>(
   name: string,
   body: any,
@@ -340,12 +299,11 @@ async function invokeEdgeFunction<T = any>(
   let lastErr: any = null;
   for (let i = 0; i <= retries; i++) {
     try {
-      const res = await withTimeout(
+      return (await withTimeout(
         supabase.functions.invoke(name, { body }),
         timeoutMs,
         `Edge function ${name}`
-      );
-      return res as any;
+      )) as any;
     } catch (e: any) {
       lastErr = e;
       if (i < retries) await sleep(retryDelayMs * (i + 1));
@@ -363,7 +321,6 @@ async function cachedFetchPrice(args: {
   condition?: string | null;
 }): Promise<{ raw: number | null; psa10: number | null }> {
   const key = priceKey(args);
-
   const cached = getCachedPrice(key);
   if (cached !== undefined) return { raw: cached, psa10: null };
 
@@ -374,7 +331,6 @@ async function cachedFetchPrice(args: {
   }
 
   let psa10Value: number | null = null;
-
   const p = (async () => {
     const res = await invokeEdgeFunction<any>(
       "fetch-card-prices",
@@ -394,12 +350,9 @@ async function cachedFetchPrice(args: {
       v = money((res.data as any).raw ?? (res.data as any).suggested ?? null);
       psa10Value = money((res.data as any).psa10 ?? null);
     }
-
     priceCache.set(key, { ts: Date.now(), value: v });
     return v;
-  })().finally(() => {
-    priceInFlight.delete(key);
-  });
+  })().finally(() => priceInFlight.delete(key));
 
   priceInFlight.set(key, p);
   const raw = await p;
@@ -415,15 +368,15 @@ async function getUserId(): Promise<string | null> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// WORKER POOL
-// ─────────────────────────────────────────────────────────────────────────────
-
 let workersActive = 0;
 let scalingInterval: ReturnType<typeof setInterval> | null = null;
 let lowConfWarned = false;
-
+let authPauseWarned = false;
 let rateLimitUntil = 0;
+let cachedQueueSize = 0;
+let lastScaleCheckAt = 0;
+const SCALE_CHECK_INTERVAL_MS = 500;
+
 function isRateLimitError(e: unknown): boolean {
   return /rate limit|429/i.test(String((e as any)?.message ?? e));
 }
@@ -431,13 +384,13 @@ function isRateLimitError(e: unknown): boolean {
 function startWorkers() {
   if (workersActive <= 0) {
     const initialWorkers = getMaxWorkerCount();
-    console.log(`[QueueProcessor] Spawning ${initialWorkers} initial workers (full tier capacity)`);
+    console.log(`[QueueProcessor] Spawning ${initialWorkers} workers`);
     for (let i = 0; i < initialWorkers; i++) {
       workersActive++;
       workerLoop(i);
     }
   }
-  
+
   if (!scalingInterval) {
     scalingInterval = setInterval(async () => {
       const store = useQueueProcessor.getState();
@@ -448,24 +401,20 @@ function startWorkers() {
         }
         return;
       }
-      
+
       const queueSize = await idbCountQueued();
       const maxWorkers = getMaxWorkerCount();
       const targetWorkers = getTargetWorkerCount(queueSize, maxWorkers);
-      
+
       while (workersActive < targetWorkers && store.isRunning) {
         const newWorkerId = workersActive;
         workersActive++;
-        console.log(`[QueueProcessor] Scaling up: starting worker ${newWorkerId} (${workersActive}/${maxWorkers} active, queue: ${queueSize})`);
+        console.log(`[QueueProcessor] Scaling up worker ${newWorkerId} (${workersActive}/${maxWorkers}, queue ${queueSize})`);
         workerLoop(newWorkerId);
       }
     }, WORKER_SCALE_INTERVAL_MS);
   }
 }
-
-let cachedQueueSize = 0;
-let lastScaleCheckAt = 0;
-const SCALE_CHECK_INTERVAL_MS = 500;
 
 async function workerLoop(workerId: number) {
   const store = useQueueProcessor.getState;
@@ -483,7 +432,6 @@ async function workerLoop(workerId: number) {
       continue;
     }
 
-    // Max in-flight guard (prevents worker pileups under load / mobile thermals)
     if (!canProcessFrame()) {
       await sleep(getPollIntervalMs());
       continue;
@@ -494,9 +442,8 @@ async function workerLoop(workerId: number) {
       cachedQueueSize = await idbCountQueued();
       const maxWorkers = getMaxWorkerCount();
       const targetWorkers = getTargetWorkerCount(cachedQueueSize, maxWorkers);
-      
       if (workerId >= targetWorkers && workersActive > targetWorkers) {
-        console.log(`[QueueProcessor] Scaling down: stopping worker ${workerId}`);
+        console.log(`[QueueProcessor] Scaling down worker ${workerId}`);
         break;
       }
     }
@@ -504,18 +451,15 @@ async function workerLoop(workerId: number) {
     const next = await idbClaimNextQueued();
     if (!next) {
       consecutiveEmpty++;
-      
       if (consecutiveEmpty >= 3) {
         const queuedCount = await idbCountQueued();
         store()._setQueueCount(queuedCount);
-        
         if (queuedCount === 0) {
           store()._setRunning(false);
           break;
         }
         consecutiveEmpty = 0;
       }
-      
       await sleep(getPollIntervalMs());
       continue;
     }
@@ -533,7 +477,6 @@ async function workerLoop(workerId: number) {
     } catch (e: any) {
       const msg = String(e?.message ?? e);
       console.error(`[Worker ${workerId}] Job failed:`, e);
-
       if (isRateLimitError(e)) {
         rateLimitUntil = Math.max(rateLimitUntil, Date.now() + 5000);
         await idbUpdateMeta(next.id, { status: "queued", error: msg });
@@ -541,12 +484,12 @@ async function workerLoop(workerId: number) {
         store()._incrementError();
         await idbUpdateMeta(next.id, { status: "error", error: msg });
       }
-
       store()._setCurrentItem(null);
     }
 
     scheduleQueueRefresh();
-    await sleep(getJobDelayMs());
+    const delay = getJobDelayMs();
+    if (delay > 0) await sleep(delay);
   }
 
   workersActive = Math.max(0, workersActive - 1);
@@ -559,42 +502,8 @@ async function workerLoop(workerId: number) {
   }
 }
 
-let authPauseWarned = false;
-
-async function processJob(item: QueueItem): Promise<void> {
-  const store = useQueueProcessor.getState();
-  store._setCurrentItem(item.id);
-
-  // ─── Auth guard for SAVE mode ───
-  // If the user signed out (or session expired) mid-batch and we're in SAVE
-  // mode, we'd silently drop work into recentScans without ever persisting to
-  // the library. Pause the processor and requeue this item instead.
-  const earlyScanSettings = getScannerSettings();
-  if (earlyScanSettings.scanMode === "SAVE") {
-    const earlyUserId = await getUserId();
-    if (!earlyUserId) {
-      await idbUpdateMeta(item.id, { status: "queued", error: undefined });
-      useQueueProcessor.setState({ isPaused: true });
-      store._setCurrentItem(null);
-      if (!authPauseWarned) {
-        authPauseWarned = true;
-        try {
-          const { toast } = await import("sonner");
-          toast.error("Signed out — sign back in to resume scanning.");
-        } catch { /* ignore */ }
-      }
-      console.warn("[QueueProcessor] Paused: lost auth in SAVE mode, requeued", item.id);
-      return;
-    }
-    authPauseWarned = false;
-  }
-
-  // Create a base64 data URL for AI identification only.
-  // Keep the first pass as light as possible: identify first, OCR only on weak/failing results,
-  // and defer upload until the card is actually readable.
+async function identifyCard(item: QueueItem, scanSettings = getScannerSettings()) {
   const base64 = await blobToBase64DataUrl(item.blob, item.mime);
-
-  const scanSettings = getScannerSettings();
   const gameTypeHint = scanSettings.gameTypeFilter !== "auto" ? scanSettings.gameTypeFilter : undefined;
 
   const identifyInitial = await withTimeout(
@@ -607,50 +516,130 @@ async function processJob(item: QueueItem): Promise<void> {
     "Rapid identify"
   ).catch((e: any) => ({ success: false, cardData: null, source: "cloud" as const, error: e }));
 
-  let identify: any = null;
-
   if (!(identifyInitial as any)?.error && (identifyInitial as any)?.success) {
-    identify = (identifyInitial as any).cardData;
-    const initialConfidence = Number(identify?.confidence ?? 0);
-    console.log(`[QueueProcessor] Card identified via ${(identifyInitial as any).source}:`, identify?.card_name, `conf=${initialConfidence}`);
-  } else {
-    const err = (identifyInitial as any)?.error;
-    if (err?.message?.includes("max attempts reached")) {
-      throw new Error("Offline: requires internet connection to identify this card");
-    }
+    const identify = (identifyInitial as any).cardData;
+    const confidence = Number(identify?.confidence ?? 0);
+    console.log(`[QueueProcessor] Card identified via ${(identifyInitial as any).source}:`, identify?.card_name, `conf=${confidence}`);
+    return identify;
   }
 
-  if (!identify) {
-    throw new Error("Card identification failed");
+  const err = (identifyInitial as any)?.error;
+  if (err?.message?.includes("max attempts reached")) {
+    throw new Error("Offline: requires internet connection to identify this card");
   }
+  throw err || new Error("Card identification failed");
+}
+
+function normalizeGameType(gameType: string | null, scanSettings = getScannerSettings()): string | null {
+  if (gameType || !scanSettings.gameTypeFilter || scanSettings.gameTypeFilter === "auto") return gameType;
+  const GAME_TYPE_MAP: Record<string, string> = {
+    mtg: "MTG",
+    yugioh: "Yu-Gi-Oh!",
+    pokemon: "Pokemon",
+    sports: "Sports",
+    gpk: "GPK",
+    marvel: "Marvel",
+    onepiece: "One Piece",
+  };
+  return GAME_TYPE_MAP[scanSettings.gameTypeFilter] ?? gameType;
+}
+
+function makeProcessedCard(args: {
+  item: QueueItem;
+  cardName: string;
+  cardSet: string | null;
+  cardNumber: string | null;
+  rarity: string | null;
+  gameType: string | null;
+  sportType: string | null;
+  rawPrice: number | null;
+  psa10Price: number | null;
+  imageUrl: string;
+  ownedCount: number;
+  isInLibrary: boolean;
+  existingId?: string;
+  year: string | null;
+  playerName: string | null;
+  team: string | null;
+  manufacturer: string | null;
+}): ProcessedCard {
+  return {
+    id: args.item.id,
+    cardName: args.cardName,
+    cardSet: args.cardSet || undefined,
+    cardNumber: args.cardNumber || undefined,
+    rarity: args.rarity || undefined,
+    gameType: args.gameType || undefined,
+    sportType: args.sportType || undefined,
+    value: args.rawPrice,
+    psa10Price: args.psa10Price,
+    imageUrl: args.imageUrl,
+    isInLibrary: args.isInLibrary,
+    libraryQuantity: args.ownedCount,
+    dbId: args.existingId,
+    year: args.year || undefined,
+    playerName: args.playerName || (args.sportType ? args.cardName : undefined),
+    team: args.team || undefined,
+    manufacturer: args.manufacturer || undefined,
+  };
+}
+
+async function processJob(item: QueueItem): Promise<void> {
+  const store = useQueueProcessor.getState();
+  store._setCurrentItem(item.id);
+
+  const scanSettings = getScannerSettings();
+
+  if (scanSettings.scanMode === "SAVE") {
+    const earlyUserId = await getUserId();
+    if (!earlyUserId) {
+      await idbUpdateMeta(item.id, { status: "queued", error: undefined });
+      useQueueProcessor.setState({ isPaused: true });
+      store._setCurrentItem(null);
+      if (!authPauseWarned) {
+        authPauseWarned = true;
+        try {
+          const { toast } = await import("sonner");
+          toast.error("Signed out — sign back in to resume scanning.");
+        } catch {
+          // ignore
+        }
+      }
+      console.warn("[QueueProcessor] Paused: lost auth in SAVE mode, requeued", item.id);
+      return;
+    }
+    authPauseWarned = false;
+  }
+
+  const identify = await identifyCard(item, scanSettings);
+  if (!identify) throw new Error("Card identification failed");
 
   const cardName: string = identify?.card_name || "Unknown Card";
-
-  // ─── Anomaly detection ───
-  // Users legitimately scan multiple copies of the same card (playsets of 4, etc.).
-  // Only treat as anomaly at very high consecutive counts, and NEVER mass-fail
-  // queued items — just pause and let the user decide.
   const anomaly = queueAnomalyDetector.trackIdentification(cardName);
   if (anomaly.consecutiveCount >= 25) {
     writeAnomalyPauseFlag(true);
-    const { toast } = await import("sonner");
-    toast.warning(
-      `Rapid scan paused — "${cardName}" identified 25 times in a row. Resume if this is intentional.`,
-      { duration: 8000 }
-    );
-    console.warn(`[QueueProcessor] Auto-paused at 25 consecutive: ${cardName}`);
+    try {
+      const { toast } = await import("sonner");
+      toast.warning(`Rapid scan paused — "${cardName}" identified 25 times in a row. Resume if this is intentional.`, {
+        duration: 8000,
+      });
+    } catch {
+      // ignore
+    }
     useQueueProcessor.setState({ isPaused: true, isPausedByAnomaly: true });
-    // Do NOT throw — let this card finish processing normally.
   } else if (anomaly.consecutiveCount === 10) {
-    // One-time soft notice, no pause, no failure
-    const { toast } = await import("sonner");
-    toast.info(`"${cardName}" scanned 10 times in a row — looking good if intentional.`);
+    try {
+      const { toast } = await import("sonner");
+      toast.info(`"${cardName}" scanned 10 times in a row — continuing.`);
+    } catch {
+      // ignore
+    }
   }
 
   const cardSet: string | null = identify?.card_set ?? null;
   const cardNumber: string | null = identify?.card_number ?? null;
   const rarity: string | null = identify?.rarity ?? null;
-  let gameType: string | null = identify?.game_type ?? null;
+  const gameType: string | null = normalizeGameType(identify?.game_type ?? null, scanSettings);
   const sportType: string | null = identify?.sport_type ?? null;
   const cardCondition: string | null = identify?.condition ?? null;
   const confidence: number = identify?.confidence ?? 0;
@@ -659,27 +648,8 @@ async function processJob(item: QueueItem): Promise<void> {
   const team: string | null = identify?.team ?? null;
   const manufacturer: string | null = identify?.manufacturer ?? null;
 
-  // Backfill gameType from user filter when AI returns null
-  if (!gameType && scanSettings.gameTypeFilter && scanSettings.gameTypeFilter !== "auto") {
-    const GAME_TYPE_MAP: Record<string, string> = {
-      mtg: "MTG",
-      yugioh: "Yu-Gi-Oh!",
-      pokemon: "Pokemon",
-      sports: "Sports",
-      gpk: "GPK",
-      marvel: "Marvel",
-      onepiece: "One Piece",
-    };
-    const backfilled = GAME_TYPE_MAP[scanSettings.gameTypeFilter];
-    if (backfilled) {
-      gameType = backfilled;
-      console.log(`[QueueProcessor] Backfilled gameType from user setting: ${gameType}`);
-    }
-  }
-
   const MIN_CONFIDENCE = 0.3;
   if (cardName === "Unknown Card" || confidence < MIN_CONFIDENCE) {
-    console.log(`[QueueProcessor] Low-confidence scan preserved for review (confidence: ${(confidence * 100).toFixed(0)}%, name: ${cardName})`);
     await idbUpdateMeta(item.id, {
       status: "error",
       error: `Low confidence (${(confidence * 100).toFixed(0)}%) — needs review`,
@@ -689,22 +659,73 @@ async function processJob(item: QueueItem): Promise<void> {
       try {
         const { toast } = await import("sonner");
         toast.warning("Some scans had low confidence and are flagged for review in the queue.");
-      } catch { /* ignore */ }
+      } catch {
+        // ignore
+      }
     }
     store._setCurrentItem(null);
     store._incrementError();
     return;
   }
 
+  if (scanSettings.scanMode === "SCAN_ONLY") {
+    const imageUrl = URL.createObjectURL(item.blob);
+    const processedCard = makeProcessedCard({
+      item,
+      cardName,
+      cardSet,
+      cardNumber,
+      rarity,
+      gameType,
+      sportType,
+      rawPrice: null,
+      psa10Price: null,
+      imageUrl,
+      ownedCount: 0,
+      isInLibrary: false,
+      existingId: undefined,
+      year,
+      playerName,
+      team,
+      manufacturer,
+    });
+
+    store._setLastProcessedCard(processedCard);
+    store._setCurrentItem(null);
+
+    const recentScanSaved = addRecentScan({
+      id: item.id,
+      card_name: cardName,
+      card_set: cardSet,
+      card_number: cardNumber,
+      player_name: playerName || (sportType ? cardName : null),
+      image_url: imageUrl,
+      price: null,
+      psa10Price: null,
+      confidence,
+      rarity,
+      gameType,
+      sportType,
+      dbId: null,
+      isInLibrary: false,
+      libraryQuantity: 0,
+      year,
+      team,
+      manufacturer,
+    });
+    window.dispatchEvent(new CustomEvent("recent-scan-added"));
+
+    if (recentScanSaved) await idbDelete(item.id);
+    else await idbUpdateMeta(item.id, { status: "error", error: "Scan identified but could not be stored locally" });
+    return;
+  }
+
   const filePath = `cards/${item.id}.jpg`;
   const file = new File([item.blob], item.filename, { type: item.mime });
 
-  // After a successful identification, do the slower network work in parallel.
   const uploadPromise = withTimeout(
     withRetry(async () => {
-      const res = await supabase.storage
-        .from("card-images")
-        .upload(filePath, file, { upsert: false });
+      const res = await supabase.storage.from("card-images").upload(filePath, file, { upsert: false });
       if (res.error) throw new Error(res.error.message);
       return res.data;
     }),
@@ -718,8 +739,10 @@ async function processJob(item: QueueItem): Promise<void> {
   const userIdPromise = getUserId();
 
   const [priceResult, userId, uploadResult] = await Promise.all([
-    cachedFetchPrice({ cardName, cardSet, cardNumber, gameType, sportType, condition: cardCondition })
-      .catch(() => ({ raw: null as number | null, psa10: null as number | null })),
+    cachedFetchPrice({ cardName, cardSet, cardNumber, gameType, sportType, condition: cardCondition }).catch(() => ({
+      raw: null as number | null,
+      psa10: null as number | null,
+    })),
     userIdPromise,
     uploadPromise,
   ]);
@@ -751,53 +774,44 @@ async function processJob(item: QueueItem): Promise<void> {
       })()
     : { ownedCount: 0, isInLibrary: false, existingId: undefined as string | undefined };
 
-  // If upload failed, fall back to a local blob URL so the card is still
-  // visible in the UI (even though it won't survive a refresh / other devices).
   let imageUrl: string;
   let imageStatus: "stored" | "local-only" = "stored";
   if (uploadResult) {
     try {
       const { data: publicData } = supabase.storage.from("card-images").getPublicUrl(filePath);
       imageUrl = publicData.publicUrl;
-    } catch (e) {
-      console.warn(`[QueueProcessor] Failed to build public URL for ${filePath}, falling back to blob`, e);
+    } catch {
       imageUrl = URL.createObjectURL(item.blob);
       imageStatus = "local-only";
     }
   } else {
-    try {
-      imageUrl = URL.createObjectURL(item.blob);
-      imageStatus = "local-only";
-      console.warn(`[QueueProcessor] Using local blob URL for ${item.id} (upload failed)`);
-    } catch {
-      imageUrl = "";
-      imageStatus = "local-only";
-    }
+    imageUrl = URL.createObjectURL(item.blob);
+    imageStatus = "local-only";
   }
 
   const rawPrice = priceResult.raw;
   const psa10Price = priceResult.psa10;
   const { ownedCount, isInLibrary, existingId } = ownershipResult;
 
-  const processedCard: ProcessedCard = {
-    id: item.id,
+  const processedCard = makeProcessedCard({
+    item,
     cardName,
-    cardSet: cardSet || undefined,
-    cardNumber: cardNumber || undefined,
-    rarity: rarity || undefined,
-    gameType: gameType || undefined,
-    sportType: sportType || undefined,
-    value: rawPrice,
+    cardSet,
+    cardNumber,
+    rarity,
+    gameType,
+    sportType,
+    rawPrice,
     psa10Price,
     imageUrl,
+    ownedCount,
     isInLibrary,
-    libraryQuantity: ownedCount,
-    dbId: existingId,
-    year: year || undefined,
-    playerName: playerName || (sportType ? cardName : undefined),
-    team: team || undefined,
-    manufacturer: manufacturer || undefined,
-  };
+    existingId,
+    year,
+    playerName,
+    team,
+    manufacturer,
+  });
 
   store._setLastProcessedCard(processedCard);
   store._setCurrentItem(null);
@@ -836,13 +850,11 @@ async function processJob(item: QueueItem): Promise<void> {
         raw_year: year,
         raw_manufacturer: manufacturer,
         ocr_confidence: confidence,
-      });
+      } as any);
 
       processedCard.isInLibrary = true;
       processedCard.dbId = inserted.id;
       processedCard.libraryQuantity = ownedCount + 1;
-
-      console.log(`[QueueProcessor] Auto-saved to library: ${cardName} (${confPct.toFixed(0)}% confidence)`);
     } catch (e: any) {
       console.error(`[QueueProcessor] Auto-save failed for ${cardName}:`, e);
       saveAttemptedAndFailed = true;
@@ -871,30 +883,16 @@ async function processJob(item: QueueItem): Promise<void> {
   });
   window.dispatchEvent(new CustomEvent("recent-scan-added"));
 
-  // Only delete the queue item if work was actually persisted somewhere.
-  // - SAVE mode: require a successful library insert (or fall back to recentScans persisting it).
-  // - Non-SAVE: require addRecentScan to have actually stored it.
-  // Otherwise leave it as "error" so the user can retry without losing the capture.
   if (saveAttemptedAndFailed && !recentScanSaved) {
-    await idbUpdateMeta(item.id, {
-      status: "error",
-      error: "Save failed — capture preserved for retry",
-    });
+    await idbUpdateMeta(item.id, { status: "error", error: "Save failed — capture preserved for retry" });
     store._incrementError();
   } else if (!recentScanSaved && settings.scanMode !== "SAVE") {
-    await idbUpdateMeta(item.id, {
-      status: "error",
-      error: "Scan rejected (low confidence / unreadable)",
-    });
+    await idbUpdateMeta(item.id, { status: "error", error: "Scan rejected (low confidence / unreadable)" });
     store._incrementError();
   } else {
     await idbDelete(item.id);
   }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// AUTO-RESUME ON APP START
-// ─────────────────────────────────────────────────────────────────────────────
 
 let autoResumeChecked = false;
 
@@ -906,7 +904,7 @@ export async function checkAndResumeQueue(): Promise<void> {
   const anomalyPaused = state.isPausedByAnomaly || readAnomalyPauseFlag();
   if (anomalyPaused) {
     useQueueProcessor.setState({ isPaused: true, isPausedByAnomaly: true });
-    console.log(`[QueueProcessor] Skipping auto-resume — paused by anomaly detection`);
+    console.log("[QueueProcessor] Skipping auto-resume — paused by anomaly detection");
     return;
   }
 
@@ -917,15 +915,8 @@ export async function checkAndResumeQueue(): Promise<void> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// EXPORTS FOR EXTERNAL USE
-// ─────────────────────────────────────────────────────────────────────────────
+export { idbAdd, idbCount, idbCountQueued, idbClear, idbGetAll, idbDelete };
 
-export { idbAdd, idbCount, idbCountQueued, idbClear, idbGetAll, idbDelete } from "@/lib/idbQueue";
-
-/**
- * Re-queue every error item so the workers will retry them.
- */
 export async function retryAllErrors(): Promise<number> {
   const all = await idbListMetaFast(1000);
   const errs = all.filter((m) => m.status === "error");
@@ -934,12 +925,7 @@ export async function retryAllErrors(): Promise<number> {
   return errs.length;
 }
 
-/**
- * Wipe everything in the scan queue (useful for clearing stuck/error backlog).
- */
 export async function clearScanQueue(): Promise<void> {
-  const { idbClear } = await import("@/lib/idbQueue");
   await idbClear();
   useQueueProcessor.getState().refreshQueue();
 }
-
