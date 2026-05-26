@@ -768,6 +768,7 @@ export default function RapidScanCamera() {
     streamRef.current = null;
     trackRef.current = null;
     setCameraOn(false);
+    iosRestartAttemptedRef.current = false;
 
     useGlobalProcessControl.getState().setScannerActive(false);
 
