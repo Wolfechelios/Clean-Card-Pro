@@ -312,9 +312,14 @@ export default function RapidScanCamera() {
 
     analyzer.reset();
     setFoilResult(null);
-    raf = requestAnimationFrame(tick);
+    // iOS: delay foil sampling until after the camera warm-up window
+    const isIOSFoil = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const startTimer = setTimeout(() => {
+      raf = requestAnimationFrame(tick);
+    }, isIOSFoil ? 1500 : 0);
 
     return () => {
+      clearTimeout(startTimer);
       if (raf) cancelAnimationFrame(raf);
     };
   }, [isNative, cameraOn, settings.foilDetectionEnabled]);
