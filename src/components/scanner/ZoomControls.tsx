@@ -14,6 +14,10 @@ interface ZoomControlsProps {
   variant?: "overlay" | "inline";
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
 export function ZoomControls({
   zoomLevel,
   minZoom,
@@ -27,110 +31,126 @@ export function ZoomControls({
 }: ZoomControlsProps) {
   if (!supported) return null;
 
+  const safeMin = Number.isFinite(minZoom) ? minZoom : 1;
+  const safeMax = Number.isFinite(maxZoom) && maxZoom > safeMin ? maxZoom : Math.max(4, safeMin);
+  const safeZoom = clamp(zoomLevel || safeMin, safeMin, safeMax);
+  const presets = [1, 1.5, 2, 3].filter((z) => z >= safeMin && z <= safeMax);
+
   if (variant === "overlay") {
     return (
-      <div className="absolute bottom-4 left-4 right-4 z-10 pointer-events-none">
-        <div className="flex items-center justify-center gap-2 pointer-events-auto">
-          <Button
-            variant="secondary"
-            size="icon"
-            className="h-8 w-8 rounded-full bg-black/70 hover:bg-black/80 border-0"
-            onClick={onZoomOut}
-            disabled={zoomLevel <= minZoom}
-            aria-label="Zoom out"
-          >
-            <ZoomOut className="h-4 w-4 text-white" />
-          </Button>
-
-          <div className="flex items-center gap-2 bg-black/70 rounded-full px-3 py-1">
-            <Slider
-              value={[zoomLevel]}
-              min={minZoom}
-              max={maxZoom}
-              step={0.1}
-              onValueChange={(values) => onZoomChange(values[0])}
-              className="w-24"
-              aria-label="Zoom level"
-            />
-            <span className="text-xs text-white font-medium min-w-[2.5rem] text-center">
-              {zoomLevel.toFixed(1)}x
-            </span>
+      <div className="absolute bottom-3 left-3 right-3 z-10 pointer-events-none">
+        <div className="pointer-events-auto rounded-2xl bg-black/70 p-3 text-white shadow-lg backdrop-blur-sm">
+          <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+            <span className="font-semibold">iPhone Zoom</span>
+            <button
+              type="button"
+              onClick={onReset}
+              disabled={safeZoom <= safeMin}
+              className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-1 text-[11px] font-medium disabled:opacity-40"
+              aria-label="Reset zoom"
+            >
+              <RotateCcw className="h-3 w-3" />
+              {safeZoom.toFixed(1)}×
+            </button>
           </div>
 
-          <Button
-            variant="secondary"
-            size="icon"
-            className="h-8 w-8 rounded-full bg-black/70 hover:bg-black/80 border-0"
-            onClick={onZoomIn}
-            disabled={zoomLevel >= maxZoom}
-            aria-label="Zoom in"
-          >
-            <ZoomIn className="h-4 w-4 text-white" />
-          </Button>
-        </div>
-
-        {zoomLevel !== 1 && (
-          <div className="absolute top-4 right-4 z-10">
+          <div className="flex items-center gap-2">
             <Button
               variant="secondary"
               size="icon"
-              className="h-8 w-8 rounded-full bg-black/70 hover:bg-black/80 border-0"
-              onClick={onReset}
-              aria-label="Reset zoom"
+              className="h-11 w-11 rounded-full bg-white/15 hover:bg-white/25 border-0"
+              onClick={onZoomOut}
+              disabled={safeZoom <= safeMin}
+              aria-label="Zoom out"
             >
-              <RotateCcw className="h-4 w-4 text-white" />
+              <ZoomOut className="h-5 w-5 text-white" />
+            </Button>
+
+            <Slider
+              value={[safeZoom]}
+              min={safeMin}
+              max={safeMax}
+              step={0.1}
+              onValueChange={(values) => onZoomChange(values[0])}
+              className="min-w-0 flex-1"
+              aria-label="Zoom level"
+            />
+
+            <Button
+              variant="secondary"
+              size="icon"
+              className="h-11 w-11 rounded-full bg-white/15 hover:bg-white/25 border-0"
+              onClick={onZoomIn}
+              disabled={safeZoom >= safeMax}
+              aria-label="Zoom in"
+            >
+              <ZoomIn className="h-5 w-5 text-white" />
             </Button>
           </div>
-        )}
+
+          {presets.length > 0 && (
+            <div className="mt-2 flex flex-wrap justify-center gap-2">
+              {presets.map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => onZoomChange(clamp(preset, safeMin, safeMax))}
+                  className="rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold hover:bg-white/20"
+                >
+                  {preset.toFixed(preset % 1 === 0 ? 0 : 1)}×
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
 
-  // Inline variant for use outside the video container
   return (
     <div className="flex items-center gap-2">
       <Button
         variant="outline"
         size="icon"
-        className="h-8 w-8"
+        className="h-9 w-9"
         onClick={onZoomOut}
-        disabled={zoomLevel <= minZoom}
+        disabled={safeZoom <= safeMin}
         aria-label="Zoom out"
       >
         <ZoomOut className="h-4 w-4" />
       </Button>
 
-      <div className="flex items-center gap-2 flex-1">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         <Slider
-          value={[zoomLevel]}
-          min={minZoom}
-          max={maxZoom}
+          value={[safeZoom]}
+          min={safeMin}
+          max={safeMax}
           step={0.1}
           onValueChange={(values) => onZoomChange(values[0])}
           className="flex-1"
           aria-label="Zoom level"
         />
-        <span className="text-sm font-medium min-w-[2.5rem] text-center">
-          {zoomLevel.toFixed(1)}x
+        <span className="min-w-[2.8rem] text-center text-sm font-medium">
+          {safeZoom.toFixed(1)}×
         </span>
       </div>
 
       <Button
         variant="outline"
         size="icon"
-        className="h-8 w-8"
+        className="h-9 w-9"
         onClick={onZoomIn}
-        disabled={zoomLevel >= maxZoom}
+        disabled={safeZoom >= safeMax}
         aria-label="Zoom in"
       >
         <ZoomIn className="h-4 w-4" />
       </Button>
 
-      {zoomLevel !== 1 && (
+      {safeZoom > safeMin && (
         <Button
           variant="outline"
           size="icon"
-          className="h-8 w-8"
+          className="h-9 w-9"
           onClick={onReset}
           aria-label="Reset zoom"
         >
