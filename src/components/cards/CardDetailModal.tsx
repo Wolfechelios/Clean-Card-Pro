@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Dialog,
@@ -24,7 +24,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import Card3DViewer from "@/components/Card3DViewer";
+const Card3DViewer = lazy(() => import("@/components/Card3DViewer"));
 import { PSA10PriceSection } from "@/components/pricing/PSA10PriceSection";
 import { GradedPriceChip } from "@/components/pricing/GradedPriceChip";
 import { TCGPlayerPriceChip } from "@/components/pricing/TCGPlayerPriceChip";
@@ -468,11 +468,13 @@ export function CardDetailModal({
                 <div className="flex justify-center">
                   {card.image_url && !card.image_url.includes('placehold.co') ? (
                     viewMode === '3d' ? (
-                      <Card3DViewer
-                        frontImageUrl={card.image_url}
-                        width={400}
-                        height={300}
-                      />
+                      <Suspense fallback={<div className="w-[400px] h-[300px] rounded-xl bg-secondary/30 animate-pulse" aria-label="Loading 3D viewer" />}>
+                        <Card3DViewer
+                          frontImageUrl={card.image_url}
+                          width={400}
+                          height={300}
+                        />
+                      </Suspense>
                     ) : (
                       <div className="relative w-full max-w-[300px] aspect-[3/4] bg-secondary/30 rounded-xl overflow-hidden border border-border">
                         <img
