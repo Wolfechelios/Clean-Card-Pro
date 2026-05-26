@@ -1,51 +1,40 @@
-# Fix: iPhone 17 Pro preview cuts off ~3s after camera starts
+## Goal
+Stop the Rapid Scan camera preview from dying ~2-3s after start on iPhone 17 Pro.
 
-## Symptom
-On iPhone 17 Pro (iOS 26 WebKit), the rapid-scan preview starts, paints for a couple of seconds, then the video element goes black and the track ends — even though `getUserMedia` already returned a healthy stream.
+## Why it's still breaking
+The iOS `applyConstraints` flood is already gated, so that's not it anymore. Two remaining causes in `RapidScanCamera.tsx`:
 
-## Root cause
-Right after the stream goes live, `RapidScanCamera.startCamera` and friends fire **a flood of `track.applyConstraints({ advanced: [...] })` calls** at the brand-new iOS track:
+1. The instant `cameraOn` flips true, **two requestAnimationFrame loops** start reading frames out of the live 1080p video:
+   - Auto-capture sampler (`drawImage` + `getImageData` ~8x/sec)
+   - Foil-detection sampler (`drawImage` + `analyze` every 500ms)
+   On iOS 26 WebKit, hammering the freshly started camera track with concurrent canvas readbacks during its first ~1-2s warm-up can cause WebKit to terminate the track.
+2. The `track.addEventListener("ended", …)` handler unconditionally calls `setCameraOn(false)` and shows "Camera dropped — tap Start to retry". On iOS the track can fire a transient `ended` during early lifecycle without the user doing anything wrong — and we never recover.
 
-1. `safeApply({ focusMode: "continuous" })`
-2. `safeApply({ exposureMode: "continuous" })`
-3. `safeApply({ whiteBalanceMode: "continuous" })`
-4. `applyFastAutofocus(stream, true)` — applies a single batched `advanced` array containing `focusMode`, **`focusDistance: minDist` (macro override)**, `exposureMode`, `whiteBalanceMode`, `exposureCompensation`, `sharpness`, `contrast`, `saturation`, `iso`, then a second call with `whiteBalanceMode: "manual" + colorTemperature: 5500`.
-5. A separate `useEffect([cameraOn])` then re-applies `focusMode: continuous` again.
+## Changes (scope: `src/components/scanner/RapidScanCamera.tsx` only)
 
-iOS 26 WebKit terminates the `MediaStreamTrack` shortly after an `advanced` set that contains a key it doesn't actually accept (even when wrapped in try/catch, because the rejection happens after the constraint is partially staged). `focusDistance` (manual macro), `iso`, `sharpness`, `contrast`, `saturation`, and `whiteBalanceMode: "manual"` are the usual offenders on Apple cameras — and we apply all of them within the first ~1s. That matches the "starts, dies ~2–3s later" symptom.
+### 1. Delay heavy sampling on iOS
+In both the auto-capture `useEffect` (around line 219) and the foil-detection `useEffect` (around line 285), add a 1500ms warm-up delay before kicking off the RAF loop **when running on iOS**. Non-iOS keeps current behavior.
 
-Our existing `ended` listener correctly fires `setCameraOn(false)` and shows "Camera dropped" — which is exactly what the user is seeing.
+Implementation: wrap the existing `raf = requestAnimationFrame(tick)` start in a `setTimeout(..., isIOS ? 1500 : 0)`, and clean up the timeout in the effect's cleanup.
 
-## Fix (scope: client-side camera only)
+### 2. Auto-recover from spurious `ended` on iOS
+In `startCamera` (around line 611) where the `ended` handler is registered:
+- On iOS, do NOT immediately set `cameraOn = false`. Instead, attempt one silent restart: call `startCamera()` again. Only if the second attempt also dies within 3s do we surface the "Camera dropped" status.
+- Track this with a small `iosRestartAttemptedRef` ref that resets when the user explicitly stops the camera or successfully captures.
+- Non-iOS keeps the current explicit fail-fast behavior so we don't mask real errors on desktop/Android.
 
-Edit only `src/components/scanner/RapidScanCamera.tsx` and `src/lib/camera-optimizations.ts`. No backend, OCR, queue, or UI changes.
-
-### 1. `src/components/scanner/RapidScanCamera.tsx` — `startCamera`
-- Detect iOS once (`/iPhone|iPad|iPod/i.test(navigator.userAgent)`).
-- On iOS: **skip the post-start `safeApply` calls entirely** and **skip `applyFastAutofocus`**. iOS already runs continuous AF / AE / AWB by default on the rear wide camera; we don't need to ask. Set `cameraOn` and exit.
-- On non-iOS: keep current behavior (safeApply triad + `applyFastAutofocus`).
-- Keep the existing `buildConstraints` (1080p → 720p fallback), the `ended`/`mute` listeners, and the stale-track guard. Those are working.
-
-### 2. `src/components/scanner/RapidScanCamera.tsx` — auto-focus `useEffect` (line ~829)
-- Gate it behind the same non-iOS check. On iOS it just re-issues `focusMode: continuous` for no benefit and adds another `applyConstraints` call that can race the track lifecycle.
-
-### 3. `src/lib/camera-optimizations.ts` — `applyFastAutofocus`
-- Add an early `if (isIOS) return;` guard at the top, so any other caller (e.g. `enableBestCamera` at line 511) also skips it on iOS.
-- Leave Android/desktop path untouched — Chrome handles `advanced` modes gracefully and we want the sharpness/contrast/macro tuning there.
-
-### 4. Tap-to-focus (`handleVideoTap`)
-- Keep as-is. It only fires on user tap, not during the first 3s, so it's not part of this regression. (If iOS still drops on tap later, we'll address separately.)
-
-## Why this is safe
-- iPhone rear cameras default to continuous AF + AE + AWB without any constraint calls, so capture quality on the iPhone 17 Pro path is unchanged.
-- The previously-shipped `display-p3` canvas color fix and iPhone-17 capture quality (0.98) are untouched.
-- Android, desktop Chrome, and older iPhones still get the full `applyFastAutofocus` tuning.
-
-## Validation
-1. Open `/scan` on the iPhone 17 Pro — preview should stay live indefinitely, no "Camera dropped" status.
-2. Console should show `[Camera] getUserMedia ok …` and `[Camera] started 1920×1080 @ 30fps` and **no `[Camera] active track ended unexpectedly`** message.
-3. Capture a card — preview must remain live after capture.
-4. On desktop Chrome and an Android device, hardware tuning logs (`Macro focus enabled`, `Sharpness set to max`, etc.) should still appear.
+### 3. (Defensive) Skip `clarityZoom.reset()` and `detectZoomCapabilities()` until after the iOS warm-up
+Move both calls inside a `setTimeout(..., isIOS ? 800 : 0)` so the very first frames aren't competing with capability probes. These don't call `applyConstraints` but `getCapabilities()` on iOS during warm-up has been observed to occasionally stall the pipeline.
 
 ## Out of scope
-4K capture path, OCR routing, queue behavior, capture compression, color-space fix.
+- Native (Capacitor) camera path
+- Capture quality, color-space, queue, OCR, pricing
+- Other scanner screens (Mobile Scan, Graded Scan)
+- Any backend or DB change
+
+## Validation steps
+1. Open `/scan` on the iPhone 17 Pro.
+2. Preview must stay live indefinitely (>30s of idle observation).
+3. Tap Capture — image should still enqueue and preview should stay live afterward.
+4. On desktop Chrome and an Android phone, behavior must be unchanged (auto-capture and foil detection still kick in immediately).
+5. If preview ever dies, status line should briefly show recovery (one silent restart) before falling back to the existing error message.
