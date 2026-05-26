@@ -680,20 +680,27 @@ export default function RapidScanCamera() {
 
       // Apply mode constraints AFTER the stream is live, each isolated so a
       // single unsupported key cannot kill the track.
-      const safeApply = async (set: MediaTrackConstraintSet) => {
-        try { await track?.applyConstraints?.({ advanced: [set] }); } catch {}
-      };
-      await safeApply({ focusMode: "continuous" } as MediaTrackConstraintSet);
-      await safeApply({ exposureMode: "continuous" } as MediaTrackConstraintSet);
-      await safeApply({ whiteBalanceMode: "continuous" } as MediaTrackConstraintSet);
+      // CRITICAL: iOS 26 WebKit (iPhone 17 Pro) terminates the MediaStreamTrack
+      // a few seconds after start if we hammer it with advanced applyConstraints
+      // — even when individually wrapped. iOS rear cameras default to continuous
+      // AF/AE/AWB, so we skip the whole block on iOS.
+      const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+      if (!isIOS) {
+        const safeApply = async (set: MediaTrackConstraintSet) => {
+          try { await track?.applyConstraints?.({ advanced: [set] }); } catch {}
+        };
+        await safeApply({ focusMode: "continuous" } as MediaTrackConstraintSet);
+        await safeApply({ exposureMode: "continuous" } as MediaTrackConstraintSet);
+        await safeApply({ whiteBalanceMode: "continuous" } as MediaTrackConstraintSet);
 
-      if (settings.manualFocusLock) {
-        await safeApply({ focusMode: "manual" } as MediaTrackConstraintSet);
-      } else {
-        try {
-          await applyFastAutofocus(stream, true);
-        } catch {
-          await safeApply({ focusMode: "continuous" } as MediaTrackConstraintSet);
+        if (settings.manualFocusLock) {
+          await safeApply({ focusMode: "manual" } as MediaTrackConstraintSet);
+        } else {
+          try {
+            await applyFastAutofocus(stream, true);
+          } catch {
+            await safeApply({ focusMode: "continuous" } as MediaTrackConstraintSet);
+          }
         }
       }
     } catch (err: any) {
