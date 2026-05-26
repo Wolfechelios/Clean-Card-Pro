@@ -29,6 +29,7 @@ const InsightsPage = lazy(() => import("./pages/InsightsPage"));
 const PerformancePage = lazy(() => import("./pages/PerformancePage"));
 const MobileScanPage = lazy(() => import("./pages/MobileScanPage"));
 const MobileScanRedirect = lazy(() => import("./pages/MobileScanRedirect"));
+const CameraDebugPage = lazy(() => import("./pages/CameraDebugPage"));
 const PredictionsPage = lazy(() => import("./pages/PredictionsPage"));
 const GradedScanPage = lazy(() => import("./pages/GradedScanPage"));
 const VisualSearchPage = lazy(() => import("./pages/VisualSearchPage"));
@@ -77,6 +78,7 @@ function AppRoutes() {
       <Routes>
         <Route path="/auth" element={<Auth />} />
         <Route path="/install" element={<InstallPage />} />
+        <Route path="/camera-debug" element={<CameraDebugPage />} />
         <Route path="/" element={session ? <Navigate to="/dashboard" /> : <Navigate to="/auth" />} />
 
         <Route path="/dashboard" element={session ? <Authed><NewDashboard /></Authed> : <Navigate to="/auth" />} />
