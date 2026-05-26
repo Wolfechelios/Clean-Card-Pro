@@ -425,7 +425,7 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
             usingDigitalZoom={usingDigitalZoom}
             onToggleTorch={toggleTorch}
             onFocusCenter={focusCenter}
-            onZoomChange={setZoom}
+            onZoomChange={(z) => { void setZoom(z); }}
             onZoomIn={zoomIn}
             onZoomOut={zoomOut}
             onResetZoom={resetZoom}

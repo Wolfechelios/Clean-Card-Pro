@@ -1036,12 +1036,50 @@ export default function RapidScanCamera() {
       if (!ctx) throw new Error("Canvas not available");
 
       ctx.drawImage(v, 0, 0, w, h);
+
+      // ── Blank/whiteout frame guard ──
+      // Sample a small downscale and reject frames that are nearly uniform white
+      // (camera not focused on a card, blown-out highlights, lens covered, etc.).
+      try {
+        const sw = 64, sh = 64;
+        const probe = document.createElement("canvas");
+        probe.width = sw; probe.height = sh;
+        const pctx = probe.getContext("2d", { willReadFrequently: true });
+        if (pctx) {
+          pctx.drawImage(c, 0, 0, sw, sh);
+          const { data } = pctx.getImageData(0, 0, sw, sh);
+          let sum = 0, sumSq = 0; const n = sw * sh;
+          for (let i = 0; i < data.length; i += 4) {
+            const lum = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+            sum += lum; sumSq += lum * lum;
+          }
+          const mean = sum / n;
+          const variance = sumSq / n - mean * mean;
+          const std = Math.sqrt(Math.max(0, variance));
+          // Whiteout: very bright AND very low variance (no card edges/text/art).
+          if (mean > 225 && std < 12) {
+            toast.error("Blank frame — point at a card and try again");
+            setBusyCapture(false);
+            return;
+          }
+          // Blackout: lens covered.
+          if (mean < 18 && std < 10) {
+            toast.error("Dark frame — check the lens and try again");
+            setBusyCapture(false);
+            return;
+          }
+        }
+      } catch {
+        // If probing fails, fall through and capture anyway.
+      }
+
       // iPhone 17 class has best-in-class ISP — skip JS color/glare passes
       // because they soften the edges OCR depends on.
       if (!iphone17) {
         applyAutoColorBalance(ctx, c, 0.5);
         applyAntiGlare(ctx, c, 0.2);
       }
+
 
       if (settings.autoZoomEnabled) {
         clarityZoom.analyzeAndAdjustZoom(v).catch(() => {});
