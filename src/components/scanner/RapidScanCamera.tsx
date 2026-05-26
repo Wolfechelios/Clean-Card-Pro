@@ -154,6 +154,9 @@ export default function RapidScanCamera() {
   const autoCapturePrevGrayRef = useRef<Uint8Array | null>(null);
   const autoCaptureLastSampleAtRef = useRef<number>(0);
   const startingCameraRef = useRef(false);
+  // iOS-only: silently retry once if the track dies right after start
+  const iosRestartAttemptedRef = useRef(false);
+  const iosStartedAtRef = useRef(0);
 
   const [cameraOn, setCameraOn] = useState(false);
   const [support, setSupport] = useState<MediaSupport>({ torch: false, focus: false, zoom: false });
