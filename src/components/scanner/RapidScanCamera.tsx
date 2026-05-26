@@ -699,8 +699,29 @@ export default function RapidScanCamera() {
 
       useGlobalProcessControl.getState().setScannerActive(true);
 
-      detectZoomCapabilities();
-      clarityZoom.reset();
+      const isIOSStart = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+      iosStartedAtRef.current = Date.now();
+      // After 4s of stable preview on iOS, allow the silent-retry budget to reset
+      // so a later genuine drop can still self-heal once.
+      if (isIOSStart) {
+        setTimeout(() => {
+          if (trackRef.current === track && track?.readyState === "live") {
+            iosRestartAttemptedRef.current = false;
+          }
+        }, 4000);
+      }
+
+      // On iOS, defer capability probes until after the camera warm-up window
+      // so getCapabilities() doesn't compete with the stream stabilizing.
+      const runCapabilityProbes = () => {
+        detectZoomCapabilities();
+        clarityZoom.reset();
+      };
+      if (isIOSStart) {
+        setTimeout(runCapabilityProbes, 800);
+      } else {
+        runCapabilityProbes();
+      }
 
       // Apply mode constraints AFTER the stream is live, each isolated so a
       // single unsupported key cannot kill the track.
