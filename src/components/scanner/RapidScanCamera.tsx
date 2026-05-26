@@ -154,6 +154,9 @@ export default function RapidScanCamera() {
   const autoCapturePrevGrayRef = useRef<Uint8Array | null>(null);
   const autoCaptureLastSampleAtRef = useRef<number>(0);
   const startingCameraRef = useRef(false);
+  // iOS-only: silently retry once if the track dies right after start
+  const iosRestartAttemptedRef = useRef(false);
+  const iosStartedAtRef = useRef(0);
 
   const [cameraOn, setCameraOn] = useState(false);
   const [support, setSupport] = useState<MediaSupport>({ torch: false, focus: false, zoom: false });
@@ -273,9 +276,15 @@ export default function RapidScanCamera() {
       }
     };
 
-    raf = requestAnimationFrame(tick);
+    // iOS: defer the RAF readback loop to avoid pressuring the freshly
+    // started camera track during its warm-up window.
+    const isIOSAuto = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const startTimer = setTimeout(() => {
+      raf = requestAnimationFrame(tick);
+    }, isIOSAuto ? 1500 : 0);
 
     return () => {
+      clearTimeout(startTimer);
       if (raf) cancelAnimationFrame(raf);
       autoCapturePrevGrayRef.current = null;
     };
@@ -303,9 +312,14 @@ export default function RapidScanCamera() {
 
     analyzer.reset();
     setFoilResult(null);
-    raf = requestAnimationFrame(tick);
+    // iOS: delay foil sampling until after the camera warm-up window
+    const isIOSFoil = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const startTimer = setTimeout(() => {
+      raf = requestAnimationFrame(tick);
+    }, isIOSFoil ? 1500 : 0);
 
     return () => {
+      clearTimeout(startTimer);
       if (raf) cancelAnimationFrame(raf);
     };
   }, [isNative, cameraOn, settings.foilDetectionEnabled]);
@@ -608,12 +622,33 @@ export default function RapidScanCamera() {
       // one is already live, which would otherwise flip cameraOn to false.
       const track = trackRef.current;
       if (track) {
+        const isIOSEnded = /iPhone|iPad|iPod/i.test(navigator.userAgent);
         const handleEnded = () => {
           if (trackRef.current !== track) {
             console.log("[Camera] stale track ended (ignored)");
             return;
           }
           console.warn("[Camera] active track ended unexpectedly");
+          // iOS WebKit can fire a transient `ended` during the first ~3s
+          // of the camera's life. Auto-retry once silently before giving up.
+          if (
+            isIOSEnded &&
+            !iosRestartAttemptedRef.current &&
+            Date.now() - iosStartedAtRef.current < 5000
+          ) {
+            iosRestartAttemptedRef.current = true;
+            console.log("[Camera] iOS silent restart attempt");
+            setStatusLine("Camera warming up…");
+            // Tear down current stream and retry once
+            try {
+              streamRef.current?.getTracks().forEach((t) => t.stop());
+            } catch {}
+            streamRef.current = null;
+            trackRef.current = null;
+            setCameraOn(false);
+            setTimeout(() => { startCamera().catch(() => {}); }, 250);
+            return;
+          }
           setCameraOn(false);
           setStatusLine("Camera dropped — tap Start to retry");
         };
@@ -675,8 +710,29 @@ export default function RapidScanCamera() {
 
       useGlobalProcessControl.getState().setScannerActive(true);
 
-      detectZoomCapabilities();
-      clarityZoom.reset();
+      const isIOSStart = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+      iosStartedAtRef.current = Date.now();
+      // After 4s of stable preview on iOS, allow the silent-retry budget to reset
+      // so a later genuine drop can still self-heal once.
+      if (isIOSStart) {
+        setTimeout(() => {
+          if (trackRef.current === track && track?.readyState === "live") {
+            iosRestartAttemptedRef.current = false;
+          }
+        }, 4000);
+      }
+
+      // On iOS, defer capability probes until after the camera warm-up window
+      // so getCapabilities() doesn't compete with the stream stabilizing.
+      const runCapabilityProbes = () => {
+        detectZoomCapabilities();
+        clarityZoom.reset();
+      };
+      if (isIOSStart) {
+        setTimeout(runCapabilityProbes, 800);
+      } else {
+        runCapabilityProbes();
+      }
 
       // Apply mode constraints AFTER the stream is live, each isolated so a
       // single unsupported key cannot kill the track.
@@ -723,6 +779,7 @@ export default function RapidScanCamera() {
     streamRef.current = null;
     trackRef.current = null;
     setCameraOn(false);
+    iosRestartAttemptedRef.current = false;
 
     useGlobalProcessControl.getState().setScannerActive(false);
 
