@@ -622,33 +622,12 @@ export default function RapidScanCamera() {
       // one is already live, which would otherwise flip cameraOn to false.
       const track = trackRef.current;
       if (track) {
-        const isIOSEnded = /iPhone|iPad|iPod/i.test(navigator.userAgent);
         const handleEnded = () => {
           if (trackRef.current !== track) {
             console.log("[Camera] stale track ended (ignored)");
             return;
           }
           console.warn("[Camera] active track ended unexpectedly");
-          // iOS WebKit can fire a transient `ended` during the first ~3s
-          // of the camera's life. Auto-retry once silently before giving up.
-          if (
-            isIOSEnded &&
-            !iosRestartAttemptedRef.current &&
-            Date.now() - iosStartedAtRef.current < 5000
-          ) {
-            iosRestartAttemptedRef.current = true;
-            console.log("[Camera] iOS silent restart attempt");
-            setStatusLine("Camera warming up…");
-            // Tear down current stream and retry once
-            try {
-              streamRef.current?.getTracks().forEach((t) => t.stop());
-            } catch {}
-            streamRef.current = null;
-            trackRef.current = null;
-            setCameraOn(false);
-            setTimeout(() => { startCamera().catch(() => {}); }, 250);
-            return;
-          }
           setCameraOn(false);
           setStatusLine("Camera dropped — tap Start to retry");
         };
