@@ -142,6 +142,11 @@ function isUSBDevice(label: string): boolean {
   );
 }
 
+function isIOSWebKitLike(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
 export const useCameraDevices = () => {
   const [devices, setDevices] = useState<CameraDevice[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
@@ -151,12 +156,19 @@ export const useCameraDevices = () => {
     try {
       setIsLoading(true);
 
-      // Request permission first to get device labels
-      try {
-        const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
-        tempStream.getTracks().forEach(track => track.stop());
-      } catch (e) {
-        console.log("Initial permission request:", e);
+      const isIOS = isIOSWebKitLike();
+
+      // iOS/Safari/Chrome WebKit: never open a temporary camera stream just to
+      // reveal device labels. On iPhone this can steal or terminate the active
+      // Rapid Scan MediaStreamTrack, causing the camera to open then close or
+      // repeatedly show permission/allowed messaging.
+      if (!isIOS) {
+        try {
+          const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+          tempStream.getTracks().forEach(track => track.stop());
+        } catch (e) {
+          console.log("Initial permission request:", e);
+        }
       }
 
       const allDevices = await navigator.mediaDevices.enumerateDevices();
@@ -165,13 +177,13 @@ export const useCameraDevices = () => {
       // Separate rear cameras for positional classification
       const rearIndices: number[] = [];
       videoInputs.forEach((d, i) => {
-        const label = d.label || `Camera ${d.deviceId.slice(0, 8)}`;
+        const label = d.label || `Camera ${d.deviceId.slice(0, 8) || i + 1}`;
         if (isRearCamera(label)) rearIndices.push(i);
       });
 
       let rearCounter = 0;
       const videoDevices: CameraDevice[] = videoInputs.map((device, i) => {
-        const label = device.label || `Camera ${device.deviceId.slice(0, 8)}`;
+        const label = device.label || `Camera ${device.deviceId.slice(0, 8) || i + 1}`;
         const usb = isUSBDevice(label);
         const rear = isRearCamera(label);
 
@@ -240,7 +252,8 @@ export const useCameraDevices = () => {
   useEffect(() => {
     refreshDevices();
 
-    navigator.mediaDevices.addEventListener("devicechange", refreshDevices);
+    const mediaDevices = navigator.mediaDevices;
+    mediaDevices?.addEventListener?.("devicechange", refreshDevices);
 
     // Re-enumerate when the tab regains focus / visibility — Camo Studio is often
     // launched after the page loads, and `devicechange` doesn't always fire for
@@ -252,17 +265,21 @@ export const useCameraDevices = () => {
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
 
-    // Lightweight poll while visible: catches Camo iPad connection events the
-    // browser silently misses. Cheap because state only updates on real change.
-    const poll = window.setInterval(() => {
-      if (document.visibilityState === "visible") refreshDevices();
-    }, 4000);
+    // Desktop-only polling: useful for Camo/USB virtual cameras, but unsafe on
+    // iOS because refreshDevices previously required camera access and can still
+    // churn device IDs while Rapid Scan is live.
+    const isIOS = isIOSWebKitLike();
+    const poll = isIOS
+      ? null
+      : window.setInterval(() => {
+          if (document.visibilityState === "visible") refreshDevices();
+        }, 4000);
 
     return () => {
-      navigator.mediaDevices.removeEventListener("devicechange", refreshDevices);
+      mediaDevices?.removeEventListener?.("devicechange", refreshDevices);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
-      window.clearInterval(poll);
+      if (poll != null) window.clearInterval(poll);
     };
   }, [refreshDevices]);
 
