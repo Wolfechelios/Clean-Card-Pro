@@ -1809,31 +1809,37 @@ export default function RapidScanCamera() {
         )}
 
         {/* ── Overlay: autofocus trigger ── */}
-        {cameraOn && support.focus && (
+        {cameraOn && (
           <button
             type="button"
             onClick={async () => {
+              triggerHaptics();
+              setOverlay({ label: "Refocusing…" });
               const track = trackRef.current;
               if (!track?.applyConstraints) return;
               try {
-                // Nudge AF: switch to manual then back to continuous to retrigger lock.
-                await track.applyConstraints({ advanced: [{ focusMode: "manual" } as any] });
-                await new Promise((r) => setTimeout(r, 60));
-                await track.applyConstraints({ advanced: [{ focusMode: "continuous" } as any] });
-                triggerHaptics();
-                setOverlay({ label: "Focusing…" });
+                if (support.focus) {
+                  // Nudge AF: switch to manual then back to continuous to retrigger lock.
+                  await track.applyConstraints({ advanced: [{ focusMode: "manual" } as any] });
+                  await new Promise((r) => setTimeout(r, 60));
+                  await track.applyConstraints({ advanced: [{ focusMode: "continuous" } as any] });
+                } else {
+                  // Best-effort: some drivers accept continuous even when not advertised.
+                  await track.applyConstraints({ advanced: [{ focusMode: "continuous" } as any] });
+                }
               } catch {
-                // ignore
+                // ignore — keep the overlay so the tap still feels responsive
               }
             }}
             className="absolute top-3 right-3 z-10 h-10 px-3 rounded-full bg-black/60 backdrop-blur-sm text-white text-xs font-semibold flex items-center gap-1.5 hover:bg-black/80"
             aria-label="Refocus"
-            title="Tap to refocus (or tap anywhere on the preview)"
+            title={support.focus ? "Tap to refocus (or tap anywhere on the preview)" : "Refocus (best-effort on this camera)"}
           >
-            <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
+            <span className={cn("inline-block h-2 w-2 rounded-full", support.focus ? "bg-emerald-400" : "bg-white/40")} />
             AF
           </button>
         )}
+
 
 
 
