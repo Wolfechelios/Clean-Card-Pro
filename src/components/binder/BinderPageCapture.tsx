@@ -498,6 +498,7 @@ export function BinderPageCapture({ open, onClose, setName }: BinderPageCaptureP
                 size="icon"
                 className="rounded-full backdrop-blur bg-card/70"
                 onClick={handleTorchToggle}
+                aria-label={torchOn ? "Turn off flashlight" : "Turn on flashlight"}
               >
                 {torchOn ? <FlashlightOff className="h-4 w-4" /> : <Flashlight className="h-4 w-4" />}
               </Button>
@@ -506,6 +507,7 @@ export function BinderPageCapture({ open, onClose, setName }: BinderPageCaptureP
                 className="rounded-full h-16 w-16 p-0 shadow-lg"
                 onClick={handleCapture}
                 disabled={capturing}
+                aria-label="Capture binder page"
               >
                 {capturing ? <Loader2 className="h-6 w-6 animate-spin" /> : <Camera className="h-6 w-6" />}
               </Button>
@@ -514,6 +516,7 @@ export function BinderPageCapture({ open, onClose, setName }: BinderPageCaptureP
                 size="icon"
                 className="rounded-full backdrop-blur bg-card/70"
                 onClick={onClose}
+                aria-label="Close capture"
               >
                 <X className="h-4 w-4" />
               </Button>

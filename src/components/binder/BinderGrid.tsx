@@ -155,8 +155,9 @@ export function BinderGrid({
           size="icon"
           onClick={() => navigate("left")}
           disabled={currentPage === 0 || animating}
+          aria-label="Previous page"
         >
-          <ChevronLeft className="h-4 w-4" />
+          <ChevronLeft className="h-4 w-4" aria-hidden="true" />
         </Button>
 
         <div className="flex items-center gap-1">
@@ -180,8 +181,9 @@ export function BinderGrid({
           size="icon"
           onClick={() => navigate("right")}
           disabled={currentPage >= totalPages - 1 || animating}
+          aria-label="Next page"
         >
-          <ChevronRight className="h-4 w-4" />
+          <ChevronRight className="h-4 w-4" aria-hidden="true" />
         </Button>
       </div>
 
