@@ -832,10 +832,12 @@ export default function RapidScanCamera() {
     [support.focus]
   );
 
-  // Auto-focus on camera start
+  // Auto-focus on camera start (non-iOS only — iOS terminates the track
+  // when we issue extra applyConstraints calls right after start).
   useEffect(() => {
     if (!cameraOn || !trackRef.current) return;
-    
+    if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) return;
+
     const triggerAutoFocus = async () => {
       try {
         await trackRef.current?.applyConstraints({
@@ -845,7 +847,7 @@ export default function RapidScanCamera() {
         // Ignore
       }
     };
-    
+
     triggerAutoFocus();
   }, [cameraOn]);
 
