@@ -1767,22 +1767,47 @@ export default function RapidScanCamera() {
           </div>
         )}
 
-        {/* ── Overlay: top-right zoom pill ── */}
-        {cameraOn && zoomCapabilities.supported && zoomLevel > 1 && (
-          <div className="absolute top-3 right-3 z-10">
+        {/* ── Overlay: right-side zoom controls ── */}
+        {cameraOn && zoomCapabilities.supported && (
+          <div className="absolute top-1/2 right-3 z-10 -translate-y-1/2 flex flex-col items-center gap-2 rounded-full bg-black/60 backdrop-blur-sm p-2">
             <button
-              onClick={() => setZoom(1)}
-              className="bg-black/60 backdrop-blur-sm rounded-full px-3 py-1.5 flex items-center gap-1.5 hover:bg-black/80 transition-colors"
+              type="button"
+              onClick={() => {
+                const max = zoomCapabilities.max ?? 5;
+                setZoom(Math.min(max, (zoomLevel || 1) + 0.5));
+              }}
+              disabled={zoomLevel >= (zoomCapabilities.max ?? 5)}
+              className="h-9 w-9 rounded-full bg-white/15 text-white text-lg font-bold flex items-center justify-center hover:bg-white/25 disabled:opacity-40"
+              aria-label="Zoom in"
             >
-              <span className="text-xs text-white font-medium">
-                {zoomLevel.toFixed(1)}×
-              </span>
-              {usingDigitalZoom && (
-                <span className="text-[10px] text-white/50">digital</span>
-              )}
+              +
             </button>
+            <button
+              type="button"
+              onClick={() => setZoom(1)}
+              className="text-[11px] text-white font-semibold tabular-nums px-1"
+              aria-label="Reset zoom"
+            >
+              {(zoomLevel || 1).toFixed(1)}×
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const min = zoomCapabilities.min ?? 1;
+                setZoom(Math.max(min, (zoomLevel || 1) - 0.5));
+              }}
+              disabled={zoomLevel <= (zoomCapabilities.min ?? 1)}
+              className="h-9 w-9 rounded-full bg-white/15 text-white text-lg font-bold flex items-center justify-center hover:bg-white/25 disabled:opacity-40"
+              aria-label="Zoom out"
+            >
+              −
+            </button>
+            {usingDigitalZoom && (
+              <span className="text-[9px] text-white/60 -mt-1">digital</span>
+            )}
           </div>
         )}
+
 
         {/* Voice capture pill */}
         {settings.voiceCaptureEnabled && (
