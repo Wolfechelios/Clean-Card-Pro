@@ -1,7 +1,9 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+
+const STORAGE_KEY = "cleancard.cameraDebug.logs.v1";
 
 type LogEntry = {
   time: string;
@@ -10,7 +12,7 @@ type LogEntry = {
 };
 
 function stamp() {
-  return new Date().toLocaleTimeString();
+  return new Date().toISOString();
 }
 
 function safeStringify(value: unknown) {
@@ -18,6 +20,25 @@ function safeStringify(value: unknown) {
     return JSON.stringify(value, null, 2);
   } catch {
     return String(value);
+  }
+}
+
+function loadSavedLogs(): LogEntry[] {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.slice(0, 200) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLogs(logs: LogEntry[]) {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(logs.slice(0, 200)));
+  } catch {
+    // localStorage can fail in private browsing / storage pressure. The visible log still works.
   }
 }
 
@@ -38,13 +59,23 @@ function trackInfo(track: MediaStreamTrack | null) {
 export default function CameraDebugPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [logs, setLogs] = useState<LogEntry[]>(() => loadSavedLogs());
   const [mode, setMode] = useState<"safe720" | "safe1080">("safe720");
   const [running, setRunning] = useState(false);
+  const [savedAt, setSavedAt] = useState<string>(() => (loadSavedLogs().length ? "loaded previous log" : "no saved log yet"));
+
+  useEffect(() => {
+    saveLogs(logs);
+    setSavedAt(logs.length ? `saved ${new Date().toLocaleTimeString()}` : "empty");
+  }, [logs]);
 
   const addLog = useCallback((event: string, data?: Record<string, unknown>) => {
     const entry = { time: stamp(), event, data };
-    setLogs((prev) => [entry, ...prev].slice(0, 150));
+    setLogs((prev) => {
+      const next = [entry, ...prev].slice(0, 200);
+      saveLogs(next);
+      return next;
+    });
     console.info(`[camera-debug] ${event}`, data || {});
   }, []);
 
@@ -55,8 +86,35 @@ export default function CameraDebugPage() {
     mediaDevices: !!navigator.mediaDevices,
     getUserMedia: !!navigator.mediaDevices?.getUserMedia,
     mode,
+    savedAt,
     logs,
-  }), [logs, mode]);
+  }), [logs, mode, savedAt]);
+
+  const copyLog = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(textLog);
+      addLog("copy-log-success");
+    } catch (error: any) {
+      addLog("copy-log-error", { name: error?.name, message: error?.message });
+    }
+  }, [addLog, textLog]);
+
+  const downloadLog = useCallback(() => {
+    try {
+      const blob = new Blob([textLog], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `cleancard-camera-debug-${Date.now()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      addLog("download-log-success");
+    } catch (error: any) {
+      addLog("download-log-error", { name: error?.name, message: error?.message });
+    }
+  }, [addLog, textLog]);
 
   const stopCamera = useCallback(() => {
     const stream = streamRef.current;
@@ -86,6 +144,7 @@ export default function CameraDebugPage() {
   }, [addLog]);
 
   const startCamera = useCallback(async () => {
+    addLog("startCamera-click", { mode });
     stopCamera();
     await listDevices();
 
@@ -129,11 +188,20 @@ export default function CameraDebugPage() {
 
       window.setTimeout(() => addLog("check-2s", { track: trackInfo(track), videoReadyState: videoEl.readyState }), 2000);
       window.setTimeout(() => addLog("check-6s", { track: trackInfo(track), videoReadyState: videoEl.readyState }), 6000);
+      window.setTimeout(() => addLog("check-12s", { track: trackInfo(track), videoReadyState: videoEl.readyState }), 12000);
     } catch (error: any) {
       addLog("camera-error", { name: error?.name, message: error?.message, constraint: error?.constraint });
       setRunning(false);
     }
   }, [addLog, listDevices, mode, stopCamera]);
+
+  const clearLogs = useCallback(() => {
+    setLogs([]);
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {}
+    setSavedAt("empty");
+  }, []);
 
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-4">
@@ -142,16 +210,20 @@ export default function CameraDebugPage() {
           <CardTitle>Camera Debug</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground">Run this on the iPhone, let the camera fail, then copy the log text.</p>
+          <p className="text-sm text-muted-foreground">
+            This log saves automatically on this iPhone. Run the test, reopen this page later, and the last log should still be here.
+          </p>
           <div className="flex flex-wrap gap-2">
             <Button variant={mode === "safe720" ? "default" : "outline"} onClick={() => setMode("safe720")}>720p safe</Button>
             <Button variant={mode === "safe1080" ? "default" : "outline"} onClick={() => setMode("safe1080")}>1080p safe</Button>
             <Button onClick={() => void startCamera()}>Start test</Button>
             <Button variant="outline" onClick={stopCamera}>Stop</Button>
             <Button variant="outline" onClick={() => void listDevices()}>List devices</Button>
-            <Button variant="destructive" onClick={() => setLogs([])}>Clear</Button>
+            <Button variant="outline" onClick={() => void copyLog()}>Copy saved log</Button>
+            <Button variant="outline" onClick={downloadLog}>Download log</Button>
+            <Button variant="destructive" onClick={clearLogs}>Clear saved log</Button>
           </div>
-          <div className="text-sm">Status: {running ? "running" : "stopped"}</div>
+          <div className="text-sm text-muted-foreground">Status: {running ? "running" : "stopped"} • Log: {savedAt} • Entries: {logs.length}</div>
         </CardContent>
       </Card>
 
