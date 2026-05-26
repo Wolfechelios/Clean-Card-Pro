@@ -149,8 +149,22 @@ function isIOSWebKitLike(): boolean {
 
 export const useCameraDevices = () => {
   const [devices, setDevices] = useState<CameraDevice[]>([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
+  const [selectedDeviceIdState, setSelectedDeviceIdState] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
+  const isIOS = isIOSWebKitLike();
+
+  // iOS WebKit is more stable when Rapid Scan uses facingMode instead of
+  // deviceId:{exact}. Expose an empty selectedDeviceId on iPhone/iPad so the
+  // scanner falls back to the rear environment camera.
+  const selectedDeviceId = isIOS ? "" : selectedDeviceIdState;
+
+  const setSelectedDeviceId = useCallback((deviceId: string) => {
+    if (isIOSWebKitLike()) {
+      setSelectedDeviceIdState("");
+      return;
+    }
+    setSelectedDeviceIdState(deviceId);
+  }, []);
 
   const refreshDevices = useCallback(async () => {
     try {
@@ -235,8 +249,10 @@ export const useCameraDevices = () => {
         return sig(prev) === sig(videoDevices) ? prev : videoDevices;
       });
 
-      // Auto-select main wide lens or first device
-      setSelectedDeviceId(prev => {
+      // Auto-select main wide lens or first device. Keep iOS empty so Rapid Scan
+      // uses facingMode instead of fragile exact device IDs.
+      setSelectedDeviceIdState(prev => {
+        if (isIOS) return "";
         if (prev && videoDevices.some(d => d.deviceId === prev)) return prev;
         if (videoDevices.length === 0) return "";
         const mainLens = videoDevices.find(d => d.lensType === "wide") || videoDevices[0];
