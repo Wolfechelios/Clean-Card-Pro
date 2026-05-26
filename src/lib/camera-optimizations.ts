@@ -56,6 +56,8 @@ export const getMaxCameraConstraints = (facingMode: 'environment' | 'user' = 'en
     ? { deviceId: { exact: deviceId } }
     : { facingMode: { exact: facingMode } };
 
+  const isIOS = typeof navigator !== "undefined" && /iPhone|iPad|iPod/i.test(navigator.userAgent);
+
   // Advanced hardware hints for rear camera quality
   const advancedHints: any = {
     focusMode: { ideal: 'continuous' },
@@ -66,6 +68,44 @@ export const getMaxCameraConstraints = (facingMode: 'environment' | 'user' = 'en
       noiseSuppression: { ideal: true },
     } : {}),
   };
+
+  // iOS 26 WebKit on iPhone 17 Pro drops the track when negotiating 4K/8K
+  // ladders with `resizeMode` hints. Start at 1920×1440 and stay conservative.
+  if (isIOS) {
+    return [
+      {
+        video: {
+          ...baseConstraints,
+          ...advancedHints,
+          width: { ideal: 1920 },
+          height: { ideal: 1440 },
+          frameRate: { ideal: 30 },
+        },
+        audio: false as const,
+      },
+      {
+        video: {
+          ...baseConstraints,
+          ...advancedHints,
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false as const,
+      },
+      {
+        video: {
+          ...baseConstraints,
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false as const,
+      },
+      {
+        video: deviceId ? { deviceId } : { facingMode },
+        audio: false as const,
+      },
+    ];
+  }
 
   return [
     // Try 1: 8K Ultra HD (7680x4320)
@@ -130,6 +170,7 @@ export const getMaxCameraConstraints = (facingMode: 'environment' | 'user' = 'en
     },
   ];
 };
+
 
 // Apply fast continuous autofocus with macro support
 export const applyFastAutofocus = async (stream: MediaStream, enableMacro: boolean = true): Promise<void> => {
