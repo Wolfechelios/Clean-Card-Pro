@@ -8,6 +8,8 @@ import { CameraDeviceSelector } from "./CameraDeviceSelector";
 import { Badge } from "@/components/ui/badge";
 import { useCameraZoom } from "@/hooks/use-camera-zoom";
 import { ZoomControls } from "./ZoomControls";
+import { IPhoneCameraControls } from "./IPhoneCameraControls";
+import { detectSupport, getVideoTrack, setFocusPoint, setTorch, type MediaSupport } from "@/lib/mediaControls";
 
 interface USBPhoneCameraScannerProps {
   onImageCaptured: (imageFile: File) => void;
@@ -19,11 +21,14 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
   const [isInitializing, setIsInitializing] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const trackRef = useRef<MediaStreamTrack | null>(null);
+  const [mediaSupport, setMediaSupport] = useState<MediaSupport>({ torch: false, focus: false, zoom: false });
+  const [torchOn, setTorchOn] = useState(false);
   
   const { devices, selectedDeviceId, setSelectedDeviceId, isLoading: devicesLoading, refreshDevices } = useCameraDevices();
   
   // Zoom controls
-  const { zoomLevel, zoomCapabilities, detectZoomCapabilities, setZoom, zoomIn, zoomOut, resetZoom } = useCameraZoom({
+  const { zoomLevel, zoomCapabilities, usingDigitalZoom, detectZoomCapabilities, setZoom, zoomIn, zoomOut, resetZoom } = useCameraZoom({
     streamRef,
   });
 
@@ -123,6 +128,8 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
       }
 
       streamRef.current = stream;
+      trackRef.current = getVideoTrack(stream);
+      setMediaSupport(detectSupport(trackRef.current));
       setCameraReady(true);
       setIsInitializing(false);
       detectZoomCapabilities();
@@ -146,7 +153,7 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
       setCameraError(errorMessage);
       toast.error(errorMessage);
     }
-  }, [selectedDeviceId, devices]);
+  }, [selectedDeviceId, devices, detectZoomCapabilities]);
 
   const handleDeviceChange = (deviceId: string) => {
     setSelectedDeviceId(deviceId);
@@ -202,9 +209,36 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
+    trackRef.current = null;
+    setTorchOn(false);
+    setMediaSupport({ torch: false, focus: false, zoom: false });
     setCameraReady(false);
     setCameraError(null);
   }, []);
+
+  const toggleTorch = useCallback(async () => {
+    if (!mediaSupport.torch) {
+      toast.info("Flash/torch is not exposed by this camera feed");
+      return;
+    }
+    const next = !torchOn;
+    const ok = await setTorch(trackRef.current, next);
+    if (ok) {
+      setTorchOn(next);
+    } else {
+      toast.error("Flash/torch control failed for this camera feed");
+    }
+  }, [mediaSupport.torch, torchOn]);
+
+  const focusCenter = useCallback(async () => {
+    if (!mediaSupport.focus) {
+      toast.info("Manual focus is not exposed by this camera feed");
+      return;
+    }
+    const ok = await setFocusPoint(trackRef.current, { x: 0.5, y: 0.5 });
+    if (ok) toast.success("Focus locked at center");
+    else toast.error("Focus control failed for this camera feed");
+  }, [mediaSupport.focus]);
 
   // Keyboard/remote shutter trigger (Space, Enter, or volume keys)
   useEffect(() => {
@@ -224,6 +258,8 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
     return () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+        trackRef.current = null;
       }
     };
   }, []);
@@ -296,6 +332,7 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
             playsInline
             muted
             className="w-full h-full object-cover"
+            style={usingDigitalZoom && zoomLevel > 1 ? { transform: `scale(${zoomLevel})`, transformOrigin: "center" } : undefined}
           />
           
           {!cameraReady && !isInitializing && !cameraError && (
@@ -374,6 +411,26 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
             </>
           )}
         </div>
+
+        {cameraReady && (
+          <IPhoneCameraControls
+            cameraOn={cameraReady}
+            torchSupported={mediaSupport.torch}
+            torchOn={torchOn}
+            focusSupported={mediaSupport.focus}
+            zoomSupported={zoomCapabilities.supported || mediaSupport.zoom}
+            zoomLevel={zoomLevel}
+            minZoom={zoomCapabilities.min}
+            maxZoom={zoomCapabilities.max}
+            usingDigitalZoom={usingDigitalZoom}
+            onToggleTorch={toggleTorch}
+            onFocusCenter={focusCenter}
+            onZoomChange={setZoom}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+            onResetZoom={resetZoom}
+          />
+        )}
 
         {/* Action Buttons */}
         <div className="flex gap-2">
