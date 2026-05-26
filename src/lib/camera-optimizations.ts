@@ -69,16 +69,28 @@ export const getMaxCameraConstraints = (facingMode: 'environment' | 'user' = 'en
     } : {}),
   };
 
-  // iOS 26 WebKit on iPhone 17 Pro drops the track when negotiating 4K/8K
-  // ladders with `resizeMode` hints. Start at 1920×1440 and stay conservative.
+  // iOS 26 WebKit on iPhone 17 Pro drops the track when negotiating 8K ladders
+  // with `resizeMode` hints or manual ISO/WB. 4K is fine on modern iPhones — the
+  // earlier crash was caused by 8K + resizeMode + manual hardware tuning. Start
+  // at 4K and fall back, so the preview is actually sharp.
   if (isIOS) {
     return [
       {
         video: {
           ...baseConstraints,
           ...advancedHints,
-          width: { ideal: 1920 },
-          height: { ideal: 1440 },
+          width: { ideal: 3840 },
+          height: { ideal: 2160 },
+          frameRate: { ideal: 30 },
+        },
+        audio: false as const,
+      },
+      {
+        video: {
+          ...baseConstraints,
+          ...advancedHints,
+          width: { ideal: 2560 },
+          height: { ideal: 1920 },
           frameRate: { ideal: 30 },
         },
         audio: false as const,
@@ -88,7 +100,8 @@ export const getMaxCameraConstraints = (facingMode: 'environment' | 'user' = 'en
           ...baseConstraints,
           ...advancedHints,
           width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          height: { ideal: 1440 },
+          frameRate: { ideal: 30 },
         },
         audio: false as const,
       },
@@ -106,6 +119,7 @@ export const getMaxCameraConstraints = (facingMode: 'environment' | 'user' = 'en
       },
     ];
   }
+
 
   return [
     // Try 1: 8K Ultra HD (7680x4320)
