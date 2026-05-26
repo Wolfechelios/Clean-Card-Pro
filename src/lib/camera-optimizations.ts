@@ -133,6 +133,10 @@ export const getMaxCameraConstraints = (facingMode: 'environment' | 'user' = 'en
 
 // Apply fast continuous autofocus with macro support
 export const applyFastAutofocus = async (stream: MediaStream, enableMacro: boolean = true): Promise<void> => {
+  // iOS 26 WebKit terminates the MediaStreamTrack when advanced constraints like
+  // focusDistance / iso / sharpness / manual whiteBalance are applied right after
+  // start. iOS rear cameras default to continuous AF/AE/AWB anyway, so skip.
+  if (typeof navigator !== "undefined" && /iPhone|iPad|iPod/i.test(navigator.userAgent)) return;
   try {
     const track = stream.getVideoTracks()[0];
     if (!track) return;
