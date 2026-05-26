@@ -1808,6 +1808,35 @@ export default function RapidScanCamera() {
           </div>
         )}
 
+        {/* ── Overlay: autofocus trigger ── */}
+        {cameraOn && support.focus && (
+          <button
+            type="button"
+            onClick={async () => {
+              const track = trackRef.current;
+              if (!track?.applyConstraints) return;
+              try {
+                // Nudge AF: switch to manual then back to continuous to retrigger lock.
+                await track.applyConstraints({ advanced: [{ focusMode: "manual" } as any] });
+                await new Promise((r) => setTimeout(r, 60));
+                await track.applyConstraints({ advanced: [{ focusMode: "continuous" } as any] });
+                triggerHaptics();
+                setOverlay({ label: "Focusing…" });
+              } catch {
+                // ignore
+              }
+            }}
+            className="absolute top-3 right-3 z-10 h-10 px-3 rounded-full bg-black/60 backdrop-blur-sm text-white text-xs font-semibold flex items-center gap-1.5 hover:bg-black/80"
+            aria-label="Refocus"
+            title="Tap to refocus (or tap anywhere on the preview)"
+          >
+            <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
+            AF
+          </button>
+        )}
+
+
+
 
         {/* Voice capture pill */}
         {settings.voiceCaptureEnabled && (
