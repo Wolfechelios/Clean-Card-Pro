@@ -127,14 +127,34 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: facing === 'environment' ? { ideal: 'environment' } : { ideal: 'user' },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
-        audio: false,
-      });
+      const facingConstraint = facing === 'environment' ? { ideal: 'environment' } : { ideal: 'user' };
+      const resolutionLadder = [
+        { width: 3840, height: 2160 },
+        { width: 2560, height: 1440 },
+        { width: 1920, height: 1080 },
+        null,
+      ];
+
+      let stream: MediaStream | null = null;
+      let lastErr: any = null;
+      for (const res of resolutionLadder) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: res
+              ? {
+                  facingMode: facingConstraint,
+                  width: { ideal: res.width },
+                  height: { ideal: res.height },
+                }
+              : { facingMode: facingConstraint },
+            audio: false,
+          });
+          break;
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      if (!stream) throw lastErr ?? new Error('Camera unavailable');
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -169,7 +189,7 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
     if (!ctx) return null;
     ctx.drawImage(videoRef.current, 0, 0, vw, vh);
 
-    const qualityMap = { low: 0.6, medium: 0.78, high: 0.92 } as const;
+    const qualityMap = { low: 0.75, medium: 0.88, high: 0.96 } as const;
     const jpegQ = qualityMap[imageQualityRef.current] ?? 0.9;
     const blob = await new Promise<Blob | null>((resolve) => {
       canvas.toBlob((b) => resolve(b), 'image/jpeg', jpegQ);
@@ -249,7 +269,7 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
         setBurstQueue(prev => Math.max(0, prev - 1));
 
         // Configurable delay between burst captures
-        const delayMs = Math.max(250, Math.round((burstIntervalRef.current || 1.5) * 1000));
+        const delayMs = Math.max(120, Math.round((burstIntervalRef.current || 1.5) * 1000));
         await new Promise(r => setTimeout(r, delayMs));
       } catch (err) {
         console.error("Burst capture error:", err);
