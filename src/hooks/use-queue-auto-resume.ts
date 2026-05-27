@@ -7,6 +7,7 @@
 import { useEffect } from "react";
 import { checkAndResumeQueue, useQueueProcessor } from "@/lib/queueProcessor";
 import { idbCountQueued } from "@/lib/idbQueue";
+import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 import { toast } from "sonner";
 
 export function useQueueAutoResume() {
@@ -17,14 +18,17 @@ export function useQueueAutoResume() {
       toast.warning("Scan queue paused — repeated OCR anomaly detected. Resume manually if needed.");
       return;
     }
-    // Silently resume any pending items on mount (no popup)
-    checkAndResumeQueue();
+    // Capture-only: don't auto-resume while the scanner is actively capturing.
+    if (!useGlobalProcessControl.getState().scannerActive) {
+      checkAndResumeQueue();
+    }
 
     // Also re-check whenever the user returns to the tab/app — catches the
     // case where they snapped a bunch of cards and navigated away without
     // pressing Stop, so the items sat unprocessed in IndexedDB.
     const recheck = async () => {
       try {
+        if (useGlobalProcessControl.getState().scannerActive) return;
         const n = await idbCountQueued();
         const state = useQueueProcessor.getState();
         if (n > 0 && !state.isRunning && !state.isPausedByAnomaly) {
