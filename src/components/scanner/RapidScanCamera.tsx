@@ -1359,7 +1359,7 @@ export default function RapidScanCamera() {
       try {
         updateCard(id, { priceFetching: true });
 
-        const safeImageUrl = c.imageUrl && !c.imageUrl.startsWith("blob:") ? c.imageUrl : null;
+        const safeImageUrl = c.imageUrl && !c.imageUrl.startsWith("blob:") ? c.imageUrl : "";
         const inserted = await insertCardDual({
           user_id: userId,
           card_name: c.cardName,
@@ -1414,7 +1414,7 @@ export default function RapidScanCamera() {
       try {
         updateCard(c.id, { priceFetching: true });
 
-        const safeImageUrl = c.imageUrl && !c.imageUrl.startsWith("blob:") ? c.imageUrl : null;
+        const safeImageUrl = c.imageUrl && !c.imageUrl.startsWith("blob:") ? c.imageUrl : "";
         const inserted = await insertCardDual({
           user_id: userId,
           card_name: c.cardName!,
