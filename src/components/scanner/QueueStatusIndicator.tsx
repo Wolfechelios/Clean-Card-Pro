@@ -139,7 +139,7 @@ export function QueueStatusIndicator() {
 
       <div className="flex gap-1.5">
         {!isRunning && queueCount > 0 && (
-          <Button size="sm" onClick={start} className="flex-1 h-7 text-xs">
+          <Button size="sm" onClick={() => start(true)} className="flex-1 h-7 text-xs">
             <Play className="h-3 w-3 mr-1" />
             Resume
           </Button>
