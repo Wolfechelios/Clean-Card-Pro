@@ -18,6 +18,7 @@ import {
 } from "@/lib/queueProcessor";
 import { idbListMetaFast, idbGet, type QueueItemMeta } from "@/lib/idbQueue";
 import { useScannerSettings } from "@/hooks/use-scanner-settings";
+import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 
 export function ScanQueuePanel() {
   const {
