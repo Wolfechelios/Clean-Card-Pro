@@ -189,7 +189,7 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
     if (!ctx) return null;
     ctx.drawImage(videoRef.current, 0, 0, vw, vh);
 
-    const qualityMap = { low: 0.6, medium: 0.78, high: 0.92 } as const;
+    const qualityMap = { low: 0.75, medium: 0.88, high: 0.96 } as const;
     const jpegQ = qualityMap[imageQualityRef.current] ?? 0.9;
     const blob = await new Promise<Blob | null>((resolve) => {
       canvas.toBlob((b) => resolve(b), 'image/jpeg', jpegQ);
