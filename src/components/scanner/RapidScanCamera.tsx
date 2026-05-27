@@ -601,16 +601,25 @@ export default function RapidScanCamera() {
       // NEVER put advanced focus/exposure/whiteBalance modes in getUserMedia —
       // iOS WebKit silently ends the track if any one is unsupported, which
       // made the viewfinder go black after ~1s.
-      // Default to 1080p everywhere — 4K on iOS WebKit has been ending the
-      // track silently a few hundred ms after start. We can re-enable 4K
-      // once we gate it behind a capability check.
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia(buildConstraints(1920, 1080));
-      } catch (overErr) {
-        console.warn("[Camera] 1080p getUserMedia failed, falling back to 720p", overErr);
-        stream = await navigator.mediaDevices.getUserMedia(buildConstraints(1280, 720));
+      // Resolution ladder: more native pixels = sharper digital zoom. iPhone 17
+      // class + non-iOS can safely try 4K → QHD → 1080p → 720p. Older iOS stays
+      // on 1080p first to avoid the silent-track-end bug.
+      const isIOSStream = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+      const canTry4K = !isIOSStream || isIPhone17Class();
+      const ladder: Array<[number, number]> = canTry4K
+        ? [[3840, 2160], [2560, 1440], [1920, 1080], [1280, 720]]
+        : [[1920, 1080], [1280, 720]];
+      let stream: MediaStream | null = null;
+      for (const [lw, lh] of ladder) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(buildConstraints(lw, lh));
+          console.log(`[Camera] stream acquired at ${lw}x${lh}`);
+          break;
+        } catch (e) {
+          console.warn(`[Camera] ${lw}x${lh} failed, trying lower`, e);
+        }
       }
+      if (!stream) throw new Error("Failed to acquire camera stream at any resolution");
 
       streamRef.current = stream;
       trackRef.current = getVideoTrack(stream);
@@ -1016,20 +1025,10 @@ export default function RapidScanCamera() {
         return;
       }
 
-      const vw = v.videoWidth || 1920;
-      const vh = v.videoHeight || 1080;
-
-      // For digital zoom: crop the center region of the native frame matching
-      // the zoom factor and save it at native pixel resolution (no upscaling).
-      // This preserves full sensor quality instead of stretching a small crop.
-      const digitalZ = usingDigitalZoom && zoomLevel > 1 ? zoomLevel : 1;
-      const cropW = Math.round(vw / digitalZ);
-      const cropH = Math.round(vh / digitalZ);
-      const cropX = Math.round((vw - cropW) / 2);
-      const cropY = Math.round((vh - cropH) / 2);
-
-      c.width = cropW;
-      c.height = cropH;
+      const w = v.videoWidth || 1920;
+      const h = v.videoHeight || 1080;
+      c.width = w;
+      c.height = h;
 
       // iPhone 17 Pro captures in Display P3 wide gamut. Drawing a P3 video
       // into a default (sRGB) canvas desaturates/shifts colors. Request a
@@ -1045,9 +1044,7 @@ export default function RapidScanCamera() {
       }
       if (!ctx) throw new Error("Canvas not available");
 
-      ctx.drawImage(v, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-      const w = cropW;
-      const h = cropH;
+      ctx.drawImage(v, 0, 0, w, h);
 
       // ── Blank/whiteout frame guard ──
       // Sample a small downscale and reject frames that are nearly uniform white
@@ -1717,7 +1714,17 @@ export default function RapidScanCamera() {
             "landscape:h-[65vh] landscape:min-h-[280px] landscape:max-h-[480px]",
             usingDigitalZoom && zoomLevel > 1 && "transition-transform duration-100"
           )}
-          style={usingDigitalZoom && zoomLevel > 1 ? { transform: `scale(${zoomLevel})` } : undefined}
+          style={
+            usingDigitalZoom && zoomLevel > 1
+              ? {
+                  transform: `translateZ(0) scale(${zoomLevel})`,
+                  transformOrigin: "center center",
+                  willChange: "transform",
+                  imageRendering: "high-quality" as any,
+                  backfaceVisibility: "hidden",
+                }
+              : undefined
+          }
           onClick={handleVideoTap}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
