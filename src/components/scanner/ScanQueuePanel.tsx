@@ -117,7 +117,7 @@ export function ScanQueuePanel() {
   const handleRetry = async () => {
     const n = await retryAllErrors();
     toast.success(n > 0 ? `Re-queued ${n} failed scans` : "No failed scans to retry");
-    if (!isRunning) start();
+    if (!isRunning) start(true);
   };
   const handleClear = async () => {
     if (!confirm("Clear ALL queued scans? Captures not yet identified will be lost.")) return;
