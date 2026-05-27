@@ -915,6 +915,12 @@ export async function checkAndResumeQueue(): Promise<void> {
     return;
   }
 
+  // Capture-only: don't auto-resume while the scanner is actively capturing.
+  if (useGlobalProcessControl.getState().scannerActive) {
+    console.log("[QueueProcessor] Skipping auto-resume — scanner is active");
+    return;
+  }
+
   const queuedCount = await idbCountQueued();
   if (queuedCount > 0) {
     console.log(`[QueueProcessor] Found ${queuedCount} queued items, auto-resuming...`);
