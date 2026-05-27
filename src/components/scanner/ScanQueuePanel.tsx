@@ -107,7 +107,7 @@ export function ScanQueuePanel() {
   }
 
   const handleStart = () => {
-    start();
+    start(true);
     toast.success("Lookup started");
   };
   const handleStop = () => {
