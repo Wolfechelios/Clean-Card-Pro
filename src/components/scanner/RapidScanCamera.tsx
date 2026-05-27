@@ -1714,7 +1714,17 @@ export default function RapidScanCamera() {
             "landscape:h-[65vh] landscape:min-h-[280px] landscape:max-h-[480px]",
             usingDigitalZoom && zoomLevel > 1 && "transition-transform duration-100"
           )}
-          style={usingDigitalZoom && zoomLevel > 1 ? { transform: `scale(${zoomLevel})` } : undefined}
+          style={
+            usingDigitalZoom && zoomLevel > 1
+              ? {
+                  transform: `translateZ(0) scale(${zoomLevel})`,
+                  transformOrigin: "center center",
+                  willChange: "transform",
+                  imageRendering: "high-quality" as any,
+                  backfaceVisibility: "hidden",
+                }
+              : undefined
+          }
           onClick={handleVideoTap}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
