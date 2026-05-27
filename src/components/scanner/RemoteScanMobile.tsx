@@ -269,7 +269,7 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
         setBurstQueue(prev => Math.max(0, prev - 1));
 
         // Configurable delay between burst captures
-        const delayMs = Math.max(250, Math.round((burstIntervalRef.current || 1.5) * 1000));
+        const delayMs = Math.max(120, Math.round((burstIntervalRef.current || 1.5) * 1000));
         await new Promise(r => setTimeout(r, delayMs));
       } catch (err) {
         console.error("Burst capture error:", err);
