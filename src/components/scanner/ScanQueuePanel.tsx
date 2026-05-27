@@ -171,6 +171,11 @@ export function ScanQueuePanel() {
       </CardHeader>
 
       <CardContent className="space-y-3">
+        {scannerActive && !isRunning && (
+          <div className="rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-xs text-muted-foreground">
+            Processing paused while scanning — queue will run automatically when you stop the camera.
+          </div>
+        )}
         {/* Controls */}
         <div className="flex flex-wrap items-center gap-2">
           {!isRunning && (
