@@ -1210,7 +1210,7 @@ export default function RapidScanCamera() {
   // ───────────────────────────────────────────────────────────────────────────
 
   function ensureWorkersRunning() {
-    queueProcessor.start();
+    queueProcessor.start(true);
   }
 
   // Sync UI state from processor's last processed card
