@@ -601,16 +601,25 @@ export default function RapidScanCamera() {
       // NEVER put advanced focus/exposure/whiteBalance modes in getUserMedia —
       // iOS WebKit silently ends the track if any one is unsupported, which
       // made the viewfinder go black after ~1s.
-      // Default to 1080p everywhere — 4K on iOS WebKit has been ending the
-      // track silently a few hundred ms after start. We can re-enable 4K
-      // once we gate it behind a capability check.
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia(buildConstraints(1920, 1080));
-      } catch (overErr) {
-        console.warn("[Camera] 1080p getUserMedia failed, falling back to 720p", overErr);
-        stream = await navigator.mediaDevices.getUserMedia(buildConstraints(1280, 720));
+      // Resolution ladder: more native pixels = sharper digital zoom. iPhone 17
+      // class + non-iOS can safely try 4K → QHD → 1080p → 720p. Older iOS stays
+      // on 1080p first to avoid the silent-track-end bug.
+      const isIOSStream = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+      const canTry4K = !isIOSStream || isIPhone17Class();
+      const ladder: Array<[number, number]> = canTry4K
+        ? [[3840, 2160], [2560, 1440], [1920, 1080], [1280, 720]]
+        : [[1920, 1080], [1280, 720]];
+      let stream: MediaStream | null = null;
+      for (const [lw, lh] of ladder) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(buildConstraints(lw, lh));
+          console.log(`[Camera] stream acquired at ${lw}x${lh}`);
+          break;
+        } catch (e) {
+          console.warn(`[Camera] ${lw}x${lh} failed, trying lower`, e);
+        }
       }
+      if (!stream) throw new Error("Failed to acquire camera stream at any resolution");
 
       streamRef.current = stream;
       trackRef.current = getVideoTrack(stream);
