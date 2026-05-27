@@ -1359,13 +1359,16 @@ export default function RapidScanCamera() {
       try {
         updateCard(id, { priceFetching: true });
 
+        const safeImageUrl = c.imageUrl && !c.imageUrl.startsWith("blob:") ? c.imageUrl : "";
         const inserted = await insertCardDual({
           user_id: userId,
           card_name: c.cardName,
           card_set: c.cardSet ?? null,
           card_number: c.cardNumber ?? null,
           rarity: c.rarity ?? null,
-          image_url: c.imageUrl ?? null,
+          image_url: safeImageUrl,
+          image_status: safeImageUrl ? "stored" : "missing",
+          image_search_status: safeImageUrl ? "found" : "missing",
           current_price_raw: c.value ?? null,
           suggested_price: c.value ?? null,
         } as any);
@@ -1411,13 +1414,16 @@ export default function RapidScanCamera() {
       try {
         updateCard(c.id, { priceFetching: true });
 
+        const safeImageUrl = c.imageUrl && !c.imageUrl.startsWith("blob:") ? c.imageUrl : "";
         const inserted = await insertCardDual({
           user_id: userId,
           card_name: c.cardName!,
           card_set: c.cardSet ?? null,
           card_number: c.cardNumber ?? null,
           rarity: c.rarity ?? null,
-          image_url: c.imageUrl ?? null,
+          image_url: safeImageUrl,
+          image_status: safeImageUrl ? "stored" : "missing",
+          image_search_status: safeImageUrl ? "found" : "missing",
           current_price_raw: c.value ?? null,
           suggested_price: c.value ?? null,
         } as any);
