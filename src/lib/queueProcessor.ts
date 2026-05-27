@@ -206,8 +206,14 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   lastProcessedCard: null,
   queueMeta: [],
 
-  start: () => {
+  start: (force?: boolean) => {
     if (get().isRunning) return;
+    // Capture-only mode: while the scanner camera is active, defer processing
+    // until the user stops scanning. Manual/explicit calls pass force=true.
+    if (!force && useGlobalProcessControl.getState().scannerActive) {
+      console.log("[QueueProcessor] start() skipped — scanner is active (capture-only mode)");
+      return;
+    }
     writeAnomalyPauseFlag(false);
     queueAnomalyDetector.resetSession();
     recoverAnomalyErroredItems().catch((e) => console.warn("[QueueProcessor] anomaly recovery failed", e));
