@@ -349,7 +349,7 @@ export function USBBulkImport() {
                 Queue: {queueCount} remaining · {processedCount} done
               </span>
               {!isRunning && queueCount > 0 && (
-                <Button variant="outline" size="sm" onClick={start}>
+                <Button variant="outline" size="sm" onClick={() => start(true)}>
                   <Play className="mr-1 h-3 w-3" />
                   Resume
                 </Button>

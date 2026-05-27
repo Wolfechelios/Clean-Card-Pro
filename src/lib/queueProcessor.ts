@@ -13,6 +13,7 @@ import { queueAnomalyDetector } from "@/lib/scanAnomalyDetector";
 import { addRecentScan } from "@/lib/recentScans";
 import { insertCardDual } from "@/lib/localCards";
 import { getDeviceTier } from "@/lib/performance/deviceTier";
+import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 import {
   idbAdd,
   idbClaimNextQueued,
@@ -60,7 +61,7 @@ export type ProcessorState = {
 };
 
 type ProcessorStore = ProcessorState & {
-  start: () => void;
+  start: (force?: boolean) => void;
   stop: () => void;
   pause: () => void;
   resume: () => void;
@@ -205,8 +206,14 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   lastProcessedCard: null,
   queueMeta: [],
 
-  start: () => {
+  start: (force?: boolean) => {
     if (get().isRunning) return;
+    // Capture-only mode: while the scanner camera is active, defer processing
+    // until the user stops scanning. Manual/explicit calls pass force=true.
+    if (!force && useGlobalProcessControl.getState().scannerActive) {
+      console.log("[QueueProcessor] start() skipped — scanner is active (capture-only mode)");
+      return;
+    }
     writeAnomalyPauseFlag(false);
     queueAnomalyDetector.resetSession();
     recoverAnomalyErroredItems().catch((e) => console.warn("[QueueProcessor] anomaly recovery failed", e));
@@ -905,6 +912,12 @@ export async function checkAndResumeQueue(): Promise<void> {
   if (anomalyPaused) {
     useQueueProcessor.setState({ isPaused: true, isPausedByAnomaly: true });
     console.log("[QueueProcessor] Skipping auto-resume — paused by anomaly detection");
+    return;
+  }
+
+  // Capture-only: don't auto-resume while the scanner is actively capturing.
+  if (useGlobalProcessControl.getState().scannerActive) {
+    console.log("[QueueProcessor] Skipping auto-resume — scanner is active");
     return;
   }
 

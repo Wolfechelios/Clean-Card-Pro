@@ -18,6 +18,7 @@ import {
 } from "@/lib/queueProcessor";
 import { idbListMetaFast, idbGet, type QueueItemMeta } from "@/lib/idbQueue";
 import { useScannerSettings } from "@/hooks/use-scanner-settings";
+import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 
 export function ScanQueuePanel() {
   const {
@@ -35,6 +36,7 @@ export function ScanQueuePanel() {
   } = useQueueProcessor();
 
   const { settings, updateSettings } = useScannerSettings();
+  const scannerActive = useGlobalProcessControl((s) => s.scannerActive);
   const workerSetting = settings.maxWorkersOverride || 0; // 0 = auto
 
   const [pending, setPending] = useState<QueueItemMeta[]>([]);
@@ -105,7 +107,7 @@ export function ScanQueuePanel() {
   }
 
   const handleStart = () => {
-    start();
+    start(true);
     toast.success("Lookup started");
   };
   const handleStop = () => {
@@ -115,7 +117,7 @@ export function ScanQueuePanel() {
   const handleRetry = async () => {
     const n = await retryAllErrors();
     toast.success(n > 0 ? `Re-queued ${n} failed scans` : "No failed scans to retry");
-    if (!isRunning) start();
+    if (!isRunning) start(true);
   };
   const handleClear = async () => {
     if (!confirm("Clear ALL queued scans? Captures not yet identified will be lost.")) return;
@@ -169,6 +171,11 @@ export function ScanQueuePanel() {
       </CardHeader>
 
       <CardContent className="space-y-3">
+        {scannerActive && !isRunning && (
+          <div className="rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-xs text-muted-foreground">
+            Processing paused while scanning — queue will run automatically when you stop the camera.
+          </div>
+        )}
         {/* Controls */}
         <div className="flex flex-wrap items-center gap-2">
           {!isRunning && (
