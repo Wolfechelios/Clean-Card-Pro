@@ -797,7 +797,7 @@ export default function RapidScanCamera() {
         .then((n) => {
           if (n > 0) {
             console.log(`[RapidScan] Unmount with ${n} queued items — starting processor`);
-            useQueueProcessor.getState().start();
+            useQueueProcessor.getState().start(true);
           }
         })
         .catch(() => {});
