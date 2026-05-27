@@ -839,7 +839,7 @@ async function processJob(item: QueueItem): Promise<void> {
         game_type: gameType,
         sport_type: sportType,
         // Never persist blob: URLs — they die when the session ends.
-        image_url: imageStatus === "stored" ? imageUrl : null,
+        image_url: imageStatus === "stored" ? imageUrl : "",
         image_storage_path: imageStatus === "stored" ? `cards/${item.id}.jpg` : null,
         image_source: imageStatus === "stored" ? "scan" : null,
         image_status: imageStatus === "stored" ? "stored" : "missing",
