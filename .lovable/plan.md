@@ -1,45 +1,36 @@
-## Goal
+## Problem
 
-While the Rapid Scan camera is open, the app should **only capture** photos into the IndexedDB queue. The identify + pricing pipeline (`queueProcessor`) should not run until the scanner is stopped, then it drains the queue automatically.
+Digital zoom blurs the live preview because the video stream is captured at ~1080p (or lower) and CSS `scale()` stretches those pixels across a higher-DPR display. The previous capture-side crop change didn't help and degraded the saved image — revert it.
 
-This avoids CPU/network contention with the camera and gives a true "scan now, process later" flow.
+## Plan
 
-## Current behavior
+### 1. Revert the capture-side center-crop
+In `src/components/scanner/RapidScanCamera.tsx`, restore the original full-frame capture (draw the whole video at native resolution). The crop hurt downstream identification.
 
-- Capture already enqueues to IndexedDB (`idbQueue`) — that part is correct.
-- The processor that does identify + pricing (`useQueueProcessor`) is started in **three** places that fire even when the scanner is active:
-  1. `useQueueAutoResume` on mount (`checkAndResumeQueue()`).
-  2. Same hook on window `focus` / `visibilitychange` → `state.start()`.
-  3. Inside `RapidScanCamera` on unmount (line 800) — this one is actually desired.
-- `useGlobalProcessControl.scannerActive` is already toggled when the camera is on, so we have a clean gate.
+### 2. Request a higher-resolution stream so digital zoom has pixels to spare
+In the camera open path (`getUserMedia` constraints inside `RapidScanCamera`), bump the ideal/max resolution for the rear camera to 3840×2160 (with progressive fallback to 2560×1440 → 1920×1080 → device default). More native pixels means a 2–3× CSS scale stays sharp instead of pixelating.
 
-## Change
+Keep the existing progressive-fallback ladder from the camera-fallback memory; just add the 4K/QHD tiers above the current top.
 
-### 1. `src/hooks/use-queue-auto-resume.ts`
-Gate every auto-start on `useGlobalProcessControl.getState().scannerActive === false`. Specifically:
-- Wrap `checkAndResumeQueue()` on mount in a scanner-active check; skip when active.
-- In the `recheck` handler (focus / visibility), bail out if `scannerActive` is true.
+### 3. Re-probe for hardware zoom after each stream upgrade
+When the higher-res stream resolves, re-run `detectZoomCapabilities()` so devices that expose hardware zoom on the back camera (most modern iPhones, Pixels, Galaxies) use it instead of digital scale.
 
-### 2. `src/lib/queueProcessor.ts` — defensive gate
-In the `start()` action, return early (no-op + console log) when `useGlobalProcessControl.getState().scannerActive` is true and the call is not explicitly user-initiated. Add an optional `force?: boolean` arg so the manual "Start lookup" button in `ScanQueuePanel` and the unmount drain in `RapidScanCamera` can bypass the gate by passing `true`.
+### 4. Sharpen the digital-zoom preview itself
+On the `<video>` element, when `usingDigitalZoom && zoomLevel > 1`:
+- add CSS `image-rendering: high-quality` (Safari/Chrome accept `-webkit-optimize-contrast` as a fallback)
+- add `transform-origin: center center` and `will-change: transform` so the browser uses GPU-accelerated bilinear scaling instead of nearest-neighbor in some engines
+- keep `transform: scale(z)` but wrap in `translateZ(0)` to force a compositor layer
 
-### 3. `src/components/scanner/RapidScanCamera.tsx`
-- Unmount drain (line 800) → call `start(true)` so leaving `/scan` still kicks off processing.
-- Add a second drain trigger: when `cameraOn` flips from `true → false` (user presses Stop on the camera but stays on the page), if `idbCountQueued() > 0`, call `useQueueProcessor.getState().start(true)`.
+No layout or component changes outside the video element.
 
-### 4. `src/components/scanner/ScanQueuePanel.tsx` — UX clarity
-When `scannerActive` is true:
-- Show a small inline notice: "Processing paused while scanning — queue will run when you stop." (uses `text-muted-foreground`, semantic tokens only).
-- Keep the manual **Start lookup** button enabled; clicking it calls `start(true)` so power users can override.
+### 5. Don't touch capture quality
+Capture continues to use the full native video frame at full resolution — same JPEG quality settings (0.95 / 0.98 on iPhone 17), same `compressImageForQueue` cap. The saved card image will match or exceed what was there before my last change.
 
-No other files change. No schema, no pricing-logic, no capture-pipeline changes.
+## Files touched
+- `src/components/scanner/RapidScanCamera.tsx` — revert capture crop, raise stream resolution ladder, re-probe zoom, tweak video element CSS for digital zoom.
 
 ## Validation
-
-1. Open `/scan`, start camera, snap 5 cards. Confirm:
-   - `ScanQueuePanel` shows "5 queued", **0 processing**, and the "paused while scanning" notice.
-   - No identify / pricing edge-function calls in the network panel.
-2. Press Stop on the camera (still on `/scan`). Processor should auto-start and queue count should drop.
-3. Repeat, but instead of pressing Stop, navigate away to `/dashboard`. Unmount drain should kick in — queue processes in background.
-4. While scanner is active, manually click **Start lookup** in `ScanQueuePanel`. Override should work and processing should begin even with camera open.
-5. Refresh the tab while items are queued and camera is closed → `useQueueAutoResume` resumes processing as before.
+- Open `/scan`, pinch to 2× and 3×: preview noticeably sharper than today.
+- Snap a card at 1× and at 2.5×: saved thumbnail is at least as sharp as before today's earlier change.
+- On a device with hardware zoom, confirm `usingDigitalZoom` flips to false and the lens physically zooms.
+- No regressions to capture pipeline, queue, or identification.

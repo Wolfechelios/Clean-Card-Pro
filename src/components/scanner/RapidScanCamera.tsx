@@ -1016,20 +1016,10 @@ export default function RapidScanCamera() {
         return;
       }
 
-      const vw = v.videoWidth || 1920;
-      const vh = v.videoHeight || 1080;
-
-      // For digital zoom: crop the center region of the native frame matching
-      // the zoom factor and save it at native pixel resolution (no upscaling).
-      // This preserves full sensor quality instead of stretching a small crop.
-      const digitalZ = usingDigitalZoom && zoomLevel > 1 ? zoomLevel : 1;
-      const cropW = Math.round(vw / digitalZ);
-      const cropH = Math.round(vh / digitalZ);
-      const cropX = Math.round((vw - cropW) / 2);
-      const cropY = Math.round((vh - cropH) / 2);
-
-      c.width = cropW;
-      c.height = cropH;
+      const w = v.videoWidth || 1920;
+      const h = v.videoHeight || 1080;
+      c.width = w;
+      c.height = h;
 
       // iPhone 17 Pro captures in Display P3 wide gamut. Drawing a P3 video
       // into a default (sRGB) canvas desaturates/shifts colors. Request a
@@ -1045,9 +1035,7 @@ export default function RapidScanCamera() {
       }
       if (!ctx) throw new Error("Canvas not available");
 
-      ctx.drawImage(v, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-      const w = cropW;
-      const h = cropH;
+      ctx.drawImage(v, 0, 0, w, h);
 
       // ── Blank/whiteout frame guard ──
       // Sample a small downscale and reject frames that are nearly uniform white
