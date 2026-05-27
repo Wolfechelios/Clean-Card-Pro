@@ -127,14 +127,34 @@ export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
         streamRef.current.getTracks().forEach(track => track.stop());
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: facing === 'environment' ? { ideal: 'environment' } : { ideal: 'user' },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-        },
-        audio: false,
-      });
+      const facingConstraint = facing === 'environment' ? { ideal: 'environment' } : { ideal: 'user' };
+      const resolutionLadder = [
+        { width: 3840, height: 2160 },
+        { width: 2560, height: 1440 },
+        { width: 1920, height: 1080 },
+        null,
+      ];
+
+      let stream: MediaStream | null = null;
+      let lastErr: any = null;
+      for (const res of resolutionLadder) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: res
+              ? {
+                  facingMode: facingConstraint,
+                  width: { ideal: res.width },
+                  height: { ideal: res.height },
+                }
+              : { facingMode: facingConstraint },
+            audio: false,
+          });
+          break;
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      if (!stream) throw lastErr ?? new Error('Camera unavailable');
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
