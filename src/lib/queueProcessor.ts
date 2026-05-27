@@ -13,6 +13,7 @@ import { queueAnomalyDetector } from "@/lib/scanAnomalyDetector";
 import { addRecentScan } from "@/lib/recentScans";
 import { insertCardDual } from "@/lib/localCards";
 import { getDeviceTier } from "@/lib/performance/deviceTier";
+import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 import {
   idbAdd,
   idbClaimNextQueued,
