@@ -61,7 +61,7 @@ export type ProcessorState = {
 };
 
 type ProcessorStore = ProcessorState & {
-  start: () => void;
+  start: (force?: boolean) => void;
   stop: () => void;
   pause: () => void;
   resume: () => void;
