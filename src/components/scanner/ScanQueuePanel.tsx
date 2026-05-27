@@ -36,6 +36,7 @@ export function ScanQueuePanel() {
   } = useQueueProcessor();
 
   const { settings, updateSettings } = useScannerSettings();
+  const scannerActive = useGlobalProcessControl((s) => s.scannerActive);
   const workerSetting = settings.maxWorkersOverride || 0; // 0 = auto
 
   const [pending, setPending] = useState<QueueItemMeta[]>([]);
