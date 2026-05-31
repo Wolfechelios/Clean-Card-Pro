@@ -48,16 +48,22 @@ export const CameraDeviceSelector = ({
     ["camo", "continuity", "epoccam", "droidcam", "iriun"].includes(d.lensType)
   );
 
+  // Radix Select throws if any SelectItem has value="". Some mobile browsers
+  // return enumerateDevices() entries with empty deviceId before camera
+  // permission is granted — filter those out to avoid crashing the scanner.
+  const validDevices = devices.filter((d) => typeof d.deviceId === "string" && d.deviceId.length > 0);
+  const safeSelectedId = selectedDeviceId && selectedDeviceId.length > 0 ? selectedDeviceId : undefined;
+
   return (
     <div className={`flex w-full max-w-full flex-col gap-1 ${className}`}>
       <div className="flex w-full max-w-full items-center gap-2">
-        {devices.length > 0 ? (
-          <Select value={selectedDeviceId} onValueChange={onDeviceChange}>
+        {validDevices.length > 0 ? (
+          <Select value={safeSelectedId} onValueChange={onDeviceChange}>
             <SelectTrigger className="h-9 w-full min-w-[180px] max-w-[280px] bg-background/80 backdrop-blur-sm">
               <SelectValue placeholder="Select camera" />
             </SelectTrigger>
             <SelectContent>
-              {devices.map((device) => (
+              {validDevices.map((device) => (
                 <SelectItem key={device.deviceId} value={device.deviceId}>
                   <div className="flex items-center gap-2">
                     {getLensIcon(device.lensType)}
@@ -73,6 +79,7 @@ export const CameraDeviceSelector = ({
             {isLoading ? "Finding cameras…" : "No cameras found"}
           </Button>
         )}
+
         <Button
           variant="ghost"
           size="icon"
