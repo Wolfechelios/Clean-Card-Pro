@@ -1,33 +1,23 @@
 ## Problem
 
-The phone-to-computer remote scan pipeline transfers images at conservative quality. Capture maxes at 1080p, JPEG quality tops out at 0.92 (`high`), and burst floors at 250 ms. End result: lower effective bitrate than the network and storage can handle.
+On the phone, the Rapid Scan page crashes to the global ErrorBoundary with:
 
-## Plan
+> A `<Select.Item />` must have a value prop that is not an empty string.
 
-Edit `src/components/scanner/RemoteScanMobile.tsx` only — no business logic changes, just capture quality knobs.
+Root cause: `src/components/scanner/CameraDeviceSelector.tsx` renders one `SelectItem` per enumerated camera using `value={device.deviceId}`. On mobile browsers (notably iOS Safari and some Android WebViews), `navigator.mediaDevices.enumerateDevices()` returns entries with `deviceId === ""` until camera permission has been granted to a labeled device. Radix Select throws synchronously on that empty value, the React tree unmounts, and the user sees the error screen instead of the scanner.
 
-### 1. Raise capture resolution ladder
-In `startCamera`, replace the single 1920×1080 constraint with a progressive ladder: try 3840×2160 → 2560×1440 → 1920×1080 → device default. Mirror the pattern already used in `RapidScanCamera`. More native pixels per frame = higher effective bitrate per photo.
+## Fix
 
-### 2. Raise JPEG quality tiers
-In `captureFrame`, update `qualityMap` from `{ low: 0.6, medium: 0.78, high: 0.92 }` to `{ low: 0.75, medium: 0.88, high: 0.96 }`. `high` becomes near-visually-lossless.
+Single, surgical change in `src/components/scanner/CameraDeviceSelector.tsx`:
 
-### 3. Shorten burst floor
-In `startBurst`, lower the minimum delay from `Math.max(250, ...)` to `Math.max(120, ...)` so the phone can push frames roughly twice as fast when the user sets a short interval.
+1. Filter the `devices` array to drop any entry whose `deviceId` is missing or an empty string before rendering the `Select`.
+2. If the filtered list is empty, fall through to the existing "No cameras found / Finding cameras…" button instead of mounting `Select`.
+3. Guard `selectedDeviceId` the same way — only pass it to `Select` when it's a non-empty string; otherwise pass `undefined` so Radix shows the placeholder cleanly.
 
-### 4. Add a `cacheControl` bump
-Keep `cacheControl: '3600'` — no change needed. Storage upload is already direct binary; nothing else to widen there.
+No other files, no behavior changes to identification, queue, or save logic.
 
-### Out of scope
-- Desktop side (`RemoteScanDesktop.tsx`) — it just receives URLs, no bitrate knob.
-- Supabase Realtime broadcast — only carries the URL string, not the image bytes.
-- Settings UI defaults in `use-scanner-settings.ts` — left alone unless requested.
+## Verification
 
-## Files touched
-- `src/components/scanner/RemoteScanMobile.tsx`
-
-## Validation
-- Open `/scan` on phone, connect to desktop session.
-- Single Send Photo at `high` quality: received thumbnail visibly sharper, file size noticeably larger.
-- Burst mode at the lowest interval setting: frames arrive ~2× faster than before.
-- Confirm no upload errors on slower connections (quality is still bounded by JPEG, not raw).
+- Reload `/scan` on the phone — the page should render the scanner (or the "Finding cameras…" button) instead of the error screen.
+- Once camera permission is granted, the device list populates and selection works as before.
+- Desktop behavior is unchanged because desktop browsers always return non-empty `deviceId`s.
