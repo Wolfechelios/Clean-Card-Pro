@@ -151,6 +151,7 @@ const App = () => {
                   <QueueStatusIndicator />
                   <OfflineIndicator />
                   <PreviewReloadButton />
+                  <PasskeySetupBanner />
                 </PWAWrapper>
               </AuthProvider>
             </BrowserRouter>
