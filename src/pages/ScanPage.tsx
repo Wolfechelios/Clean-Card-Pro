@@ -1,11 +1,13 @@
 import { useAuth } from "@/hooks/use-auth";
 import Scanner from "@/components/Scanner";
+import { RemoteScanMobile } from "@/components/scanner/RemoteScanMobile";
 import { Loader2, Bug } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 
 export default function ScanPage() {
   const { userId, loading } = useAuth();
+  const remoteCode = new URLSearchParams(window.location.search).get("remote");
 
   if (loading) {
     return (
@@ -19,6 +21,14 @@ export default function ScanPage() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <p className="text-muted-foreground">Please log in to scan cards</p>
+      </div>
+    );
+  }
+
+  if (remoteCode) {
+    return (
+      <div className="container mx-auto max-w-lg p-4">
+        <RemoteScanMobile userId={userId} initialSessionCode={remoteCode} />
       </div>
     );
   }
