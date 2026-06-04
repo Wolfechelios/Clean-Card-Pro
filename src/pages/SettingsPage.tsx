@@ -23,6 +23,7 @@ import { useDisplayScale } from "@/hooks/use-display-scale";
 
 import ServiceImportExport from "@/components/settings/ServiceImportExport";
 import DeviceStorageSettings from "@/components/settings/DeviceStorageSettings";
+import { PasskeysManager } from "@/components/settings/PasskeysManager";
 import { OfflineStoragePanel } from "@/components/settings/OfflineStoragePanel";
 import { BulkRarityReanalyze } from "@/components/collections/BulkRarityReanalyze";
 import { CardsNeedingReview } from "@/components/collections/CardsNeedingReview";
@@ -1029,6 +1030,10 @@ setNullRarityCount(missingRarity || 0);
 
       {/* Device Storage (Android/iOS only) */}
       <DeviceStorageSettings />
+
+      {/* Passkeys */}
+      <PasskeysManager />
+
 
       {/* Account Actions */}
       <Card className="bg-card border-border">
