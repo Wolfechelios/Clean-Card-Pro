@@ -95,11 +95,22 @@ const Auth = () => {
           </CardDescription>
         </CardHeader>
 
+        <div className="px-6 pb-2">
+          <PasskeyButton email={email || undefined} onSuccess={() => navigate("/")} />
+          <div className="relative my-4">
+            <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-border" /></div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-card px-2 text-muted-foreground">or use email</span>
+            </div>
+          </div>
+        </div>
+
         <Tabs defaultValue="signin" className="w-full">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="signin">Sign In</TabsTrigger>
             <TabsTrigger value="signup">Sign Up</TabsTrigger>
           </TabsList>
+
 
           <TabsContent value="signin">
             <form onSubmit={handleSignIn}>
@@ -109,6 +120,7 @@ const Auth = () => {
                   <Input
                     id="signin-email"
                     type="email"
+                    autoComplete="username webauthn"
                     placeholder="your@email.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
