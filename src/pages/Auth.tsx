@@ -17,6 +17,27 @@ const Auth = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
+  // Conditional UI: try silent passkey autofill for returning users.
+  useEffect(() => {
+    if (!isPasskeySupported() || !hasLocalPasskeyHint()) return;
+    let aborted = false;
+    (async () => {
+      try {
+        await signInWithPasskey(undefined, true);
+        if (!aborted) {
+          toast.success("Signed in");
+          navigate("/");
+        }
+      } catch {
+        // Ignore — fallback to email/password.
+      }
+    })();
+    return () => {
+      aborted = true;
+    };
+  }, [navigate]);
+
+
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
