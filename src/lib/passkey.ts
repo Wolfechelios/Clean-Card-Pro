@@ -21,7 +21,7 @@ export async function hasPlatformAuthenticator(): Promise<boolean> {
 export async function registerPasskey(deviceLabel?: string): Promise<void> {
   const { data: opts, error: oErr } = await supabase.functions.invoke("passkey-register-options", {});
   if (oErr) throw oErr;
-  const credential = await startRegistration({ optionsJSON: opts });
+  const credential = await startRegistration(opts as any);
   const { error: vErr } = await supabase.functions.invoke("passkey-register-verify", {
     body: { credential, deviceLabel: deviceLabel ?? guessDeviceLabel() },
   });
@@ -33,7 +33,7 @@ export async function signInWithPasskey(email?: string, useBrowserAutofill = fal
     body: { email },
   });
   if (oErr) throw oErr;
-  const credential = await startAuthentication({ optionsJSON: opts, useBrowserAutofill });
+  const credential = await startAuthentication(opts as any, useBrowserAutofill);
   const { data: result, error: vErr } = await supabase.functions.invoke("passkey-auth-verify", {
     body: { credential },
   });
