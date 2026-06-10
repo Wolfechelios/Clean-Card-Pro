@@ -13,6 +13,7 @@ import { useScannerSettings } from "@/hooks/use-scanner-settings";
 
 interface RemoteScanMobileProps {
   userId: string;
+ initialSessionCode?: string;
 }
 
 export const RemoteScanMobile = ({ userId }: RemoteScanMobileProps) => {
