@@ -1764,6 +1764,29 @@ export default function RapidScanCamera() {
         <canvas ref={canvasRef} className="hidden" />
         {flashActive && <div className="capture-flash" />}
 
+        {/* ── Idle / error overlay: shown when camera is not running ── */}
+        {!isNative && !cameraOn && (
+          <button
+            type="button"
+            onClick={() => { warmUpAudio(); void startCamera(); }}
+            className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/70 text-white px-6 text-center"
+          >
+            <div className="h-16 w-16 rounded-full border-2 border-primary/70 flex items-center justify-center bg-primary/15">
+              <Camera className="h-8 w-8 text-primary" />
+            </div>
+            <div className="text-base font-semibold">Tap to start camera</div>
+            {statusLine && (statusLine.toLowerCase().includes("error") || statusLine.toLowerCase().includes("dropped")) ? (
+              <div className="max-w-xs text-xs text-white bg-destructive/80 rounded-md px-3 py-2">
+                {statusLine}
+              </div>
+            ) : (
+              <div className="max-w-xs text-xs text-white/70">
+                Your browser will ask for camera permission. Allow it to start scanning.
+              </div>
+            )}
+          </button>
+        )}
+
         {/* Torch dimmer overlay */}
         {torchOn && torchDimmer < 100 && (
           <div 
