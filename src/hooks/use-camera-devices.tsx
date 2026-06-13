@@ -118,8 +118,12 @@ function isRearCamera(label: string): boolean {
   return true;
 }
 
-function isUSBDevice(label: string): boolean {
+function isUSBDevice(label: string, isIOS = false): boolean {
   const l = label.toLowerCase();
+  // On iOS, the device's own rear cameras can carry labels containing "iphone"/"ipad"
+  // and Camo/Continuity/EpocCam/DroidCam/Iriun cannot run as virtual cams on iOS Safari/Chrome.
+  // Never route iOS-native cameras through the USB/phone-cam branch.
+  if (isIOS) return false;
   return (
     l.includes("usb") ||
     l.includes("phone") ||
@@ -198,7 +202,7 @@ export const useCameraDevices = () => {
       let rearCounter = 0;
       const videoDevices: CameraDevice[] = videoInputs.map((device, i) => {
         const label = device.label || `Camera ${device.deviceId.slice(0, 8) || i + 1}`;
-        const usb = isUSBDevice(label);
+        const usb = isUSBDevice(label, isIOS);
         const rear = isRearCamera(label);
 
         let lensType: LensType = "unknown";
