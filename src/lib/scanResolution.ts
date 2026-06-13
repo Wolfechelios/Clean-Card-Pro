@@ -3,6 +3,7 @@ import { fetchCardPrices, type CardPricing } from "@/lib/fetchCardPrices";
 import { hybridIdentifyCard, type IdentifiedCardData } from "@/lib/hybridCardIdentify";
 import { runPaddleOCR } from "@/lib/paddleOCR";
 import { withRetry } from "@/lib/retry";
+import { decideLearningQuestion, findLearnedIdentity, type LearningDecision } from "@/lib/activeLearning";
 
 export interface ResolvedOcr {
   rawText: string;
@@ -15,11 +16,13 @@ export interface ResolvedOcr {
 
 export interface ResolvedCardScan {
   identity: IdentifiedCardData;
+  originalPrediction: IdentifiedCardData;
   ocr: ResolvedOcr;
   pricing: CardPricing | null;
   identityResolved: boolean;
   autoConfirmAllowed: boolean;
-  source: "local" | "cloud";
+  source: "local" | "cloud" | "learned";
+  learningDecision: LearningDecision;
 }
 
 const clampConfidence = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
@@ -93,7 +96,7 @@ export async function resolveCardScan(imageUrl: string, options: { gameTypeHint?
     );
   }
 
-  const identity: IdentifiedCardData = {
+  const originalPrediction: IdentifiedCardData = {
     ...identified.cardData,
     card_name: identified.cardData.card_name || ocr.cardNameHint,
     card_set: identified.cardData.card_set || ocr.cardSetHint || null,
@@ -101,7 +104,12 @@ export async function resolveCardScan(imageUrl: string, options: { gameTypeHint?
     confidence: clampConfidence(Number(identified.cardData.confidence || ocr.confidence)),
   };
 
+  const learned = findLearnedIdentity(ocr.rawText);
+  const identity: IdentifiedCardData = learned || originalPrediction;
+  const source: ResolvedCardScan["source"] = learned ? "learned" : identified.source;
   const identityResolved = identity.card_name !== "Unknown Card" && identity.confidence >= 70 && Boolean(identity.card_number || identity.card_set);
+  const learningDecision = decideLearningQuestion(identity);
+
   let pricing: CardPricing | null = null;
   if (identityResolved) {
     pricing = await withRetry(
@@ -115,10 +123,12 @@ export async function resolveCardScan(imageUrl: string, options: { gameTypeHint?
 
   return {
     identity,
+    originalPrediction,
     ocr,
     pricing,
     identityResolved,
-    autoConfirmAllowed: identityResolved && identity.confidence >= 90,
-    source: identified.source,
+    autoConfirmAllowed: identityResolved && identity.confidence >= 90 && !learningDecision.shouldAsk,
+    source,
+    learningDecision,
   };
 }
