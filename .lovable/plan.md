@@ -1,57 +1,31 @@
-# Passkey auto-login for Clean Cards
+## Problem
 
-Add WebAuthn passkeys (Face ID / Touch ID / Windows Hello / Android biometric) as the primary sign-in across the app, with "remember this device" so returning users tap once and are signed in.
+On iPhone Chrome at `/scan`, the camera picker shows only "Camo (iPhone)" instead of the phone's actual Wide / Ultra Wide / Telephoto lenses.
 
-## What the user sees
+## Root cause
 
-- **First visit** — sign in with email/password (kept as a fallback). After login, a banner offers: *"Set up Face ID / fingerprint on this device"*. One tap registers a passkey.
-- **Return visits** — the `/auth` page auto-detects a registered passkey on the device and shows a big **"Sign in with Face ID"** button. On mobile with platform authenticator + previous session, it triggers automatically (conditional UI / autofill).
-- **App load anywhere** — if a valid Lovable Cloud session is still in localStorage (the device is "remembered"), the user lands straight in the app. Sessions auto-refresh as today.
-- **Settings → Security** — list registered passkeys per device, rename, remove.
+`src/hooks/use-camera-devices.tsx` was written to detect phone-as-webcam apps (Camo, Continuity, EpocCam…) running on a **desktop**. The matchers treat any device label containing `iphone`, `ipad`, or `ios` as a virtual phone camera:
 
-## Technical design
+- `isUSBDevice()` returns `true` for labels containing `"iphone"` / `"ipad"`.
+- `classifyPhoneCam()` then labels them `Camo (iPhone)` / `Camo (iPad)`.
 
-### Database (one new table)
-```
-public.user_passkeys
-  id uuid pk
-  user_id uuid → auth.users (cascade)
-  credential_id text unique         -- base64url
-  public_key text                   -- base64url COSE key
-  counter bigint default 0
-  transports text[]                 -- ['internal','hybrid',...]
-  device_label text                 -- "iPhone 15", user-editable
-  created_at, last_used_at
-```
-RLS: user can only see/modify their own rows. Plus the standard GRANTs.
+When the page is actually opened **on an iPhone**, iOS/Chrome exposes the rear cameras with labels like `"Back Camera"`, `"Back Dual Wide Camera"`, and on some builds strings that include `"iPhone"`. Every device ends up routed through the Camo branch, so the real lenses disappear from the dropdown.
 
-### Edge functions (verify_jwt = false for the two challenge endpoints, true for the rest)
-- `passkey-register-options` — auth required. Returns `PublicKeyCredentialCreationOptions`, stores challenge in a short-lived `passkey_challenges` row.
-- `passkey-register-verify` — auth required. Verifies attestation with `@simplewebauthn/server`, inserts row in `user_passkeys`.
-- `passkey-auth-options` — public. Optional `email` to scope allowCredentials, otherwise returns discoverable-credential options.
-- `passkey-auth-verify` — public. Verifies assertion, looks up `user_id`, mints a Supabase session via the admin API (`auth.admin.generateLink` → exchange) and returns `{ access_token, refresh_token }` which the client sets via `supabase.auth.setSession`.
+There is already an `isIOSWebKitLike()` helper in the same file — it just isn't consulted before applying the desktop-only phone-cam matchers.
 
-### Client
-- `src/lib/passkey.ts` — wraps `@simplewebauthn/browser` (`startRegistration`, `startAuthentication`).
-- `src/components/auth/PasskeyButton.tsx` — used on `/auth`.
-- `src/components/auth/PasskeySetupBanner.tsx` — appears after first email login if no passkey is registered for the device.
-- `src/pages/Auth.tsx` — adds passkey button above email form; calls `navigator.credentials` conditional mediation on mount when supported so iOS/Android autofill the passkey.
-- `src/components/settings/PasskeysManager.tsx` — list/rename/delete passkeys; wired into `SettingsPage`.
-- `use-auth.tsx` — already persists sessions in localStorage with `autoRefreshToken`, so "device remember" works automatically. We only add the `setSession` call after a successful passkey assertion.
+## Fix
 
-### Secrets
-None new. Uses existing `SUPABASE_SERVICE_ROLE_KEY` inside the verify edge function to mint the session.
+Edit only `src/hooks/use-camera-devices.tsx`:
 
-### Scope guardrails
-- Email/password stays available as fallback (passkey can be lost with the device).
-- No phone/SMS, no Twilio.
-- No changes to scanner, pricing, or collection logic.
+1. Compute `isIOS = isIOSWebKitLike()` once at the top of `refreshDevices` (already done) and pass it into the per-device classification.
+2. When `isIOS` is true:
+   - Skip `classifyPhoneCam()` entirely (Camo / Continuity / EpocCam / DroidCam / Iriun cannot run as virtual cameras on iOS Safari/Chrome anyway).
+   - Tighten `isUSBDevice()` so `"iphone"`, `"ipad"`, `"ios"`, `"continuity"`, `"desk view"`, `"camo"`, `"reincubate"` do NOT force the USB branch on iOS. The device should fall through to `isRearCamera()` + `classifyLens()` and be labeled Wide / Ultra Wide / Telephoto using the existing positional heuristic.
+3. Leave desktop behavior unchanged — Camo / Continuity / EpocCam still classify correctly on macOS/Windows.
 
-## Files touched
-- new migration: `user_passkeys`, `passkey_challenges`, RLS, GRANTs
-- new edge functions: `passkey-register-options`, `passkey-register-verify`, `passkey-auth-options`, `passkey-auth-verify`
-- new: `src/lib/passkey.ts`, `src/components/auth/PasskeyButton.tsx`, `src/components/auth/PasskeySetupBanner.tsx`, `src/components/settings/PasskeysManager.tsx`
-- edited: `src/pages/Auth.tsx`, `src/pages/SettingsPage.tsx`, `src/App.tsx` (mount setup banner once after login)
-- dep: `@simplewebauthn/browser` (client), `npm:@simplewebauthn/server` in edge functions
+No changes to `RapidScanCamera.tsx`, `CameraDeviceSelector.tsx`, or anything else. iOS will continue using `facingMode: environment` (already enforced via the empty `selectedDeviceId` on iOS), but the picker will now correctly list the rear lenses instead of a phantom "Camo" entry.
 
-Approve and I'll build it.
+## Verification
+
+- Reload `/scan` on iPhone Chrome → dropdown shows real rear lenses (e.g. "Wide (Main)", "Ultra Wide", "Telephoto"), no "Camo" entry.
+- Desktop with Camo Studio running → still shows "Camo (iPad)" / "Camo (iPhone)" as before.
