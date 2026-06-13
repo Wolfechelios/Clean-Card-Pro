@@ -1,6 +1,7 @@
 import localforage from "localforage"
 import { supabase } from "@/integrations/supabase/client"
 import type { Tables, TablesInsert } from "@/integrations/supabase/types"
+import { rememberVerifiedScan } from "@/lib/activeLearning"
 
 type CardRow = Tables<"cards">
 type CardInsert = TablesInsert<"cards">
@@ -12,6 +13,30 @@ function enforce(card: any): any {
   const col = String(card?.collection_name ?? "").trim()
   const v = (set || col || "").trim()
   return { ...card, card_set: v, collection_name: v }
+}
+
+function rememberSavedCard(card: CardRow) {
+  const ocrText = String(card.ocr_raw_text || "").trim()
+  if (!ocrText) return
+  const identity = {
+    card_name: card.card_name || "Unknown Card",
+    card_set: card.card_set || null,
+    card_number: card.card_number || null,
+    rarity: card.rarity || null,
+    edition: card.edition || null,
+    game_type: card.game_type || null,
+    sport_type: card.sport_type || null,
+    year: null,
+    manufacturer: null,
+    confidence: Number(card.ocr_confidence || 100),
+    description: card.notes || undefined,
+  }
+  rememberVerifiedScan({
+    imageUrl: card.image_url || undefined,
+    ocrText,
+    predicted: identity,
+    confirmed: identity,
+  })
 }
 
 // ========== LOCAL-ONLY OPERATIONS ==========
@@ -63,8 +88,8 @@ export async function insertCardDual(cardData: CardInsert): Promise<CardRow> {
   if (error) throw error
   if (!data) throw new Error("No data returned from insert")
 
-  // Mirror to local
   await upsertCardLocal(data)
+  rememberSavedCard(data)
   return data
 }
 
@@ -83,6 +108,7 @@ export async function updateCardDual(id: string, updates: Partial<CardRow>): Pro
   if (!data) throw new Error("No data returned from update")
 
   await upsertCardLocal(data)
+  rememberSavedCard(data)
   return data
 }
 
@@ -108,13 +134,11 @@ export async function syncFromSupabase(): Promise<CardRow[]> {
   if (error) throw error
   if (!data) return []
 
-  // Replace local store with fresh data
   await db.clear()
   await upsertCardsLocal(data)
   return data
 }
 
-// Legacy exports for backwards compatibility
 export const upsertCard = upsertCardLocal
 export const upsertCards = upsertCardsLocal
 export const deleteCard = deleteCardLocal
