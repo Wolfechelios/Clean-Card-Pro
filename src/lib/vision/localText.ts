@@ -1,4 +1,5 @@
 import type { CardBrand, LocalOcrLine } from "./cardVisionTypes";
+import { runPaddleOCR } from "../paddleOCR";
 
 export function inferBrandFromLines(lines: LocalOcrLine[]): CardBrand {
   const text = lines.map((line) => line.text.toLowerCase()).join(" ");
@@ -11,8 +12,29 @@ export function inferBrandFromLines(lines: LocalOcrLine[]): CardBrand {
   return "unknown";
 }
 
-export async function readLocalText(_image: ImageData): Promise<LocalOcrLine[]> {
-  // Hook point for Apple Vision on iOS / Tesseract WASM / local CRNN later.
-  // Keep this async so the scanner UI does not change when the engine is swapped.
-  return [];
+function imageDataToCanvas(image: ImageData): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) throw new Error("Unable to create OCR canvas context");
+  context.putImageData(image, 0, 0);
+  return canvas;
+}
+
+export async function readLocalText(image: ImageData): Promise<LocalOcrLine[]> {
+  const result = await runPaddleOCR(imageDataToCanvas(image));
+  return result.lines
+    .filter((line) => line.text.trim().length > 0)
+    .map((line) => ({
+      text: line.text.trim(),
+      confidence: Math.max(0, Math.min(1, Number(line.confidence) || 0)),
+      region: {
+        x: line.boundingBox.x / Math.max(1, image.width),
+        y: line.boundingBox.y / Math.max(1, image.height),
+        width: line.boundingBox.width / Math.max(1, image.width),
+        height: line.boundingBox.height / Math.max(1, image.height),
+      },
+    }))
+    .sort((a, b) => b.confidence - a.confidence);
 }
