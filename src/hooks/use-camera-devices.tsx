@@ -202,7 +202,7 @@ export const useCameraDevices = () => {
       let rearCounter = 0;
       const videoDevices: CameraDevice[] = videoInputs.map((device, i) => {
         const label = device.label || `Camera ${device.deviceId.slice(0, 8) || i + 1}`;
-        const usb = isUSBDevice(label);
+        const usb = isUSBDevice(label, isIOS);
         const rear = isRearCamera(label);
 
         let lensType: LensType = "unknown";
