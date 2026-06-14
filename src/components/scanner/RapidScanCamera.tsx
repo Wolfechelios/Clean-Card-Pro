@@ -183,6 +183,26 @@ export default function RapidScanCamera() {
     }
   }, [cameraOn, engineProfile, queueMax]);
 
+  // Lock screen orientation while the camera is active on mobile, so the
+  // viewfinder doesn't flip when the user accidentally tilts the phone.
+  // Locks to whatever orientation the camera was started in. No-op on iOS
+  // (Safari/Chrome iOS don't support Screen Orientation lock outside fullscreen).
+  useEffect(() => {
+    if (!isMobile || !cameraOn) return;
+    const orientation = (screen as any)?.orientation;
+    if (!orientation?.lock) return;
+    const current: string = orientation.type || "portrait-primary";
+    const lockTo = current.startsWith("landscape") ? "landscape" : "portrait";
+    let locked = false;
+    orientation.lock(lockTo).then(() => { locked = true; }).catch(() => {});
+    return () => {
+      if (locked) {
+        try { orientation.unlock?.(); } catch {}
+      }
+    };
+  }, [isMobile, cameraOn]);
+
+
   const triggerFlash = useCallback(() => {
     if (!settings.flashOnCapture) return;
     setFlashActive(true);
