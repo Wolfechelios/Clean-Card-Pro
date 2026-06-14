@@ -50,17 +50,21 @@ Deno.serve(async (req) => {
     error?: string;
   }> = [];
 
-  for (const card of ownedCards || []) {
+  // Run cards in parallel with a small concurrency cap and a tiny throttle between waves.
+  // This is what changed: previously serial with a 1500ms sleep per card
+  // (~17s per 10-card batch even before the price API responds). Now ~4 in flight.
+  const CONCURRENCY = 4;
+  const THROTTLE_BETWEEN_WAVES_MS = 200;
+
+  async function processOne(card: any) {
     const gtRaw = (card.game_type || "").toLowerCase().replace(/[^a-z]/g, "");
-    // Normalize: yugioh, mtg/magic, pokemon. Empty/unknown defaults to yugioh (most common).
     let gt = "";
     if (["yugioh"].includes(gtRaw)) gt = "yugioh";
     else if (["mtg", "magic"].includes(gtRaw)) gt = "mtg";
     else if (["pokemon", "pokmon"].includes(gtRaw)) gt = "pokemon";
-    else if (!gtRaw) gt = "yugioh"; // best-effort for unset game_type
+    else if (!gtRaw) gt = "yugioh";
     if (!gt || !TCG_GAMES.has(gt)) {
-      results.push({ id: card.id, status: "skipped", game_type: card.game_type, error: "Not a TCG (use Sports tab)" });
-      continue;
+      return { id: card.id, status: "skipped" as const, game_type: card.game_type, error: "Not a TCG (use Sports tab)" };
     }
     try {
       const resp = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/fetch-card-prices`, {
@@ -75,13 +79,10 @@ Deno.serve(async (req) => {
       });
 
       if (resp.status === 429) {
-        results.push({ id: card.id, status: "error", error: "Rate limited" });
-        await new Promise((r) => setTimeout(r, 5000));
-        continue;
+        return { id: card.id, status: "error" as const, error: "Rate limited" };
       }
       if (!resp.ok) {
-        results.push({ id: card.id, status: "error", error: `HTTP ${resp.status}` });
-        continue;
+        return { id: card.id, status: "error" as const, error: `HTTP ${resp.status}` };
       }
 
       const data = await resp.json();
@@ -89,22 +90,27 @@ Deno.serve(async (req) => {
         data?.tcgPlayerMarket ?? data?.tcgPlayerMid ?? data?.tcgPlayerPrice ?? data?.raw ?? null;
 
       if (market == null) {
-        results.push({ id: card.id, status: "no_match", game_type: card.game_type });
-      } else {
-        await supabase.from("cards").update({
-          current_price_raw: market,
-          last_price_update: new Date().toISOString(),
-        }).eq("id", card.id).eq("user_id", auth.userId);
-        results.push({
-          id: card.id, status: "updated", game_type: card.game_type,
-          set_name: card.set_name, card_number: card.card_number, market,
-        });
+        return { id: card.id, status: "no_match" as const, game_type: card.game_type };
       }
+      await supabase.from("cards").update({
+        current_price_raw: market,
+        last_price_update: new Date().toISOString(),
+      }).eq("id", card.id).eq("user_id", auth.userId);
+      return {
+        id: card.id, status: "updated" as const, game_type: card.game_type,
+        set_name: card.set_name, card_number: card.card_number, market,
+      };
     } catch (e) {
-      results.push({ id: card.id, status: "error", error: String((e as Error).message || e) });
+      return { id: card.id, status: "error" as const, error: String((e as Error).message || e) };
     }
+  }
 
-    await new Promise((r) => setTimeout(r, 1500));
+  const queue = [...(ownedCards || [])];
+  while (queue.length > 0) {
+    const wave = queue.splice(0, CONCURRENCY);
+    const waveResults = await Promise.all(wave.map(processOne));
+    results.push(...waveResults);
+    if (queue.length > 0) await new Promise((r) => setTimeout(r, THROTTLE_BETWEEN_WAVES_MS));
   }
 
   return new Response(JSON.stringify({ results }), {
