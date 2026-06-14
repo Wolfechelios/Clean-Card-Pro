@@ -56,11 +56,14 @@ Deno.serve(async (req) => {
     error?: string;
   }> = [];
 
-  for (const card of ownedCards || []) {
+  // Parallelize with small concurrency cap to avoid serial 2s sleeps killing throughput.
+  const CONCURRENCY = 4;
+  const THROTTLE_BETWEEN_WAVES_MS = 250;
+
+  async function processOne(card: any) {
     const isSports = (card.game_type || "").toLowerCase() === "sports" || !!card.sport_type || !!card.sport;
     if (!isSports) {
-      results.push({ id: card.id, status: "skipped", error: "Not a sports card" });
-      continue;
+      return { id: card.id, status: "skipped" as const, error: "Not a sports card" };
     }
     try {
       const resp = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/sports-card-prices`, {
@@ -77,13 +80,10 @@ Deno.serve(async (req) => {
       });
 
       if (resp.status === 429) {
-        results.push({ id: card.id, status: "error", error: "Rate limited" });
-        await new Promise((r) => setTimeout(r, 5000));
-        continue;
+        return { id: card.id, status: "error" as const, error: "Rate limited" };
       }
       if (!resp.ok) {
-        results.push({ id: card.id, status: "error", error: `HTTP ${resp.status}` });
-        continue;
+        return { id: card.id, status: "error" as const, error: `HTTP ${resp.status}` };
       }
 
       const data = await resp.json();
@@ -93,20 +93,25 @@ Deno.serve(async (req) => {
       const psa10 = pickBest(sources.map((s: any) => s?.psa10));
 
       if (raw == null && psa9 == null && psa10 == null) {
-        results.push({ id: card.id, status: "no_match" });
-      } else {
-        const update: Record<string, unknown> = { last_price_update: new Date().toISOString() };
-        if (raw != null) update.current_price_raw = raw;
-        if (psa9 != null) update.current_price_psa9 = psa9;
-        if (psa10 != null) update.current_price_psa10 = psa10;
-        await supabase.from("cards").update(update).eq("id", card.id).eq("user_id", auth.userId);
-        results.push({ id: card.id, status: "updated", raw, psa9, psa10 });
+        return { id: card.id, status: "no_match" as const };
       }
+      const update: Record<string, unknown> = { last_price_update: new Date().toISOString() };
+      if (raw != null) update.current_price_raw = raw;
+      if (psa9 != null) update.current_price_psa9 = psa9;
+      if (psa10 != null) update.current_price_psa10 = psa10;
+      await supabase.from("cards").update(update).eq("id", card.id).eq("user_id", auth.userId);
+      return { id: card.id, status: "updated" as const, raw, psa9, psa10 };
     } catch (e) {
-      results.push({ id: card.id, status: "error", error: String((e as Error).message || e) });
+      return { id: card.id, status: "error" as const, error: String((e as Error).message || e) };
     }
+  }
 
-    await new Promise((r) => setTimeout(r, 2000));
+  const queue = [...(ownedCards || [])];
+  while (queue.length > 0) {
+    const wave = queue.splice(0, CONCURRENCY);
+    const waveResults = await Promise.all(wave.map(processOne));
+    results.push(...waveResults);
+    if (queue.length > 0) await new Promise((r) => setTimeout(r, THROTTLE_BETWEEN_WAVES_MS));
   }
 
   return new Response(JSON.stringify({ results }), {
