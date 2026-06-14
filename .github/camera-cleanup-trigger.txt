@@ -1,0 +1,1 @@
+Repository-wide deprecated camera reference cleanup trigger.
