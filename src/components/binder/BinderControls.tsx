@@ -1,6 +1,7 @@
+import { useMemo } from "react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import type { BinderSet } from "@/hooks/use-binder-data";
 import type {
@@ -41,20 +42,53 @@ export function BinderControls({
   pictureSettings,
   onPictureSettingsChange,
 }: BinderControlsProps) {
+  const groupedSets = useMemo(() => {
+    const groups = new Map<string, BinderSet[]>();
+    for (const s of sets) {
+      const game = s.game || "Other";
+      if (!groups.has(game)) groups.set(game, []);
+      groups.get(game)!.push(s);
+    }
+    return Array.from(groups.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([game, items]) => [game, items.sort((a, b) => a.set_name.localeCompare(b.set_name))] as const);
+  }, [sets]);
+
+  const gameLabel = (g: string) => {
+    const map: Record<string, string> = {
+      pokemon: "Pokémon",
+      yugioh: "Yu-Gi-Oh!",
+      mtg: "Magic: The Gathering",
+      magic: "Magic: The Gathering",
+      sports: "Sports",
+      lorcana: "Lorcana",
+      onepiece: "One Piece",
+      other: "Other",
+    };
+    return map[g.toLowerCase()] || g;
+  };
+
   return (
     <div className="space-y-4">
-      {/* Set selector */}
+      {/* Set selector grouped by game */}
       <div className="space-y-1.5">
         <Label className="text-xs text-muted-foreground">Set</Label>
         <Select value={selectedSetId || ""} onValueChange={onSetChange}>
           <SelectTrigger className="w-full">
             <SelectValue placeholder="Select a set…" />
           </SelectTrigger>
-          <SelectContent>
-            {sets.map((s) => (
-              <SelectItem key={s.id} value={s.id}>
-                {s.set_name}
-              </SelectItem>
+          <SelectContent className="max-h-[400px]">
+            {groupedSets.map(([game, items]) => (
+              <SelectGroup key={game}>
+                <SelectLabel className="text-xs uppercase tracking-wide text-muted-foreground">
+                  {gameLabel(game)} ({items.length})
+                </SelectLabel>
+                {items.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.set_name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
             ))}
           </SelectContent>
         </Select>
