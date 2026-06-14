@@ -14,6 +14,11 @@ export type LensType =
   | "iriun"
   | "unknown";
 
+function isBlockedCameraLabel(label: string): boolean {
+  const normalized = label.toLowerCase().replace(/[^a-z0-9]+/g, " ");
+  return normalized.includes("camo") || normalized.includes("reincubate");
+}
+
 function classifyPhoneCam(label: string): { lensType: LensType; lensLabel: string } | null {
   const l = label.toLowerCase();
   if (l.includes("continuity") || l.includes("desk view")) {
@@ -129,7 +134,10 @@ export const useCameraDevices = () => {
       }
 
       const allDevices = await navigator.mediaDevices.enumerateDevices();
-      const videoInputs = allDevices.filter((device) => device.kind === "videoinput");
+      const videoInputs = allDevices.filter((device) => {
+        if (device.kind !== "videoinput") return false;
+        return !isBlockedCameraLabel(device.label || "");
+      });
       const rearIndices: number[] = [];
       videoInputs.forEach((device, index) => {
         const label = device.label || `Camera ${device.deviceId.slice(0, 8) || index + 1}`;
@@ -139,6 +147,8 @@ export const useCameraDevices = () => {
       let rearCounter = 0;
       const videoDevices = videoInputs.map((device, index) => {
         const label = device.label || `Camera ${device.deviceId.slice(0, 8) || index + 1}`;
+        if (isBlockedCameraLabel(label)) return null;
+
         const usb = isUSBDevice(label, onIOS);
         const rear = isRearCamera(label);
         let lensType: LensType = "unknown";
