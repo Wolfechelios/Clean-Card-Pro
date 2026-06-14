@@ -95,7 +95,7 @@ function computeFrameMetrics(
 
 function isLikelyContinuityLabel(label: string) {
   const l = label.toLowerCase();
-  return ["ipad", "iphone", "continuity", "desk view", "camo", "epoccam", "droidcam", "iriun"].some((token) => l.includes(token));
+  return ["ipad", "iphone", "continuity", "desk view", "external-camera", "epoccam", "droidcam", "iriun"].some((token) => l.includes(token));
 }
 
 export const ContinuityCameraIngest = ({ onImageCaptured }: ContinuityCameraIngestProps) => {
@@ -333,7 +333,7 @@ export const ContinuityCameraIngest = ({ onImageCaptured }: ContinuityCameraInge
               Continuity / External Camera Ingest
             </CardTitle>
             <CardDescription>
-              Use iPad Continuity, iPhone Continuity, Camo, EpocCam, or any Mac-visible camera as a live scan source.
+              Use iPad Continuity, iPhone Continuity, external camera, EpocCam, or any Mac-visible camera as a live scan source.
             </CardDescription>
           </div>
           {continuityDevices.length > 0 && (

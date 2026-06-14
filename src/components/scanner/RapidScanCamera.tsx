@@ -1655,7 +1655,7 @@ export default function RapidScanCamera() {
             <div className="min-w-0 space-y-0.5">
               <div className="text-sm font-semibold text-foreground">Camera Selection</div>
               <p className="text-xs text-muted-foreground">
-                Choose Camo, iPad, USB, or built-in cameras before starting rapid scan.
+                Choose external camera, iPad, USB, or built-in cameras before starting rapid scan.
               </p>
             </div>
             <CameraDeviceSelector
