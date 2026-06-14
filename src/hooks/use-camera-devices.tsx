@@ -16,7 +16,7 @@ export type LensType =
 
 function isBlockedCameraLabel(label: string): boolean {
   const normalized = label.toLowerCase().replace(/[^a-z0-9]+/g, " ");
-  return normalized.includes("camo") || normalized.includes("reincubate");
+  return normalized.includes("external-camera") || normalized.includes("reincubate");
 }
 
 function classifyPhoneCam(label: string): { lensType: LensType; lensLabel: string } | null {
