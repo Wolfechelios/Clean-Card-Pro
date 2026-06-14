@@ -8,42 +8,20 @@ export type LensType =
   | "depth"
   | "standard"
   | "usb"
-  | "camo"
   | "continuity"
   | "epoccam"
   | "droidcam"
   | "iriun"
   | "unknown";
 
-/**
- * Recognize phone-as-webcam apps (Camo, Continuity Camera, EpocCam, DroidCam, Iriun)
- * and return a friendly label + dedicated lens type so they stand out in the picker.
- */
 function classifyPhoneCam(label: string): { lensType: LensType; lensLabel: string } | null {
   const l = label.toLowerCase();
-  if (l.includes("camo") || l.includes("reincubate")) {
-    // Reincubate Camo / Camo Studio — "Reincubate Camo", "Camo", "Camo 2", etc.
-    const isIpad = l.includes("ipad");
-    const isIphone = !isIpad && (l.includes("iphone") || l.includes("ios"));
-    const suffix = isIpad ? " (iPad)" : isIphone ? " (iPhone)" : "";
-    return { lensType: "camo", lensLabel: `Camo${suffix}` };
-  }
-  if (l.includes("ipad") || l.includes("apple ipad") || l === "ipad" || l.includes("ios camera") || l.includes("ios cam")) {
-    // Camo Studio sometimes exposes the iPad directly under its device name
-    return { lensType: "camo", lensLabel: "Camo (iPad)" };
-  }
   if (l.includes("continuity") || l.includes("desk view")) {
     return { lensType: "continuity", lensLabel: "Continuity Camera" };
   }
-  if (l.includes("epoccam")) {
-    return { lensType: "epoccam", lensLabel: "EpocCam" };
-  }
-  if (l.includes("droidcam")) {
-    return { lensType: "droidcam", lensLabel: "DroidCam" };
-  }
-  if (l.includes("iriun")) {
-    return { lensType: "iriun", lensLabel: "Iriun Webcam" };
-  }
+  if (l.includes("epoccam")) return { lensType: "epoccam", lensLabel: "EpocCam" };
+  if (l.includes("droidcam")) return { lensType: "droidcam", lensLabel: "DroidCam" };
+  if (l.includes("iriun")) return { lensType: "iriun", lensLabel: "Iriun Webcam" };
   return null;
 }
 
@@ -55,32 +33,16 @@ export interface CameraDevice {
   lensLabel: string;
 }
 
-/**
- * Classify a rear camera lens based on its label and capabilities.
- * Mobile OS labels vary: Android often includes focal-length hints,
- * iOS uses generic "Back Camera" with index hints.
- */
 function classifyLens(label: string, index: number, totalRear: number): { lensType: LensType; lensLabel: string } {
   const l = label.toLowerCase();
-
-  // Explicit label matches (Android often exposes these)
   if (l.includes("ultrawide") || l.includes("ultra-wide") || l.includes("ultra wide")) {
     return { lensType: "ultrawide", lensLabel: "Ultra Wide" };
   }
-  if (l.includes("telephoto") || l.includes("tele")) {
-    return { lensType: "telephoto", lensLabel: "Telephoto" };
-  }
-  if (l.includes("macro")) {
-    return { lensType: "macro", lensLabel: "Macro" };
-  }
-  if (l.includes("depth")) {
-    return { lensType: "depth", lensLabel: "Depth" };
-  }
-  if (l.includes("wide") && !l.includes("ultra")) {
-    return { lensType: "wide", lensLabel: "Wide" };
-  }
+  if (l.includes("telephoto") || l.includes("tele")) return { lensType: "telephoto", lensLabel: "Telephoto" };
+  if (l.includes("macro")) return { lensType: "macro", lensLabel: "Macro" };
+  if (l.includes("depth")) return { lensType: "depth", lensLabel: "Depth" };
+  if (l.includes("wide") && !l.includes("ultra")) return { lensType: "wide", lensLabel: "Wide" };
 
-  // Focal-length hints (some Android devices include mm values)
   const focalMatch = l.match(/(\d+(?:\.\d+)?)\s*mm/);
   if (focalMatch) {
     const focal = parseFloat(focalMatch[1]);
@@ -89,8 +51,6 @@ function classifyLens(label: string, index: number, totalRear: number): { lensTy
     if (focal >= 50) return { lensType: "telephoto", lensLabel: `Telephoto (${focal}mm)` };
   }
 
-  // Positional heuristic for multi-lens phones (iOS "Back Camera 0/1/2")
-  // Common ordering: 0=wide, 1=ultrawide, 2=telephoto (iPhone Pro style)
   if (totalRear >= 3) {
     if (index === 0) return { lensType: "wide", lensLabel: "Wide (Main)" };
     if (index === 1) return { lensType: "ultrawide", lensLabel: "Ultra Wide" };
@@ -106,23 +66,13 @@ function classifyLens(label: string, index: number, totalRear: number): { lensTy
 
 function isRearCamera(label: string): boolean {
   const l = label.toLowerCase();
-  // Exclude front-facing
-  if (l.includes("front") || l.includes("facetime") || l.includes("selfie") || l.includes("user")) {
-    return false;
-  }
-  // Explicitly rear
-  if (l.includes("back") || l.includes("rear") || l.includes("environment")) {
-    return true;
-  }
-  // Default to rear if not identifiable as front
+  if (l.includes("front") || l.includes("facetime") || l.includes("selfie") || l.includes("user")) return false;
+  if (l.includes("back") || l.includes("rear") || l.includes("environment")) return true;
   return true;
 }
 
 function isUSBDevice(label: string, isIOS = false): boolean {
   const l = label.toLowerCase();
-  // On iOS, the device's own rear cameras can carry labels containing "iphone"/"ipad"
-  // and Camo/Continuity/EpocCam/DroidCam/Iriun cannot run as virtual cams on iOS Safari/Chrome.
-  // Never route iOS-native cameras through the USB/phone-cam branch.
   if (isIOS) return false;
   return (
     l.includes("usb") ||
@@ -135,8 +85,6 @@ function isUSBDevice(label: string, isIOS = false): boolean {
     l.includes("webcam") ||
     l.includes("droidcam") ||
     l.includes("iriun") ||
-    l.includes("camo") ||
-    l.includes("reincubate") ||
     l.includes("epoccam") ||
     (!l.includes("front") &&
       !l.includes("back") &&
@@ -156,10 +104,6 @@ export const useCameraDevices = () => {
   const [selectedDeviceIdState, setSelectedDeviceIdState] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
   const isIOS = isIOSWebKitLike();
-
-  // iOS WebKit is more stable when Rapid Scan uses facingMode instead of
-  // deviceId:{exact}. Expose an empty selectedDeviceId on iPhone/iPad so the
-  // scanner falls back to the rear environment camera.
   const selectedDeviceId = isIOS ? "" : selectedDeviceIdState;
 
   const setSelectedDeviceId = useCallback((deviceId: string) => {
@@ -173,94 +117,58 @@ export const useCameraDevices = () => {
   const refreshDevices = useCallback(async () => {
     try {
       setIsLoading(true);
+      const onIOS = isIOSWebKitLike();
 
-      const isIOS = isIOSWebKitLike();
-
-      // iOS/Safari/Chrome WebKit: never open a temporary camera stream just to
-      // reveal device labels. On iPhone this can steal or terminate the active
-      // Rapid Scan MediaStreamTrack, causing the camera to open then close or
-      // repeatedly show permission/allowed messaging.
-      if (!isIOS) {
+      if (!onIOS) {
         try {
           const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
-          tempStream.getTracks().forEach(track => track.stop());
-        } catch (e) {
-          console.log("Initial permission request:", e);
+          tempStream.getTracks().forEach((track) => track.stop());
+        } catch (error) {
+          console.log("Initial permission request:", error);
         }
       }
 
       const allDevices = await navigator.mediaDevices.enumerateDevices();
-      const videoInputs = allDevices.filter(device => device.kind === "videoinput");
-
-      // Separate rear cameras for positional classification
+      const videoInputs = allDevices.filter((device) => device.kind === "videoinput");
       const rearIndices: number[] = [];
-      videoInputs.forEach((d, i) => {
-        const label = d.label || `Camera ${d.deviceId.slice(0, 8) || i + 1}`;
-        if (isRearCamera(label)) rearIndices.push(i);
+      videoInputs.forEach((device, index) => {
+        const label = device.label || `Camera ${device.deviceId.slice(0, 8) || index + 1}`;
+        if (isRearCamera(label)) rearIndices.push(index);
       });
 
       let rearCounter = 0;
-      const videoDevices: CameraDevice[] = videoInputs.map((device, i) => {
-        const label = device.label || `Camera ${device.deviceId.slice(0, 8) || i + 1}`;
-        const usb = isUSBDevice(label, isIOS);
+      const videoDevices = videoInputs.map((device, index) => {
+        const label = device.label || `Camera ${device.deviceId.slice(0, 8) || index + 1}`;
+        const usb = isUSBDevice(label, onIOS);
         const rear = isRearCamera(label);
-
         let lensType: LensType = "unknown";
         let lensLabel = label;
 
         if (usb) {
           const phoneCam = classifyPhoneCam(label);
-          if (phoneCam) {
-            lensType = phoneCam.lensType;
-            lensLabel = phoneCam.lensLabel;
-          } else {
-            lensType = "usb";
-            lensLabel = label;
-          }
+          lensType = phoneCam?.lensType || "usb";
+          lensLabel = phoneCam?.lensLabel || label;
         } else if (rear) {
           const classification = classifyLens(label, rearCounter, rearIndices.length);
           lensType = classification.lensType;
           lensLabel = classification.lensLabel;
-          rearCounter++;
-        }
-        // Skip front cameras entirely
-        if (!rear && !usb) {
-          return null;
+          rearCounter += 1;
         }
 
-        return {
-          deviceId: device.deviceId,
-          label,
-          isUSB: usb,
-          lensType,
-          lensLabel,
-        };
+        if (!rear && !usb) return null;
+        return { deviceId: device.deviceId, label, isUSB: usb, lensType, lensLabel };
       }).filter(Boolean) as CameraDevice[];
 
-      // Diagnostics: log exactly what the OS reports so we can extend matchers if needed
-      try {
-        // eslint-disable-next-line no-console
-        console.info(
-          "[camera-devices] enumerated",
-          videoDevices.map(d => ({ label: d.label, lensType: d.lensType, lensLabel: d.lensLabel }))
-        );
-      } catch {}
-
-      setDevices(prev => {
-        // Skip state update when nothing changed (avoids re-render churn from polling)
-        const sig = (arr: CameraDevice[]) =>
-          arr.map(d => `${d.deviceId}|${d.label}`).sort().join("~~");
-        return sig(prev) === sig(videoDevices) ? prev : videoDevices;
+      setDevices((previous) => {
+        const signature = (items: CameraDevice[]) => items.map((device) => `${device.deviceId}|${device.label}`).sort().join("~~");
+        return signature(previous) === signature(videoDevices) ? previous : videoDevices;
       });
 
-      // Auto-select main wide lens or first device. Keep iOS empty so Rapid Scan
-      // uses facingMode instead of fragile exact device IDs.
-      setSelectedDeviceIdState(prev => {
-        if (isIOS) return "";
-        if (prev && videoDevices.some(d => d.deviceId === prev)) return prev;
-        if (videoDevices.length === 0) return "";
-        const mainLens = videoDevices.find(d => d.lensType === "wide") || videoDevices[0];
-        return mainLens.deviceId;
+      setSelectedDeviceIdState((previous) => {
+        if (onIOS) return "";
+        if (previous && videoDevices.some((device) => device.deviceId === previous)) return previous;
+        if (!videoDevices.length) return "";
+        return (videoDevices.find((device) => device.lensType === "wide") || videoDevices[0]).deviceId;
       });
     } catch (error) {
       console.error("Error enumerating devices:", error);
@@ -271,13 +179,8 @@ export const useCameraDevices = () => {
 
   useEffect(() => {
     refreshDevices();
-
     const mediaDevices = navigator.mediaDevices;
     mediaDevices?.addEventListener?.("devicechange", refreshDevices);
-
-    // Re-enumerate when the tab regains focus / visibility — Camo Studio is often
-    // launched after the page loads, and `devicechange` doesn't always fire for
-    // virtual cameras whose underlying source (the iPad) hot-plugs.
     const onFocus = () => refreshDevices();
     const onVisibility = () => {
       if (document.visibilityState === "visible") refreshDevices();
@@ -285,11 +188,7 @@ export const useCameraDevices = () => {
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
 
-    // Desktop-only polling: useful for Camo/USB virtual cameras, but unsafe on
-    // iOS because refreshDevices previously required camera access and can still
-    // churn device IDs while Rapid Scan is live.
-    const isIOS = isIOSWebKitLike();
-    const poll = isIOS
+    const poll = isIOSWebKitLike()
       ? null
       : window.setInterval(() => {
           if (document.visibilityState === "visible") refreshDevices();
@@ -303,11 +202,5 @@ export const useCameraDevices = () => {
     };
   }, [refreshDevices]);
 
-  return {
-    devices,
-    selectedDeviceId,
-    setSelectedDeviceId,
-    isLoading,
-    refreshDevices,
-  };
+  return { devices, selectedDeviceId, setSelectedDeviceId, isLoading, refreshDevices };
 };
