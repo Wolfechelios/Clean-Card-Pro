@@ -62,7 +62,7 @@ async function runOcr(imageUrl: string): Promise<ResolvedOcr> {
     const hints = parseOcrHints(rawText);
     return {
       rawText,
-      confidence: analysis.card_name || analysis.card_details?.card_name ? 75 : 45,
+      confidence: analysis.card_name || analysis.condition_estimate?.card_name ? 75 : 45,
       cardNameHint: hints.cardName,
       cardSetHint: hints.cardSet,
       cardNumberHint: hints.cardNumber,
