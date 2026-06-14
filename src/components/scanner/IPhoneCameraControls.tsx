@@ -58,7 +58,7 @@ export function IPhoneCameraControls({
         <div>
           <div className="text-sm font-semibold leading-none">iPhone Camera Controls</div>
           <div className="mt-1 text-xs text-muted-foreground">
-            Zoom, flash, and focus controls for iPhone, Continuity Camera, Camo, USB, and virtual camera feeds.
+            Zoom, flash, and focus controls for iPhone, Continuity Camera, USB, and supported virtual camera feeds.
           </div>
         </div>
         <Badge variant="outline" className="shrink-0 text-xs">
