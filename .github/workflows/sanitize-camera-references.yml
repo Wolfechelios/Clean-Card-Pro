@@ -1,0 +1,62 @@
+name: Sanitize deprecated camera references
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '.github/workflows/sanitize-camera-references.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sanitize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Remove deprecated camera naming
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          replacements = [
+              ("Rein" + "cubate", "external camera"),
+              ("Ca" + "mo Studio", "external camera software"),
+              ("Ca" + "mo", "external camera"),
+              ("ca" + "mo", "external-camera"),
+          ]
+          allowed = {'.ts', '.tsx', '.js', '.jsx', '.json', '.md', '.yml', '.yaml', '.txt', '.html', '.css'}
+          changed = []
+
+          for path in Path('.').rglob('*'):
+              if not path.is_file() or '.git' in path.parts or path.suffix.lower() not in allowed:
+                  continue
+              try:
+                  original = path.read_text()
+              except UnicodeDecodeError:
+                  continue
+              updated = original
+              for old, new in replacements:
+                  updated = updated.replace(old, new)
+              if updated != original:
+                  path.write_text(updated)
+                  changed.append(str(path))
+
+          print('\n'.join(changed))
+          PY
+
+      - name: Commit cleanup
+        run: |
+          if git diff --quiet; then
+            echo "No deprecated references remain."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Remove deprecated virtual camera references"
+          git push
