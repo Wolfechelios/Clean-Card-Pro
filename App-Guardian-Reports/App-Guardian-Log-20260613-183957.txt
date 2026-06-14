@@ -1,0 +1,27 @@
+Project: /Users/wolfe/Documents/GitHub/Clean-Card-Pro
+Started: Sat Jun 13 18:39:57 PDT 2026
+
+[5%] Reading project
+
+[15%] Detecting project type
+Detected: Node.js
+
+[25%] Checking repository hygiene
+.gitignore exists
+
+[35%] Scanning for exposed secrets
+
+[45%] Checking oversized files
+
+[55%] Checking package configuration
+
+[65%] Running safe existing fixes
+
+[75%] Checking common project problems
+
+[85%] Checking Git status
+
+[95%] Building report
+
+[100%] Complete
+Report: /Users/wolfe/Documents/GitHub/Clean-Card-Pro/App-Guardian-Reports/App-Guardian-Report-20260613-183957.html
