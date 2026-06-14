@@ -1,6 +1,6 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, Smartphone, Camera, Scan, ZoomIn, Focus, Layers, Webcam, Monitor } from "lucide-react";
+import { RefreshCw, Smartphone, Camera, Scan, ZoomIn, Focus, Layers, Webcam } from "lucide-react";
 import { CameraDevice, LensType } from "@/hooks/use-camera-devices";
 
 interface CameraDeviceSelectorProps {
@@ -23,7 +23,6 @@ function getLensIcon(lensType: LensType) {
     case "macro":
     case "depth":
       return <Focus className="h-4 w-4 text-primary" />;
-    case "camo":
     case "continuity":
     case "epoccam":
     case "droidcam":
@@ -44,14 +43,7 @@ export const CameraDeviceSelector = ({
   isLoading,
   className = "",
 }: CameraDeviceSelectorProps) => {
-  const hasPhoneCam = devices.some(d =>
-    ["camo", "continuity", "epoccam", "droidcam", "iriun"].includes(d.lensType)
-  );
-
-  // Radix Select throws if any SelectItem has value="". Some mobile browsers
-  // return enumerateDevices() entries with empty deviceId before camera
-  // permission is granted — filter those out to avoid crashing the scanner.
-  const validDevices = devices.filter((d) => typeof d.deviceId === "string" && d.deviceId.length > 0);
+  const validDevices = devices.filter((device) => typeof device.deviceId === "string" && device.deviceId.length > 0);
   const safeSelectedId = selectedDeviceId && selectedDeviceId.length > 0 ? selectedDeviceId : undefined;
 
   return (
@@ -91,11 +83,6 @@ export const CameraDeviceSelector = ({
           <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
         </Button>
       </div>
-      {!hasPhoneCam && devices.length > 0 && (
-        <span className="text-[11px] text-muted-foreground pl-1">
-          Using Camo Studio? Start it, then tap refresh.
-        </span>
-      )}
     </div>
   );
 };
