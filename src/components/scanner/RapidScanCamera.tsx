@@ -9,7 +9,7 @@
 // - List of scanned cards with price + whether it's already in your library
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { isIPhone17Class } from "@/lib/deviceClass";
+import { isIPhone17Class, supportsHighResCapture } from "@/lib/deviceClass";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -622,13 +622,13 @@ export default function RapidScanCamera() {
       // iOS WebKit silently ends the track if any one is unsupported, which
       // made the viewfinder go black after ~1s.
       // Resolution ladder: more native pixels = sharper digital zoom. iPhone 17
-      // class + non-iOS can safely try 4K → QHD → 1080p → 720p. Older iOS stays
-      // on 1080p first to avoid the silent-track-end bug.
-      const isIOSStream = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-      const canTry4K = !isIOSStream || isIPhone17Class();
+      // class + Android flagships + desktops can try 4K → QHD → 1080p → 720p.
+      // Older iOS and low-end Android stay on 1080p first to avoid the
+      // silent-track-end bug / OOM.
+      const canTry4K = supportsHighResCapture();
       const ladder: Array<[number, number]> = canTry4K
         ? [[3840, 2160], [2560, 1440], [1920, 1080], [1280, 720]]
-        : [[1920, 1080], [1280, 720]];
+        : [[1920, 1080], [1280, 720], [640, 480]];
       let stream: MediaStream | null = null;
       for (const [lw, lh] of ladder) {
         try {
