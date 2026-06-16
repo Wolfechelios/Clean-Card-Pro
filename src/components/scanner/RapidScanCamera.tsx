@@ -9,7 +9,7 @@
 // - List of scanned cards with price + whether it's already in your library
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { isIPhone17Class } from "@/lib/deviceClass";
+import { isIPhone17Class, supportsHighResCapture } from "@/lib/deviceClass";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
