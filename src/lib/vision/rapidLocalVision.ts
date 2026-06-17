@@ -36,12 +36,9 @@ function confidence01(value: number | null | undefined): number {
 function candidateConfidence(result: CardVisionResult): number {
   const candidate = result.candidates[0];
   if (!candidate) return 0;
-
-  // The current local candidate formula tops out around 0.75. Rescale it
-  // before blending it with frame/detection quality.
-  const candidateScore = Math.max(0, Math.min(1, candidate.score / 0.75));
-  const qualityScore = Math.max(0, Math.min(1, result.quality.score));
-  return Math.max(0, Math.min(0.97, candidateScore * 0.82 + qualityScore * 0.18));
+  const candidateScore = confidence01(candidate.score);
+  const qualityScore = confidence01(result.quality.score);
+  return Math.max(0, Math.min(0.99, candidateScore * 0.90 + qualityScore * 0.10));
 }
 
 function gameTypeFor(result: CardVisionResult, gameTypeHint?: string): string | null {
@@ -126,58 +123,79 @@ function ocrTextFrom(result: CardVisionResult): string {
     .join("\n");
 }
 
+function unavailableResult(error: unknown): RapidLocalVisionResult {
+  const message = error instanceof Error ? error.message : String(error);
+  console.warn("[RapidLocalVision] Local vision unavailable; cloud fallback will be used", error);
+  return {
+    identity: null,
+    accepted: false,
+    source: "local-insufficient",
+    ocrText: "",
+    qualityScore: 0,
+    detectionReady: false,
+    brand: "unknown",
+    candidateConfidence: 0,
+    reason: `Local vision unavailable: ${message}`,
+  };
+}
+
 export async function resolveRapidLocalVision(
   blob: Blob,
   options: { gameTypeHint?: string } = {},
 ): Promise<RapidLocalVisionResult> {
-  const imageData = await blobToImageData(blob);
-  const vision = await runLocalCardVision(imageData);
-  const ocrText = ocrTextFrom(vision);
-  const learned = ocrText ? findLearnedIdentity(ocrText) : null;
+  try {
+    const imageData = await blobToImageData(blob);
+    const vision = await runLocalCardVision(imageData);
+    const ocrText = ocrTextFrom(vision);
+    const learned = ocrText ? findLearnedIdentity(ocrText) : null;
 
-  if (learned?.card_name && learned.card_name !== "Unknown Card") {
+    if (learned?.card_name && learned.card_name !== "Unknown Card") {
+      const learnedConfidence = Math.max(0.96, confidence01(learned.confidence));
+      return {
+        identity: {
+          ...learned,
+          confidence: learnedConfidence,
+        },
+        accepted: true,
+        source: "learned",
+        ocrText,
+        qualityScore: vision.quality.score,
+        detectionReady: vision.quality.ready,
+        brand: vision.brand,
+        candidateConfidence: learnedConfidence,
+        reason: "Matched a previously verified scan",
+      };
+    }
+
+    const identity = toIdentity(vision, options.gameTypeHint);
+    const confidence = confidence01(identity?.confidence);
+    const hasIdentifier = Boolean(identity?.card_number || identity?.card_set);
+    const accepted = Boolean(
+      identity &&
+      identity.card_name !== "Unknown Card" &&
+      hasIdentifier &&
+      confidence >= 0.82 &&
+      vision.quality.score >= 0.55,
+    );
+
     return {
-      identity: {
-        ...learned,
-        confidence: Math.max(0.96, confidence01(learned.confidence)),
-      },
-      accepted: true,
-      source: "learned",
+      identity,
+      accepted,
+      source: accepted ? "local-ocr" : "local-insufficient",
       ocrText,
       qualityScore: vision.quality.score,
       detectionReady: vision.quality.ready,
       brand: vision.brand,
-      candidateConfidence: Math.max(0.96, confidence01(learned.confidence)),
-      reason: "Matched a previously verified scan",
+      candidateConfidence: confidence,
+      reason: accepted
+        ? "Local OCR resolved the card name and printing identifier"
+        : !ocrText
+          ? "Local OCR did not recover readable text"
+          : !hasIdentifier
+            ? "Local OCR needs a set or card number before auto-confirming"
+            : `Local confidence ${Math.round(confidence * 100)}% requires cloud fallback`,
     };
+  } catch (error) {
+    return unavailableResult(error);
   }
-
-  const identity = toIdentity(vision, options.gameTypeHint);
-  const confidence = confidence01(identity?.confidence);
-  const hasIdentifier = Boolean(identity?.card_number || identity?.card_set);
-  const accepted = Boolean(
-    identity &&
-    identity.card_name !== "Unknown Card" &&
-    hasIdentifier &&
-    confidence >= 0.82 &&
-    vision.quality.score >= 0.55,
-  );
-
-  return {
-    identity,
-    accepted,
-    source: accepted ? "local-ocr" : "local-insufficient",
-    ocrText,
-    qualityScore: vision.quality.score,
-    detectionReady: vision.quality.ready,
-    brand: vision.brand,
-    candidateConfidence: confidence,
-    reason: accepted
-      ? "Local OCR resolved the card name and printing identifier"
-      : !ocrText
-        ? "Local OCR did not recover readable text"
-        : !hasIdentifier
-          ? "Local OCR needs a set or card number before auto-confirming"
-          : `Local confidence ${Math.round(confidence * 100)}% requires cloud fallback`,
-  };
 }
