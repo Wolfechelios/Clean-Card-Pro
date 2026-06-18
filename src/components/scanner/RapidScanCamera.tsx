@@ -1671,6 +1671,40 @@ export default function RapidScanCamera() {
         </div>
       </div>
 
+      {/* ── Camera source: this computer vs paired iPhone ── */}
+      <div className="flex items-center justify-between gap-2 rounded-xl border bg-card/60 px-3 py-2">
+        <div className="text-xs text-muted-foreground">
+          {settings.rapidScanSource === "remote"
+            ? "Photos taken on your paired iPhone will be auto-queued and priced here."
+            : "Using this computer's camera for rapid scan."}
+        </div>
+        <div className="flex rounded-lg border overflow-hidden">
+          <Button
+            variant={settings.rapidScanSource === "local" ? "default" : "ghost"}
+            size="sm"
+            className="rounded-none border-0 h-8 px-3 text-xs"
+            onClick={() => updateSettings({ rapidScanSource: "local" })}
+          >
+            <Monitor className="h-3.5 w-3.5 mr-1.5" /> This computer
+          </Button>
+          <Button
+            variant={settings.rapidScanSource === "remote" ? "default" : "ghost"}
+            size="sm"
+            className="rounded-none border-0 h-8 px-3 text-xs"
+            onClick={() => {
+              if (cameraOn) void stopCamera();
+              updateSettings({ rapidScanSource: "remote" });
+            }}
+          >
+            <Smartphone className="h-3.5 w-3.5 mr-1.5" /> iPhone (remote)
+          </Button>
+        </div>
+      </div>
+
+      {settings.rapidScanSource === "remote" ? (
+        <RemoteScanDesktop userId={userId ?? ""} onImageReceived={() => { /* queued via shared idbQueue */ }} />
+      ) : (
+      <>
       {!isNative && (
         <div className="rounded-xl border bg-card/80 p-3 shadow-sm">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
