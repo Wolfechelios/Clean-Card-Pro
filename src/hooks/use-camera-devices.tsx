@@ -16,9 +16,9 @@ export type LensType =
 
 function isBlockedCameraLabel(label: string): boolean {
   const normalized = label.toLowerCase().replace(/[^a-z0-9]+/g, " ");
-  // Camo was removed from the app. Do not block generic "external-camera"
+  // external camera was removed from the app. Do not block generic "external-camera"
   // labels because macOS can expose valid Continuity/virtual cameras that way.
-  return normalized.includes("camo") || normalized.includes("reincubate");
+  return normalized.includes("external-camera") || normalized.includes("reincubate");
 }
 
 function classifyPhoneCam(label: string): { lensType: LensType; lensLabel: string } | null {
