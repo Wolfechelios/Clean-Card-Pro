@@ -2089,6 +2089,10 @@ export default function RapidScanCamera() {
           Tap to start camera
         </div>
       )}
+      </>
+      )}
+
+
 
       {/* ── Status strip ── */}
       <div className="flex items-center justify-between px-2 text-xs text-muted-foreground">
