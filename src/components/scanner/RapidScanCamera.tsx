@@ -72,6 +72,8 @@ import { useCameraDevices } from "@/hooks/use-camera-devices";
 import { CameraDeviceSelector } from "./CameraDeviceSelector";
 import { WhiteBalanceControl } from "./WhiteBalanceControl";
 import { playKachingBeep, playShutterBeep, playJackpotBeep, warmUpAudio } from "@/lib/audioBeeps";
+import { RemoteScanDesktop } from "./RemoteScanDesktop";
+import { Smartphone, Monitor } from "lucide-react";
 
 type ScannedCard = {
   id: string;
