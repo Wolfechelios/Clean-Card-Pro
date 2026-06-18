@@ -124,8 +124,34 @@ async function identifyWithCloud(
     body: { imageUrl, ocrText, gameTypeHint, clientHint },
   });
 
-  if (error) throw new Error(error.message);
-  if (!data?.success) throw new Error(data?.error || "Cloud identification failed");
+  if (error) {
+    // supabase.functions.invoke returns an error for non-2xx (e.g. 400 noCardDetected).
+    // Parse the JSON body so the recoverable "no card detected" case surfaces as a
+    // typed message instead of a generic "Edge function returned 400" crash.
+    let parsedBody: any = null;
+    try {
+      const ctx: any = (error as any).context;
+      if (ctx && typeof ctx.json === "function") {
+        parsedBody = await ctx.json();
+      } else if (ctx && typeof ctx.text === "function") {
+        const txt = await ctx.text();
+        try { parsedBody = JSON.parse(txt); } catch { /* ignore */ }
+      }
+    } catch { /* ignore */ }
+
+    if (parsedBody?.noCardDetected) {
+      const err: any = new Error(parsedBody.error || "No card detected in image");
+      err.noCardDetected = true;
+      err.code = "NOT_FOUND";
+      throw err;
+    }
+    throw new Error(parsedBody?.error || error.message || "Cloud identification failed");
+  }
+  if (!data?.success) {
+    const err: any = new Error(data?.error || "Cloud identification failed");
+    if (data?.noCardDetected) { err.noCardDetected = true; err.code = "NOT_FOUND"; }
+    throw err;
+  }
 
   const cardData = data.cardData;
   
