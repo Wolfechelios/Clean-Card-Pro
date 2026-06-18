@@ -85,6 +85,7 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   remoteShowPhotoGrid: true,
   remoteSoundOnReceive: true,
   defaultScanTab: "rapid",
+  rapidScanSource: "local",
   maxWorkersOverride: 0,
 };
 
