@@ -44,6 +44,9 @@ export interface ScannerSettings {
   remoteSoundOnReceive: boolean;
   defaultScanTab: "rapid" | "usb" | "upload";
 
+  // Rapid Scan camera source: this computer's webcam, or paired iPhone (remote)
+  rapidScanSource: "local" | "remote";
+
   // Override device-tier worker count for the scan queue processor (1-8). 0 = auto.
   maxWorkersOverride: number;
 }
