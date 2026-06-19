@@ -226,7 +226,12 @@ export const RemoteScanDesktop = ({ userId, onImageReceived }: RemoteScanDesktop
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionExpiresAt, isConnected]);
 
-  const appUrl = window.location.origin;
+  // Always send the phone to the stable production URL — preview/edit origins
+  // aren't logged in on the phone and would just show the auth screen.
+  const PUBLIC_APP_URL = "https://www.mintconditionmarket.com";
+  const currentOrigin = typeof window !== "undefined" ? window.location.origin : "";
+  const isPreviewOrigin = /lovable(project)?\.app|lovableproject\.com|localhost|127\.0\.0\.1/i.test(currentOrigin);
+  const appUrl = isPreviewOrigin ? PUBLIC_APP_URL : currentOrigin;
   const qrValue = sessionCode ? `${appUrl}/scan?remote=${sessionCode}` : '';
 
   const pendingManualCount = receivedPhotos.filter(p => p.status === 'received').length;

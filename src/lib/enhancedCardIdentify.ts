@@ -20,6 +20,26 @@ export async function enhancedCardIdentify(
   });
 
   if (error) {
+    // supabase.functions.invoke returns an error for non-2xx responses (e.g. 400).
+    // Try to extract the JSON body so noCardDetected / error messages surface properly
+    // instead of being thrown as a generic edge-function failure.
+    let parsedBody: any = null;
+    try {
+      const ctx: any = (error as any).context;
+      if (ctx && typeof ctx.json === "function") {
+        parsedBody = await ctx.json();
+      } else if (ctx && typeof ctx.text === "function") {
+        const txt = await ctx.text();
+        try { parsedBody = JSON.parse(txt); } catch { /* ignore */ }
+      }
+    } catch { /* ignore */ }
+
+    if (parsedBody && parsedBody.success === false) {
+      throw new AppError(
+        parsedBody.error || "Could not identify card",
+        parsedBody.noCardDetected ? "NOT_FOUND" : "API_ERROR"
+      );
+    }
     throw handleApiError(error);
   }
 
