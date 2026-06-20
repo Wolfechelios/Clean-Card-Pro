@@ -282,7 +282,13 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
               Connect your phone via USB and use it as a high-quality scanner
             </CardDescription>
           </div>
-          {hasUSBDevices && (
+          {hasIPhone && (
+            <Badge variant="secondary" className="bg-primary/10 text-primary">
+              <Smartphone className="mr-1 h-3 w-3" />
+              iPhone detected
+            </Badge>
+          )}
+          {!hasIPhone && hasUSBDevices && (
             <Badge variant="secondary" className="bg-primary/10 text-primary">
               <Smartphone className="mr-1 h-3 w-3" />
               {usbDevices.length} USB device{usbDevices.length > 1 ? 's' : ''} found
