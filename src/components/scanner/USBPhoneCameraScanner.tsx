@@ -33,7 +33,7 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
   const sortedDevices = [...usbDevices, ...otherDevices];
   const hasUSBDevices = usbDevices.length > 0;
   const iPhoneDevices = devices.filter(
-    (d) => d.lensType === "continuity" || d.lensType === "epoccam" || /iphone|ipad|continuity|desk view|epoccam/i.test(d.label)
+    (d) => /iphone|ipad|continuity|desk view|epoccam/i.test(d.label)
   );
   const hasIPhone = iPhoneDevices.length > 0;
   const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform || navigator.userAgent || "");
@@ -289,14 +289,13 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
                   {isMac ? (
                     <>
                       <li>• Plug your iPhone into your Mac with a USB cable, unlock it, and tap "Trust"</li>
-                      <li>• In Chrome or Safari, select <em>iPhone</em> or <em>Continuity Camera</em> above</li>
-                      <li>• external camera is intentionally not listed or recommended</li>
+                      <li>• In Chrome or Safari, select <em>iPhone</em> or <em>Continuity Camera</em> from the select list above</li>
+                      <li>• <strong>No third-party apps (like Camo or EpocCam) are required!</strong> macOS and iOS handle this natively.</li>
                     </>
                   ) : (
                     <>
-                      <li>• Use a standard iPhone webcam app that exposes the phone as a camera device</li>
-                      <li>• Connect the iPhone via USB cable, unlock it, and tap "Trust This Computer"</li>
-                      <li>• Launch the phone camera bridge app, then refresh devices above</li>
+                      <li>• If you don't have webcam bridge apps (like Camo/EpocCam/DroidCam) installed on your PC, try our built-in <strong>Remote Phone</strong> tab above!</li>
+                      <li>• Otherwise, connect your iPhone via USB, unlock it, open your webcam utility app, and refresh devices above.</li>
                     </>
                   )}
                 </ul>

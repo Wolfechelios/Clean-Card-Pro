@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Camera, Usb, Trash2, Upload } from "lucide-react";
+import { Camera, Usb, Trash2, Upload, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 import { useCardScanner } from "@/hooks/use-card-scanner";
@@ -15,6 +15,7 @@ import { CardIdentificationEditor } from "./scanner/CardIdentificationEditor";
 import { NeedsFoilReviewQueue } from "./scanner/NeedsFoilReviewQueue";
 import RapidScanCamera from "./scanner/RapidScanCamera";
 import { USBPhoneCameraScanner } from "./scanner/USBPhoneCameraScanner";
+import { RemoteScanDesktop } from "./scanner/RemoteScanDesktop";
 import { USBBulkImport } from "./scanner/USBBulkImport";
 import { DuplicateCardDialog } from "./scanner/DuplicateCardDialog";
 import { RecentScansBox } from "./scanner/RecentScansBox";
@@ -105,7 +106,7 @@ const Scanner = ({ userId }: ScannerProps) => {
       </div>
 
       <Tabs defaultValue="rapid" className="w-full">
-        <TabsList className="grid w-full grid-cols-3" role="tablist">
+        <TabsList className="grid w-full grid-cols-4" role="tablist">
           <TabsTrigger value="rapid" className="flex items-center gap-2">
             <Camera className="h-4 w-4" aria-hidden="true" />
             Rapid Scan
@@ -113,6 +114,10 @@ const Scanner = ({ userId }: ScannerProps) => {
           <TabsTrigger value="usb" className="flex items-center gap-2">
             <Usb className="h-4 w-4" aria-hidden="true" />
             USB
+          </TabsTrigger>
+          <TabsTrigger value="remote" className="flex items-center gap-2">
+            <Smartphone className="h-4 w-4" aria-hidden="true" />
+            Remote Phone
           </TabsTrigger>
           <TabsTrigger value="upload" className="flex items-center gap-2">
             <Upload className="h-4 w-4" aria-hidden="true" />
@@ -144,6 +149,26 @@ const Scanner = ({ userId }: ScannerProps) => {
               <USBBulkImport />
               <USBPhoneCameraScanner onImageCaptured={handleUSBCapture} />
             </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="remote">
+          {pendingCard ? (
+            <CardIdentificationEditor
+              userId={userId}
+              primaryCard={pendingCard.identifiedCard}
+              alternatives={pendingCard.alternatives}
+              imageUrl={preview || undefined}
+              scanMode={pendingCard.scanMode}
+              ownedCount={pendingCard.ownedCount}
+              isInLibrary={pendingCard.isInLibrary}
+              currentPriceRaw={pendingCard.fallbackData?.currentPriceRaw ?? null}
+              onConfirm={handleConfirmCard}
+              onSelectAlternative={handleSelectAlternative}
+              onCancel={handleCancelCard}
+            />
+          ) : (
+            <RemoteScanDesktop userId={userId} onImageReceived={handleUSBCapture} />
           )}
         </TabsContent>
 
