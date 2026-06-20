@@ -316,12 +316,37 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
               <Usb className="h-4 w-4 text-primary" />
               Connect Your Phone
             </h4>
-            <ul className="text-sm text-muted-foreground space-y-1">
-              <li>• Install a USB webcam app on your phone (DroidCam, Iriun, external camera, EpocCam)</li>
-              <li>• Connect your phone to your computer via USB</li>
-              <li>• Open the app on your phone and enable USB mode</li>
-              <li>• Click the refresh button to detect your phone camera</li>
-            </ul>
+            <div className="space-y-3 text-sm text-muted-foreground">
+              <div>
+                <div className="font-medium text-foreground mb-1 flex items-center gap-1">
+                  <Smartphone className="h-3.5 w-3.5" /> iPhone via USB
+                </div>
+                <ul className="space-y-1 pl-4">
+                  {isMac ? (
+                    <>
+                      <li>• Plug your iPhone into your Mac with a USB cable (unlock + tap "Trust")</li>
+                      <li>• In Chrome/Safari it appears as <em>iPhone</em> or <em>Continuity Camera</em> — pick it above</li>
+                      <li>• Or open <em>Camo</em> / <em>EpocCam</em> on the iPhone for wired HD video</li>
+                    </>
+                  ) : (
+                    <>
+                      <li>• Install <em>Camo</em> or <em>EpocCam</em> on your iPhone and the matching desktop helper</li>
+                      <li>• Connect the iPhone via USB cable (unlock + tap "Trust This Computer")</li>
+                      <li>• Launch the app on the iPhone — it will appear above as a camera device</li>
+                    </>
+                  )}
+                </ul>
+              </div>
+              <div>
+                <div className="font-medium text-foreground mb-1 flex items-center gap-1">
+                  <Smartphone className="h-3.5 w-3.5" /> Android via USB
+                </div>
+                <ul className="space-y-1 pl-4">
+                  <li>• Install DroidCam or Iriun on your phone and the desktop app</li>
+                  <li>• Connect via USB with USB debugging enabled, then start the app</li>
+                </ul>
+              </div>
+            </div>
             <Button
               variant="outline"
               size="sm"
