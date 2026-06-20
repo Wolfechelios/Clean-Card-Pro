@@ -32,6 +32,11 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
   const otherDevices = devices.filter(d => !d.isUSB);
   const sortedDevices = [...usbDevices, ...otherDevices];
   const hasUSBDevices = usbDevices.length > 0;
+  const iPhoneDevices = devices.filter(
+    (d) => d.lensType === "continuity" || d.lensType === "epoccam" || /iphone|ipad|continuity|desk view|epoccam/i.test(d.label)
+  );
+  const hasIPhone = iPhoneDevices.length > 0;
+  const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform || navigator.userAgent || "");
 
   const startCamera = useCallback(async (deviceId?: string) => {
     try {
@@ -241,7 +246,13 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
               Connect your phone via USB and use it as a high-quality scanner
             </CardDescription>
           </div>
-          {hasUSBDevices && (
+          {hasIPhone && (
+            <Badge variant="secondary" className="bg-primary/10 text-primary">
+              <Smartphone className="mr-1 h-3 w-3" />
+              iPhone detected
+            </Badge>
+          )}
+          {!hasIPhone && hasUSBDevices && (
             <Badge variant="secondary" className="bg-primary/10 text-primary">
               <Smartphone className="mr-1 h-3 w-3" />
               {usbDevices.length} USB device{usbDevices.length > 1 ? 's' : ''} found
@@ -269,12 +280,37 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
               <Usb className="h-4 w-4 text-primary" />
               Connect Your Phone
             </h4>
-            <ul className="text-sm text-muted-foreground space-y-1">
-              <li>• Install a USB webcam app on your phone (DroidCam, Iriun, Camo, EpocCam)</li>
-              <li>• Connect your phone to your computer via USB</li>
-              <li>• Open the app on your phone and enable USB mode</li>
-              <li>• Click the refresh button to detect your phone camera</li>
-            </ul>
+            <div className="space-y-3 text-sm text-muted-foreground">
+              <div>
+                <div className="font-medium text-foreground mb-1 flex items-center gap-1">
+                  <Smartphone className="h-3.5 w-3.5" /> iPhone via USB
+                </div>
+                <ul className="space-y-1 pl-4">
+                  {isMac ? (
+                    <>
+                      <li>• Plug your iPhone into your Mac with a USB cable, unlock it, and tap "Trust"</li>
+                      <li>• In Chrome or Safari, select <em>iPhone</em> or <em>Continuity Camera</em> above</li>
+                      <li>• Camo is intentionally not listed or recommended</li>
+                    </>
+                  ) : (
+                    <>
+                      <li>• Use a standard iPhone webcam app that exposes the phone as a camera device</li>
+                      <li>• Connect the iPhone via USB cable, unlock it, and tap "Trust This Computer"</li>
+                      <li>• Launch the phone camera bridge app, then refresh devices above</li>
+                    </>
+                  )}
+                </ul>
+              </div>
+              <div>
+                <div className="font-medium text-foreground mb-1 flex items-center gap-1">
+                  <Smartphone className="h-3.5 w-3.5" /> Android via USB
+                </div>
+                <ul className="space-y-1 pl-4">
+                  <li>• Install DroidCam or Iriun on your phone and the desktop app</li>
+                  <li>• Connect via USB with USB debugging enabled, then start the app</li>
+                </ul>
+              </div>
+            </div>
             <Button
               variant="outline"
               size="sm"

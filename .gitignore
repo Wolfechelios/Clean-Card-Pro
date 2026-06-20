@@ -22,3 +22,20 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+# Local environment / secrets
+.env
+.env.*
+!.env.example
+# Build output / generated files
+dist/
+dist/**
+.next/
+.next/**
+coverage/
+.cache/
+*.tsbuildinfo
+# Generated build output
+tsconfig.app.tsbuildinfo
+tsconfig.node.tsbuildinfo
+# Local secrets
+# Generated build/cache output
