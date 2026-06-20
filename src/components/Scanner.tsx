@@ -106,7 +106,7 @@ const Scanner = ({ userId }: ScannerProps) => {
       </div>
 
       <Tabs defaultValue="rapid" className="w-full">
-        <TabsList className="grid w-full grid-cols-3" role="tablist">
+        <TabsList className="grid w-full grid-cols-4" role="tablist">
           <TabsTrigger value="rapid" className="flex items-center gap-2">
             <Camera className="h-4 w-4" aria-hidden="true" />
             Rapid Scan
@@ -114,6 +114,10 @@ const Scanner = ({ userId }: ScannerProps) => {
           <TabsTrigger value="usb" className="flex items-center gap-2">
             <Usb className="h-4 w-4" aria-hidden="true" />
             USB
+          </TabsTrigger>
+          <TabsTrigger value="remote" className="flex items-center gap-2">
+            <Smartphone className="h-4 w-4" aria-hidden="true" />
+            Remote Phone
           </TabsTrigger>
           <TabsTrigger value="upload" className="flex items-center gap-2">
             <Upload className="h-4 w-4" aria-hidden="true" />
