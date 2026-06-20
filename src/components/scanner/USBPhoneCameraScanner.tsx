@@ -290,11 +290,11 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
                     <>
                       <li>• Plug your iPhone into your Mac with a USB cable, unlock it, and tap "Trust"</li>
                       <li>• In Chrome or Safari, select <em>iPhone</em> or <em>Continuity Camera</em> from the select list above</li>
-                      <li>• <strong>No third-party apps (like Camo or EpocCam) are required!</strong> macOS and iOS handle this natively.</li>
+                      <li>• <strong>No third-party apps (like external camera or EpocCam) are required!</strong> macOS and iOS handle this natively.</li>
                     </>
                   ) : (
                     <>
-                      <li>• If you don't have webcam bridge apps (like Camo/EpocCam/DroidCam) installed on your PC, try our built-in <strong>Remote Phone</strong> tab above!</li>
+                      <li>• If you don't have webcam bridge apps (like external camera/EpocCam/DroidCam) installed on your PC, try our built-in <strong>Remote Phone</strong> tab above!</li>
                       <li>• Otherwise, connect your iPhone via USB, unlock it, open your webcam utility app, and refresh devices above.</li>
                     </>
                   )}
