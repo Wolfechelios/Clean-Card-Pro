@@ -142,10 +142,10 @@ export function CardVerifyDialog({
               image_url = imageRes.value.data.imageUrl;
             }
 
-            if (priceRes.status === "fulfilled") {
-              market_price = priceRes.value.price ?? priceRes.value.marketPrice ?? market_price ?? null;
-              psa10_price = priceRes.value.psa10Price ?? null;
-            }
+             if (priceRes.status === "fulfilled") {
+               market_price = priceRes.value.raw ?? priceRes.value.suggested ?? market_price ?? null;
+               psa10_price = priceRes.value.psa10 ?? null;
+             }
           } catch {
             // keep partial results
           }
