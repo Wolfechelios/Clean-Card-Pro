@@ -31,4 +31,4 @@ The scanner now favors standard browser camera APIs instead of third-party camer
 - `facingMode: environment` as the fallback for phone/rear camera behavior.
 - Direct camera capability detection for torch, focus, and zoom.
 
-The device detector no longer treats Camo as a preferred/expected phone camera path.
+The device detector no longer treats external camera as a preferred/expected phone camera path.

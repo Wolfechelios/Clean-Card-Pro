@@ -290,7 +290,7 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
                     <>
                       <li>• Plug your iPhone into your Mac with a USB cable, unlock it, and tap "Trust"</li>
                       <li>• In Chrome or Safari, select <em>iPhone</em> or <em>Continuity Camera</em> above</li>
-                      <li>• Camo is intentionally not listed or recommended</li>
+                      <li>• external camera is intentionally not listed or recommended</li>
                     </>
                   ) : (
                     <>

@@ -270,7 +270,7 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
               Connect Your Phone
             </h4>
             <ul className="text-sm text-muted-foreground space-y-1">
-              <li>• Install a USB webcam app on your phone (DroidCam, Iriun, Camo, EpocCam)</li>
+              <li>• Install a USB webcam app on your phone (DroidCam, Iriun, external camera, EpocCam)</li>
               <li>• Connect your phone to your computer via USB</li>
               <li>• Open the app on your phone and enable USB mode</li>
               <li>• Click the refresh button to detect your phone camera</li>

@@ -83,7 +83,7 @@ function isUSBDevice(label: string): boolean {
     l.includes("webcam") ||
     l.includes("droidcam") ||
     l.includes("iriun") ||
-    l.includes("camo") ||
+    l.includes("external-camera") ||
     l.includes("epoccam") ||
     (!l.includes("front") &&
       !l.includes("back") &&
