@@ -1,0 +1,73 @@
+{
+  "name": "Clean Cards - Trading Card Manager",
+  "short_name": "Clean Cards",
+  "description": "AI-powered trading card scanner and collection manager. Scan, identify, and price your cards instantly.",
+  "theme_color": "#000000",
+  "background_color": "#000000",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "start_url": "/?source=pwa",
+  "id": "clean-cards-pwa",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["utilities", "lifestyle", "entertainment"],
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Clean Cards Home"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Scan Card",
+      "short_name": "Scan",
+      "description": "Scan a new trading card",
+      "url": "/scan?source=shortcut",
+      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "My Collection",
+      "short_name": "Collection",
+      "description": "View your card collection",
+      "url": "/collections?source=shortcut",
+      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "View collection stats",
+      "url": "/dashboard?source=shortcut",
+      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
+    }
+  ],
+  "display_override": ["standalone", "minimal-ui"],
+  "handle_links": "preferred",
+  "launch_handler": {
+    "client_mode": ["navigate-existing", "auto"]
+  }
+}

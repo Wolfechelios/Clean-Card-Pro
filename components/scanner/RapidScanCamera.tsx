@@ -145,6 +145,14 @@ export default function RapidScanCamera() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const trackRef = useRef<MediaStreamTrack | null>(null);
+  const [viewfinderMetrics, setViewfinderMetrics] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+    frameWidth: number;
+    frameHeight: number;
+  } | null>(null);
   // Auto-capture stability detector (optional)
   const autoCaptureStateRef = useRef<AutoCaptureState>({
     phase: "idle",
@@ -209,6 +217,85 @@ export default function RapidScanCamera() {
       captureNow();
     },
   });
+
+  const updateViewfinderMetrics = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) {
+      setViewfinderMetrics(null);
+      return;
+    }
+
+    const elementWidth = video.clientWidth;
+    const elementHeight = video.clientHeight;
+    const sourceWidth = video.videoWidth;
+    const sourceHeight = video.videoHeight;
+
+    if (!elementWidth || !elementHeight || !sourceWidth || !sourceHeight) {
+      setViewfinderMetrics(null);
+      return;
+    }
+
+    const elementAspect = elementWidth / elementHeight;
+    const sourceAspect = sourceWidth / sourceHeight;
+
+    let visibleWidth = elementWidth;
+    let visibleHeight = elementHeight;
+    let left = 0;
+    let top = 0;
+
+    // Match the exact rectangle produced by CSS object-contain.
+    // This keeps the guide centered on the live camera image instead of the
+    // letterboxed video element.
+    if (elementAspect > sourceAspect) {
+      visibleHeight = elementHeight;
+      visibleWidth = visibleHeight * sourceAspect;
+      left = (elementWidth - visibleWidth) / 2;
+    } else {
+      visibleWidth = elementWidth;
+      visibleHeight = visibleWidth / sourceAspect;
+      top = (elementHeight - visibleHeight) / 2;
+    }
+
+    const maxFrameWidth = Math.min(visibleWidth * 0.82, 340);
+    const maxFrameHeight = visibleHeight * 0.78;
+    let frameWidth = maxFrameWidth;
+    let frameHeight = frameWidth * 7 / 5;
+
+    if (frameHeight > maxFrameHeight) {
+      frameHeight = maxFrameHeight;
+      frameWidth = frameHeight * 5 / 7;
+    }
+
+    setViewfinderMetrics({ left, top, width: visibleWidth, height: visibleHeight, frameWidth, frameHeight });
+  }, []);
+
+  useEffect(() => {
+    if (isNative) return;
+
+    const video = videoRef.current;
+    if (!video) return;
+
+    updateViewfinderMetrics();
+
+    const onResize = () => updateViewfinderMetrics();
+    const observer = typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(onResize)
+      : null;
+
+    observer?.observe(video);
+    video.addEventListener("loadedmetadata", onResize);
+    video.addEventListener("resize", onResize);
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+
+    return () => {
+      observer?.disconnect();
+      video.removeEventListener("loadedmetadata", onResize);
+      video.removeEventListener("resize", onResize);
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
+    };
+  }, [cameraOn, isNative, updateViewfinderMetrics]);
 
   // Optional hands-free auto-capture: triggers a capture when motion settles and the view becomes stable.
   useEffect(() => {
@@ -1383,7 +1470,7 @@ export default function RapidScanCamera() {
         <video
           ref={videoRef}
           className={cn(
-            "w-full object-contain",
+            "block w-full object-contain",
             "h-[60vh] min-h-[350px] max-h-[600px]",
             "sm:h-[55vh] sm:min-h-[400px] sm:max-h-[580px]",
             "md:h-[520px] md:min-h-0 md:max-h-none",
@@ -1401,10 +1488,24 @@ export default function RapidScanCamera() {
         />
 
         {/* Alignment frame */}
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <div
+          className={cn(
+            "pointer-events-none absolute flex items-center justify-center",
+            !viewfinderMetrics && "inset-0"
+          )}
+          style={viewfinderMetrics ? {
+            left: `${viewfinderMetrics.left}px`,
+            top: `${viewfinderMetrics.top}px`,
+            width: `${viewfinderMetrics.width}px`,
+            height: `${viewfinderMetrics.height}px`,
+          } : undefined}
+        >
           <div 
             className="border-2 border-dashed border-white/30 rounded-lg relative"
-            style={{ width: "min(80%, 320px)", aspectRatio: "5/7" }}
+            style={viewfinderMetrics ? {
+              width: `${viewfinderMetrics.frameWidth}px`,
+              height: `${viewfinderMetrics.frameHeight}px`,
+            } : { width: "min(80%, 320px)", aspectRatio: "5/7" }}
           >
             <div className="absolute -top-1.5 -left-1.5 w-8 h-8 border-t-[3px] border-l-[3px] border-primary/80 rounded-tl-lg" />
             <div className="absolute -top-1.5 -right-1.5 w-8 h-8 border-t-[3px] border-r-[3px] border-primary/80 rounded-tr-lg" />

@@ -4,16 +4,7 @@ import { Check, ChevronDown, ChevronUp } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-const EMPTY_SELECT_ITEM_VALUE = "__cc_empty_select_value__";
-
-const Select = ({ value, defaultValue, onValueChange, ...props }: React.ComponentPropsWithoutRef<typeof SelectPrimitive.Root>) => (
-  <SelectPrimitive.Root
-    value={value === EMPTY_SELECT_ITEM_VALUE ? "" : value}
-    defaultValue={defaultValue === EMPTY_SELECT_ITEM_VALUE ? "" : defaultValue}
-    onValueChange={(nextValue) => onValueChange?.(nextValue === EMPTY_SELECT_ITEM_VALUE ? "" : nextValue)}
-    {...props}
-  />
-);
+const Select = SelectPrimitive.Root;
 
 const SelectGroup = SelectPrimitive.Group;
 
@@ -110,10 +101,9 @@ SelectLabel.displayName = SelectPrimitive.Label.displayName;
 const SelectItem = React.forwardRef<
   React.ElementRef<typeof SelectPrimitive.Item>,
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item>
->(({ className, children, value, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => (
   <SelectPrimitive.Item
     ref={ref}
-    value={value === "" ? EMPTY_SELECT_ITEM_VALUE : value}
     className={cn(
       "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 focus:bg-accent focus:text-accent-foreground",
       className,

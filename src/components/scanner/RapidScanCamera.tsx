@@ -9,7 +9,6 @@
 // - List of scanned cards with price + whether it's already in your library
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { isIPhone17Class, supportsHighResCapture } from "@/lib/deviceClass";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +25,6 @@ import {
   Save,
   Eye,
   SunDim,
-  DollarSign,
 } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 
@@ -64,7 +62,6 @@ import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 import { getMultiFrameAnalyzer, resetMultiFrameAnalyzer, type MultiFrameResult } from "@/lib/foilTrainer/multiFrameAnalyzer";
 import { FoilDetectionOverlay } from "./FoilDetectionOverlay";
 import { getScannerSettings, useScannerSettings, type ScannerSettings } from "@/hooks/use-scanner-settings";
-import { getScanEngineProfile } from "@/lib/performance/scanProfiles";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { hapticTap } from "@/lib/haptics";
 import { useVoiceCommand } from "@/hooks/use-voice-command";
@@ -72,8 +69,12 @@ import { useCameraDevices } from "@/hooks/use-camera-devices";
 import { CameraDeviceSelector } from "./CameraDeviceSelector";
 import { WhiteBalanceControl } from "./WhiteBalanceControl";
 import { playKachingBeep, playShutterBeep, playJackpotBeep, warmUpAudio } from "@/lib/audioBeeps";
-import { RemoteScanDesktop } from "./RemoteScanDesktop";
-import { Smartphone, Monitor } from "lucide-react";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TUNING
+// ─────────────────────────────────────────────────────────────────────────────
+
+const QUEUE_MAX = 500; // large buffer - uses IndexedDB (device storage)
 
 type ScannedCard = {
   id: string;
@@ -127,8 +128,6 @@ function money(n: number | null | undefined) {
 
 export default function RapidScanCamera() {
   const { settings, updateSettings } = useScannerSettings();
-  const engineProfile = useMemo(() => getScanEngineProfile(settings.scanEngineProfile), [settings.scanEngineProfile]);
-  const queueMax = engineProfile.queueMax;
   const isMobile = useIsMobile();
 
 
@@ -146,6 +145,14 @@ export default function RapidScanCamera() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const trackRef = useRef<MediaStreamTrack | null>(null);
+  const [viewfinderMetrics, setViewfinderMetrics] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+    frameWidth: number;
+    frameHeight: number;
+  } | null>(null);
   // Auto-capture stability detector (optional)
   const autoCaptureStateRef = useRef<AutoCaptureState>({
     phase: "idle",
@@ -156,9 +163,6 @@ export default function RapidScanCamera() {
   const autoCapturePrevGrayRef = useRef<Uint8Array | null>(null);
   const autoCaptureLastSampleAtRef = useRef<number>(0);
   const startingCameraRef = useRef(false);
-  // iOS-only: silently retry once if the track dies right after start
-  const iosRestartAttemptedRef = useRef(false);
-  const iosStartedAtRef = useRef(0);
 
   const [cameraOn, setCameraOn] = useState(false);
   const [support, setSupport] = useState<MediaSupport>({ torch: false, focus: false, zoom: false });
@@ -178,32 +182,6 @@ export default function RapidScanCamera() {
   const [autoTimerCountdown, setAutoTimerCountdown] = useState(0);
 
   const autoTimerSeconds = settings.autoTimerIntervalSeconds ?? 2;
-
-  useEffect(() => {
-    if (!cameraOn) {
-      setStatusLine(`${engineProfile.label} ready — ${engineProfile.targetResolution} target, queue ${queueMax}, ${engineProfile.maxWorkers} worker${engineProfile.maxWorkers === 1 ? "" : "s"}`);
-    }
-  }, [cameraOn, engineProfile, queueMax]);
-
-  // Lock screen orientation while the camera is active on mobile, so the
-  // viewfinder doesn't flip when the user accidentally tilts the phone.
-  // Locks to whatever orientation the camera was started in. No-op on iOS
-  // (Safari/Chrome iOS don't support Screen Orientation lock outside fullscreen).
-  useEffect(() => {
-    if (!isMobile || !cameraOn) return;
-    const orientation = (screen as any)?.orientation;
-    if (!orientation?.lock) return;
-    const current: string = orientation.type || "portrait-primary";
-    const lockTo = current.startsWith("landscape") ? "landscape" : "portrait";
-    let locked = false;
-    orientation.lock(lockTo).then(() => { locked = true; }).catch(() => {});
-    return () => {
-      if (locked) {
-        try { orientation.unlock?.(); } catch {}
-      }
-    };
-  }, [isMobile, cameraOn]);
-
 
   const triggerFlash = useCallback(() => {
     if (!settings.flashOnCapture) return;
@@ -239,6 +217,85 @@ export default function RapidScanCamera() {
       captureNow();
     },
   });
+
+  const updateViewfinderMetrics = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) {
+      setViewfinderMetrics(null);
+      return;
+    }
+
+    const elementWidth = video.clientWidth;
+    const elementHeight = video.clientHeight;
+    const sourceWidth = video.videoWidth;
+    const sourceHeight = video.videoHeight;
+
+    if (!elementWidth || !elementHeight || !sourceWidth || !sourceHeight) {
+      setViewfinderMetrics(null);
+      return;
+    }
+
+    const elementAspect = elementWidth / elementHeight;
+    const sourceAspect = sourceWidth / sourceHeight;
+
+    let visibleWidth = elementWidth;
+    let visibleHeight = elementHeight;
+    let left = 0;
+    let top = 0;
+
+    // Match the exact rectangle produced by CSS object-contain.
+    // This keeps the guide centered on the live camera image instead of the
+    // letterboxed video element.
+    if (elementAspect > sourceAspect) {
+      visibleHeight = elementHeight;
+      visibleWidth = visibleHeight * sourceAspect;
+      left = (elementWidth - visibleWidth) / 2;
+    } else {
+      visibleWidth = elementWidth;
+      visibleHeight = visibleWidth / sourceAspect;
+      top = (elementHeight - visibleHeight) / 2;
+    }
+
+    const maxFrameWidth = Math.min(visibleWidth * 0.82, 340);
+    const maxFrameHeight = visibleHeight * 0.78;
+    let frameWidth = maxFrameWidth;
+    let frameHeight = frameWidth * 7 / 5;
+
+    if (frameHeight > maxFrameHeight) {
+      frameHeight = maxFrameHeight;
+      frameWidth = frameHeight * 5 / 7;
+    }
+
+    setViewfinderMetrics({ left, top, width: visibleWidth, height: visibleHeight, frameWidth, frameHeight });
+  }, []);
+
+  useEffect(() => {
+    if (isNative) return;
+
+    const video = videoRef.current;
+    if (!video) return;
+
+    updateViewfinderMetrics();
+
+    const onResize = () => updateViewfinderMetrics();
+    const observer = typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(onResize)
+      : null;
+
+    observer?.observe(video);
+    video.addEventListener("loadedmetadata", onResize);
+    video.addEventListener("resize", onResize);
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+
+    return () => {
+      observer?.disconnect();
+      video.removeEventListener("loadedmetadata", onResize);
+      video.removeEventListener("resize", onResize);
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
+    };
+  }, [cameraOn, isNative, updateViewfinderMetrics]);
 
   // Optional hands-free auto-capture: triggers a capture when motion settles and the view becomes stable.
   useEffect(() => {
@@ -298,15 +355,9 @@ export default function RapidScanCamera() {
       }
     };
 
-    // iOS: defer the RAF readback loop to avoid pressuring the freshly
-    // started camera track during its warm-up window.
-    const isIOSAuto = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const startTimer = setTimeout(() => {
-      raf = requestAnimationFrame(tick);
-    }, isIOSAuto ? 1500 : 0);
+    raf = requestAnimationFrame(tick);
 
     return () => {
-      clearTimeout(startTimer);
       if (raf) cancelAnimationFrame(raf);
       autoCapturePrevGrayRef.current = null;
     };
@@ -334,14 +385,9 @@ export default function RapidScanCamera() {
 
     analyzer.reset();
     setFoilResult(null);
-    // iOS: delay foil sampling until after the camera warm-up window
-    const isIOSFoil = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const startTimer = setTimeout(() => {
-      raf = requestAnimationFrame(tick);
-    }, isIOSFoil ? 1500 : 0);
+    raf = requestAnimationFrame(tick);
 
     return () => {
-      clearTimeout(startTimer);
       if (raf) cancelAnimationFrame(raf);
     };
   }, [isNative, cameraOn, settings.foilDetectionEnabled]);
@@ -508,93 +554,6 @@ export default function RapidScanCamera() {
     return cards.reduce((sum, c) => sum + (c.status === "completed" ? c.value || 0 : 0), 0);
   }, [cards]);
 
-  // Number of completed cards still missing a price
-  const missingPriceCount = useMemo(() => {
-    return cards.filter(
-      (c) => c.status === "completed" && (c.value == null) && c.cardName
-    ).length;
-  }, [cards]);
-
-  const [findingPrices, setFindingPrices] = useState(false);
-
-  // Manually fetch prices for any completed cards missing them.
-  // Hits fetch-card-prices, then updates UI state, recentScans, and DB row if saved.
-  const findPricesNow = useCallback(async () => {
-    if (findingPrices) return;
-    const targets = cards.filter(
-      (c) => c.status === "completed" && c.value == null && c.cardName
-    );
-    if (targets.length === 0) {
-      toast.info("All scanned cards already have prices");
-      return;
-    }
-    setFindingPrices(true);
-    toast.loading(`Looking up ${targets.length} prices...`, { id: "find-prices" });
-    let updated = 0;
-    const BATCH = 4;
-    try {
-      for (let i = 0; i < targets.length; i += BATCH) {
-        const batch = targets.slice(i, i + BATCH);
-        await Promise.all(
-          batch.map(async (card) => {
-            updateCard(card.id, { priceFetching: true });
-            try {
-              const { data, error } = await supabase.functions.invoke(
-                "fetch-card-prices",
-                {
-                  body: {
-                    cardName: card.cardName,
-                    cardSet: card.cardSet ?? null,
-                    cardNumber: card.cardNumber ?? null,
-                    gameType: card.gameType ?? null,
-                    sportType: card.sportType ?? null,
-                    condition: null,
-                  },
-                }
-              );
-              if (error) throw error;
-              const raw = money((data as any)?.raw ?? (data as any)?.suggested ?? null);
-              const psa10 = money((data as any)?.psa10 ?? null);
-              updateCard(card.id, {
-                value: raw,
-                psa10Price: psa10,
-                priceFetching: false,
-              });
-              try {
-                updateRecentScan(card.id, { price: raw, psa10Price: psa10 });
-              } catch {}
-              if (card.dbId && raw != null) {
-                try {
-                  await supabase
-                    .from("cards")
-                    .update({
-                      current_price_raw: raw,
-                      current_price_psa10: psa10,
-                      suggested_price: raw,
-                      last_price_update: new Date().toISOString(),
-                    })
-                    .eq("id", card.dbId);
-                } catch {}
-              }
-              if (raw != null) updated++;
-            } catch (e) {
-              console.warn("[FindPrices] Lookup failed for", card.cardName, e);
-              updateCard(card.id, { priceFetching: false });
-            }
-          })
-        );
-      }
-      toast.success(`Found prices for ${updated} of ${targets.length} cards`, {
-        id: "find-prices",
-      });
-    } catch (e) {
-      console.error("[FindPrices] Batch failed:", e);
-      toast.error("Price lookup failed", { id: "find-prices" });
-    } finally {
-      setFindingPrices(false);
-    }
-  }, [cards, findingPrices, updateCard]);
-
   // ───────────────────────────────────────────────────────────────────────────
   // CAMERA
   // ───────────────────────────────────────────────────────────────────────────
@@ -606,104 +565,70 @@ export default function RapidScanCamera() {
     startingCameraRef.current = true;
 
     try {
-      const buildConstraints = (w: number, h: number): MediaStreamConstraints => {
-        const video: MediaTrackConstraints = {
-          width: { ideal: w },
-          height: { ideal: h },
-          frameRate: { ideal: 30, max: 60 },
-        };
-        if (selectedDeviceId) {
-          video.deviceId = { exact: selectedDeviceId };
-        } else {
-          video.facingMode = "environment";
-        }
-        return { video, audio: false };
+      const videoConstraints: MediaTrackConstraints = {
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+      };
+      
+      if (selectedDeviceId) {
+        videoConstraints.deviceId = { exact: selectedDeviceId };
+      } else {
+        videoConstraints.facingMode = "environment";
+      }
+      
+      const constraints: MediaStreamConstraints = {
+        video: videoConstraints,
+        audio: false,
       };
 
-      // NEVER put advanced focus/exposure/whiteBalance modes in getUserMedia —
-      // iOS WebKit silently ends the track if any one is unsupported, which
-      // made the viewfinder go black after ~1s.
-      // Resolution ladder: more native pixels = sharper digital zoom. iPhone 17
-      // class + Android flagships + desktops can try 4K → QHD → 1080p → 720p.
-      // Older iOS and low-end Android stay on 1080p first to avoid the
-      // silent-track-end bug / OOM.
-      const canTry4K = supportsHighResCapture();
-      const ladder: Array<[number, number]> = canTry4K
-        ? [[3840, 2160], [2560, 1440], [1920, 1080], [1280, 720]]
-        : [[1920, 1080], [1280, 720], [640, 480]];
-      let stream: MediaStream | null = null;
-      for (const [lw, lh] of ladder) {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia(buildConstraints(lw, lh));
-          console.log(`[Camera] stream acquired at ${lw}x${lh}`);
-          break;
-        } catch (e) {
-          console.warn(`[Camera] ${lw}x${lh} failed, trying lower`, e);
-        }
-      }
-      if (!stream) throw new Error("Failed to acquire camera stream at any resolution");
-
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
       trackRef.current = getVideoTrack(stream);
       setSupport(detectSupport(trackRef.current));
 
-      // Auto-recover if the track dies right after start (iOS WebKit edge case).
-      // CRITICAL: only react if the ending track is still the active one —
-      // StrictMode (dev) and re-mounts can end a previous stream after a new
-      // one is already live, which would otherwise flip cameraOn to false.
-      const track = trackRef.current;
-      if (track) {
-        const handleEnded = () => {
-          if (trackRef.current !== track) {
-            console.log("[Camera] stale track ended (ignored)");
-            return;
-          }
-          console.warn("[Camera] active track ended unexpectedly");
-          setCameraOn(false);
-          setStatusLine("Camera dropped — tap Start to retry");
-        };
-        track.addEventListener?.("ended", handleEnded);
-        track.addEventListener?.("mute", () => {
-          if (trackRef.current === track) console.warn("[Camera] active track muted");
-        });
+      if (settings.manualFocusLock) {
+        try {
+          const track = trackRef.current;
+          await track?.applyConstraints?.({ advanced: [{ focusMode: "manual" } as MediaTrackConstraintSet] });
+        } catch {
+          // ignore
+        }
       }
-      // Tells us in console exactly when the iPhone iOS lifecycle hits each step.
-      console.log(`[Camera] getUserMedia ok, track=${track?.id?.slice(0, 8)} live=${track?.readyState}`);
 
       const v = videoRef.current;
       if (!v) {
         startingCameraRef.current = false;
         return;
       }
-
+      
       if (v.srcObject) {
         const oldStream = v.srcObject as MediaStream;
-        if (oldStream !== stream) oldStream.getTracks().forEach(t => t.stop());
+        oldStream.getTracks().forEach(t => t.stop());
       }
-
+      
       v.srcObject = stream;
-
+      
       await new Promise<void>((resolve, reject) => {
         const onCanPlay = () => {
           v.removeEventListener('canplay', onCanPlay);
           v.removeEventListener('error', onError);
           resolve();
         };
-        const onError = (_e: Event) => {
+        const onError = (e: Event) => {
           v.removeEventListener('canplay', onCanPlay);
           v.removeEventListener('error', onError);
           reject(new Error('Video failed to load'));
         };
         v.addEventListener('canplay', onCanPlay);
         v.addEventListener('error', onError);
-
+        
         if (v.readyState >= 3) {
           v.removeEventListener('canplay', onCanPlay);
           v.removeEventListener('error', onError);
           resolve();
         }
       });
-
+      
       try {
         await v.play();
       } catch (playErr: any) {
@@ -712,62 +637,22 @@ export default function RapidScanCamera() {
         }
       }
 
-      const settings0 = track?.getSettings?.();
-      console.log(`[Camera] started ${settings0?.width ?? "?"}×${settings0?.height ?? "?"} @ ${settings0?.frameRate ?? "?"}fps`);
-
       setCameraOn(true);
       setStatusLine("Camera live — tap Capture for each card");
-
+      
       useGlobalProcessControl.getState().setScannerActive(true);
 
-      const isIOSStart = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-      iosStartedAtRef.current = Date.now();
-      // After 4s of stable preview on iOS, allow the silent-retry budget to reset
-      // so a later genuine drop can still self-heal once.
-      if (isIOSStart) {
-        setTimeout(() => {
-          if (trackRef.current === track && track?.readyState === "live") {
-            iosRestartAttemptedRef.current = false;
-          }
-        }, 4000);
-      }
+      detectZoomCapabilities();
+      clarityZoom.reset();
 
-      // On iOS, defer capability probes until after the camera warm-up window
-      // so getCapabilities() doesn't compete with the stream stabilizing.
-      const runCapabilityProbes = () => {
-        detectZoomCapabilities();
-        clarityZoom.reset();
-      };
-      if (isIOSStart) {
-        setTimeout(runCapabilityProbes, 800);
-      } else {
-        runCapabilityProbes();
-      }
-
-      // Apply mode constraints AFTER the stream is live, each isolated so a
-      // single unsupported key cannot kill the track.
-      // CRITICAL: iOS 26 WebKit (iPhone 17 Pro) terminates the MediaStreamTrack
-      // a few seconds after start if we hammer it with advanced applyConstraints
-      // — even when individually wrapped. iOS rear cameras default to continuous
-      // AF/AE/AWB, so we skip the whole block on iOS.
-      const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-      if (!isIOS) {
-        const safeApply = async (set: MediaTrackConstraintSet) => {
-          try { await track?.applyConstraints?.({ advanced: [set] }); } catch {}
-        };
-        await safeApply({ focusMode: "continuous" } as MediaTrackConstraintSet);
-        await safeApply({ exposureMode: "continuous" } as MediaTrackConstraintSet);
-        await safeApply({ whiteBalanceMode: "continuous" } as MediaTrackConstraintSet);
-
-        if (settings.manualFocusLock) {
-          await safeApply({ focusMode: "manual" } as MediaTrackConstraintSet);
-        } else {
-          try {
-            await applyFastAutofocus(stream, true);
-          } catch {
-            await safeApply({ focusMode: "continuous" } as MediaTrackConstraintSet);
-          }
-        }
+      try {
+        await applyFastAutofocus(stream, true);
+      } catch {
+        try {
+          await trackRef.current?.applyConstraints({
+            advanced: [{ focusMode: "continuous" } as any],
+          });
+        } catch {}
       }
     } catch (err: any) {
       setStatusLine(`Camera error: ${err?.message ?? err}`);
@@ -789,7 +674,6 @@ export default function RapidScanCamera() {
     streamRef.current = null;
     trackRef.current = null;
     setCameraOn(false);
-    iosRestartAttemptedRef.current = false;
 
     useGlobalProcessControl.getState().setScannerActive(false);
 
@@ -808,11 +692,7 @@ export default function RapidScanCamera() {
     }
   }
 
-  // Cleanup: stop camera & timers on unmount.
-  // CRITICAL: if the user navigates away mid-scan without pressing Stop,
-  // any queued captures would otherwise sit in IndexedDB forever and never
-  // get processed/priced. Kick off the queue processor on unmount so the
-  // images they snapped get identified in the background.
+  // Cleanup: stop camera & timers on unmount
   useEffect(() => {
     return () => {
       try {
@@ -823,15 +703,6 @@ export default function RapidScanCamera() {
         }
         useGlobalProcessControl.getState().setScannerActive(false);
       } catch {}
-      // Fire-and-forget: drain anything the user captured before leaving
-      idbCountQueued()
-        .then((n) => {
-          if (n > 0) {
-            console.log(`[RapidScan] Unmount with ${n} queued items — starting processor`);
-            useQueueProcessor.getState().start(true);
-          }
-        })
-        .catch(() => {});
     };
   }, []);
 
@@ -899,12 +770,10 @@ export default function RapidScanCamera() {
     [support.focus]
   );
 
-  // Auto-focus on camera start (non-iOS only — iOS terminates the track
-  // when we issue extra applyConstraints calls right after start).
+  // Auto-focus on camera start
   useEffect(() => {
     if (!cameraOn || !trackRef.current) return;
-    if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) return;
-
+    
     const triggerAutoFocus = async () => {
       try {
         await trackRef.current?.applyConstraints({
@@ -914,7 +783,7 @@ export default function RapidScanCamera() {
         // Ignore
       }
     };
-
+    
     triggerAutoFocus();
   }, [cameraOn]);
 
@@ -950,8 +819,8 @@ export default function RapidScanCamera() {
 
     try {
       const current = await idbCount();
-      if (current >= queueMax) {
-        toast.error(`Buffer full (${queueMax}). Let it process or clear.`);
+      if (current >= QUEUE_MAX) {
+        toast.error(`Buffer full (${QUEUE_MAX}). Let it process or clear.`);
         setBusyCapture(false);
         return;
       }
@@ -978,12 +847,7 @@ export default function RapidScanCamera() {
         ...prev,
       ]);
 
-      const compressedBlob = await compressImageForQueue(
-        result.blob,
-        isIPhone17Class()
-          ? { maxWidth: 2400, maxHeight: 2400, quality: 0.92 }
-          : undefined,
-      );
+      const compressedBlob = await compressImageForQueue(result.blob);
 
       await idbAdd({
         id,
@@ -1034,8 +898,8 @@ export default function RapidScanCamera() {
 
     try {
       const current = await idbCount();
-      if (current >= queueMax) {
-        toast.error(`Buffer full (${queueMax}). Let it process or clear.`);
+      if (current >= QUEUE_MAX) {
+        toast.error(`Buffer full (${QUEUE_MAX}). Let it process or clear.`);
         setBusyCapture(false);
         return;
       }
@@ -1052,75 +916,20 @@ export default function RapidScanCamera() {
       c.width = w;
       c.height = h;
 
-      // iPhone 17 Pro captures in Display P3 wide gamut. Drawing a P3 video
-      // into a default (sRGB) canvas desaturates/shifts colors. Request a
-      // P3 canvas on capable devices so the JPEG matches the live preview.
-      const iphone17 = isIPhone17Class();
-      let ctx = c.getContext("2d", {
-        willReadFrequently: false,
-        colorSpace: iphone17 ? "display-p3" : "srgb",
-      } as CanvasRenderingContext2DSettings) as CanvasRenderingContext2D | null;
-      if (!ctx) {
-        // Fallback for browsers that reject the colorSpace option
-        ctx = c.getContext("2d", { willReadFrequently: false });
-      }
+      const ctx = c.getContext("2d", { willReadFrequently: false });
       if (!ctx) throw new Error("Canvas not available");
 
       ctx.drawImage(v, 0, 0, w, h);
-
-      // ── Blank/whiteout frame guard ──
-      // Sample a small downscale and reject frames that are nearly uniform white
-      // (camera not focused on a card, blown-out highlights, lens covered, etc.).
-      try {
-        const sw = 64, sh = 64;
-        const probe = document.createElement("canvas");
-        probe.width = sw; probe.height = sh;
-        const pctx = probe.getContext("2d", { willReadFrequently: true });
-        if (pctx) {
-          pctx.drawImage(c, 0, 0, sw, sh);
-          const { data } = pctx.getImageData(0, 0, sw, sh);
-          let sum = 0, sumSq = 0; const n = sw * sh;
-          for (let i = 0; i < data.length; i += 4) {
-            const lum = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
-            sum += lum; sumSq += lum * lum;
-          }
-          const mean = sum / n;
-          const variance = sumSq / n - mean * mean;
-          const std = Math.sqrt(Math.max(0, variance));
-          // Whiteout: very bright AND very low variance (no card edges/text/art).
-          if (mean > 225 && std < 12) {
-            toast.error("Blank frame — point at a card and try again");
-            setBusyCapture(false);
-            return;
-          }
-          // Blackout: lens covered.
-          if (mean < 18 && std < 10) {
-            toast.error("Dark frame — check the lens and try again");
-            setBusyCapture(false);
-            return;
-          }
-        }
-      } catch {
-        // If probing fails, fall through and capture anyway.
-      }
-
-      // iPhone 17 class has best-in-class ISP — skip JS color/glare passes
-      // because they soften the edges OCR depends on.
-      if (!iphone17) {
-        applyAutoColorBalance(ctx, c, 0.5);
-        applyAntiGlare(ctx, c, 0.2);
-      }
-
+      applyAutoColorBalance(ctx, c, 0.5);
+      applyAntiGlare(ctx, c, 0.2);
 
       if (settings.autoZoomEnabled) {
         clarityZoom.analyzeAndAdjustZoom(v).catch(() => {});
       }
 
-      const captureQuality = iphone17 ? 0.98 : 0.95;
       const blob: Blob | null = await new Promise((resolve) =>
-        c.toBlob(resolve, "image/jpeg", captureQuality)
+        c.toBlob(resolve, "image/jpeg", 0.95)
       );
-
       if (!blob) throw new Error("Failed to capture image");
 
       const id = safeUUID();
@@ -1138,13 +947,7 @@ export default function RapidScanCamera() {
         ...prev,
       ]);
 
-      // On iPhone 17 class, keep more detail for OCR (longer edge ~2400px @ q0.92).
-      const compressedBlob = await compressImageForQueue(
-        blob,
-        iphone17
-          ? { maxWidth: 2400, maxHeight: 2400, quality: 0.92 }
-          : undefined,
-      );
+      const compressedBlob = await compressImageForQueue(blob);
       
       await idbAdd({
         id,
@@ -1241,7 +1044,7 @@ export default function RapidScanCamera() {
   // ───────────────────────────────────────────────────────────────────────────
 
   function ensureWorkersRunning() {
-    queueProcessor.start(true);
+    queueProcessor.start();
   }
 
   // Sync UI state from processor's last processed card
@@ -1287,60 +1090,31 @@ export default function RapidScanCamera() {
     requestRefreshMeta();
   }, [queueProcessor.lastProcessedCard, updateCard, requestRefreshMeta]);
 
-  // Sync cards from recent-scan-added events (background queue processing).
-  // Uses upsert semantics so background-completed scans (e.g. captured from
-  // another route or while this component was unmounted) appear in the list.
+  // Sync cards from recent-scan-added events (background queue processing)
   useEffect(() => {
     const handleRecentScanAdded = () => {
       const recentScans = getRecentScans();
-      if (recentScans.length === 0) return;
-      setCards((prev) => {
-        const byId = new Map(prev.map((c) => [c.id, c]));
-        for (const scan of recentScans) {
-          const patch: Partial<ScannedCard> = {
-            status: "completed",
-            cardName: scan.card_name,
-            cardSet: scan.card_set || undefined,
-            cardNumber: scan.card_number || undefined,
-            playerName: scan.player_name || undefined,
-            rarity: scan.rarity || undefined,
-            gameType: scan.gameType || undefined,
-            sportType: scan.sportType || undefined,
-            value: scan.price ?? undefined,
-            psa10Price: scan.psa10Price ?? undefined,
-            imageUrl: scan.image_url,
-            isInLibrary: scan.isInLibrary,
-            libraryQuantity: scan.libraryQuantity,
-            dbId: scan.dbId || undefined,
-            priceFetching: false,
-            year: scan.year || undefined,
-            team: scan.team || undefined,
-            manufacturer: scan.manufacturer || undefined,
-          };
-          const existing = byId.get(scan.id);
-          if (existing) {
-            byId.set(scan.id, { ...existing, ...patch });
-          } else {
-            // Inject scans processed in background (different route/unmounted)
-            byId.set(scan.id, {
-              id: scan.id,
-              preview: scan.image_url,
-              ...patch,
-            } as ScannedCard);
-          }
-        }
-        // Preserve recentScans ordering (newest first); append any in-session
-        // cards not present in recentScans (still queued/processing).
-        const ordered: ScannedCard[] = [];
-        const consumed = new Set<string>();
-        for (const scan of recentScans) {
-          const c = byId.get(scan.id);
-          if (c) { ordered.push(c); consumed.add(scan.id); }
-        }
-        for (const c of prev) {
-          if (!consumed.has(c.id)) ordered.push(c);
-        }
-        return ordered;
+      recentScans.forEach((scan) => {
+        updateCard(scan.id, {
+          status: "completed",
+          cardName: scan.card_name,
+          cardSet: scan.card_set || undefined,
+          cardNumber: scan.card_number || undefined,
+          playerName: scan.player_name || undefined,
+          rarity: scan.rarity || undefined,
+          gameType: scan.gameType || undefined,
+          sportType: scan.sportType || undefined,
+          value: scan.price ?? undefined,
+          psa10Price: scan.psa10Price ?? undefined,
+          imageUrl: scan.image_url,
+          isInLibrary: scan.isInLibrary,
+          libraryQuantity: scan.libraryQuantity,
+          dbId: scan.dbId || undefined,
+          priceFetching: false,
+          year: scan.year || undefined,
+          team: scan.team || undefined,
+          manufacturer: scan.manufacturer || undefined,
+        });
       });
     };
 
@@ -1381,16 +1155,13 @@ export default function RapidScanCamera() {
       try {
         updateCard(id, { priceFetching: true });
 
-        const safeImageUrl = c.imageUrl && !c.imageUrl.startsWith("blob:") ? c.imageUrl : "";
         const inserted = await insertCardDual({
           user_id: userId,
           card_name: c.cardName,
           card_set: c.cardSet ?? null,
           card_number: c.cardNumber ?? null,
           rarity: c.rarity ?? null,
-          image_url: safeImageUrl,
-          image_status: safeImageUrl ? "stored" : "missing",
-          image_search_status: safeImageUrl ? "found" : "missing",
+          image_url: c.imageUrl ?? null,
           current_price_raw: c.value ?? null,
           suggested_price: c.value ?? null,
         } as any);
@@ -1405,16 +1176,13 @@ export default function RapidScanCamera() {
         updateRecentScan(id, { dbId: inserted.id, isInLibrary: true, libraryQuantity: Math.max((c.libraryQuantity || 0) + 1, 1) });
 
         toast.success("Saved to library");
-
-        // Clear the card from the rapid-scan queue/list once it's safely in the library
-        await removeCard(id);
       } catch (e: any) {
         console.error(e);
         updateCard(id, { priceFetching: false });
         toast.error(e?.message ?? "Failed to save");
       }
     },
-    [cards, updateCard, userId, removeCard]
+    [cards, updateCard, userId]
   );
 
   const handleAddAllToLibrary = useCallback(async () => {
@@ -1436,16 +1204,13 @@ export default function RapidScanCamera() {
       try {
         updateCard(c.id, { priceFetching: true });
 
-        const safeImageUrl = c.imageUrl && !c.imageUrl.startsWith("blob:") ? c.imageUrl : "";
         const inserted = await insertCardDual({
           user_id: userId,
           card_name: c.cardName!,
           card_set: c.cardSet ?? null,
           card_number: c.cardNumber ?? null,
           rarity: c.rarity ?? null,
-          image_url: safeImageUrl,
-          image_status: safeImageUrl ? "stored" : "missing",
-          image_search_status: safeImageUrl ? "found" : "missing",
+          image_url: c.imageUrl ?? null,
           current_price_raw: c.value ?? null,
           suggested_price: c.value ?? null,
         } as any);
@@ -1459,8 +1224,6 @@ export default function RapidScanCamera() {
         });
 
         added++;
-        // Clear from rapid scan queue once persisted
-        await removeCard(c.id);
       } catch (e: any) {
         console.error(`Failed to add ${c.cardName}:`, e);
         updateCard(c.id, { priceFetching: false });
@@ -1468,7 +1231,7 @@ export default function RapidScanCamera() {
     }
 
     toast.success(`Added ${added} of ${newCards.length} cards to library`, { id: "bulk-add" });
-  }, [cards, updateCard, userId, removeCard]);
+  }, [cards, updateCard, userId]);
 
   // ───────────────────────────────────────────────────────────────────────────
   // REMOVE FROM LIBRARY (for remove mode)
@@ -1590,7 +1353,7 @@ export default function RapidScanCamera() {
       )}
     >
       {/* ── Compact top bar ── */}
-      <div className="flex flex-col gap-3 px-1 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-center justify-between gap-2 px-1">
         <div className="flex items-center gap-2">
           <Select
             value={settings.gameTypeFilter}
@@ -1671,67 +1434,6 @@ export default function RapidScanCamera() {
         </div>
       </div>
 
-      {/* ── Camera source: this computer vs paired iPhone ── */}
-      <div className="flex items-center justify-between gap-2 rounded-xl border bg-card/60 px-3 py-2">
-        <div className="text-xs text-muted-foreground">
-          {settings.rapidScanSource === "remote"
-            ? "Photos taken on your paired iPhone will be auto-queued and priced here."
-            : "Using this computer's camera for rapid scan."}
-        </div>
-        <div className="flex rounded-lg border overflow-hidden">
-          <Button
-            variant={settings.rapidScanSource === "local" ? "default" : "ghost"}
-            size="sm"
-            className="rounded-none border-0 h-8 px-3 text-xs"
-            onClick={() => updateSettings({ rapidScanSource: "local" })}
-          >
-            <Monitor className="h-3.5 w-3.5 mr-1.5" /> This computer
-          </Button>
-          <Button
-            variant={settings.rapidScanSource === "remote" ? "default" : "ghost"}
-            size="sm"
-            className="rounded-none border-0 h-8 px-3 text-xs"
-            onClick={() => {
-              if (cameraOn) void stopCamera();
-              updateSettings({ rapidScanSource: "remote" });
-            }}
-          >
-            <Smartphone className="h-3.5 w-3.5 mr-1.5" /> iPhone (remote)
-          </Button>
-        </div>
-      </div>
-
-      {settings.rapidScanSource === "remote" ? (
-        <RemoteScanDesktop userId={userId ?? ""} onImageReceived={() => { /* queued via shared idbQueue */ }} />
-      ) : (
-      <>
-      {!isNative && (
-        <div className="rounded-xl border bg-card/80 p-3 shadow-sm">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0 space-y-0.5">
-              <div className="text-sm font-semibold text-foreground">Camera Selection</div>
-              <p className="text-xs text-muted-foreground">
-                Choose external camera, iPad, USB, or built-in cameras before starting rapid scan.
-              </p>
-            </div>
-            <CameraDeviceSelector
-              devices={cameraDevices}
-              selectedDeviceId={selectedDeviceId}
-              onDeviceChange={async (deviceId) => {
-                setSelectedDeviceId(deviceId);
-                if (cameraOn) {
-                  await stopCamera();
-                  window.setTimeout(() => void startCamera(), 100);
-                }
-              }}
-              onRefresh={refreshDevices}
-              isLoading={devicesLoading}
-              className="sm:items-end"
-            />
-          </div>
-        </div>
-      )}
-
       {/* Anomaly alert */}
       {isAnomalyPaused && (
         <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-3">
@@ -1768,7 +1470,7 @@ export default function RapidScanCamera() {
         <video
           ref={videoRef}
           className={cn(
-            "w-full object-contain",
+            "block w-full object-contain",
             "h-[60vh] min-h-[350px] max-h-[600px]",
             "sm:h-[55vh] sm:min-h-[400px] sm:max-h-[580px]",
             "md:h-[520px] md:min-h-0 md:max-h-none",
@@ -1776,17 +1478,7 @@ export default function RapidScanCamera() {
             "landscape:h-[65vh] landscape:min-h-[280px] landscape:max-h-[480px]",
             usingDigitalZoom && zoomLevel > 1 && "transition-transform duration-100"
           )}
-          style={
-            usingDigitalZoom && zoomLevel > 1
-              ? {
-                  transform: `translateZ(0) scale(${zoomLevel})`,
-                  transformOrigin: "center center",
-                  willChange: "transform",
-                  imageRendering: "high-quality" as any,
-                  backfaceVisibility: "hidden",
-                }
-              : undefined
-          }
+          style={usingDigitalZoom && zoomLevel > 1 ? { transform: `scale(${zoomLevel})` } : undefined}
           onClick={handleVideoTap}
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
@@ -1796,10 +1488,24 @@ export default function RapidScanCamera() {
         />
 
         {/* Alignment frame */}
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <div
+          className={cn(
+            "pointer-events-none absolute flex items-center justify-center",
+            !viewfinderMetrics && "inset-0"
+          )}
+          style={viewfinderMetrics ? {
+            left: `${viewfinderMetrics.left}px`,
+            top: `${viewfinderMetrics.top}px`,
+            width: `${viewfinderMetrics.width}px`,
+            height: `${viewfinderMetrics.height}px`,
+          } : undefined}
+        >
           <div 
             className="border-2 border-dashed border-white/30 rounded-lg relative"
-            style={{ width: "min(80%, 320px)", aspectRatio: "5/7" }}
+            style={viewfinderMetrics ? {
+              width: `${viewfinderMetrics.frameWidth}px`,
+              height: `${viewfinderMetrics.frameHeight}px`,
+            } : { width: "min(80%, 320px)", aspectRatio: "5/7" }}
           >
             <div className="absolute -top-1.5 -left-1.5 w-8 h-8 border-t-[3px] border-l-[3px] border-primary/80 rounded-tl-lg" />
             <div className="absolute -top-1.5 -right-1.5 w-8 h-8 border-t-[3px] border-r-[3px] border-primary/80 rounded-tr-lg" />
@@ -1820,29 +1526,6 @@ export default function RapidScanCamera() {
         <canvas ref={canvasRef} className="hidden" />
         {flashActive && <div className="capture-flash" />}
 
-        {/* ── Idle / error overlay: shown when camera is not running ── */}
-        {!isNative && !cameraOn && (
-          <button
-            type="button"
-            onClick={() => { warmUpAudio(); void startCamera(); }}
-            className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/70 text-white px-6 text-center"
-          >
-            <div className="h-16 w-16 rounded-full border-2 border-primary/70 flex items-center justify-center bg-primary/15">
-              <Camera className="h-8 w-8 text-primary" />
-            </div>
-            <div className="text-base font-semibold">Tap to start camera</div>
-            {statusLine && (statusLine.toLowerCase().includes("error") || statusLine.toLowerCase().includes("dropped")) ? (
-              <div className="max-w-xs text-xs text-white bg-destructive/80 rounded-md px-3 py-2">
-                {statusLine}
-              </div>
-            ) : (
-              <div className="max-w-xs text-xs text-white/70">
-                Your browser will ask for camera permission. Allow it to start scanning.
-              </div>
-            )}
-          </button>
-        )}
-
         {/* Torch dimmer overlay */}
         {torchOn && torchDimmer < 100 && (
           <div 
@@ -1852,7 +1535,7 @@ export default function RapidScanCamera() {
         )}
 
         {/* ── Overlay: top-left camera selector pill ── */}
-        {!isNative && cameraOn && (
+        {!isNative && cameraDevices.length > 1 && cameraOn && (
           <div className="absolute top-3 left-3 z-10">
             <CameraDeviceSelector
               devices={cameraDevices}
@@ -1861,92 +1544,32 @@ export default function RapidScanCamera() {
                 setSelectedDeviceId(deviceId);
                 if (cameraOn) {
                   await stopCamera();
-                  window.setTimeout(() => void startCamera(), 100);
+                  setTimeout(() => startCamera(), 100);
                 }
               }}
               onRefresh={refreshDevices}
               isLoading={devicesLoading}
-              className="rounded-xl bg-black/60 p-2 backdrop-blur-sm"
+              className="bg-black/60 backdrop-blur-sm rounded-full"
             />
           </div>
         )}
 
-        {/* ── Overlay: right-side zoom controls ── */}
-        {cameraOn && zoomCapabilities.supported && (
-          <div className="absolute top-1/2 right-3 z-10 -translate-y-1/2 flex flex-col items-center gap-2 rounded-full bg-black/60 backdrop-blur-sm p-2">
+        {/* ── Overlay: top-right zoom pill ── */}
+        {cameraOn && zoomCapabilities.supported && zoomLevel > 1 && (
+          <div className="absolute top-3 right-3 z-10">
             <button
-              type="button"
-              onClick={() => {
-                const max = zoomCapabilities.max ?? 5;
-                setZoom(Math.min(max, (zoomLevel || 1) + 0.5));
-              }}
-              disabled={zoomLevel >= (zoomCapabilities.max ?? 5)}
-              className="h-9 w-9 rounded-full bg-white/15 text-white text-lg font-bold flex items-center justify-center hover:bg-white/25 disabled:opacity-40"
-              aria-label="Zoom in"
-            >
-              +
-            </button>
-            <button
-              type="button"
               onClick={() => setZoom(1)}
-              className="text-[11px] text-white font-semibold tabular-nums px-1"
-              aria-label="Reset zoom"
+              className="bg-black/60 backdrop-blur-sm rounded-full px-3 py-1.5 flex items-center gap-1.5 hover:bg-black/80 transition-colors"
             >
-              {(zoomLevel || 1).toFixed(1)}×
+              <span className="text-xs text-white font-medium">
+                {zoomLevel.toFixed(1)}×
+              </span>
+              {usingDigitalZoom && (
+                <span className="text-[10px] text-white/50">digital</span>
+              )}
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                const min = zoomCapabilities.min ?? 1;
-                setZoom(Math.max(min, (zoomLevel || 1) - 0.5));
-              }}
-              disabled={zoomLevel <= (zoomCapabilities.min ?? 1)}
-              className="h-9 w-9 rounded-full bg-white/15 text-white text-lg font-bold flex items-center justify-center hover:bg-white/25 disabled:opacity-40"
-              aria-label="Zoom out"
-            >
-              −
-            </button>
-            {usingDigitalZoom && (
-              <span className="text-[9px] text-white/60 -mt-1">digital</span>
-            )}
           </div>
         )}
-
-        {/* ── Overlay: autofocus trigger ── */}
-        {cameraOn && (
-          <button
-            type="button"
-            onClick={async () => {
-              triggerHaptics();
-              setOverlay({ label: "Refocusing…" });
-              const track = trackRef.current;
-              if (!track?.applyConstraints) return;
-              try {
-                if (support.focus) {
-                  // Nudge AF: switch to manual then back to continuous to retrigger lock.
-                  await track.applyConstraints({ advanced: [{ focusMode: "manual" } as any] });
-                  await new Promise((r) => setTimeout(r, 60));
-                  await track.applyConstraints({ advanced: [{ focusMode: "continuous" } as any] });
-                } else {
-                  // Best-effort: some drivers accept continuous even when not advertised.
-                  await track.applyConstraints({ advanced: [{ focusMode: "continuous" } as any] });
-                }
-              } catch {
-                // ignore — keep the overlay so the tap still feels responsive
-              }
-            }}
-            className="absolute top-3 right-3 z-10 h-10 px-3 rounded-full bg-black/60 backdrop-blur-sm text-white text-xs font-semibold flex items-center gap-1.5 hover:bg-black/80"
-            aria-label="Refocus"
-            title={support.focus ? "Tap to refocus (or tap anywhere on the preview)" : "Refocus (best-effort on this camera)"}
-          >
-            <span className={cn("inline-block h-2 w-2 rounded-full", support.focus ? "bg-emerald-400" : "bg-white/40")} />
-            AF
-          </button>
-        )}
-
-
-
-
 
         {/* Voice capture pill */}
         {settings.voiceCaptureEnabled && (
@@ -2012,7 +1635,7 @@ export default function RapidScanCamera() {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  const speeds: number[] = [1, 1.1, 1.25, 1.5, 2, 5];
+                  const speeds: Array<1 | 1.25 | 1.5 | 2 | 5> = [1, 1.25, 1.5, 2, 5];
                   const idx = speeds.indexOf(autoTimerSeconds as any);
                   const next = speeds[(idx + 1) % speeds.length];
                   updateSettings({ autoTimerIntervalSeconds: next });
@@ -2089,10 +1712,6 @@ export default function RapidScanCamera() {
           Tap to start camera
         </div>
       )}
-      </>
-      )}
-
-
 
       {/* ── Status strip ── */}
       <div className="flex items-center justify-between px-2 text-xs text-muted-foreground">
@@ -2121,30 +1740,6 @@ export default function RapidScanCamera() {
           </Button>
         </div>
       </div>
-
-      {/* ── Find Prices Now button ── */}
-      {cards.some((c) => c.status === "completed") && (
-        <div className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-border bg-card/50 px-3 py-2">
-          <div className="text-xs text-muted-foreground">
-            {missingPriceCount > 0
-              ? `${missingPriceCount} scanned ${missingPriceCount === 1 ? "card has" : "cards have"} no price yet`
-              : "All scanned cards have prices"}
-          </div>
-          <Button
-            size="sm"
-            variant={missingPriceCount > 0 ? "default" : "outline"}
-            onClick={findPricesNow}
-            disabled={findingPrices || missingPriceCount === 0}
-          >
-            {findingPrices ? (
-              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-            ) : (
-              <DollarSign className="h-4 w-4 mr-1" />
-            )}
-            Find Prices Now {missingPriceCount > 0 ? `(${missingPriceCount})` : ""}
-          </Button>
-        </div>
-      )}
 
       {/* ── Scanned cards list ── */}
       {cards.length > CARD_LIST_RENDER_LIMIT && (
