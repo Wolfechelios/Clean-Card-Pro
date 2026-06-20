@@ -152,6 +152,26 @@ const Scanner = ({ userId }: ScannerProps) => {
           )}
         </TabsContent>
 
+        <TabsContent value="remote">
+          {pendingCard ? (
+            <CardIdentificationEditor
+              userId={userId}
+              primaryCard={pendingCard.identifiedCard}
+              alternatives={pendingCard.alternatives}
+              imageUrl={preview || undefined}
+              scanMode={pendingCard.scanMode}
+              ownedCount={pendingCard.ownedCount}
+              isInLibrary={pendingCard.isInLibrary}
+              currentPriceRaw={pendingCard.fallbackData?.currentPriceRaw ?? null}
+              onConfirm={handleConfirmCard}
+              onSelectAlternative={handleSelectAlternative}
+              onCancel={handleCancelCard}
+            />
+          ) : (
+            <RemoteScanDesktop userId={userId} onImageReceived={handleUSBCapture} />
+          )}
+        </TabsContent>
+
         <TabsContent value="upload">
           {pendingCard ? (
             <CardIdentificationEditor
