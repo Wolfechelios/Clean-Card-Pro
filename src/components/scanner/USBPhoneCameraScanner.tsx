@@ -326,11 +326,11 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
                     <>
                       <li>• Plug your iPhone into your Mac with a USB cable (unlock + tap "Trust")</li>
                       <li>• In Chrome/Safari it appears as <em>iPhone</em> or <em>Continuity Camera</em> — pick it above</li>
-                      <li>• Or open <em>Camo</em> / <em>EpocCam</em> on the iPhone for wired HD video</li>
+                      <li>• Or open <em>external camera</em> / <em>EpocCam</em> on the iPhone for wired HD video</li>
                     </>
                   ) : (
                     <>
-                      <li>• Install <em>Camo</em> or <em>EpocCam</em> on your iPhone and the matching desktop helper</li>
+                      <li>• Install <em>external camera</em> or <em>EpocCam</em> on your iPhone and the matching desktop helper</li>
                       <li>• Connect the iPhone via USB cable (unlock + tap "Trust This Computer")</li>
                       <li>• Launch the app on the iPhone — it will appear above as a camera device</li>
                     </>
