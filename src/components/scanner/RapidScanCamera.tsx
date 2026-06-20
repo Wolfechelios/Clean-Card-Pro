@@ -1768,7 +1768,7 @@ export default function RapidScanCamera() {
         <video
           ref={videoRef}
           className={cn(
-            "w-full object-contain",
+            "w-full object-cover",
             "h-[60vh] min-h-[350px] max-h-[600px]",
             "sm:h-[55vh] sm:min-h-[400px] sm:max-h-[580px]",
             "md:h-[520px] md:min-h-0 md:max-h-none",
