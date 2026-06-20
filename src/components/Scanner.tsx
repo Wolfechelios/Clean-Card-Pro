@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Camera, Usb, Trash2, Upload } from "lucide-react";
+import { Camera, Usb, Trash2, Upload, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 import { useCardScanner } from "@/hooks/use-card-scanner";
@@ -15,6 +15,7 @@ import { CardIdentificationEditor } from "./scanner/CardIdentificationEditor";
 import { NeedsFoilReviewQueue } from "./scanner/NeedsFoilReviewQueue";
 import RapidScanCamera from "./scanner/RapidScanCamera";
 import { USBPhoneCameraScanner } from "./scanner/USBPhoneCameraScanner";
+import { RemoteScanDesktop } from "./scanner/RemoteScanDesktop";
 import { USBBulkImport } from "./scanner/USBBulkImport";
 import { DuplicateCardDialog } from "./scanner/DuplicateCardDialog";
 import { RecentScansBox } from "./scanner/RecentScansBox";
