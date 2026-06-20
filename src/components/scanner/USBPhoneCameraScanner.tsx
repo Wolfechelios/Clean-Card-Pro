@@ -37,6 +37,11 @@ export const USBPhoneCameraScanner = ({ onImageCaptured }: USBPhoneCameraScanner
   const otherDevices = devices.filter(d => !d.isUSB);
   const sortedDevices = [...usbDevices, ...otherDevices];
   const hasUSBDevices = usbDevices.length > 0;
+  const iPhoneDevices = devices.filter(
+    (d) => d.lensType === "continuity" || d.lensType === "epoccam" || /iphone|ipad|continuity|desk view|epoccam/i.test(d.label)
+  );
+  const hasIPhone = iPhoneDevices.length > 0;
+  const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform || navigator.userAgent || "");
 
   const startCamera = useCallback(async (deviceId?: string) => {
     try {
