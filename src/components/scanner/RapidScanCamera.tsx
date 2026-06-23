@@ -7,6 +7,7 @@ import {
   Focus,
   Loader2,
   RotateCcw,
+  RotateCw,
   Trash2,
   ZoomIn,
   ZoomOut,
@@ -51,6 +52,8 @@ type ScanRow = {
 
 const QUEUE_MAX = 500;
 const DEFAULT_ZOOM: ZoomState = { supported: false, min: 1, max: 3, step: 0.1, value: 1 };
+const ROTATION_OPTIONS = [0, 90, 180, 270] as const;
+type CameraRotation = typeof ROTATION_OPTIONS[number];
 
 function safeUUID() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
@@ -106,6 +109,38 @@ function rowsFromRecent(): ScanRow[] {
   }));
 }
 
+function getRotationLabel(rotation: CameraRotation) {
+  if (rotation === 0) return "Portrait";
+  if (rotation === 90) return "Right";
+  if (rotation === 180) return "Upside Down";
+  return "Left";
+}
+
+function drawRotatedVideoToCanvas(video: HTMLVideoElement, canvas: HTMLCanvasElement, rotation: CameraRotation) {
+  const sourceWidth = video.videoWidth || 1920;
+  const sourceHeight = video.videoHeight || 1080;
+  const rotatedSideways = rotation === 90 || rotation === 270;
+  canvas.width = rotatedSideways ? sourceHeight : sourceWidth;
+  canvas.height = rotatedSideways ? sourceWidth : sourceHeight;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Capture canvas unavailable");
+
+  ctx.save();
+  if (rotation === 90) {
+    ctx.translate(canvas.width, 0);
+    ctx.rotate(Math.PI / 2);
+  } else if (rotation === 180) {
+    ctx.translate(canvas.width, canvas.height);
+    ctx.rotate(Math.PI);
+  } else if (rotation === 270) {
+    ctx.translate(0, canvas.height);
+    ctx.rotate((3 * Math.PI) / 2);
+  }
+  ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
+  ctx.restore();
+}
+
 export default function RapidScanCamera() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -125,12 +160,17 @@ export default function RapidScanCamera() {
   const [focusPoint, setFocusPoint] = useState<{ x: number; y: number } | null>(null);
   const [zoom, setZoomState] = useState<ZoomState>(DEFAULT_ZOOM);
   const [digitalZoom, setDigitalZoom] = useState(1);
+  const [cameraRotation, setCameraRotation] = useState<CameraRotation>(() => {
+    const saved = Number(localStorage.getItem("rapid_scan_camera_rotation") ?? 0);
+    return ROTATION_OPTIONS.includes(saved as CameraRotation) ? (saved as CameraRotation) : 0;
+  });
   const [queuedCount, setQueuedCount] = useState(0);
   const [rows, setRows] = useState<ScanRow[]>(() => rowsFromRecent());
 
   const visibleZoom = zoom.supported ? zoom.value : digitalZoom;
   const canUseTorch = cameraOn && torchSupported;
   const canFocus = cameraOn && focusSupported;
+  const rotatedSideways = cameraRotation === 90 || cameraRotation === 270;
 
   const totalValue = useMemo(() => {
     return rows.reduce((sum, row) => sum + (row.status === "completed" ? row.value || 0 : 0), 0);
@@ -152,6 +192,22 @@ export default function RapidScanCamera() {
     } catch {
       setQueuedCount(0);
     }
+  }, []);
+
+  const rotateCamera = useCallback(() => {
+    setCameraRotation((prev) => {
+      const idx = ROTATION_OPTIONS.indexOf(prev);
+      const next = ROTATION_OPTIONS[(idx + 1) % ROTATION_OPTIONS.length];
+      localStorage.setItem("rapid_scan_camera_rotation", String(next));
+      setStatus(`Rotation locked: ${getRotationLabel(next)}`);
+      return next;
+    });
+  }, []);
+
+  const resetRotation = useCallback(() => {
+    localStorage.setItem("rapid_scan_camera_rotation", "0");
+    setCameraRotation(0);
+    setStatus("Rotation locked: Portrait");
   }, []);
 
   useEffect(() => {
@@ -245,7 +301,7 @@ export default function RapidScanCamera() {
       await videoElement.play();
 
       setCameraOn(true);
-      setStatus("Camera live — use the controls on screen");
+      setStatus("Camera live — rotation is locked by the app button");
       await refreshDevices();
     } catch (error: any) {
       console.error(error);
@@ -287,6 +343,7 @@ export default function RapidScanCamera() {
     await applyZoom(1);
     setDigitalZoom(1);
     setFocusPoint(null);
+    resetRotation();
     if (torchOn) await toggleTorch(false);
     try {
       await trackRef.current?.applyConstraints?.({ advanced: [{ focusMode: "continuous", exposureMode: "continuous" } as any] });
@@ -329,13 +386,7 @@ export default function RapidScanCamera() {
       const canvas = canvasRef.current;
       if (!video || !canvas) throw new Error("Camera preview not ready");
 
-      const width = video.videoWidth || 1920;
-      const height = video.videoHeight || 1080;
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Capture canvas unavailable");
-      ctx.drawImage(video, 0, 0, width, height);
+      drawRotatedVideoToCanvas(video, canvas, cameraRotation);
 
       const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.95));
       if (!blob) throw new Error("Capture failed");
@@ -354,7 +405,7 @@ export default function RapidScanCamera() {
         filename: "card.jpg",
       });
 
-      setStatus("Captured — pricing queued");
+      setStatus(`Captured — ${getRotationLabel(cameraRotation)} rotation applied`);
       await refreshQueueCount();
       processor.start();
     } catch (error: any) {
@@ -387,6 +438,7 @@ export default function RapidScanCamera() {
           <Badge variant={cameraOn ? "default" : "secondary"}>{cameraOn ? "Camera Live" : "Camera Off"}</Badge>
           <Badge variant="outline">Queued {queuedCount}</Badge>
           <Badge variant="outline">${totalValue.toFixed(2)}</Badge>
+          <Badge variant="outline">{getRotationLabel(cameraRotation)}</Badge>
         </div>
         <Button variant="ghost" size="sm" onClick={() => void refreshDevices()}>
           Refresh cameras
@@ -395,14 +447,22 @@ export default function RapidScanCamera() {
 
       <Card className="overflow-hidden bg-black">
         <div className="relative">
-          <video
-            ref={videoRef}
-            className="block h-[62vh] min-h-[360px] max-h-[680px] w-full object-contain bg-black touch-none"
-            style={!zoom.supported && digitalZoom > 1 ? { transform: `scale(${digitalZoom})`, transformOrigin: "center" } : undefined}
-            playsInline
-            muted
-            onPointerUp={handleTapFocus}
-          />
+          <div className="flex h-[62vh] min-h-[360px] max-h-[680px] w-full items-center justify-center overflow-hidden bg-black">
+            <video
+              ref={videoRef}
+              className={cn(
+                "block bg-black object-contain touch-none transition-transform duration-200",
+                rotatedSideways ? "h-full w-auto max-w-none" : "h-full w-full",
+              )}
+              style={{
+                transform: `rotate(${cameraRotation}deg) scale(${!zoom.supported && digitalZoom > 1 ? digitalZoom : 1})`,
+                transformOrigin: "center",
+              }}
+              playsInline
+              muted
+              onPointerUp={handleTapFocus}
+            />
+          </div>
           <canvas ref={canvasRef} className="hidden" />
 
           {!cameraOn && (
@@ -410,7 +470,7 @@ export default function RapidScanCamera() {
               <div className="text-center">
                 <Camera className="mx-auto mb-3 h-10 w-10" />
                 <div className="text-lg font-semibold">Safari Camera</div>
-                <div className="text-sm text-white/70">Start camera, then use the phone controls below.</div>
+                <div className="text-sm text-white/70">Start camera, then use rotation lock if the phone lies flat.</div>
               </div>
             </div>
           )}
@@ -424,6 +484,19 @@ export default function RapidScanCamera() {
             </div>
           )}
 
+          <div className="absolute left-3 top-3 flex gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={rotateCamera}
+              className="h-9 bg-black/65 text-white hover:bg-black/80"
+              title="Rotate preview and captured image"
+            >
+              <RotateCw className="mr-2 h-4 w-4" />
+              {cameraRotation}°
+            </Button>
+          </div>
+
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-3 text-white">
             <div className="flex items-end justify-between gap-3">
               <div className="min-w-0">
@@ -431,7 +504,7 @@ export default function RapidScanCamera() {
                 <div className="text-sm font-semibold">Tap preview to focus/expose</div>
               </div>
               <div className="text-right text-xs text-white/70">
-                {visibleZoom.toFixed(1)}× {zoom.supported ? "optical" : "screen"}
+                {visibleZoom.toFixed(1)}× • {getRotationLabel(cameraRotation)}
               </div>
             </div>
           </div>
@@ -493,6 +566,28 @@ export default function RapidScanCamera() {
             <Button variant="outline" size="icon" onClick={() => void applyZoom(visibleZoom + (zoom.step || 0.1))} disabled={!cameraOn}>
               <ZoomIn className="h-4 w-4" />
             </Button>
+          </div>
+        </div>
+
+        <div className="rounded-xl border p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="text-sm font-medium">Rotation Lock</div>
+            <div className="text-xs text-muted-foreground">Use when the phone is flat</div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {ROTATION_OPTIONS.map((rotation) => (
+              <Button
+                key={rotation}
+                variant={cameraRotation === rotation ? "default" : "outline"}
+                onClick={() => {
+                  setCameraRotation(rotation);
+                  localStorage.setItem("rapid_scan_camera_rotation", String(rotation));
+                  setStatus(`Rotation locked: ${getRotationLabel(rotation)}`);
+                }}
+              >
+                {rotation}°
+              </Button>
+            ))}
           </div>
         </div>
 
