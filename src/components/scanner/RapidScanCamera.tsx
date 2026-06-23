@@ -6,8 +6,10 @@ import {
   FlashlightOff,
   Focus,
   Loader2,
+  RefreshCw,
   RotateCcw,
   RotateCw,
+  Smartphone,
   Trash2,
   ZoomIn,
   ZoomOut,
@@ -62,6 +64,25 @@ function safeUUID() {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function isContinuityDevice(device: MediaDeviceInfo) {
+  const label = device.label.toLowerCase();
+  return label.includes("iphone") || label.includes("continuity") || label.includes("desk view");
+}
+
+function deviceLabel(device: MediaDeviceInfo, index: number) {
+  if (device.label) return device.label;
+  return `Camera ${index + 1}`;
+}
+
+function sortCameraDevices(list: MediaDeviceInfo[]) {
+  return [...list].sort((a, b) => {
+    const ac = isContinuityDevice(a) ? 0 : 1;
+    const bc = isContinuityDevice(b) ? 0 : 1;
+    if (ac !== bc) return ac - bc;
+    return a.label.localeCompare(b.label);
+  });
 }
 
 function normalizeZoom(caps: BasicCameraCapabilities, settings: MediaTrackSettings): ZoomState {
@@ -153,7 +174,7 @@ export default function RapidScanCamera() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("Tap Start Camera");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>(() => localStorage.getItem("rapid_scan_camera_device_id") ?? "");
   const [torchSupported, setTorchSupported] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   const [focusSupported, setFocusSupported] = useState(false);
@@ -167,6 +188,9 @@ export default function RapidScanCamera() {
   const [queuedCount, setQueuedCount] = useState(0);
   const [rows, setRows] = useState<ScanRow[]>(() => rowsFromRecent());
 
+  const sortedDevices = useMemo(() => sortCameraDevices(devices), [devices]);
+  const continuityDevice = useMemo(() => sortedDevices.find(isContinuityDevice), [sortedDevices]);
+  const selectedDevice = useMemo(() => sortedDevices.find((d) => d.deviceId === selectedDeviceId), [sortedDevices, selectedDeviceId]);
   const visibleZoom = zoom.supported ? zoom.value : digitalZoom;
   const canUseTorch = cameraOn && torchSupported;
   const canFocus = cameraOn && focusSupported;
@@ -180,7 +204,7 @@ export default function RapidScanCamera() {
     if (!navigator.mediaDevices?.enumerateDevices) return;
     try {
       const list = await navigator.mediaDevices.enumerateDevices();
-      setDevices(list.filter((device) => device.kind === "videoinput"));
+      setDevices(sortCameraDevices(list.filter((device) => device.kind === "videoinput")));
     } catch {
       // Safari may hide devices until permission is granted.
     }
@@ -216,6 +240,12 @@ export default function RapidScanCamera() {
   }, [refreshDevices, refreshQueueCount]);
 
   useEffect(() => {
+    const onDeviceChange = () => void refreshDevices();
+    navigator.mediaDevices?.addEventListener?.("devicechange", onDeviceChange);
+    return () => navigator.mediaDevices?.removeEventListener?.("devicechange", onDeviceChange);
+  }, [refreshDevices]);
+
+  useEffect(() => {
     const onRecentScanAdded = () => setRows(rowsFromRecent());
     window.addEventListener("recent-scan-added", onRecentScanAdded);
     return () => window.removeEventListener("recent-scan-added", onRecentScanAdded);
@@ -246,6 +276,18 @@ export default function RapidScanCamera() {
     setRows((prev) => prev.map((row) => (row.id === current ? { ...row, status: "processing" } : row)));
   }, [processor.currentItem]);
 
+  function stopPreviewOnly() {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    trackRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setCameraOn(false);
+    setTorchOn(false);
+    setTorchSupported(false);
+    setFocusSupported(false);
+    setFocusPoint(null);
+  }
+
   async function applyZoom(next: number) {
     const clamped = clamp(next, zoom.min, zoom.max);
     const track = trackRef.current;
@@ -263,8 +305,8 @@ export default function RapidScanCamera() {
     setDigitalZoom(clamp(next, 1, 3));
   }
 
-  async function startCamera() {
-    if (startingRef.current || cameraOn) return;
+  async function startCamera(deviceIdOverride?: string) {
+    if (startingRef.current) return;
     if (!navigator.mediaDevices?.getUserMedia) {
       toast.error("Safari camera permission is not available on this page.");
       setStatus("Camera unavailable");
@@ -275,11 +317,12 @@ export default function RapidScanCamera() {
     setBusy(true);
 
     try {
-      streamRef.current?.getTracks().forEach((track) => track.stop());
+      stopPreviewOnly();
 
-      const video: MediaTrackConstraints = selectedDeviceId
-        ? { deviceId: { exact: selectedDeviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
-        : { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } };
+      const requestedDeviceId = deviceIdOverride ?? selectedDeviceId;
+      const video: MediaTrackConstraints = requestedDeviceId
+        ? { deviceId: { exact: requestedDeviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+        : { width: { ideal: 1920 }, height: { ideal: 1080 } };
 
       const stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
       streamRef.current = stream;
@@ -288,6 +331,11 @@ export default function RapidScanCamera() {
       const track = trackRef.current;
       const caps = (track?.getCapabilities?.() ?? {}) as BasicCameraCapabilities;
       const settings = track?.getSettings?.() ?? {};
+      const actualDeviceId = (settings as MediaTrackSettings).deviceId;
+      if (actualDeviceId) {
+        setSelectedDeviceId(actualDeviceId);
+        localStorage.setItem("rapid_scan_camera_device_id", actualDeviceId);
+      }
       setTorchSupported(Boolean(caps.torch));
       setFocusSupported(Boolean(caps.focusMode?.length || caps.exposureMode?.length));
       setZoomState(normalizeZoom(caps, settings));
@@ -301,8 +349,9 @@ export default function RapidScanCamera() {
       await videoElement.play();
 
       setCameraOn(true);
-      setStatus("Camera live — rotation is locked by the app button");
       await refreshDevices();
+      const label = sortedDevices.find((d) => d.deviceId === (actualDeviceId || requestedDeviceId))?.label;
+      setStatus(label ? `Camera live: ${label}` : "Camera live — choose iPhone/Continuity if listed");
     } catch (error: any) {
       console.error(error);
       setStatus(error?.message ?? "Camera failed");
@@ -313,15 +362,28 @@ export default function RapidScanCamera() {
     }
   }
 
+  async function switchCamera(deviceId: string) {
+    setSelectedDeviceId(deviceId);
+    localStorage.setItem("rapid_scan_camera_device_id", deviceId);
+    if (cameraOn) {
+      setStatus("Switching camera…");
+      await startCamera(deviceId);
+    }
+  }
+
+  async function useContinuityCamera() {
+    if (!continuityDevice) {
+      await refreshDevices();
+      toast.info("If iPhone does not appear, unlock it and keep it near this Mac, then tap Refresh cameras.");
+      return;
+    }
+    await switchCamera(continuityDevice.deviceId);
+    if (!cameraOn) await startCamera(continuityDevice.deviceId);
+  }
+
   async function stopCamera() {
     if (torchOn) await toggleTorch(false);
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    trackRef.current = null;
-    if (videoRef.current) videoRef.current.srcObject = null;
-    setCameraOn(false);
-    setTorchOn(false);
-    setFocusPoint(null);
+    stopPreviewOnly();
     setStatus("Camera stopped — queued scans will keep pricing");
     processor.start();
     await refreshQueueCount();
@@ -427,21 +489,22 @@ export default function RapidScanCamera() {
 
   useEffect(() => {
     return () => {
-      streamRef.current?.getTracks().forEach((track) => track.stop());
+      stopPreviewOnly();
     };
   }, []);
 
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Badge variant={cameraOn ? "default" : "secondary"}>{cameraOn ? "Camera Live" : "Camera Off"}</Badge>
           <Badge variant="outline">Queued {queuedCount}</Badge>
           <Badge variant="outline">${totalValue.toFixed(2)}</Badge>
           <Badge variant="outline">{getRotationLabel(cameraRotation)}</Badge>
+          {selectedDevice?.label && <Badge variant={isContinuityDevice(selectedDevice) ? "default" : "outline"}>{selectedDevice.label}</Badge>}
         </div>
         <Button variant="ghost" size="sm" onClick={() => void refreshDevices()}>
-          Refresh cameras
+          <RefreshCw className="mr-2 h-4 w-4" /> Refresh cameras
         </Button>
       </div>
 
@@ -467,10 +530,10 @@ export default function RapidScanCamera() {
 
           {!cameraOn && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-white">
-              <div className="text-center">
+              <div className="px-4 text-center">
                 <Camera className="mx-auto mb-3 h-10 w-10" />
                 <div className="text-lg font-semibold">Safari Camera</div>
-                <div className="text-sm text-white/70">Start camera, then use rotation lock if the phone lies flat.</div>
+                <div className="text-sm text-white/70">Start camera, then switch to iPhone / Continuity if needed.</div>
               </div>
             </div>
           )}
@@ -501,7 +564,7 @@ export default function RapidScanCamera() {
             <div className="flex items-end justify-between gap-3">
               <div className="min-w-0">
                 <div className="text-xs text-white/70">{status}</div>
-                <div className="text-sm font-semibold">Tap preview to focus/expose</div>
+                <div className="truncate text-sm font-semibold">{selectedDevice?.label || "Tap preview to focus/expose"}</div>
               </div>
               <div className="text-right text-xs text-white/70">
                 {visibleZoom.toFixed(1)}× • {getRotationLabel(cameraRotation)}
@@ -512,24 +575,26 @@ export default function RapidScanCamera() {
       </Card>
 
       <Card className="space-y-3 p-3">
-        <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-center">
+        <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
           <label className="text-xs font-medium text-muted-foreground">
             Camera / Lens
             <select
               value={selectedDeviceId}
-              onChange={(e) => setSelectedDeviceId(e.target.value)}
-              disabled={cameraOn}
+              onChange={(e) => void switchCamera(e.target.value)}
               className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
             >
-              <option value="">Back camera / Auto</option>
-              {devices.map((device, index) => (
+              <option value="">Default Mac/Safari camera</option>
+              {sortedDevices.map((device, index) => (
                 <option key={device.deviceId || index} value={device.deviceId}>
-                  {device.label || `Camera ${index + 1}`}
+                  {isContinuityDevice(device) ? "📱 " : ""}{deviceLabel(device, index)}
                 </option>
               ))}
             </select>
           </label>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => void useContinuityCamera()} className="h-10">
+              <Smartphone className="mr-2 h-4 w-4" /> Use iPhone
+            </Button>
             {!cameraOn ? (
               <Button onClick={() => void startCamera()} disabled={busy} className="h-10 min-w-32">
                 {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
@@ -541,6 +606,9 @@ export default function RapidScanCamera() {
               </Button>
             )}
           </div>
+        </div>
+        <div className="rounded-lg border bg-muted/30 p-2 text-xs text-muted-foreground">
+          Continuity Camera appears after Safari has camera permission. Unlock the iPhone, keep it near this Mac, tap Refresh cameras, then choose the 📱 iPhone option or Use iPhone.
         </div>
 
         <div className="rounded-xl border p-3">
