@@ -83,6 +83,9 @@ verify_jwt = true
 [functions.predict-collection-value]
 verify_jwt = true
 
+[functions.rapid-basic-card-lookup]
+verify_jwt = true
+
 [functions.rapid-card-identify]
 verify_jwt = true
 
