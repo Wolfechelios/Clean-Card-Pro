@@ -6,7 +6,10 @@ Rapid Scan now uses a simple Safari-first camera surface.
 
 ```txt
 Camera / Lens selector
+Use iPhone / Continuity button
+Refresh cameras button
 Start Camera / Stop
+Live camera switching while the preview is open
 Zoom slider
 Zoom - / + buttons
 Torch button when Safari exposes torch support
@@ -18,9 +21,34 @@ Capture button
 Clear queue/recent scans
 ```
 
+## Continuity Camera
+
+The camera selector stays unlocked while the preview is live. Switching the selector now stops the current stream and restarts with the selected camera instead of requiring a full page refresh.
+
+Use this order on Mac/Safari:
+
+```txt
+1. Unlock the iPhone.
+2. Keep the iPhone near the Mac.
+3. Open Rapid Scan.
+4. Tap Start Camera once so Safari grants camera permission.
+5. Tap Refresh cameras.
+6. Choose the 📱 iPhone / Continuity option, or tap Use iPhone.
+```
+
+Continuity/iPhone cameras are sorted to the top when Safari exposes labels containing:
+
+```txt
+iPhone
+Continuity
+Desk View
+```
+
+The selected camera device ID is saved in localStorage so the app tries to reuse the same Continuity Camera next time.
+
 ## Rotation lock
 
-When an iPhone is laid flat with the lens facing the floor, Safari can report the camera orientation sideways. The app now has its own rotation lock instead of trusting the phone sensor.
+When an iPhone is laid flat with the lens facing the floor, Safari can report the camera orientation sideways. The app has its own rotation lock instead of trusting the phone sensor.
 
 Use:
 
@@ -47,7 +75,11 @@ Safari decides which hardware controls are exposed for each iPhone lens. Some le
 ```txt
 Start Camera
   ↓
-Preview opens with playsInline Safari mode
+Safari grants permission and reveals real device labels
+  ↓
+Refresh cameras / choose iPhone / Continuity
+  ↓
+Preview restarts with selected camera
   ↓
 User adjusts zoom / torch / lens / rotation / tap focus
   ↓
