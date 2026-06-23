@@ -12,32 +12,15 @@ import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { QueueStatusIndicator } from "@/components/scanner/QueueStatusIndicator";
 import { SplashScreen } from "@/components/SplashScreen";
 import { OfflineIndicator } from "@/components/OfflineIndicator";
-import { PWAOnboarding } from "@/components/pwa/PWAOnboarding";
-import { PWAInstallBanner } from "@/components/pwa/PWAInstallBanner";
-import { PwaUpdateBanner } from "@/components/pwa/PwaUpdateBanner";
-import { usePWAOnboarding } from "@/hooks/use-pwa-onboarding";
 import { useQueueAutoResume } from "@/hooks/use-queue-auto-resume";
 
 const Auth = lazy(() => import("./pages/Auth"));
 const NewDashboard = lazy(() => import("./pages/NewDashboard"));
 const ScanPage = lazy(() => import("./pages/ScanPage"));
 const CollectionsPage = lazy(() => import("./pages/CollectionsPage"));
-
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
-const InsightsPage = lazy(() => import("./pages/InsightsPage"));
-const PerformancePage = lazy(() => import("./pages/PerformancePage"));
 const MobileScanPage = lazy(() => import("./pages/MobileScanPage"));
 const MobileScanRedirect = lazy(() => import("./pages/MobileScanRedirect"));
-const PredictionsPage = lazy(() => import("./pages/PredictionsPage"));
-const GradedScanPage = lazy(() => import("./pages/GradedScanPage"));
-const VisualSearchPage = lazy(() => import("./pages/VisualSearchPage"));
-const CardPriceHubPage = lazy(() => import("./pages/CardPriceHubPage"));
-const ImageBackfillPage = lazy(() => import("./pages/ImageBackfillPage"));
-const ImportCleanerPage = lazy(() => import("./pages/ImportCleanerPage"));
-const HelpPage = lazy(() => import("./pages/HelpPage"));
-const SellAssistPage = lazy(() => import("./pages/SellAssistPage"));
-const InstallPage = lazy(() => import("./pages/InstallPage"));
-const DeckBuilderPage = lazy(() => import("./pages/DeckBuilderPage"));
 const PriceDatabasePage = lazy(() => import("./pages/PriceDatabasePage"));
 const BinderPage = lazy(() => import("./pages/BinderPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -70,33 +53,40 @@ function AppRoutes() {
 
   if (loading) return <FullscreenLoader />;
 
+  const authed = (children: React.ReactNode) =>
+    session ? <Authed>{children}</Authed> : <Navigate to="/auth" replace />;
+
+  const redirectAuthed = (to: string) =>
+    session ? <Navigate to={to} replace /> : <Navigate to="/auth" replace />;
+
   return (
     <Suspense fallback={<FullscreenLoader />}>
       <Routes>
         <Route path="/auth" element={<Auth />} />
-        <Route path="/install" element={<InstallPage />} />
-        <Route path="/" element={session ? <Navigate to="/dashboard" /> : <Navigate to="/auth" />} />
+        <Route path="/" element={redirectAuthed("/dashboard")} />
 
-        <Route path="/dashboard" element={session ? <Authed><NewDashboard /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/scan" element={session ? <Authed><ScanPage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/collections" element={session ? <Authed><CollectionsPage /></Authed> : <Navigate to="/auth" />} />
-        
-        <Route path="/settings" element={session ? <Authed><SettingsPage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/insights" element={session ? <Authed><InsightsPage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/performance" element={session ? <Authed><PerformancePage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/mobile-scan" element={session ? <MobileScanPage /> : <Navigate to="/auth" />} />
-        <Route path="/mobile-scanner" element={session ? <MobileScanRedirect /> : <Navigate to="/auth" />} />
-        <Route path="/predictions" element={session ? <Authed><PredictionsPage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/graded" element={session ? <Authed><GradedScanPage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/visual-search" element={session ? <Authed><VisualSearchPage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/price-hub" element={session ? <Authed><CardPriceHubPage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/sell-assist" element={session ? <Authed><SellAssistPage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/image-backfill" element={session ? <Authed><ImageBackfillPage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/import-cleaner" element={session ? <Authed><ImportCleanerPage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/help" element={session ? <Authed><HelpPage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/deck-builder" element={session ? <Authed><DeckBuilderPage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/price-database" element={session ? <Authed><PriceDatabasePage /></Authed> : <Navigate to="/auth" />} />
-        <Route path="/binder" element={session ? <Authed><BinderPage /></Authed> : <Navigate to="/auth" />} />
+        <Route path="/dashboard" element={authed(<NewDashboard />)} />
+        <Route path="/scan" element={authed(<ScanPage />)} />
+        <Route path="/collections" element={authed(<CollectionsPage />)} />
+        <Route path="/binder" element={authed(<BinderPage />)} />
+        <Route path="/price-database" element={authed(<PriceDatabasePage />)} />
+        <Route path="/settings" element={authed(<SettingsPage />)} />
+        <Route path="/mobile-scan" element={session ? <MobileScanPage /> : <Navigate to="/auth" replace />} />
+        <Route path="/mobile-scanner" element={session ? <MobileScanRedirect /> : <Navigate to="/auth" replace />} />
+
+        {/* Removed clutter routes: keep old links from breaking, but stop loading unused pages. */}
+        <Route path="/install" element={redirectAuthed("/dashboard")} />
+        <Route path="/graded" element={redirectAuthed("/scan")} />
+        <Route path="/visual-search" element={redirectAuthed("/scan")} />
+        <Route path="/price-hub" element={redirectAuthed("/price-database")} />
+        <Route path="/image-backfill" element={redirectAuthed("/settings")} />
+        <Route path="/import-cleaner" element={redirectAuthed("/price-database")} />
+        <Route path="/help" element={redirectAuthed("/settings")} />
+        <Route path="/sell-assist" element={redirectAuthed("/collections")} />
+        <Route path="/deck-builder" element={redirectAuthed("/collections")} />
+        <Route path="/insights" element={redirectAuthed("/dashboard")} />
+        <Route path="/performance" element={redirectAuthed("/dashboard")} />
+        <Route path="/predictions" element={redirectAuthed("/dashboard")} />
 
         <Route path="*" element={<NotFound />} />
       </Routes>
@@ -104,29 +94,11 @@ function AppRoutes() {
   );
 }
 
-function PWAWrapper({ children }: { children: React.ReactNode }) {
-  const { shouldShowOnboarding, completeOnboarding, isStandalone } = usePWAOnboarding();
-
-  return (
-    <>
-      {shouldShowOnboarding && (
-        <PWAOnboarding 
-          onComplete={completeOnboarding} 
-          onSkip={completeOnboarding}
-        />
-      )}
-      {children}
-      {!isStandalone && <PWAInstallBanner />}
-      <PwaUpdateBanner />
-    </>
-  );
-}
-
 const App = () => {
   const [showSplash, setShowSplash] = useState(() => {
-    const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+    const isStandalone = window.matchMedia("(display-mode: standalone)").matches ||
       (window.navigator as any).standalone === true ||
-      document.referrer.includes('android-app://');
+      document.referrer.includes("android-app://");
     return isStandalone;
   });
   useQueueAutoResume();
@@ -141,11 +113,9 @@ const App = () => {
             <Sonner />
             <BrowserRouter>
               <AuthProvider>
-                <PWAWrapper>
-                  <AppRoutes />
-                  <QueueStatusIndicator />
-                  <OfflineIndicator />
-                </PWAWrapper>
+                <AppRoutes />
+                <QueueStatusIndicator />
+                <OfflineIndicator />
               </AuthProvider>
             </BrowserRouter>
           </ErrorBoundary>
