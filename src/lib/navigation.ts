@@ -3,16 +3,7 @@ import {
   ScanLine,
   FolderOpen,
   BookOpen,
-  Award,
-  Search,
-  DollarSign,
-  Brain,
-  Megaphone,
-  Lightbulb,
-  Activity,
   Settings,
-  HelpCircle,
-  Wand2,
   Database,
   type LucideIcon,
 } from "lucide-react";
@@ -30,43 +21,20 @@ export type NavSection = {
 };
 
 /**
- * Single source of truth for navigation.
- * Keep this list small + task-oriented (collector workflow first).
+ * Clean app navigation.
+ * Keep only the workflows actually used: scan, save, review, price database, settings.
+ * Heavy/experimental pages still exist in the repo but are no longer loaded in the main app shell.
  */
 export const NAV_SECTIONS: NavSection[] = [
   {
-    title: "Core",
+    title: "Main",
     items: [
       { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard", keywords: ["home"] },
-      { icon: ScanLine, label: "Scan", path: "/scan", keywords: ["camera", "ocr", "rapid"] },
-      { icon: FolderOpen, label: "Collections", path: "/collections", keywords: ["library", "cards"] },
+      { icon: ScanLine, label: "Rapid Scan", path: "/scan", keywords: ["camera", "ocr", "rapid"] },
+      { icon: FolderOpen, label: "Cards", path: "/collections", keywords: ["library", "collection"] },
       { icon: BookOpen, label: "Binder", path: "/binder", keywords: ["set", "completion", "slots"] },
-    ],
-  },
-  {
-    title: "Tools",
-    items: [
-      { icon: Award, label: "Graded", path: "/graded", keywords: ["psa", "bgs", "cgc"] },
-      { icon: Search, label: "Visual Search", path: "/visual-search", keywords: ["image"] },
-      { icon: DollarSign, label: "Price Hub", path: "/price-hub", keywords: ["prices", "alerts"] },
-      { icon: Brain, label: "Predictor", path: "/predictions", keywords: ["forecast", "value"] },
-      { icon: Wand2, label: "Deck Builder", path: "/deck-builder", keywords: ["ai", "value", "battle", "competitive"] },
-      { icon: Megaphone, label: "Sell Assist", path: "/sell-assist", keywords: ["listing", "ebay", "tcgplayer", "whatnot", "market"] },
-      { icon: Database, label: "Price DB", path: "/price-database", keywords: ["pricecharting", "import", "xlsx", "set", "completion"] },
-    ],
-  },
-  {
-    title: "Insights",
-    items: [
-      { icon: Lightbulb, label: "AI Insights", path: "/insights", keywords: ["analysis"] },
-      { icon: Activity, label: "Performance", path: "/performance", keywords: ["stats"] },
-    ],
-  },
-  {
-    title: "Settings",
-    items: [
-      { icon: Settings, label: "Settings", path: "/settings", keywords: ["account"] },
-      { icon: HelpCircle, label: "Help", path: "/help", keywords: ["support", "faq"] },
+      { icon: Database, label: "Price DB", path: "/price-database", keywords: ["pricecharting", "prices", "set"] },
+      { icon: Settings, label: "Settings", path: "/settings", keywords: ["account", "camera"] },
     ],
   },
 ];
