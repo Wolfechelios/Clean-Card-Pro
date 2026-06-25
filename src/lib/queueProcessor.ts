@@ -1,6 +1,6 @@
 // src/lib/queueProcessor.ts
-// RapidScan queue worker: OCR first, PriceCharting set-code/title lookup second,
-// Google Lens/search fallback third, price parsing only after a PriceCharting product is found.
+// RapidScan queue worker: local browser OCR first, cloud OCR fallback second,
+// PriceCharting set-code/title lookup third, Google Lens/search fallback fourth.
 
 import { create } from "zustand";
 import { supabase } from "@/integrations/supabase/client";
@@ -9,6 +9,7 @@ import { withTimeout } from "@/lib/async/withTimeout";
 import { getScannerSettings } from "@/hooks/use-scanner-settings";
 import { addRecentScan } from "@/lib/recentScans";
 import { insertCardDual } from "@/lib/localCards";
+import { runLocalCardOcr } from "@/lib/ocr/localCardOcr";
 import {
   idbGetNextQueued,
   idbUpdateMeta,
@@ -16,6 +17,7 @@ import {
   idbCount,
   idbCountQueued,
   idbListMetaFast,
+  idbGetAll,
   type QueueItem,
   type QueueItemMeta,
 } from "@/lib/idbQueue";
@@ -76,7 +78,8 @@ type ProcessorStore = ProcessorState & {
   _incrementError: () => void;
 };
 
-const OCR_TIMEOUT_MS = 3500;
+const LOCAL_OCR_TIMEOUT_MS = 12000;
+const CLOUD_OCR_TIMEOUT_MS = 3500;
 const UPLOAD_TIMEOUT_MS = 8000;
 const BASIC_LOOKUP_TIMEOUT_MS = 18000;
 const QUEUE_REFRESH_INTERVAL_MS = 1000;
@@ -161,13 +164,36 @@ async function uploadScanImage(item: QueueItem): Promise<{ publicUrl: string | n
   return { publicUrl: data.publicUrl, storagePath };
 }
 
-async function runOcr(base64: string) {
+async function runOcr(base64: string, blob?: Blob) {
+  if (blob) {
+    const local = await withTimeout(
+      runLocalCardOcr(blob),
+      LOCAL_OCR_TIMEOUT_MS,
+      "Local browser OCR",
+    ).catch((e: any) => {
+      console.warn("[QueueProcessor] Local OCR failed; falling back to cloud OCR:", e);
+      return null;
+    });
+
+    if (local && (local.rawText || local.title || local.setCode || local.cardNumber)) {
+      return {
+        setCode: local.setCode,
+        cardNumber: local.cardNumber,
+        title: local.title,
+        name: local.title,
+        text: local.rawText,
+        confidence: local.confidence,
+        source: local.source,
+      };
+    }
+  }
+
   const result = await withTimeout(
     supabase.functions.invoke("zai-ocr", { body: { imageUrl: base64, mode: "meta" } }),
-    OCR_TIMEOUT_MS,
+    CLOUD_OCR_TIMEOUT_MS,
     "Z.AI OCR",
   ).catch((e: any) => {
-    console.warn("[QueueProcessor] OCR failed:", e);
+    console.warn("[QueueProcessor] Cloud OCR failed:", e);
     return { data: null, error: e } as any;
   });
 
@@ -281,7 +307,7 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   const gameTypeHint = scanSettings.gameTypeFilter !== "auto" ? scanSettings.gameTypeFilter : undefined;
 
   const [ocr, upload, userId] = await Promise.all([
-    runOcr(base64),
+    runOcr(base64, item.blob),
     uploadScanImage(item),
     getUserId(),
   ]);
@@ -424,6 +450,7 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   useQueueProcessor.getState()._setLastProcessedCard(processedCard);
 
   console.log("[QueueProcessor] Rapid basic lookup matched", cardName, {
+    ocrSource: ocr?.source ?? "unknown",
     source: lookup.source,
     priceChartingUrl: lookup.priceChartingUrl,
     googleLensUrl: lookup.googleLensUrl,
