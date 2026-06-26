@@ -98,8 +98,10 @@ serve(async (req) => {
     // Server-side identity gate. If client passed no valid setCode AND the
     // titleHint is unreadable, refuse to search — junk OCR returns wrong cards.
     const validSetCode = isValidPrintedCodeServer(setCodeHint);
+    const validCardNumberCode = isValidPrintedCodeServer(cardNumberHint);
+    const validPrintedIdentifier = validSetCode || validCardNumberCode;
     const validTitle = isReadableTitleServer(titleHint);
-    if (!validSetCode && !validTitle) {
+    if (!validPrintedIdentifier && !validTitle) {
       return json({
         success: false,
         source: "requires_user_disambiguation",
@@ -115,7 +117,10 @@ serve(async (req) => {
     if (setCodeHint && validSetCode && !ids.ygoSetCodes.includes(String(setCodeHint).toUpperCase())) {
       ids.ygoSetCodes.unshift(String(setCodeHint).toUpperCase());
     }
-    if (cardNumberHint && !ids.collectorNumbers.includes(String(cardNumberHint).toUpperCase())) {
+    if (cardNumberHint && validCardNumberCode && String(cardNumberHint).includes("-") && !ids.ygoSetCodes.includes(String(cardNumberHint).toUpperCase())) {
+      ids.ygoSetCodes.unshift(String(cardNumberHint).toUpperCase());
+    }
+    if (cardNumberHint && !String(cardNumberHint).includes("-") && !ids.collectorNumbers.includes(String(cardNumberHint).toUpperCase())) {
       ids.collectorNumbers.unshift(String(cardNumberHint).toUpperCase());
     }
 
@@ -125,7 +130,8 @@ serve(async (req) => {
     let identity: Identity | null = null;
     if (setCodeHint || ids.ygoSetCodes[0]) {
       const code = String(setCodeHint ?? ids.ygoSetCodes[0]);
-      identity = await readCache(detectedGame, code, cardNumberHint ?? null);
+      const cacheCollectorNumber = detectedGame === "yugioh" ? null : (cardNumberHint ?? null);
+      identity = await readCache(detectedGame, code, cacheCollectorNumber);
       if (identity) console.log("[lookup] cache hit:", identity.setCode, "→", identity.name);
     }
 
@@ -156,7 +162,20 @@ serve(async (req) => {
     const resolvedSetName = identity?.setName ?? setNameHint ?? null;
     const resolvedRarity = identity?.rarity ?? null;
 
-    // ── STEP 3: Pricing — only with an identified card ────────────────
+    if (!identity && detectedGame !== "sports") {
+      return json({
+        success: false,
+        source: "requires_user_disambiguation",
+        requiresDisambiguation: true,
+        confidenceTier: "LOW",
+        error: ids.ygoSetCodes.length > 0
+          ? "Printed code was detected but could not be verified by an authoritative card database."
+          : "No verifiable printed set/collector code detected. Retake photo closer to the code.",
+        diagnostics: { ids },
+      });
+    }
+
+    // ── STEP 3: Pricing — only after authoritative identity, except sports ──
     const queries = buildPriceChartingQueries(normalizedOcr, ids, gameTypeHint, resolvedSetName, resolvedRarity);
     console.log("[lookup] PC queries:", JSON.stringify(queries.slice(0, 6)));
 
@@ -171,7 +190,7 @@ serve(async (req) => {
     let googleLensUrl: string | null = null;
     // Image AI / Lens fallback — ONLY when no code was resolved.
     const noCodeResolved = !identity && ids.ygoSetCodes.length === 0;
-    if (!candidate && allowGoogleLens && isHttpUrl(imageUrl) && noCodeResolved) {
+    if (!candidate && allowGoogleLens && isHttpUrl(imageUrl) && noCodeResolved && detectedGame === "sports") {
       googleLensUrl = `https://lens.google.com/uploadbyurl?url=${encodeURIComponent(imageUrl)}`;
       candidate = await searchGoogleLensForPriceCharting(imageUrl, ids);
       if (!candidate) {
@@ -281,12 +300,13 @@ function isHttpUrl(v: unknown): v is string {
   return typeof v === "string" && /^https?:\/\//i.test(v);
 }
 
-const SERVER_PRINTED_CODE_RE = /\b[A-Z0-9]{2,8}-[A-Z]{0,4}\d{1,5}\b/i;
+const SERVER_PRINTED_CODE_RE = /\b(?!ATK\b|DEF\b|HP\b|LP\b)(?:[A-Z0-9]{2,6}-(?:EN|JP|KR|DE|FR|IT|SP|PT|JE|AE)\d{3,5}|[A-Z]{2,4}-\d{3})\b/i;
 const SERVER_POKE_FRACTION_RE = /\b\d{1,4}\s*\/\s*\d{1,4}\b/;
+const SERVER_SPORTS_CODE_RE = /\b(?:19[5-9]\d|20[0-3]\d)\s*#\s*\d{1,4}\b/i;
 function isValidPrintedCodeServer(s: unknown): boolean {
   if (!s) return false;
   const str = String(s);
-  return SERVER_PRINTED_CODE_RE.test(str) || SERVER_POKE_FRACTION_RE.test(str);
+  return SERVER_PRINTED_CODE_RE.test(str) || SERVER_POKE_FRACTION_RE.test(str) || SERVER_SPORTS_CODE_RE.test(str);
 }
 function isReadableTitleServer(s: unknown): boolean {
   if (!s) return false;
@@ -356,7 +376,7 @@ function fuzzyMatch(a: string, b: string): number {
 
 function extractIdentifiers(text: string) {
   const upper = text.toUpperCase();
-  const ygoSetCodes = Array.from(new Set(upper.match(/\b[A-Z0-9]{2,8}-[A-Z]{0,4}\d{1,5}\b/g) ?? []));
+  const ygoSetCodes = Array.from(new Set(upper.match(/\b(?!ATK\b|DEF\b|HP\b|LP\b)(?:[A-Z0-9]{2,6}-(?:EN|JP|KR|DE|FR|IT|SP|PT|JE|AE)\d{3,5}|[A-Z]{2,4}-\d{3})\b/g) ?? []));
   const collectorNumbers = Array.from(new Set(upper.match(/\b\d{1,4}\s*\/\s*\d{1,4}\b/g)?.map((v) => v.replace(/\s+/g, "")) ?? []));
   const serialNumbers = collectorNumbers.slice();
   const likelyTitle = inferLikelyTitle(text);
@@ -572,7 +592,7 @@ function decodeHtml(v: string): string {
 
 async function lookupYgoBySetCode(rawCode: string): Promise<Identity | null> {
   const code = rawCode.trim().toUpperCase();
-  if (!/^[A-Z0-9]{2,6}-(?:[A-Z]{2})?\d{1,5}$/.test(code)) return null;
+  if (!/^(?!ATK-|DEF-|HP-|LP-)(?:[A-Z0-9]{2,6}-(?:EN|JP|KR|DE|FR|IT|SP|PT|JE|AE)\d{3,5}|[A-Z]{2,4}-\d{3})$/.test(code)) return null;
   try {
     const res = await fetch(`https://db.ygoprodeck.com/api/v7/cardsetsinfo.php?setcode=${encodeURIComponent(code)}`, {
       headers: { "Accept": "application/json", "User-Agent": "Mozilla/5.0 (RapidScan)" },

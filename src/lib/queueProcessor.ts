@@ -185,6 +185,7 @@ async function runOcr(base64: string, blob?: Blob) {
       return {
         setCode: local.setCode,
         cardNumber: local.cardNumber,
+        fullCode: local.fullCode,
         title: local.title,
         name: local.title,
         setName: null,
@@ -252,6 +253,14 @@ async function fetchPricingFallback(args: {
 
 function lookupErrorMessage(result: RapidBasicLookupResponse | null): string {
   return result?.error || "No PriceCharting match found by set code/title, Google Lens, or web search fallback";
+}
+
+function firstValidPrintedIdentifier(...parts: Array<string | null | undefined>): string | null {
+  for (const part of parts) {
+    const value = String(part ?? "").trim();
+    if (isValidPrintedCode(value)) return value;
+  }
+  return null;
 }
 
 export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
@@ -380,18 +389,18 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   }
 
   // ── Identity gate ──────────────────────────────────────────────────────
-  // Require a valid printed code OR a readable title before we hit any
-  // pricing/identification service. Garbage OCR (e.g. ". L ¥. a", "o © 0")
-  // must NOT be searched — it returns wrong-but-real cards.
-  const hasValidCode = isValidPrintedCode(ocr?.setCode) || isValidPrintedCode(ocr?.cardNumber);
+  // Require a valid printed identifier before we hit any pricing/identification
+  // service. Title-only OCR is too noisy for Rapid Scan and returns wrong-but-real cards.
+  const printedIdentifier = firstValidPrintedIdentifier(ocr?.setCode, ocr?.fullCode, ocr?.cardNumber);
+  const hasValidCode = Boolean(printedIdentifier);
   const hasValidTitle = isReadableTitle(ocr?.title) || isReadableTitle(ocr?.name);
-  if (!hasValidCode && !hasValidTitle) {
-    console.warn("[QueueProcessor] gate → unreadable OCR, refusing to guess", {
+  if (!hasValidCode) {
+    console.warn("[QueueProcessor] gate → no printed identifier, refusing to guess", {
       setCode: ocr?.setCode, title: ocr?.title, sample: (ocr?.text || "").slice(0, 60),
     });
     await idbUpdateMeta(item.id, {
       status: "error",
-      error: "Unreadable scan — retake photo (no printed code or readable title found)",
+      error: "No printed set/card code found — retake photo closer to the code",
     });
     return;
   }
@@ -409,12 +418,12 @@ async function processQueueItem(item: QueueItem): Promise<void> {
     ocrText,
     title: hasValidTitle ? (ocr?.title ?? ocr?.name ?? null) : null,
     setName: ocr?.setName ?? null,
-    setCode: hasValidCode ? (ocr?.setCode ?? null) : null,
+    setCode: printedIdentifier,
     cardNumber: ocr?.cardNumber ?? null,
     edition: ocr?.edition ?? null,
     game: ocr?.game ?? null,
     gameTypeHint,
-    allowGoogleLens: Boolean(upload.publicUrl),
+    allowGoogleLens: false,
     timeoutMs: BASIC_LOOKUP_TIMEOUT_MS,
   });
 
@@ -441,6 +450,16 @@ async function processQueueItem(item: QueueItem): Promise<void> {
 
   const sourceKey = String(lookup.source ?? "");
   const isAuthoritative = AUTHORITATIVE_SOURCES.has(sourceKey);
+  const normalizedGame = String(identify.game_type ?? gameTypeHint ?? ocr?.game ?? "").toLowerCase();
+  const allowSportsWebMatch = normalizedGame.includes("sport");
+  if (!isAuthoritative && !allowSportsWebMatch) {
+    await idbUpdateMeta(item.id, {
+      status: "error",
+      error: "Printed code was not verified — retake photo closer to the code",
+    });
+    return;
+  }
+
   if (!isAuthoritative) {
     // Non-authoritative match (Lens / web fallback) — name must actually
     // appear in the OCR raw text. Blocks "Anaba Bodyguard" from junk OCR.

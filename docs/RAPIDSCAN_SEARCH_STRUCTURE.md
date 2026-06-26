@@ -1,6 +1,6 @@
 # RapidScan Search Structure
 
-RapidScan should identify first, then price. Prices must never be guessed from OCR text alone.
+RapidScan should identify first, then price. Prices must never be guessed from OCR text alone, and TCG cards must not be identified from title-only OCR.
 
 ## Active flow
 
@@ -15,17 +15,10 @@ OCR with zai-ocr
   ↓
 rapid-basic-card-lookup edge function
   ↓
-1. PriceCharting set-code/title search
-  ↓ no match
-2. Google Lens URL search from uploaded public image
-  ↓ no match
-3. Google web search site:pricecharting.com
-  ↓ no match
-4. DuckDuckGo site:pricecharting.com
-  ↓ no match
-5. Bing site:pricecharting.com
-  ↓
-Matched PriceCharting product page
+1. Verify printed set/card code with authoritative source
+  ↓ verified identity
+2. Search PriceCharting using verified identity
+  ↓ matched product page
   ↓
 Parse raw / PSA / CGC prices
   ↓
@@ -88,4 +81,4 @@ raw OCR text
 
 ## Rule
 
-No identity, no price. No PriceCharting product URL, no price parse.
+No printed identifier, no TCG identity. No verified identity, no TCG price lookup. No PriceCharting product URL, no price parse.

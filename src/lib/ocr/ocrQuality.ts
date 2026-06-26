@@ -2,8 +2,9 @@
 // Quality gate between raw OCR output and any identification / pricing call.
 // Rule: if OCR output is garbage we DO NOT search, identify, name, or price.
 
-const PRINTED_CODE_RE = /\b[A-Z0-9]{2,8}-[A-Z]{0,4}\d{1,5}\b/i;
+const YGO_PRINTED_CODE_RE = /\b(?!ATK\b|DEF\b|HP\b|LP\b)(?:[A-Z0-9]{2,6}-(?:EN|JP|KR|DE|FR|IT|SP|PT|JE|AE)\d{3,5}|[A-Z]{2,4}-\d{3})\b/i;
 const POKEMON_FRACTION_RE = /\b\d{1,4}\s*\/\s*\d{1,4}\b/;
+const SPORTS_YEAR_NUMBER_RE = /\b(?:19[5-9]\d|20[0-3]\d)\s*#\s*\d{1,4}\b/i;
 
 function normalize(s: string): string {
   return (s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -12,7 +13,8 @@ function normalize(s: string): string {
 /** True if `s` contains a real-looking printed set/collector code. */
 export function isValidPrintedCode(s: string | null | undefined): boolean {
   if (!s) return false;
-  return PRINTED_CODE_RE.test(String(s)) || POKEMON_FRACTION_RE.test(String(s));
+  const value = String(s);
+  return YGO_PRINTED_CODE_RE.test(value) || POKEMON_FRACTION_RE.test(value) || SPORTS_YEAR_NUMBER_RE.test(value);
 }
 
 /**
