@@ -82,6 +82,7 @@ serve(async (req) => {
       .trim();
 
     const lines = normalized.split(/\n/).map((l: string) => l.trim()).filter(Boolean);
+    const rawLines = rawText.split(/\n/).map((l: string) => l.trim()).filter(Boolean);
 
     // Extract structured fields via regex
     // Collector number patterns: 4/102, 023/165, SV049/SV122
@@ -98,16 +99,24 @@ serve(async (req) => {
     const ygoCardNumber = normalized.match(/\b([A-Z]{2,5}-[A-Z]{2}\d{3})\b/);
     const cardNumber = ygoCardNumber ? ygoCardNumber[1] : collectorNumber;
 
+    // Extract likely card title — pick the strongest line near the top.
+    const title = inferCardTitle(rawLines);
+
+    // Match a known set name fuzzy contains against a curated dictionary.
+    const setName = inferSetName(normalized);
+
     // Confidence scoring
     let confidence = 0;
-    if (normalized.length > 5) confidence += 0.3;
+    if (normalized.length > 5) confidence += 0.2;
     if (normalized.length > 20) confidence += 0.1;
-    if (collectorNumber || cardNumber) confidence += 0.3;
-    if (setCode) confidence += 0.2;
-    if (lines.length >= 2) confidence += 0.1;
+    if (collectorNumber || cardNumber) confidence += 0.25;
+    if (setCode) confidence += 0.15;
+    if (title) confidence += 0.2;
+    if (setName) confidence += 0.1;
+    if (lines.length >= 2) confidence += 0.05;
     confidence = Math.min(confidence, 1.0);
 
-    console.log(`[zai-ocr] OCR result: ${normalized.substring(0, 80)}... | confidence: ${confidence} | setCode: ${setCode} | cardNumber: ${cardNumber}`);
+    console.log(`[zai-ocr] OCR: title="${title ?? ""}" setName="${setName ?? ""}" setCode=${setCode} num=${cardNumber} conf=${confidence}`);
 
     return new Response(
       JSON.stringify({
@@ -115,6 +124,9 @@ serve(async (req) => {
         rawText,
         lines,
         boxes,
+        title,
+        name: title,
+        setName,
         collectorNumber,
         setCode,
         cardNumber,
@@ -124,6 +136,7 @@ serve(async (req) => {
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
+
   } catch (error) {
     console.error("[zai-ocr] Error:", error);
     return new Response(
@@ -148,3 +161,96 @@ async function fetchImageAsBase64(url: string): Promise<string | null> {
     return null;
   }
 }
+
+// ─── Title + set name inference ─────────────────────────────────────
+
+const TITLE_NOISE = /^(konami|pokemon|pokémon|wizards|illus\.?|©|tm|trademark|first edition|1st edition|limited edition|unlimited|common|rare|uncommon|super rare|ultra rare|secret rare|spell card|trap card|effect monster|normal monster|fusion monster|synchro monster|xyz monster|link monster|basic|stage 1|stage 2|trainer|energy|item|tool|supporter|stadium|hp\b|atk\b|def\b|level\b|cost\b|attack\b|defense\b|©.*|pokemon company|the pokémon company|nintendo|creatures|game freak|mtg|magic the gathering|topps|panini|upper deck|fleer|donruss|bowman|score)/i;
+
+function inferCardTitle(lines: string[]): string | null {
+  if (!lines.length) return null;
+  const candidates = lines
+    .map((line) => line.replace(/[#*_`]/g, "").trim())
+    .filter((line) => line.length >= 3 && line.length <= 60)
+    .filter((line) => !TITLE_NOISE.test(line))
+    .filter((line) => /[a-zA-Z]/.test(line))
+    .filter((line) => !/^\d+$/.test(line))
+    .filter((line) => !/^\d+\/\d+$/.test(line))
+    .filter((line) => !/^[A-Z]{2,5}-[A-Z]{0,3}\d{1,5}$/.test(line));
+
+  if (!candidates.length) return null;
+
+  const scored = candidates.map((line, idx) => {
+    let score = 0;
+    // Prefer earlier lines (titles are typically near top of card)
+    score += Math.max(0, 10 - idx);
+    // Prefer Title Case / proper noun shapes
+    if (/^[A-Z][A-Za-z'’\- ]+$/.test(line)) score += 4;
+    if (/^[A-Z][A-Z'’\- ]+$/.test(line) && line.length <= 30) score += 3;
+    // Penalize lines that look like rules text / sentences
+    if (/\.$/.test(line)) score -= 2;
+    if (line.split(/\s+/).length > 6) score -= 2;
+    if (/\$|€|£/.test(line)) score -= 5;
+    return { line, score };
+  }).sort((a, b) => b.score - a.score);
+
+  return scored[0]?.line ?? null;
+}
+
+const KNOWN_SETS: Array<{ name: string; aliases: string[] }> = [
+  // Pokémon
+  { name: "Base Set", aliases: ["base set"] },
+  { name: "Jungle", aliases: ["jungle"] },
+  { name: "Fossil", aliases: ["fossil"] },
+  { name: "Team Rocket", aliases: ["team rocket"] },
+  { name: "Neo Genesis", aliases: ["neo genesis"] },
+  { name: "Scarlet & Violet", aliases: ["scarlet & violet", "scarlet and violet", "scarlet violet"] },
+  { name: "Paldea Evolved", aliases: ["paldea evolved"] },
+  { name: "Obsidian Flames", aliases: ["obsidian flames"] },
+  { name: "Paradox Rift", aliases: ["paradox rift"] },
+  { name: "Temporal Forces", aliases: ["temporal forces"] },
+  { name: "Twilight Masquerade", aliases: ["twilight masquerade"] },
+  { name: "Stellar Crown", aliases: ["stellar crown"] },
+  { name: "Surging Sparks", aliases: ["surging sparks"] },
+  { name: "Prismatic Evolutions", aliases: ["prismatic evolutions"] },
+  { name: "151", aliases: ["pokemon 151", "151"] },
+  { name: "Crown Zenith", aliases: ["crown zenith"] },
+  { name: "Silver Tempest", aliases: ["silver tempest"] },
+  { name: "Lost Origin", aliases: ["lost origin"] },
+  { name: "Astral Radiance", aliases: ["astral radiance"] },
+  { name: "Brilliant Stars", aliases: ["brilliant stars"] },
+  { name: "Fusion Strike", aliases: ["fusion strike"] },
+  { name: "Evolving Skies", aliases: ["evolving skies"] },
+  { name: "Chilling Reign", aliases: ["chilling reign"] },
+  { name: "Battle Styles", aliases: ["battle styles"] },
+  { name: "Vivid Voltage", aliases: ["vivid voltage"] },
+  { name: "Champion's Path", aliases: ["champion's path", "champions path"] },
+  { name: "Hidden Fates", aliases: ["hidden fates"] },
+  { name: "Shining Fates", aliases: ["shining fates"] },
+  // Yu-Gi-Oh!
+  { name: "Legend of Blue Eyes White Dragon", aliases: ["legend of blue eyes", "lob"] },
+  { name: "Metal Raiders", aliases: ["metal raiders", "mrd"] },
+  { name: "Magic Ruler", aliases: ["magic ruler", "mrl"] },
+  { name: "Pharaoh's Servant", aliases: ["pharaoh's servant", "psv"] },
+  { name: "Invasion of Chaos", aliases: ["invasion of chaos", "ioc"] },
+  { name: "Legendary Collection", aliases: ["legendary collection"] },
+  { name: "25th Anniversary", aliases: ["25th anniversary"] },
+  // MTG
+  { name: "Alpha", aliases: ["limited edition alpha"] },
+  { name: "Beta", aliases: ["limited edition beta"] },
+  { name: "Modern Horizons 3", aliases: ["modern horizons 3"] },
+  { name: "The Lord of the Rings", aliases: ["lord of the rings", "tales of middle-earth"] },
+  { name: "Bloomburrow", aliases: ["bloomburrow"] },
+  { name: "Duskmourn", aliases: ["duskmourn"] },
+  { name: "Foundations", aliases: ["foundations"] },
+];
+
+function inferSetName(text: string): string | null {
+  const haystack = text.toLowerCase();
+  for (const entry of KNOWN_SETS) {
+    for (const alias of entry.aliases) {
+      if (haystack.includes(alias)) return entry.name;
+    }
+  }
+  return null;
+}
+

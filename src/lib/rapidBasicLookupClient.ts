@@ -45,6 +45,10 @@ export function hasReadablePrice(pricing: RapidBasicLookupResponse["pricing"]): 
 export async function runRapidBasicLookup(args: {
   imageUrl: string | null;
   ocrText: string;
+  title?: string | null;
+  setName?: string | null;
+  setCode?: string | null;
+  cardNumber?: string | null;
   gameTypeHint?: string;
   allowGoogleLens: boolean;
   timeoutMs?: number;
@@ -55,6 +59,10 @@ export async function runRapidBasicLookup(args: {
       body: {
         imageUrl: args.imageUrl,
         ocrText: args.ocrText,
+        title: args.title ?? null,
+        setName: args.setName ?? null,
+        setCode: args.setCode ?? null,
+        cardNumber: args.cardNumber ?? null,
         gameTypeHint: args.gameTypeHint,
         allowGoogleLens: args.allowGoogleLens,
       },
