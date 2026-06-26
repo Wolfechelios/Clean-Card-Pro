@@ -253,3 +253,35 @@ function inferSetName(text: string): string | null {
   return null;
 }
 
+// ─── YGO set code extraction (printed code = strongest identifier) ───
+// Returns the best-quality YGO printed code, preferring region-coded modern forms.
+function extractYgoSetCode(text: string): string | null {
+  const upper = text.toUpperCase();
+  // Modern: 2-6 alphanum prefix + dash + 2-letter region + 1-5 digits
+  // Examples: LOB-EN001, MP25-EN318, RA01-EN001, BROL-EN000, DUSA-EN001
+  const modern = Array.from(upper.matchAll(/\b([A-Z0-9]{2,6})-((?:EN|JP|KR|DE|FR|IT|SP|PT|JE|AE))(\d{1,5})\b/g))
+    .map((m) => `${m[1]}-${m[2]}${m[3].padStart(3, "0")}`);
+  if (modern.length) return modern[0];
+
+  // Legacy: 3-letter prefix + dash + 3 digits, no region code
+  // Examples: LOB-001, SDK-001, SDY-046, PSV-012
+  const legacy = Array.from(upper.matchAll(/\b([A-Z]{2,4})-(\d{1,4})\b/g))
+    .filter((m) => !/^(EN|JP|KR|DE|FR|IT|SP|PT)$/.test(m[1]))
+    .map((m) => `${m[1]}-${m[2].padStart(3, "0")}`);
+  if (legacy.length) return legacy[0];
+
+  return null;
+}
+
+// Normalize common OCR confusions inside what looks like a set code.
+// Only touches tokens that already look code-shaped, so it won't mangle prose.
+function normalizeOcrCodes(text: string): string {
+  return text.replace(/\b([A-Z0-9OIl]{2,6})-([A-Z0-9OIl]{0,4})(\d|[OIl]){1,5}\b/g, (token) => {
+    return token
+      .replace(/[Il]/g, "1")
+      .replace(/O(?=\d|$)/g, "0")
+      .replace(/(?<=\d)O/g, "0");
+  });
+}
+
+
