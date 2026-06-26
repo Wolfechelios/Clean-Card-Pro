@@ -189,7 +189,7 @@ serve(async (req) => {
     let googleLensUrl: string | null = null;
     // Image AI / Lens fallback — ONLY when no code was resolved.
     const noCodeResolved = !identity && ids.ygoSetCodes.length === 0;
-    if (!candidate && allowGoogleLens && isHttpUrl(imageUrl) && noCodeResolved) {
+    if (!candidate && allowGoogleLens && isHttpUrl(imageUrl) && noCodeResolved && detectedGame === "sports") {
       googleLensUrl = `https://lens.google.com/uploadbyurl?url=${encodeURIComponent(imageUrl)}`;
       candidate = await searchGoogleLensForPriceCharting(imageUrl, ids);
       if (!candidate) {
