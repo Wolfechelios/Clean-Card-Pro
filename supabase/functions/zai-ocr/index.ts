@@ -74,49 +74,48 @@ serve(async (req) => {
     const rawText = (data.md_results || "").trim();
     const boxes = data.layout_details || [];
 
-    // Normalize OCR text
-    const normalized = rawText
-      .replace(/\s+/g, " ")
-      .replace(/[|]/g, "I")
-      .replace(/[`]/g, "'")
-      .trim();
+    // Normalize OCR text + fix common OCR confusions on set codes (O↔0, I/l↔1, S↔5)
+    const normalized = normalizeOcrCodes(
+      rawText
+        .replace(/\s+/g, " ")
+        .replace(/[|]/g, "I")
+        .replace(/[`]/g, "'")
+        .trim(),
+    );
 
     const lines = normalized.split(/\n/).map((l: string) => l.trim()).filter(Boolean);
     const rawLines = rawText.split(/\n/).map((l: string) => l.trim()).filter(Boolean);
 
-    // Extract structured fields via regex
-    // Collector number patterns: 4/102, 023/165, SV049/SV122
+    // ── YGO printed set code is the strongest identifier ──
+    // Catches both legacy (LOB-001, SDY-046) and modern (MP25-EN318, RA01-EN001, BROL-EN000).
+    const ygoSetCode = extractYgoSetCode(normalized);
+
+    // Pokémon-style collector number: 4/102, 023/165, SV049/SV122
     const collectorMatch = normalized.match(/\b(\d{1,4})\s*[\/]\s*(\d{1,4})\b/) ||
       normalized.match(/\b(SV\d{1,4})\s*[\/]\s*(SV\d{1,4})\b/i);
     const collectorNumber = collectorMatch ? collectorMatch[0].replace(/\s/g, "") : null;
 
-    // Set code patterns: LOB-EN001, STOR-EN045, BT01-042, SM12-123, etc.
-    const setCodeMatch = normalized.match(/\b([A-Z]{2,5}[-]?[A-Z]{0,3}\d{1,3})\b/) ||
-      normalized.match(/\b([A-Z]{2,5}-[A-Z]{2}\d{3})\b/);
-    const setCode = setCodeMatch ? setCodeMatch[1] : null;
+    // Generic fallback set code (Pokémon TCG: SWSH123, etc.) when no YGO code present
+    const setCode = ygoSetCode ?? (normalized.match(/\b([A-Z]{2,5}-[A-Z]{2}\d{1,4})\b/)?.[1] ?? null);
 
-    // YGO full card number: LOB-EN001, IOC-EN025, etc.
-    const ygoCardNumber = normalized.match(/\b([A-Z]{2,5}-[A-Z]{2}\d{3})\b/);
-    const cardNumber = ygoCardNumber ? ygoCardNumber[1] : collectorNumber;
+    // Prefer printed YGO code as the card number — it uniquely identifies the printing.
+    const cardNumber = ygoSetCode ?? collectorNumber;
 
-    // Extract likely card title — pick the strongest line near the top.
     const title = inferCardTitle(rawLines);
-
-    // Match a known set name fuzzy contains against a curated dictionary.
     const setName = inferSetName(normalized);
 
-    // Confidence scoring
+    // Confidence — printed set code dominates.
     let confidence = 0;
-    if (normalized.length > 5) confidence += 0.2;
-    if (normalized.length > 20) confidence += 0.1;
-    if (collectorNumber || cardNumber) confidence += 0.25;
-    if (setCode) confidence += 0.15;
+    if (normalized.length > 5) confidence += 0.1;
+    if (normalized.length > 20) confidence += 0.05;
+    if (ygoSetCode) confidence += 0.45;
+    else if (collectorNumber) confidence += 0.2;
     if (title) confidence += 0.2;
     if (setName) confidence += 0.1;
     if (lines.length >= 2) confidence += 0.05;
     confidence = Math.min(confidence, 1.0);
 
-    console.log(`[zai-ocr] OCR: title="${title ?? ""}" setName="${setName ?? ""}" setCode=${setCode} num=${cardNumber} conf=${confidence}`);
+    console.log(`[zai-ocr] OCR: title="${title ?? ""}" setName="${setName ?? ""}" setCode=${setCode} ygo=${ygoSetCode} num=${cardNumber} conf=${confidence}`);
 
     return new Response(
       JSON.stringify({
