@@ -120,7 +120,7 @@ serve(async (req) => {
     if (cardNumberHint && validCardNumberCode && String(cardNumberHint).includes("-") && !ids.ygoSetCodes.includes(String(cardNumberHint).toUpperCase())) {
       ids.ygoSetCodes.unshift(String(cardNumberHint).toUpperCase());
     }
-    if (cardNumberHint && !ids.collectorNumbers.includes(String(cardNumberHint).toUpperCase())) {
+    if (cardNumberHint && !String(cardNumberHint).includes("-") && !ids.collectorNumbers.includes(String(cardNumberHint).toUpperCase())) {
       ids.collectorNumbers.unshift(String(cardNumberHint).toUpperCase());
     }
 
@@ -130,7 +130,8 @@ serve(async (req) => {
     let identity: Identity | null = null;
     if (setCodeHint || ids.ygoSetCodes[0]) {
       const code = String(setCodeHint ?? ids.ygoSetCodes[0]);
-      identity = await readCache(detectedGame, code, cardNumberHint ?? null);
+      const cacheCollectorNumber = detectedGame === "yugioh" ? null : (cardNumberHint ?? null);
+      identity = await readCache(detectedGame, code, cacheCollectorNumber);
       if (identity) console.log("[lookup] cache hit:", identity.setCode, "→", identity.name);
     }
 
