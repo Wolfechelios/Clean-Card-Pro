@@ -450,6 +450,16 @@ async function processQueueItem(item: QueueItem): Promise<void> {
 
   const sourceKey = String(lookup.source ?? "");
   const isAuthoritative = AUTHORITATIVE_SOURCES.has(sourceKey);
+  const normalizedGame = String(identify.game_type ?? gameTypeHint ?? ocr?.game ?? "").toLowerCase();
+  const allowSportsWebMatch = normalizedGame.includes("sport");
+  if (!isAuthoritative && !allowSportsWebMatch) {
+    await idbUpdateMeta(item.id, {
+      status: "error",
+      error: "Printed code was not verified — retake photo closer to the code",
+    });
+    return;
+  }
+
   if (!isAuthoritative) {
     // Non-authoritative match (Lens / web fallback) — name must actually
     // appear in the OCR raw text. Blocks "Anaba Bodyguard" from junk OCR.
