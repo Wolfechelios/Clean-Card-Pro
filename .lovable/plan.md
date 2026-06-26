@@ -1,72 +1,134 @@
-## Problem
+## Goal
 
-Rapid Scan currently fails to identify or price most cards because:
+Make **all** card identification **printed-code-first** across Yu-Gi-Oh, Pokémon, Magic: The Gathering, and sports cards. Read the printed set/collector code, normalize it, confirm via the game's authoritative database, then price. Image AI is fallback only.
 
-1. The cloud OCR (`zai-ocr`) returns raw text only — it never extracts a card **title** or **set name**. So `ocr.title` / `ocr.name` are always `undefined` when the local OCR fails.
-2. `rapid-basic-card-lookup` then queries PriceCharting with weak strings (raw OCR text, no structured title/set), which usually returns nothing. When PriceCharting fails, there is no real pricing fallback.
-3. Edge logs confirm: `zai-ocr` is invoked, but `rapid-basic-card-lookup` and `fetch-card-prices` are never hit on the same flow, so the worker dies with "No PriceCharting match found".
-
-## Fix Overview
-
-Make the scanner reliably extract **Title + Set Name + Set Code/Number**, then run a layered identify-and-price pipeline with proper fallbacks.
-
-### 1. Stronger OCR field extraction (`supabase/functions/zai-ocr/index.ts`)
-
-- After Z.AI returns raw text, also derive:
-  - `title` — best candidate line (filter noise like "HP", "ATK", "Konami", "©", "Trainer", numeric blocks), pick the largest/most prominent text line near the top.
-  - `setName` — match against a known set-name dictionary (Pokémon, Yu-Gi-Oh!, MTG, sports) using fuzzy contains.
-  - `setCode`, `cardNumber` — keep current regex.
-- Return these fields in the JSON response so `queueProcessor` can use them directly.
-
-### 2. Smarter lookup (`supabase/functions/rapid-basic-card-lookup/index.ts`)
-
-- Accept structured `{ title, setName, setCode, cardNumber }` from the client instead of only `ocrText`.
-- Build PriceCharting queries in priority order:
-  1. `setCode` (exact match for Yu-Gi-Oh! / Pokémon)
-  2. `title + setName`
-  3. `title + cardNumber`
-  4. `title + game-type hint`
-- Log every query tried so we can debug from edge logs.
-
-### 3. Pricing fallback chain
-
-When PriceCharting returns no match or no usable price, fall back in this order:
-1. **`fetch-card-prices`** edge function (already exists) — call with `{ cardName, cardSet, cardNumber, gameType }`. Returns raw/PSA10 in the unified schema.
-2. **`bulk-enrich-tcgplayer`** (TCG cards) or **`bulk-enrich-sports-prices`** (sports) for a single-card price.
-3. If all fail, mark the item `priced: false` and surface a "needs review" badge instead of throwing.
-
-### 4. Queue processor wiring (`src/lib/queueProcessor.ts`, `src/lib/rapidBasicLookupClient.ts`)
-
-- Pass structured OCR fields into the lookup call (not just compacted text).
-- After lookup, if `pricing` is empty, call the `fetch-card-prices` fallback in-place using the identified `cardName` + `cardSet`.
-- Lower the confidence floor from 0.30 to 0.20 — confidence only blocks **auto-save**, never blocks pricing.
-- Add visible per-stage logging: `[QueueProcessor] ocr → identify → price` for each item.
-
-### 5. Memory + safety
-
-- Honor existing single-worker / anomaly-pause rules — no change there.
-- Respect existing pricing-source priority memory (PSA10 > PSA9 > raw > etc.).
-- No schema changes, no new tables.
-
-## Files Changed
+## Universal pipeline
 
 ```text
-supabase/functions/zai-ocr/index.ts             (extract title + setName)
-supabase/functions/rapid-basic-card-lookup/index.ts  (structured queries, better logging)
-src/lib/rapidBasicLookupClient.ts               (pass structured fields)
-src/lib/queueProcessor.ts                       (use fields, add fetch-card-prices fallback, lower floor)
+Capture frame
+  → Image normalization (crop, deskew, contrast, sharpen, upscale code region)
+  → OCR (code ROI + name ROI + full card, in parallel)
+  → Regex extract + normalize code (per-game patterns)
+  → Local cache lookup
+  → Authoritative DB lookup (per game)
+  → Price lookup (set code + name first)
+  → Save scan result with confidence tier
+  → Image AI / Google Lens only if no code resolved
 ```
 
-## Validation
+## Per-game code formats + authoritative source
 
-- Deploy the three edge functions.
-- Curl-test `zai-ocr` with a known card image; confirm it returns `title` and `setName`.
-- Curl-test `rapid-basic-card-lookup` with `{ title:"Cyber Dragon", setName:"Legendary Collection 5D's", setCode:"LC5D-EN094" }`; confirm a PriceCharting URL and prices.
-- In-app: scan one Yu-Gi-Oh, one Pokémon, one sports card. Confirm each shows a name, set, and at least one price in the result panel.
-- Watch edge function logs to see the new per-stage messages and confirm `fetch-card-prices` is invoked when PriceCharting misses.
+```text
+Yu-Gi-Oh    LOB-001, SDY-046, MP25-EN318, RA01-EN001     → YGOPRODeck (cardsetsinfo.php)
+Pokémon     SV049/SV122, 4/102, SWSH284, PAL 161         → Pokémon TCG API (api.pokemontcg.io)
+MTG         set code + collector # (e.g. NEO 234, MH3 12) → Scryfall (api.scryfall.com/cards/:set/:cn)
+Sports      year + manufacturer + #                       → SportsCardsPro / PriceCharting direct
+```
 
-## Out of Scope
+Regex per game (applied in order; first match wins):
 
-- Local browser OCR model upgrades.
-- Changing the scanner UI/viewfinder.
-- New pricing providers beyond the ones already wired.
+```text
+YGO   \b[A-Z]{2,6}-[A-Z]{0,3}\d{3,4}\b
+PKM   \b(SV)?\d{1,4}\s*\/\s*(SV)?\d{1,4}\b   |   \b(SWSH|SM|XY|BW)\d{1,3}\b
+MTG   set-code (3-5 letters) + " " + 1-4 digit collector number  (validated via Scryfall)
+SPRT  year (1965–2030) + #\s*\d+ + manufacturer keyword
+```
+
+## Changes
+
+### 1. Image normalization — new `src/lib/ocr/normalizeForOcr.ts`
+- Auto-crop to card rectangle (reuse `lib/visionCardRect.ts`).
+- Deskew using detected rectangle angle.
+- Per-region preprocessing: grayscale → contrast boost → unsharp mask → 2× upscale.
+- Emit canvases for: full card, **bottom strip (code ROI)**, **top strip (name ROI)**.
+  - YGO/Pokémon: bottom-left ~20% × 8%
+  - MTG: bottom-left ~25% × 5%
+  - Sports: bottom or back ~entire bottom strip
+
+### 2. Local OCR — rewrite `src/lib/ocr/localCardOcr.ts`
+- Run Tesseract three times (full, code ROI, name ROI) in parallel.
+- Code ROI: `tessedit_char_whitelist = A-Z0-9-/`, PSM 7 (single line).
+- Apply each game's regex; tag the winning game and code.
+- Normalize: collapse whitespace, fix common OCR errors **inside the number section only** (O→0, I/l→1, S→5, B→8); leave prefixes intact unless confidence < 0.4.
+- Return `{ game, setCode, collectorNumber, title, edition, rarity, rawText, confidence, regionConfidences }`.
+
+### 3. Authoritative lookup — `supabase/functions/rapid-basic-card-lookup/index.ts`
+Add resolver dispatch keyed off detected `game`:
+
+```text
+lookupYgoBySetCode      → YGOPRODeck
+lookupPokemonByNumber   → Pokémon TCG API (set + number)
+lookupMtgByCollector    → Scryfall /cards/:set/:cn
+lookupSportsByPrintRun  → PriceCharting direct (no external DB)
+```
+
+If a resolver returns a card, treat its name/set/rarity as **authoritative** and overwrite OCR guesses. Set confidence floor 0.92.
+
+### 4. Confidence scoring (shared)
+- `+70` exact set/collector code resolves in authoritative DB
+- `+20` OCR title fuzzy-matches resolved name (≥ 0.7)
+- `+10` rarity/edition match
+- `+5`  PriceCharting result title contains the code
+- `-50` code resolves to nothing in authoritative DB
+- Tiers: **HIGH ≥ 90**, **MEDIUM 60–89**, **LOW < 60**. Persist tier with the scan.
+
+### 5. Pricing query order — `buildPriceChartingQueries`
+Reorder for every game:
+1. `setCode` alone
+2. `setCode + cardName`
+3. `cardName + setName + rarity/edition`
+4. `cardName + setName`
+5. `cardName` (last resort)
+
+**Block** pricing entirely when no code resolves AND OCR title confidence < 0.5 — return `requires_user_disambiguation` so the UI can prompt printing selection.
+
+### 6. Local card cache — new table `card_print_cache`
+Shared across games to avoid hammering external APIs:
+
+```sql
+create table public.card_print_cache (
+  game text not null,
+  set_code text not null,
+  collector_number text,
+  card_name text not null,
+  set_name text not null,
+  rarity text,
+  external_id text,
+  payload jsonb,
+  updated_at timestamptz default now(),
+  primary key (game, set_code, coalesce(collector_number,''))
+);
+grant select on public.card_print_cache to anon, authenticated;
+grant all   on public.card_print_cache to service_role;
+alter table public.card_print_cache enable row level security;
+create policy "public read card cache" on public.card_print_cache for select using (true);
+```
+Edge function writes via service role after each successful authoritative hit.
+
+### 7. Fallback UX — `src/lib/queueProcessor.ts`
+- On `requires_user_disambiguation`, mark item `needs_review` (don't error), surface in Recent Scans with a "Choose printing" action.
+- Run Google Lens **only** when no set/collector code was detected at all.
+
+### 8. Capture path — `src/components/scanner/RapidScanCamera.tsx`
+- Normalize image before enqueue; store full card + code ROI blobs on the queue item.
+- No identification or pricing in the camera component (already enforced).
+
+## Files touched
+
+```text
+src/lib/ocr/normalizeForOcr.ts                              (new)
+src/lib/ocr/localCardOcr.ts                                 (rewrite, ROI + multi-game regex)
+src/lib/ocr/gameCodePatterns.ts                             (new — regex + normalization per game)
+src/lib/idbQueue.ts                                         (add optional codeRoiBlob)
+src/lib/queueProcessor.ts                                   (disambiguation, no-code guard)
+src/lib/rapidBasicLookupClient.ts                           (pass game/edition/rarity hints)
+src/components/scanner/RapidScanCamera.tsx                  (normalize before enqueue)
+supabase/functions/rapid-basic-card-lookup/index.ts         (game dispatch, cache I/O, tier output)
+supabase/migrations/<ts>_card_print_cache.sql               (new shared cache table)
+docs/RAPIDSCAN_SEARCH_STRUCTURE.md                          (update diagram for all games)
+```
+
+## Out of scope
+- No `cards` table schema changes.
+- No new client dependencies (reuse tesseract.js + canvas).
+- No UI redesign — the existing "Choose printing" path is reused for disambiguation.
