@@ -185,6 +185,7 @@ async function runOcr(base64: string, blob?: Blob) {
       return {
         setCode: local.setCode,
         cardNumber: local.cardNumber,
+        fullCode: local.fullCode,
         title: local.title,
         name: local.title,
         setName: null,
