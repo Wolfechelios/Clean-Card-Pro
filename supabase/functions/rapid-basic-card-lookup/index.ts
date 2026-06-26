@@ -2,9 +2,29 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { rateLimitResponse } from "../_shared/rateLimiter.ts";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Universal printed-code-first card lookup.
+// Order: cache → authoritative DB (per game) → PriceCharting → web fallback.
+// Image AI is invoked only when no printed code resolves.
+// ─────────────────────────────────────────────────────────────────────────────
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+type Game = "yugioh" | "pokemon" | "mtg" | "sports" | "unknown";
+
+type Identity = {
+  game: Game;
+  name: string;
+  setName: string;
+  setCode: string;
+  collectorNumber: string | null;
+  rarity: string | null;
+  manufacturer: string | null;
+  year: string | null;
+  source: "cache" | "ygoprodeck" | "pokemontcg" | "scryfall";
 };
 
 type Candidate = {
@@ -27,6 +47,15 @@ type Pricing = {
 
 const PC_BASE = "https://www.pricecharting.com";
 
+// ─── Service-role client for cache writes ───
+function adminClient() {
+  return createClient(
+    Deno.env.get("SUPABASE_URL") ?? "",
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+    { auth: { persistSession: false } },
+  );
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -39,18 +68,21 @@ serve(async (req) => {
       setName: setNameHint,
       setCode: setCodeHint,
       cardNumber: cardNumberHint,
+      edition: editionHint,
+      game: gameHint,
       gameTypeHint,
       allowGoogleLens = true,
     } = body ?? {};
-    const authHeader = req.headers.get("authorization");
 
+    // Rate limiting (per user).
+    const authHeader = req.headers.get("authorization");
     if (authHeader) {
-      const supabase = createClient(
+      const userClient = createClient(
         Deno.env.get("SUPABASE_URL") ?? "",
         Deno.env.get("SUPABASE_ANON_KEY") ?? "",
         { global: { headers: { Authorization: authHeader } } },
       );
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user } } = await userClient.auth.getUser();
       if (user?.id) {
         const rl = rateLimitResponse(user.id, "rapid-basic-card-lookup", corsHeaders, 90, 60_000);
         if (rl) return rl;
@@ -63,121 +95,155 @@ serve(async (req) => {
       return json({ success: false, source: "none", error: "Missing OCR text and structured hints" }, 400);
     }
 
-    const identifiers = extractIdentifiers(normalizedOcr);
-    // Merge in client-provided structured hints so queries are stronger.
-    if (titleHint) identifiers.likelyTitle = String(titleHint);
-    if (setCodeHint && !identifiers.ygoSetCodes.includes(String(setCodeHint).toUpperCase())) {
-      identifiers.ygoSetCodes.unshift(String(setCodeHint).toUpperCase());
+    const ids = extractIdentifiers(normalizedOcr);
+    if (titleHint) ids.likelyTitle = String(titleHint);
+    if (setCodeHint && !ids.ygoSetCodes.includes(String(setCodeHint).toUpperCase())) {
+      ids.ygoSetCodes.unshift(String(setCodeHint).toUpperCase());
     }
-    if (cardNumberHint && !identifiers.collectorNumbers.includes(String(cardNumberHint).toUpperCase())) {
-      identifiers.collectorNumbers.unshift(String(cardNumberHint).toUpperCase());
+    if (cardNumberHint && !ids.collectorNumbers.includes(String(cardNumberHint).toUpperCase())) {
+      ids.collectorNumbers.unshift(String(cardNumberHint).toUpperCase());
     }
 
-    // ── STEP 1: Authoritative identity via YGOPRODeck setcode lookup ──
-    // For YGO, the printed code uniquely identifies the printing. Resolve name/set/rarity
-    // BEFORE pricing so PriceCharting gets a strong, exact query.
-    let ygoIdentity: { name: string; setName: string; setCode: string; rarity: string | null } | null = null;
-    for (const code of identifiers.ygoSetCodes) {
-      ygoIdentity = await lookupYgoBySetCode(code);
-      if (ygoIdentity) {
-        console.log("[rapid-basic-card-lookup] YGOPRODeck identified:", code, "→", ygoIdentity.name, "(", ygoIdentity.setName, ")");
-        // Promote authoritative title/set so PC queries use the real values.
-        identifiers.likelyTitle = ygoIdentity.name;
-        if (!setNameHint) (body as any).setName = ygoIdentity.setName;
-        break;
+    const detectedGame: Game = normalizeGame(gameHint) ?? detectGameFromText(normalizedOcr);
+
+    // ── STEP 1: Cache lookup ─────────────────────────────────────────
+    let identity: Identity | null = null;
+    if (setCodeHint || ids.ygoSetCodes[0]) {
+      const code = String(setCodeHint ?? ids.ygoSetCodes[0]);
+      identity = await readCache(detectedGame, code, cardNumberHint ?? null);
+      if (identity) console.log("[lookup] cache hit:", identity.setCode, "→", identity.name);
+    }
+
+    // ── STEP 2: Authoritative database per game ──────────────────────
+    if (!identity) {
+      if (detectedGame === "yugioh") {
+        for (const code of ids.ygoSetCodes) {
+          identity = await lookupYgoBySetCode(code);
+          if (identity) break;
+        }
+      } else if (detectedGame === "pokemon") {
+        identity = await lookupPokemonByNumber(ids, titleHint ?? null);
+      } else if (detectedGame === "mtg") {
+        identity = await lookupMtgByCollector(ids, setCodeHint ?? null, cardNumberHint ?? null);
+      }
+      if (identity) {
+        await writeCache(identity).catch(() => undefined);
+        console.log("[lookup] authoritative match:", identity.source, identity.setCode, "→", identity.name);
       }
     }
-    const resolvedSetName = ygoIdentity?.setName ?? setNameHint ?? null;
 
-    const queries = buildPriceChartingQueries(normalizedOcr, identifiers, gameTypeHint, resolvedSetName);
-    console.log("[rapid-basic-card-lookup] queries:", JSON.stringify(queries));
+    // Promote authoritative identity into PC query hints.
+    if (identity) {
+      ids.likelyTitle = identity.name;
+      if (!ids.ygoSetCodes.includes(identity.setCode)) ids.ygoSetCodes.unshift(identity.setCode);
+    }
+
+    const resolvedSetName = identity?.setName ?? setNameHint ?? null;
+    const resolvedRarity = identity?.rarity ?? null;
+
+    // ── STEP 3: Pricing — only with an identified card ────────────────
+    const queries = buildPriceChartingQueries(normalizedOcr, ids, gameTypeHint, resolvedSetName, resolvedRarity);
+    console.log("[lookup] PC queries:", JSON.stringify(queries.slice(0, 6)));
 
     let candidate: Candidate | null = null;
     const tried: string[] = [];
-
-    for (const query of queries) {
-      tried.push(`pricecharting:${query}`);
-      const found = await searchPriceCharting(query, identifiers);
-      if (found) {
-        console.log("[rapid-basic-card-lookup] matched on query:", query, "->", found.url);
-        candidate = found;
-        break;
-      }
+    for (const q of queries) {
+      tried.push(`pricecharting:${q}`);
+      const found = await searchPriceCharting(q, ids);
+      if (found) { candidate = found; break; }
     }
 
     let googleLensUrl: string | null = null;
-    if (!candidate && allowGoogleLens && isHttpUrl(imageUrl)) {
+    // Image AI / Lens fallback — ONLY when no code was resolved.
+    const noCodeResolved = !identity && ids.ygoSetCodes.length === 0;
+    if (!candidate && allowGoogleLens && isHttpUrl(imageUrl) && noCodeResolved) {
       googleLensUrl = `https://lens.google.com/uploadbyurl?url=${encodeURIComponent(imageUrl)}`;
-      candidate = await searchGoogleLensForPriceCharting(imageUrl, identifiers);
+      candidate = await searchGoogleLensForPriceCharting(imageUrl, ids);
       if (!candidate) {
-        for (const query of queries.slice(0, 4)) {
-          candidate = await searchGoogleWebForPriceCharting(query, identifiers)
-            ?? await searchDuckDuckGoForPriceCharting(query, identifiers)
-            ?? await searchBingForPriceCharting(query, identifiers);
+        for (const q of queries.slice(0, 3)) {
+          candidate = await searchGoogleWebForPriceCharting(q, ids)
+            ?? await searchDuckDuckGoForPriceCharting(q, ids)
+            ?? await searchBingForPriceCharting(q, ids);
           if (candidate) break;
         }
       }
     }
 
-    if (!candidate) {
-      console.log("[rapid-basic-card-lookup] no PC match — tried:", tried);
-      // If YGOPRODeck gave us authoritative identity, return it even without pricing
-      // so the queue processor can attempt fetch-card-prices fallback.
-      if (ygoIdentity) {
-        return json({
-          success: true,
-          source: "ygoprodeck",
-          cardData: {
-            card_name: ygoIdentity.name,
-            card_set: ygoIdentity.setName,
-            card_number: ygoIdentity.setCode,
-            rarity: ygoIdentity.rarity,
-            game_type: "YuGiOh",
-            sport_type: null,
-            year: null,
-            manufacturer: "Konami",
-            confidence: 0.9,
-          },
-          pricing: null,
-          priceChartingUrl: null,
-          googleLensUrl,
-          diagnostics: { tried, identifiers, ygoIdentity },
-        });
-      }
+    // Confidence scoring ────────────────────────────────────────────
+    let score = 0;
+    if (identity) score += 70;
+    if (identity && titleHint && fuzzyMatch(String(titleHint), identity.name) >= 0.7) score += 20;
+    if (resolvedRarity && editionHint && resolvedRarity.toLowerCase().includes(String(editionHint).toLowerCase())) score += 10;
+    if (candidate && identity && candidate.name.toUpperCase().includes(identity.setCode.toUpperCase())) score += 5;
+    if (!identity && ids.ygoSetCodes.length > 0) score -= 50;
+    const tier: "HIGH" | "MEDIUM" | "LOW" = score >= 90 ? "HIGH" : score >= 60 ? "MEDIUM" : "LOW";
+
+    // No identity AND no candidate AND no usable title → ask the user.
+    const titleConfidenceOk = Boolean(titleHint) || Boolean(ids.likelyTitle);
+    if (!identity && !candidate && !titleConfidenceOk) {
       return json({
         success: false,
-        source: "none",
-        error: "No PriceCharting product found by set code/title or Lens/web fallback",
+        source: "requires_user_disambiguation",
+        requiresDisambiguation: true,
+        confidenceTier: "LOW",
+        error: "No printed set/collector code detected. User must select the printing.",
         tried,
         googleLensUrl,
       });
     }
 
+    // Identity but no PC candidate → return identity for downstream pricing fallback.
+    if (!candidate) {
+      if (identity) {
+        return json({
+          success: true,
+          source: identity.source,
+          confidenceTier: tier,
+          cardData: identityToCardData(identity),
+          pricing: null,
+          priceChartingUrl: null,
+          googleLensUrl,
+          diagnostics: { tried, ids, score },
+        });
+      }
+      return json({
+        success: false,
+        source: "none",
+        confidenceTier: "LOW",
+        error: "No PriceCharting product found by set code/title.",
+        tried,
+        googleLensUrl,
+      });
+    }
+
+    // Parse PriceCharting product page.
     const pageHtml = await fetchText(candidate.url);
-    const title = extractProductTitle(pageHtml) || candidate.name;
+    const pcTitle = extractProductTitle(pageHtml) || candidate.name;
     const pricing = parsePriceChartingPrices(pageHtml, candidate.url);
-    const cardData = productTitleToCardData(title, normalizedOcr, identifiers, gameTypeHint, candidate.score);
+    const cardData = productTitleToCardData(pcTitle, normalizedOcr, ids, gameTypeHint, candidate.score);
     if (resolvedSetName && !cardData.card_set) cardData.card_set = String(resolvedSetName);
 
-    // YGOPRODeck identity is authoritative — overwrite PriceCharting's parsed name/set/rarity.
-    if (ygoIdentity) {
-      cardData.card_name = ygoIdentity.name;
-      cardData.card_set = ygoIdentity.setName;
-      cardData.card_number = ygoIdentity.setCode;
-      cardData.rarity = ygoIdentity.rarity;
-      cardData.game_type = "YuGiOh";
-      cardData.manufacturer = "Konami";
+    // Authoritative identity overrides PC parser.
+    if (identity) {
+      cardData.card_name = identity.name;
+      cardData.card_set = identity.setName;
+      cardData.card_number = identity.collectorNumber ?? identity.setCode;
+      cardData.rarity = identity.rarity;
+      cardData.game_type = identityGameType(identity.game);
+      cardData.manufacturer = identity.manufacturer ?? cardData.manufacturer;
+      cardData.year = identity.year ?? cardData.year;
       cardData.confidence = Math.max(cardData.confidence, 0.92);
     }
 
     return json({
       success: true,
       source: candidate.source === "pricecharting-set-code" ? "pricecharting-set-code" : "google-lens-pricecharting",
+      confidenceTier: tier,
       cardData,
       pricing,
       priceChartingUrl: candidate.url,
       googleLensUrl,
-      diagnostics: { tried, identifiers, ygoIdentity },
+      diagnostics: { tried, ids, score },
     });
   } catch (e) {
     console.error("rapid-basic-card-lookup failed", e);
@@ -185,6 +251,7 @@ serve(async (req) => {
   }
 });
 
+// ─── Helpers ──────────────────────────────────────────────────────────────
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -192,20 +259,72 @@ function json(body: unknown, status = 200) {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
-
-function normalizeSpace(value: string): string {
-  return value.replace(/\s+/g, " ").replace(/[\u0000-\u001F]+/g, " ").trim();
+function normalizeSpace(v: string): string {
+  return v.replace(/\s+/g, " ").replace(/[\u0000-\u001F]+/g, " ").trim();
+}
+function isHttpUrl(v: unknown): v is string {
+  return typeof v === "string" && /^https?:\/\//i.test(v);
 }
 
-function isHttpUrl(value: unknown): value is string {
-  return typeof value === "string" && /^https?:\/\//i.test(value);
+function normalizeGame(hint?: string | null): Game | null {
+  if (!hint) return null;
+  const h = String(hint).toLowerCase();
+  if (h.includes("yugioh") || h.includes("yu-gi-oh") || h.includes("ygo")) return "yugioh";
+  if (h.includes("pokemon") || h.includes("pokémon")) return "pokemon";
+  if (h.includes("mtg") || h.includes("magic")) return "mtg";
+  if (h.includes("sport") || h.includes("topps") || h.includes("panini")) return "sports";
+  return null;
+}
+
+function detectGameFromText(text: string): Game {
+  const h = text.toLowerCase();
+  if (/konami|yu-?gi-?oh|atk\b|def\b|spell card|trap card|effect monster/.test(h)) return "yugioh";
+  if (/pokemon|pokémon|hp\s*\d+|trainer|energy|illus\./.test(h)) return "pokemon";
+  if (/wizards of the coast|planeswalker|instant|sorcery|enchantment/.test(h)) return "mtg";
+  if (/topps|panini|upper deck|fleer|donruss|rookie\b|\brc\b/.test(h)) return "sports";
+  return "unknown";
+}
+
+function identityGameType(g: Game): string | null {
+  if (g === "yugioh") return "YuGiOh";
+  if (g === "pokemon") return "Pokemon";
+  if (g === "mtg") return "MTG";
+  if (g === "sports") return "Sports";
+  return null;
+}
+
+function identityToCardData(id: Identity) {
+  return {
+    card_name: id.name,
+    card_set: id.setName,
+    card_number: id.collectorNumber ?? id.setCode,
+    rarity: id.rarity,
+    game_type: identityGameType(id.game),
+    sport_type: id.game === "sports" ? "unknown" : null,
+    year: id.year,
+    manufacturer: id.manufacturer,
+    confidence: 0.92,
+  };
+}
+
+function fuzzyMatch(a: string, b: string): number {
+  const A = a.toLowerCase().replace(/[^a-z0-9 ]/g, "");
+  const B = b.toLowerCase().replace(/[^a-z0-9 ]/g, "");
+  if (!A || !B) return 0;
+  if (A === B) return 1;
+  if (B.includes(A) || A.includes(B)) return 0.85;
+  const at = new Set(A.split(" "));
+  const bt = new Set(B.split(" "));
+  let common = 0;
+  for (const t of at) if (bt.has(t)) common++;
+  return common / Math.max(at.size, bt.size);
 }
 
 function extractIdentifiers(text: string) {
   const upper = text.toUpperCase();
   const ygoSetCodes = Array.from(new Set(upper.match(/\b[A-Z0-9]{2,8}-[A-Z]{0,4}\d{1,5}\b/g) ?? []));
   const collectorNumbers = Array.from(new Set(upper.match(/\b\d{1,4}\s*\/\s*\d{1,4}\b/g)?.map((v) => v.replace(/\s+/g, "")) ?? []));
-  const serialNumbers = Array.from(new Set(upper.match(/\b\d{1,4}\s*\/\s*\d{1,4}\b/g)?.map((v) => v.replace(/\s+/g, "")) ?? []));
+  const serialNumbers = collectorNumbers.slice();
   const likelyTitle = inferLikelyTitle(text);
   return { ygoSetCodes, collectorNumbers, serialNumbers, likelyTitle };
 }
@@ -214,58 +333,45 @@ function inferLikelyTitle(text: string): string | null {
   const lines = text.split(/[\n|•]+|(?<=\.)\s+/).map((l) => normalizeSpace(l)).filter(Boolean);
   const bad = /^(konami|pokemon|wizards|illus\.|©|tm|first edition|1st edition|limited edition|common|rare|spell|trap|effect|monster|basic|stage|hp\b)/i;
   const scored = lines
-    .filter((line) => line.length >= 3 && line.length <= 70 && !bad.test(line))
-    .map((line) => ({ line, score: titleScore(line) }))
-    .sort((a, b) => b.score - a.score);
-  return scored[0]?.line ?? null;
+    .filter((l) => l.length >= 3 && l.length <= 70 && !bad.test(l))
+    .map((l) => ({ l, s: (/^[A-Z0-9][A-Za-z0-9'’:\- ]+$/.test(l) ? 2 : 0) + (/[a-z]/.test(l) && /[A-Z]/.test(l) ? 1 : 0) }))
+    .sort((a, b) => b.s - a.s);
+  return scored[0]?.l ?? null;
 }
 
-function titleScore(line: string): number {
-  let score = 0;
-  if (/^[A-Z0-9][A-Za-z0-9'’:\- ]+$/.test(line)) score += 2;
-  if (/[a-z]/.test(line) && /[A-Z]/.test(line)) score += 1;
-  if (/\b[A-Z0-9]{2,8}-[A-Z]{0,4}\d{1,5}\b/.test(line)) score -= 5;
-  if (/\$|PSA|CGC|HP\b|ATK|DEF|EN\d/i.test(line)) score -= 2;
-  return score;
-}
-
-function buildPriceChartingQueries(text: string, ids: ReturnType<typeof extractIdentifiers>, gameTypeHint?: string, setName?: string | null): string[] {
+function buildPriceChartingQueries(
+  text: string,
+  ids: ReturnType<typeof extractIdentifiers>,
+  gameTypeHint?: string,
+  setName?: string | null,
+  rarity?: string | null,
+): string[] {
   const out: string[] = [];
   const title = ids.likelyTitle;
-  const gameTerms = gameTypeHint && gameTypeHint !== "auto" ? [gameTypeHint] : ["pokemon", "yugioh", "yu gi oh", "mtg", "sports"];
+  const gameTerms = gameTypeHint && gameTypeHint !== "auto" ? [gameTypeHint] : ["yugioh", "pokemon", "mtg"];
 
-  // 1. set code is the strongest signal for YGO/Pokémon
-  for (const code of ids.ygoSetCodes) {
-    out.push(code);
-    if (title) out.push(`${code} ${title}`);
-    out.push(`${code} yugioh`);
-  }
-  // 2. title + set name
-  if (title && setName) {
-    out.push(`${title} ${setName}`);
-    out.push(`${setName} ${title}`);
-  }
-  // 3. title + collector number
+  // 1. set code alone
+  for (const code of ids.ygoSetCodes) out.push(code);
+  // 2. set code + name
+  for (const code of ids.ygoSetCodes) if (title) out.push(`${code} ${title}`);
+  // 3. name + setName + rarity
+  if (title && setName && rarity) out.push(`${title} ${setName} ${rarity}`);
+  // 4. name + setName
+  if (title && setName) out.push(`${title} ${setName}`);
+  // 5. collector number + game
   for (const number of ids.collectorNumbers) {
     if (title) out.push(`${title} ${number}`);
     for (const game of gameTerms.slice(0, 2)) out.push(`${number} ${game}`);
   }
-  // 4. title alone + game hints
-  if (title) {
-    out.push(title);
-    for (const game of gameTerms.slice(0, 3)) out.push(`${title} ${game}`);
-  }
-  // 5. set name alone as last resort
+  // 6. title alone
+  if (title) out.push(title);
+  // 7. set name alone
   if (setName) out.push(setName);
-  // 6. raw text shred (legacy)
-  if (text) out.push(text.slice(0, 120));
-  return unique(out.map((q) => normalizeSpace(q)).filter((q) => q.length >= 2)).slice(0, 14);
+
+  return unique(out.map((q) => normalizeSpace(q)).filter((q) => q.length >= 2)).slice(0, 12);
 }
 
-
-function unique<T>(items: T[]): T[] {
-  return Array.from(new Set(items));
-}
+function unique<T>(items: T[]): T[] { return Array.from(new Set(items)); }
 
 async function fetchText(url: string): Promise<string> {
   const res = await fetch(url, {
@@ -283,74 +389,62 @@ async function searchPriceCharting(query: string, ids: ReturnType<typeof extract
   const html = await fetchText(`${PC_BASE}/search-products?type=prices&q=${encodeURIComponent(query)}`).catch(() => "");
   return bestPriceChartingLink(html, ids, "pricecharting-set-code");
 }
-
 async function searchGoogleLensForPriceCharting(imageUrl: string, ids: ReturnType<typeof extractIdentifiers>): Promise<Candidate | null> {
   const html = await fetchText(`https://lens.google.com/uploadbyurl?url=${encodeURIComponent(imageUrl)}`).catch(() => "");
   return bestPriceChartingLink(html, ids, "google-lens-pricecharting");
 }
-
 async function searchGoogleWebForPriceCharting(query: string, ids: ReturnType<typeof extractIdentifiers>): Promise<Candidate | null> {
   const html = await fetchText(`https://www.google.com/search?q=${encodeURIComponent(`site:pricecharting.com/game ${query}`)}`).catch(() => "");
   return bestPriceChartingLink(html, ids, "google-web-pricecharting");
 }
-
 async function searchDuckDuckGoForPriceCharting(query: string, ids: ReturnType<typeof extractIdentifiers>): Promise<Candidate | null> {
   const html = await fetchText(`https://duckduckgo.com/html/?q=${encodeURIComponent(`site:pricecharting.com/game ${query}`)}`).catch(() => "");
   return bestPriceChartingLink(html, ids, "duckduckgo-pricecharting");
 }
-
 async function searchBingForPriceCharting(query: string, ids: ReturnType<typeof extractIdentifiers>): Promise<Candidate | null> {
   const html = await fetchText(`https://www.bing.com/search?q=${encodeURIComponent(`site:pricecharting.com/game ${query}`)}`).catch(() => "");
   return bestPriceChartingLink(html, ids, "bing-pricecharting");
 }
 
 function bestPriceChartingLink(html: string, ids: ReturnType<typeof extractIdentifiers>, source: Candidate["source"]): Candidate | null {
-  const links = extractPriceChartingLinks(html)
-    .filter((link) => /\/game\//.test(link.url) && !/\/console\//.test(link.url));
+  const links = extractPriceChartingLinks(html).filter((l) => /\/game\//.test(l.url) && !/\/console\//.test(l.url));
   if (!links.length) return null;
-
-  const scored = links.map((link) => ({ ...link, source, score: scoreLink(link.name + " " + link.url, ids) }))
+  const scored = links.map((l) => ({ ...l, source, score: scoreLink(l.name + " " + l.url, ids) }))
     .sort((a, b) => b.score - a.score);
-  return scored[0]?.score > -2 ? scored[0] : scored[0] ?? null;
+  return scored[0] ?? null;
 }
 
 function extractPriceChartingLinks(html: string): Array<{ name: string; url: string }> {
   const found: Array<{ name: string; url: string }> = [];
   const hrefRe = /href=["']([^"']*pricecharting\.com\/game\/[^"']+|\/game\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-  let match: RegExpExecArray | null;
-  while ((match = hrefRe.exec(html))) {
-    const rawUrl = decodeHtml(match[1]);
-    const url = rawUrl.startsWith("/") ? `${PC_BASE}${rawUrl}` : rawUrl.replace(/^http:\/\//i, "https://");
-    const cleanUrl = url.split("?")[0].split("#")[0];
-    const name = normalizeSpace(stripTags(decodeHtml(match[2]))) || decodeURIComponent(cleanUrl.split("/").pop() ?? "").replace(/[-_]+/g, " ");
-    found.push({ name, url: cleanUrl });
+  let m: RegExpExecArray | null;
+  while ((m = hrefRe.exec(html))) {
+    const raw = decodeHtml(m[1]);
+    const url = (raw.startsWith("/") ? `${PC_BASE}${raw}` : raw.replace(/^http:\/\//i, "https://")).split("?")[0].split("#")[0];
+    const name = normalizeSpace(stripTags(decodeHtml(m[2]))) || decodeURIComponent(url.split("/").pop() ?? "").replace(/[-_]+/g, " ");
+    found.push({ name, url });
   }
-
   const bareRe = /https?:\/\/(?:www\.)?pricecharting\.com\/game\/[^\s"'<>\\]+/gi;
-  while ((match = bareRe.exec(html))) {
-    const cleanUrl = decodeHtml(match[0]).split("?")[0].split("#")[0];
-    const name = decodeURIComponent(cleanUrl.split("/").pop() ?? "").replace(/[-_]+/g, " ");
-    found.push({ name, url: cleanUrl });
+  while ((m = bareRe.exec(html))) {
+    const url = decodeHtml(m[0]).split("?")[0].split("#")[0];
+    found.push({ name: decodeURIComponent(url.split("/").pop() ?? "").replace(/[-_]+/g, " "), url });
   }
-
   const byUrl = new Map<string, { name: string; url: string }>();
-  for (const item of found) byUrl.set(item.url, item);
+  for (const i of found) byUrl.set(i.url, i);
   return Array.from(byUrl.values());
 }
 
 function scoreLink(haystack: string, ids: ReturnType<typeof extractIdentifiers>): number {
   const h = haystack.toUpperCase();
-  let score = 0;
-  for (const code of ids.ygoSetCodes) if (h.includes(code)) score += 12;
-  for (const number of ids.collectorNumbers) if (h.includes(number.toUpperCase())) score += 6;
+  let s = 0;
+  for (const code of ids.ygoSetCodes) if (h.includes(code)) s += 12;
+  for (const n of ids.collectorNumbers) if (h.includes(n.toUpperCase())) s += 6;
   if (ids.likelyTitle) {
-    const title = ids.likelyTitle.toUpperCase();
-    for (const part of title.split(/\s+/).filter((p) => p.length > 2)) {
-      if (h.includes(part)) score += 1;
-    }
-    if (h.includes(title)) score += 8;
+    const t = ids.likelyTitle.toUpperCase();
+    for (const p of t.split(/\s+/).filter((p) => p.length > 2)) if (h.includes(p)) s += 1;
+    if (h.includes(t)) s += 8;
   }
-  return score;
+  return s;
 }
 
 function extractProductTitle(html: string): string | null {
@@ -373,20 +467,14 @@ function parsePriceChartingPrices(html: string, url: string): Pricing {
     url,
   };
 }
-
 function findLabeledPrice(text: string, labels: string[]): number | null {
   for (const label of labels) {
     const safe = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const re = new RegExp(`${safe}.{0,80}?\\$\\s*([0-9][0-9,]*(?:\\.[0-9]{1,2})?)`, "i");
     const hit = text.match(re)?.[1];
-    if (hit) return roundMoney(Number(hit.replace(/,/g, "")));
+    if (hit) return Math.round(Number(hit.replace(/,/g, "")) * 100) / 100;
   }
   return null;
-}
-
-function roundMoney(n: number): number | null {
-  if (!Number.isFinite(n)) return null;
-  return Math.round(n * 100) / 100;
 }
 
 function productTitleToCardData(title: string, ocrText: string, ids: ReturnType<typeof extractIdentifiers>, gameTypeHint?: string, score = 0) {
@@ -398,7 +486,7 @@ function productTitleToCardData(title: string, ocrText: string, ids: ReturnType<
     card_name: parts[0] || cleanTitle,
     card_set: parts.length > 1 ? parts.slice(1).join(" - ") : null,
     card_number: cardNumber,
-    rarity: null,
+    rarity: null as string | null,
     game_type: inferredGame,
     sport_type: inferredGame === "Sports" ? "unknown" : null,
     year: extractYear(ocrText + " " + cleanTitle),
@@ -406,7 +494,6 @@ function productTitleToCardData(title: string, ocrText: string, ids: ReturnType<
     confidence: Math.max(0.35, Math.min(0.98, 0.55 + score / 30)),
   };
 }
-
 function inferGameType(ocr: string, title: string, hint?: string): string | null {
   if (hint && hint !== "auto") return hint;
   const h = `${ocr} ${title}`.toLowerCase();
@@ -416,12 +503,7 @@ function inferGameType(ocr: string, title: string, hint?: string): string | null
   if (/topps|panini|upper deck|fleer|donruss|rookie|rc\b/.test(h)) return "Sports";
   return null;
 }
-
-function extractYear(text: string): string | null {
-  const years = text.match(/\b(19[6-9]\d|20[0-3]\d)\b/g);
-  return years?.[0] ?? null;
-}
-
+function extractYear(text: string): string | null { return text.match(/\b(19[6-9]\d|20[0-3]\d)\b/g)?.[0] ?? null; }
 function inferManufacturer(text: string): string | null {
   const h = text.toLowerCase();
   if (h.includes("konami")) return "Konami";
@@ -433,42 +515,163 @@ function inferManufacturer(text: string): string | null {
   if (h.includes("fleer")) return "Fleer";
   return null;
 }
-
 function stripTags(html: string): string {
   return html.replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<[^>]+>/g, " ");
 }
-
-function decodeHtml(value: string): string {
-  return value.replace(/&amp;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
+function decodeHtml(v: string): string {
+  return v.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
 }
 
-// ─── YGOPRODeck authoritative identity by printed set code ───
-// Docs: https://ygoprodeck.com/api-guide/  endpoint: cardsetsinfo.php?setcode=XYZ
-async function lookupYgoBySetCode(rawCode: string): Promise<{ name: string; setName: string; setCode: string; rarity: string | null } | null> {
+// ─── Authoritative resolvers ──────────────────────────────────────────────
+
+async function lookupYgoBySetCode(rawCode: string): Promise<Identity | null> {
   const code = rawCode.trim().toUpperCase();
   if (!/^[A-Z0-9]{2,6}-(?:[A-Z]{2})?\d{1,5}$/.test(code)) return null;
   try {
     const res = await fetch(`https://db.ygoprodeck.com/api/v7/cardsetsinfo.php?setcode=${encodeURIComponent(code)}`, {
-      headers: { "Accept": "application/json", "User-Agent": "Mozilla/5.0 (compatible; RapidScan/1.0)" },
+      headers: { "Accept": "application/json", "User-Agent": "Mozilla/5.0 (RapidScan)" },
     });
     if (!res.ok) return null;
-    const data = await res.json();
-    if (!data || data.error || !data.name) return null;
+    const d = await res.json();
+    if (!d || d.error || !d.name) return null;
     return {
-      name: String(data.name),
-      setName: String(data.set_name ?? ""),
-      setCode: String(data.set_code ?? code),
-      rarity: data.set_rarity ? String(data.set_rarity) : null,
+      game: "yugioh",
+      name: String(d.name),
+      setName: String(d.set_name ?? ""),
+      setCode: String(d.set_code ?? code),
+      collectorNumber: null,
+      rarity: d.set_rarity ? String(d.set_rarity) : null,
+      manufacturer: "Konami",
+      year: null,
+      source: "ygoprodeck",
     };
   } catch (e) {
-    console.warn("[lookupYgoBySetCode] failed for", code, e);
+    console.warn("[ygo] lookup failed:", code, e);
     return null;
   }
 }
 
+async function lookupPokemonByNumber(
+  ids: ReturnType<typeof extractIdentifiers>,
+  titleHint: string | null,
+): Promise<Identity | null> {
+  // Pokémon TCG API: https://api.pokemontcg.io/v2/cards?q=
+  const frac = ids.collectorNumbers[0]; // e.g. "4/102"
+  if (!frac) return null;
+  const [num, total] = frac.split("/").map((s) => s.trim());
+  if (!num) return null;
+  const qParts = [`number:"${num}"`];
+  if (total) qParts.push(`set.printedTotal:${total}`);
+  if (titleHint) qParts.push(`name:"${titleHint.replace(/["\\]/g, "")}"`);
+  const url = `https://api.pokemontcg.io/v2/cards?q=${encodeURIComponent(qParts.join(" "))}&pageSize=1`;
+  try {
+    const res = await fetch(url, { headers: { "Accept": "application/json" } });
+    if (!res.ok) return null;
+    const d = await res.json();
+    const card = d?.data?.[0];
+    if (!card) return null;
+    return {
+      game: "pokemon",
+      name: String(card.name),
+      setName: String(card.set?.name ?? ""),
+      setCode: String(card.set?.id ?? "").toUpperCase(),
+      collectorNumber: card.number ? `${card.number}${card.set?.printedTotal ? `/${card.set.printedTotal}` : ""}` : null,
+      rarity: card.rarity ?? null,
+      manufacturer: "The Pokémon Company",
+      year: card.set?.releaseDate ? String(card.set.releaseDate).slice(0, 4) : null,
+      source: "pokemontcg",
+    };
+  } catch (e) {
+    console.warn("[pokemon] lookup failed:", e);
+    return null;
+  }
+}
+
+async function lookupMtgByCollector(
+  ids: ReturnType<typeof extractIdentifiers>,
+  setCodeHint: string | null,
+  cardNumberHint: string | null,
+): Promise<Identity | null> {
+  // Scryfall: https://api.scryfall.com/cards/:set/:cn
+  let set = setCodeHint?.toLowerCase() ?? null;
+  let cn = cardNumberHint ?? ids.collectorNumbers[0] ?? null;
+  if (!set && ids.ygoSetCodes[0]) {
+    const parts = ids.ygoSetCodes[0].split("-");
+    if (parts.length === 2) { set = parts[0].toLowerCase(); cn = cn ?? parts[1]; }
+  }
+  if (!set || !cn) return null;
+  cn = cn.replace(/\D/g, "");
+  if (!cn) return null;
+  try {
+    const res = await fetch(`https://api.scryfall.com/cards/${encodeURIComponent(set)}/${encodeURIComponent(cn)}`, {
+      headers: { "Accept": "application/json", "User-Agent": "RapidScan/1.0" },
+    });
+    if (!res.ok) return null;
+    const d = await res.json();
+    if (!d || !d.name) return null;
+    return {
+      game: "mtg",
+      name: String(d.name),
+      setName: String(d.set_name ?? ""),
+      setCode: String(d.set ?? set).toUpperCase(),
+      collectorNumber: d.collector_number ?? cn,
+      rarity: d.rarity ? String(d.rarity) : null,
+      manufacturer: "Wizards of the Coast",
+      year: d.released_at ? String(d.released_at).slice(0, 4) : null,
+      source: "scryfall",
+    };
+  } catch (e) {
+    console.warn("[mtg] lookup failed:", e);
+    return null;
+  }
+}
+
+// ─── Cache I/O ────────────────────────────────────────────────────────────
+async function readCache(game: Game, setCode: string, collectorNumber: string | null): Promise<Identity | null> {
+  try {
+    const db = adminClient();
+    const cn = collectorNumber ?? "";
+    const { data } = await db.from("card_print_cache")
+      .select("*")
+      .eq("game", game)
+      .eq("set_code", setCode.toUpperCase())
+      .eq("collector_number", cn)
+      .maybeSingle();
+    if (!data) return null;
+    return {
+      game: data.game as Game,
+      name: data.card_name,
+      setName: data.set_name,
+      setCode: data.set_code,
+      collectorNumber: data.collector_number || null,
+      rarity: data.rarity,
+      manufacturer: (data.payload as any)?.manufacturer ?? null,
+      year: (data.payload as any)?.year ?? null,
+      source: "cache",
+    };
+  } catch (e) {
+    console.warn("[cache] read failed:", e);
+    return null;
+  }
+}
+
+async function writeCache(id: Identity): Promise<void> {
+  try {
+    const db = adminClient();
+    await db.from("card_print_cache").upsert({
+      game: id.game,
+      set_code: id.setCode.toUpperCase(),
+      collector_number: id.collectorNumber ?? "",
+      card_name: id.name,
+      set_name: id.setName,
+      rarity: id.rarity,
+      external_id: null,
+      payload: { manufacturer: id.manufacturer, year: id.year, source: id.source },
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "game,set_code,collector_number" });
+  } catch (e) {
+    console.warn("[cache] write failed:", e);
+  }
+}
