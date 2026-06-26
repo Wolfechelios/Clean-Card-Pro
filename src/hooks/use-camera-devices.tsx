@@ -138,6 +138,10 @@ export const useCameraDevices = () => {
       let rearCounter = 0;
       const videoDevices: CameraDevice[] = videoInputs.map((device, i) => {
         const label = device.label || `Camera ${device.deviceId.slice(0, 8)}`;
+
+        // Drop blocked virtual webcams (Camo, Facebook Portal, etc.)
+        if (isBlockedVirtualCamera(label)) return null;
+
         const usb = isUSBDevice(label);
         const rear = isRearCamera(label);
 
@@ -157,6 +161,7 @@ export const useCameraDevices = () => {
         if (!rear && !usb) {
           return null;
         }
+
 
         return {
           deviceId: device.deviceId,
