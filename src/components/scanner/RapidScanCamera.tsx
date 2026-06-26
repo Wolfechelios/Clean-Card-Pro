@@ -726,21 +726,6 @@ export default function RapidScanCamera() {
         </div>
       </Card>
 
-      <div className="flex justify-center py-2">
-        <button
-          onClick={() => void capture()}
-          disabled={!cameraOn || busy}
-          className={cn(
-            "flex h-20 w-20 items-center justify-center rounded-full transition active:scale-95",
-            cameraOn ? "bg-primary text-primary-foreground shadow-lg shadow-primary/30" : "bg-secondary text-secondary-foreground",
-            (!cameraOn || busy) && "cursor-not-allowed opacity-50",
-          )}
-          aria-label="Capture card"
-        >
-          {busy ? <Loader2 className="h-8 w-8 animate-spin" /> : <Camera className="h-8 w-8" />}
-        </button>
-      </div>
-
       <div className="space-y-2">
         <div className="flex items-center justify-between text-sm">
           <span className="font-medium">Recent scans</span>
