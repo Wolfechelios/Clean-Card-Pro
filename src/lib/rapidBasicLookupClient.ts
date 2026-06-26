@@ -3,7 +3,15 @@ import { withTimeout } from "@/lib/async/withTimeout";
 
 export type RapidBasicLookupResponse = {
   success: boolean;
-  source?: "pricecharting-set-code" | "google-lens-pricecharting" | "none";
+  source?:
+    | "cache"
+    | "ygoprodeck"
+    | "pokemontcg"
+    | "scryfall"
+    | "pricecharting-set-code"
+    | "google-lens-pricecharting"
+    | "requires_user_disambiguation"
+    | "none";
   cardData?: {
     card_name?: string | null;
     card_set?: string | null;
@@ -27,14 +35,13 @@ export type RapidBasicLookupResponse = {
   } | null;
   priceChartingUrl?: string | null;
   googleLensUrl?: string | null;
+  confidenceTier?: "HIGH" | "MEDIUM" | "LOW";
+  requiresDisambiguation?: boolean;
   error?: string;
 };
 
 export function compactOcrText(...parts: Array<string | null | undefined>): string {
-  return parts
-    .map((part) => String(part ?? "").trim())
-    .filter(Boolean)
-    .join("\n");
+  return parts.map((p) => String(p ?? "").trim()).filter(Boolean).join("\n");
 }
 
 export function hasReadablePrice(pricing: RapidBasicLookupResponse["pricing"]): boolean {
@@ -49,6 +56,8 @@ export async function runRapidBasicLookup(args: {
   setName?: string | null;
   setCode?: string | null;
   cardNumber?: string | null;
+  edition?: string | null;
+  game?: string | null;
   gameTypeHint?: string;
   allowGoogleLens: boolean;
   timeoutMs?: number;
@@ -63,6 +72,8 @@ export async function runRapidBasicLookup(args: {
         setName: args.setName ?? null,
         setCode: args.setCode ?? null,
         cardNumber: args.cardNumber ?? null,
+        edition: args.edition ?? null,
+        game: args.game ?? null,
         gameTypeHint: args.gameTypeHint,
         allowGoogleLens: args.allowGoogleLens,
       },
@@ -74,6 +85,5 @@ export async function runRapidBasicLookup(args: {
   if (res.error) {
     return { success: false, source: "none", error: res.error.message ?? String(res.error) };
   }
-
   return res.data ?? { success: false, source: "none", error: "No lookup response" };
 }
