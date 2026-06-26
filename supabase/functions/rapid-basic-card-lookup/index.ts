@@ -375,7 +375,7 @@ function fuzzyMatch(a: string, b: string): number {
 
 function extractIdentifiers(text: string) {
   const upper = text.toUpperCase();
-  const ygoSetCodes = Array.from(new Set(upper.match(/\b[A-Z0-9]{2,8}-[A-Z]{0,4}\d{1,5}\b/g) ?? []));
+  const ygoSetCodes = Array.from(new Set(upper.match(/\b(?!ATK\b|DEF\b|HP\b|LP\b)(?:[A-Z0-9]{2,6}-(?:EN|JP|KR|DE|FR|IT|SP|PT|JE|AE)\d{3,5}|[A-Z]{2,4}-\d{3})\b/g) ?? []));
   const collectorNumbers = Array.from(new Set(upper.match(/\b\d{1,4}\s*\/\s*\d{1,4}\b/g)?.map((v) => v.replace(/\s+/g, "")) ?? []));
   const serialNumbers = collectorNumbers.slice();
   const likelyTitle = inferLikelyTitle(text);
@@ -591,7 +591,7 @@ function decodeHtml(v: string): string {
 
 async function lookupYgoBySetCode(rawCode: string): Promise<Identity | null> {
   const code = rawCode.trim().toUpperCase();
-  if (!/^[A-Z0-9]{2,6}-(?:[A-Z]{2})?\d{1,5}$/.test(code)) return null;
+  if (!/^(?!ATK-|DEF-|HP-|LP-)(?:[A-Z0-9]{2,6}-(?:EN|JP|KR|DE|FR|IT|SP|PT|JE|AE)\d{3,5}|[A-Z]{2,4}-\d{3})$/.test(code)) return null;
   try {
     const res = await fetch(`https://db.ygoprodeck.com/api/v7/cardsetsinfo.php?setcode=${encodeURIComponent(code)}`, {
       headers: { "Accept": "application/json", "User-Agent": "Mozilla/5.0 (RapidScan)" },
