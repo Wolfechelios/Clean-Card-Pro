@@ -99,7 +99,7 @@ function isUSBDevice(label: string): boolean {
 function isBlockedVirtualCamera(label: string): boolean {
   const l = label.toLowerCase();
   return (
-    l.includes("camo") ||
+    l.includes("external-camera") ||
     l.includes("reincubate") ||
     l.includes("facebook") ||
     l.includes("portal") ||
@@ -139,7 +139,7 @@ export const useCameraDevices = () => {
       const videoDevices: CameraDevice[] = videoInputs.map((device, i) => {
         const label = device.label || `Camera ${device.deviceId.slice(0, 8)}`;
 
-        // Drop blocked virtual webcams (Camo, Facebook Portal, etc.)
+        // Drop blocked virtual webcams (external camera, Facebook Portal, etc.)
         if (isBlockedVirtualCamera(label)) return null;
 
         const usb = isUSBDevice(label);
