@@ -181,6 +181,7 @@ async function runOcr(base64: string, blob?: Blob) {
         cardNumber: local.cardNumber,
         title: local.title,
         name: local.title,
+        setName: null,
         text: local.rawText,
         confidence: local.confidence,
         source: local.source,
@@ -200,6 +201,46 @@ async function runOcr(base64: string, blob?: Blob) {
   if ((result as any).error || !(result as any).data) return null;
   return (result as any).data;
 }
+
+async function fetchPricingFallback(args: {
+  cardName: string;
+  cardSet: string | null;
+  cardNumber: string | null;
+  gameType: string | null;
+  sportType: string | null;
+}): Promise<{ raw: number | null; psa10: number | null; cgc10: number | null; highestSold: number | null; url: string | null } | null> {
+  try {
+    const res = await withTimeout(
+      supabase.functions.invoke("fetch-card-prices", {
+        body: {
+          cardName: args.cardName,
+          cardSet: args.cardSet,
+          cardNumber: args.cardNumber,
+          gameType: args.gameType,
+          sportType: args.sportType,
+          condition: "ungraded",
+        },
+      }),
+      15000,
+      "fetch-card-prices fallback",
+    );
+    if ((res as any).error || !(res as any).data) return null;
+    const d = (res as any).data;
+    const raw = d.raw ?? d.medianRaw ?? d.tcgPlayerMarket ?? d.tcgPlayerMid ?? null;
+    const psa10 = d.psa10 ?? d.medianPsa10 ?? null;
+    return {
+      raw: typeof raw === "number" ? raw : null,
+      psa10: typeof psa10 === "number" ? psa10 : null,
+      cgc10: typeof d.cgc10 === "number" ? d.cgc10 : null,
+      highestSold: typeof d.highestSold === "number" ? d.highestSold : null,
+      url: d.ebayUrl ?? d.tcgPlayerUrl ?? null,
+    };
+  } catch (e) {
+    console.warn("[QueueProcessor] fetch-card-prices fallback failed:", e);
+    return null;
+  }
+}
+
 
 function lookupErrorMessage(result: RapidBasicLookupResponse | null): string {
   return result?.error || "No PriceCharting match found by set code/title, Google Lens, or web search fallback";
