@@ -27,6 +27,12 @@ import {
   runRapidBasicLookup,
   type RapidBasicLookupResponse,
 } from "@/lib/rapidBasicLookupClient";
+import {
+  isReadableTitle,
+  isValidPrintedCode,
+  validateTitleAgainstRaw,
+  AUTHORITATIVE_SOURCES,
+} from "@/lib/ocr/ocrQuality";
 
 export type ProcessedCard = {
   id: string;
@@ -366,7 +372,28 @@ async function processQueueItem(item: QueueItem): Promise<void> {
 
   const hasStructured = Boolean(ocr?.title || ocr?.setCode || ocr?.cardNumber);
   if (!ocrText && !hasStructured) {
-    throw new Error("RapidScan basic lookup failed: OCR did not find set code/title text");
+    await idbUpdateMeta(item.id, {
+      status: "error",
+      error: "Unreadable scan — retake photo",
+    });
+    return;
+  }
+
+  // ── Identity gate ──────────────────────────────────────────────────────
+  // Require a valid printed code OR a readable title before we hit any
+  // pricing/identification service. Garbage OCR (e.g. ". L ¥. a", "o © 0")
+  // must NOT be searched — it returns wrong-but-real cards.
+  const hasValidCode = isValidPrintedCode(ocr?.setCode) || isValidPrintedCode(ocr?.cardNumber);
+  const hasValidTitle = isReadableTitle(ocr?.title) || isReadableTitle(ocr?.name);
+  if (!hasValidCode && !hasValidTitle) {
+    console.warn("[QueueProcessor] gate → unreadable OCR, refusing to guess", {
+      setCode: ocr?.setCode, title: ocr?.title, sample: (ocr?.text || "").slice(0, 60),
+    });
+    await idbUpdateMeta(item.id, {
+      status: "error",
+      error: "Unreadable scan — retake photo (no printed code or readable title found)",
+    });
+    return;
   }
 
   console.log("[QueueProcessor] ocr →", {
@@ -380,9 +407,9 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   const lookup = await runRapidBasicLookup({
     imageUrl: upload.publicUrl,
     ocrText,
-    title: ocr?.title ?? ocr?.name ?? null,
+    title: hasValidTitle ? (ocr?.title ?? ocr?.name ?? null) : null,
     setName: ocr?.setName ?? null,
-    setCode: ocr?.setCode ?? null,
+    setCode: hasValidCode ? (ocr?.setCode ?? null) : null,
     cardNumber: ocr?.cardNumber ?? null,
     edition: ocr?.edition ?? null,
     game: ocr?.game ?? null,
@@ -391,7 +418,6 @@ async function processQueueItem(item: QueueItem): Promise<void> {
     timeoutMs: BASIC_LOOKUP_TIMEOUT_MS,
   });
 
-  // Disambiguation requested by the edge function — keep the scan for manual review.
   if (lookup.requiresDisambiguation || lookup.source === "requires_user_disambiguation") {
     await idbUpdateMeta(item.id, {
       status: "error",
@@ -400,34 +426,48 @@ async function processQueueItem(item: QueueItem): Promise<void> {
     return;
   }
 
-  // If PriceCharting lookup couldn't identify the card, fall back to OCR's title/set directly.
-  let identify = lookup.cardData;
+  // NO invented identity. If lookup didn't return cardData from an
+  // authoritative source, send to needs-review.
+  const identify = lookup.cardData;
   let pricing = lookup.pricing ?? null;
-  if ((!lookup.success || !identify) && (ocr?.title || ocr?.setName)) {
-    console.warn("[QueueProcessor] PriceCharting miss — using OCR fields as identity");
-    identify = {
-      card_name: ocr?.title ?? ocr?.name ?? "Unknown Card",
-      card_set: ocr?.setName ?? null,
-      card_number: ocr?.cardNumber ?? ocr?.setCode ?? null,
-      rarity: null,
-      game_type: gameTypeHint ?? null,
-      sport_type: null,
-      year: null,
-      manufacturer: null,
-      confidence: 0.4,
-    };
+
+  if (!lookup.success || !identify || !identify.card_name) {
+    await idbUpdateMeta(item.id, {
+      status: "error",
+      error: lookupErrorMessage(lookup),
+    });
+    return;
   }
 
-  if (!identify) {
-    throw new Error(lookupErrorMessage(lookup));
+  const sourceKey = String(lookup.source ?? "");
+  const isAuthoritative = AUTHORITATIVE_SOURCES.has(sourceKey);
+  if (!isAuthoritative) {
+    // Non-authoritative match (Lens / web fallback) — name must actually
+    // appear in the OCR raw text. Blocks "Anaba Bodyguard" from junk OCR.
+    const titleOk = validateTitleAgainstRaw(identify.card_name, ocr?.text ?? "");
+    if (!titleOk) {
+      console.warn("[QueueProcessor] reject → non-authoritative match not present in OCR text", {
+        candidate: identify.card_name, source: sourceKey,
+      });
+      await idbUpdateMeta(item.id, {
+        status: "error",
+        error: "Match did not align with on-card text — retake photo",
+      });
+      return;
+    }
   }
 
-  const cardName = String(identify.card_name || "Unknown Card").trim() || "Unknown Card";
+  const cardName = String(identify.card_name || "").trim();
   const confidence = Number(identify.confidence ?? 0.35);
-
-  if (cardName === "Unknown Card" || confidence < 0.2) {
-    throw new Error(`Identification confidence ${Math.round(confidence * 100)}% — capture preserved for review`);
+  const minConfidence = isAuthoritative ? 0.5 : 0.55;
+  if (!cardName || confidence < minConfidence) {
+    await idbUpdateMeta(item.id, {
+      status: "error",
+      error: `Identification confidence ${Math.round(confidence * 100)}% — retake photo`,
+    });
+    return;
   }
+
 
   const cardSet = identify.card_set ?? null;
   const cardNumber = identify.card_number ?? ocr?.cardNumber ?? ocr?.setCode ?? null;

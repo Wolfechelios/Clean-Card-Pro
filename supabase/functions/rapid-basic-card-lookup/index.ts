@@ -95,9 +95,24 @@ serve(async (req) => {
       return json({ success: false, source: "none", error: "Missing OCR text and structured hints" }, 400);
     }
 
+    // Server-side identity gate. If client passed no valid setCode AND the
+    // titleHint is unreadable, refuse to search — junk OCR returns wrong cards.
+    const validSetCode = isValidPrintedCodeServer(setCodeHint);
+    const validTitle = isReadableTitleServer(titleHint);
+    if (!validSetCode && !validTitle) {
+      return json({
+        success: false,
+        source: "requires_user_disambiguation",
+        requiresDisambiguation: true,
+        confidenceTier: "LOW",
+        error: "Unreadable OCR — no valid set code or title supplied.",
+      });
+    }
+
     const ids = extractIdentifiers(normalizedOcr);
-    if (titleHint) ids.likelyTitle = String(titleHint);
-    if (setCodeHint && !ids.ygoSetCodes.includes(String(setCodeHint).toUpperCase())) {
+    if (titleHint && validTitle) ids.likelyTitle = String(titleHint);
+    else ids.likelyTitle = null; // do not use junk text as a search title
+    if (setCodeHint && validSetCode && !ids.ygoSetCodes.includes(String(setCodeHint).toUpperCase())) {
       ids.ygoSetCodes.unshift(String(setCodeHint).toUpperCase());
     }
     if (cardNumberHint && !ids.collectorNumbers.includes(String(cardNumberHint).toUpperCase())) {
@@ -266,6 +281,25 @@ function isHttpUrl(v: unknown): v is string {
   return typeof v === "string" && /^https?:\/\//i.test(v);
 }
 
+const SERVER_PRINTED_CODE_RE = /\b[A-Z0-9]{2,8}-[A-Z]{0,4}\d{1,5}\b/i;
+const SERVER_POKE_FRACTION_RE = /\b\d{1,4}\s*\/\s*\d{1,4}\b/;
+function isValidPrintedCodeServer(s: unknown): boolean {
+  if (!s) return false;
+  const str = String(s);
+  return SERVER_PRINTED_CODE_RE.test(str) || SERVER_POKE_FRACTION_RE.test(str);
+}
+function isReadableTitleServer(s: unknown): boolean {
+  if (!s) return false;
+  const t = String(s).trim();
+  if (t.length < 4) return false;
+  const letters = (t.match(/[A-Za-z]/g) ?? []).length;
+  if (letters < 3) return false;
+  const nonSpace = t.replace(/\s/g, "");
+  if (!nonSpace.length) return false;
+  if (letters / nonSpace.length < 0.6) return false;
+  return /[A-Za-z]{4,}/.test(t);
+}
+
 function normalizeGame(hint?: string | null): Game | null {
   if (!hint) return null;
   const h = String(hint).toLowerCase();
@@ -411,7 +445,17 @@ function bestPriceChartingLink(html: string, ids: ReturnType<typeof extractIdent
   if (!links.length) return null;
   const scored = links.map((l) => ({ ...l, source, score: scoreLink(l.name + " " + l.url, ids) }))
     .sort((a, b) => b.score - a.score);
-  return scored[0] ?? null;
+  const top = scored[0];
+  if (!top) return null;
+  // Require structural evidence the link matches the OCR — block junk-query
+  // PriceCharting results from being adopted as identity.
+  const hasCodeMatch = ids.ygoSetCodes.some((c) => top.url.toUpperCase().includes(c) || top.name.toUpperCase().includes(c));
+  if (hasCodeMatch) return top;
+  if (ids.likelyTitle) {
+    const sim = fuzzyMatch(ids.likelyTitle, top.name);
+    if (sim >= 0.7) return top;
+  }
+  return null;
 }
 
 function extractPriceChartingLinks(html: string): Array<{ name: string; url: string }> {
