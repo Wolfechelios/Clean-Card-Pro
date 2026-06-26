@@ -73,7 +73,23 @@ serve(async (req) => {
       identifiers.collectorNumbers.unshift(String(cardNumberHint).toUpperCase());
     }
 
-    const queries = buildPriceChartingQueries(normalizedOcr, identifiers, gameTypeHint, setNameHint);
+    // ── STEP 1: Authoritative identity via YGOPRODeck setcode lookup ──
+    // For YGO, the printed code uniquely identifies the printing. Resolve name/set/rarity
+    // BEFORE pricing so PriceCharting gets a strong, exact query.
+    let ygoIdentity: { name: string; setName: string; setCode: string; rarity: string | null } | null = null;
+    for (const code of identifiers.ygoSetCodes) {
+      ygoIdentity = await lookupYgoBySetCode(code);
+      if (ygoIdentity) {
+        console.log("[rapid-basic-card-lookup] YGOPRODeck identified:", code, "→", ygoIdentity.name, "(", ygoIdentity.setName, ")");
+        // Promote authoritative title/set so PC queries use the real values.
+        identifiers.likelyTitle = ygoIdentity.name;
+        if (!setNameHint) (body as any).setName = ygoIdentity.setName;
+        break;
+      }
+    }
+    const resolvedSetName = ygoIdentity?.setName ?? setNameHint ?? null;
+
+    const queries = buildPriceChartingQueries(normalizedOcr, identifiers, gameTypeHint, resolvedSetName);
     console.log("[rapid-basic-card-lookup] queries:", JSON.stringify(queries));
 
     let candidate: Candidate | null = null;
