@@ -27,6 +27,12 @@ import {
   runRapidBasicLookup,
   type RapidBasicLookupResponse,
 } from "@/lib/rapidBasicLookupClient";
+import {
+  isReadableTitle,
+  isValidPrintedCode,
+  validateTitleAgainstRaw,
+  AUTHORITATIVE_SOURCES,
+} from "@/lib/ocr/ocrQuality";
 
 export type ProcessedCard = {
   id: string;
