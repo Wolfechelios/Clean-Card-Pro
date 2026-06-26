@@ -14,6 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
+      card_print_cache: {
+        Row: {
+          card_name: string
+          collector_number: string
+          created_at: string
+          external_id: string | null
+          game: string
+          payload: Json
+          rarity: string | null
+          set_code: string
+          set_name: string
+          updated_at: string
+        }
+        Insert: {
+          card_name: string
+          collector_number?: string
+          created_at?: string
+          external_id?: string | null
+          game: string
+          payload?: Json
+          rarity?: string | null
+          set_code: string
+          set_name: string
+          updated_at?: string
+        }
+        Update: {
+          card_name?: string
+          collector_number?: string
+          created_at?: string
+          external_id?: string | null
+          game?: string
+          payload?: Json
+          rarity?: string | null
+          set_code?: string
+          set_name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       cards: {
         Row: {
           card_name: string
