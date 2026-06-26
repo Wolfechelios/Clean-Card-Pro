@@ -103,9 +103,10 @@ function normalizeZoom(caps: BasicCameraCapabilities, settings: MediaTrackSettin
   }
 
   if (typeof raw === "object") {
-    const min = Number(raw.min ?? 1);
-    const max = Number(raw.max ?? Math.max(3, min));
-    const step = Number(raw.step ?? 0.1);
+    const rawObj = raw as { min?: number; max?: number; step?: number };
+    const min = Number(rawObj.min ?? 1);
+    const max = Number(rawObj.max ?? Math.max(3, min));
+    const step = Number(rawObj.step ?? 0.1);
     return {
       supported: Number.isFinite(min) && Number.isFinite(max) && max > min,
       min,
@@ -114,6 +115,7 @@ function normalizeZoom(caps: BasicCameraCapabilities, settings: MediaTrackSettin
       value: typeof (settings as any).zoom === "number" ? (settings as any).zoom : min,
     };
   }
+
 
   return DEFAULT_ZOOM;
 }
