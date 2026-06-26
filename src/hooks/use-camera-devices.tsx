@@ -80,6 +80,7 @@ function isUSBDevice(label: string): boolean {
     l.includes("phone") ||
     l.includes("android") ||
     l.includes("iphone") ||
+    l.includes("continuity") ||
     l.includes("webcam") ||
     l.includes("droidcam") ||
     l.includes("iriun") ||
@@ -92,6 +93,20 @@ function isUSBDevice(label: string): boolean {
       !l.includes("camera"))
   );
 }
+
+// Virtual cameras the user explicitly does NOT want listed.
+// iPhone via Continuity Camera (native macOS) is preserved.
+function isBlockedVirtualCamera(label: string): boolean {
+  const l = label.toLowerCase();
+  return (
+    l.includes("camo") ||
+    l.includes("reincubate") ||
+    l.includes("facebook") ||
+    l.includes("portal") ||
+    l.includes("messenger")
+  );
+}
+
 
 export const useCameraDevices = () => {
   const [devices, setDevices] = useState<CameraDevice[]>([]);
