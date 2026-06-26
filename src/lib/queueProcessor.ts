@@ -182,6 +182,8 @@ async function runOcr(base64: string, blob?: Blob) {
         title: local.title,
         name: local.title,
         setName: null,
+        edition: local.edition,
+        game: local.game,
         text: local.rawText,
         confidence: local.confidence,
         source: local.source,
