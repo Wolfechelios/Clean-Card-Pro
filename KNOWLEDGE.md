@@ -143,6 +143,8 @@ Tier 3: Multimodal AI Reasoning (Edge Functions: rapid-card-identify, analyze-ca
   └─ Single-call: OCR + identification + condition assessment
 ```
 
+RapidScan TCG identification is **printed-code-first only**. Title-only OCR, image similarity, Google Lens, and generic web search must not create or save a TCG card identity; if the printed set/card code cannot be verified against an authoritative card database, the scan is rejected for retake/manual review.
+
 ### 3.2 Hybrid Routing (`hybridCardIdentify.ts`)
 
 ```typescript
