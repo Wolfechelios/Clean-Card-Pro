@@ -445,7 +445,17 @@ function bestPriceChartingLink(html: string, ids: ReturnType<typeof extractIdent
   if (!links.length) return null;
   const scored = links.map((l) => ({ ...l, source, score: scoreLink(l.name + " " + l.url, ids) }))
     .sort((a, b) => b.score - a.score);
-  return scored[0] ?? null;
+  const top = scored[0];
+  if (!top) return null;
+  // Require structural evidence the link matches the OCR — block junk-query
+  // PriceCharting results from being adopted as identity.
+  const hasCodeMatch = ids.ygoSetCodes.some((c) => top.url.toUpperCase().includes(c) || top.name.toUpperCase().includes(c));
+  if (hasCodeMatch) return top;
+  if (ids.likelyTitle) {
+    const sim = fuzzyMatch(ids.likelyTitle, top.name);
+    if (sim >= 0.7) return top;
+  }
+  return null;
 }
 
 function extractPriceChartingLinks(html: string): Array<{ name: string; url: string }> {
