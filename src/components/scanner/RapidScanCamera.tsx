@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Camera,
   CameraOff,
+  ChevronDown,
   Flashlight,
   FlashlightOff,
   Focus,
@@ -173,6 +174,7 @@ export default function RapidScanCamera() {
   const processor = useQueueProcessor();
 
   const [cameraOn, setCameraOn] = useState(false);
+  const [phoneOpen, setPhoneOpen] = useState(() => localStorage.getItem("rapid_scan_phone_open") !== "0");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("Tap Start Camera");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
@@ -577,41 +579,66 @@ export default function RapidScanCamera() {
       </Card>
 
       <Card className="space-y-3 p-3">
-        <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
-          <label className="text-xs font-medium text-muted-foreground">
-            Camera / Lens
-            <select
-              value={selectedDeviceId}
-              onChange={(e) => void switchCamera(e.target.value)}
-              className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-            >
-              <option value="">Default Mac/Safari camera</option>
-              {sortedDevices.map((device, index) => (
-                <option key={device.deviceId || index} value={device.deviceId}>
-                  {isContinuityDevice(device) ? "📱 " : ""}{deviceLabel(device, index)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => void useContinuityCamera()} className="h-10">
-              <Smartphone className="mr-2 h-4 w-4" /> Use iPhone
-            </Button>
-            {!cameraOn ? (
-              <Button onClick={() => void startCamera()} disabled={busy} className="h-10 min-w-32">
-                {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
-                Start Camera
-              </Button>
-            ) : (
-              <Button variant="destructive" onClick={() => void stopCamera()} className="h-10 min-w-28">
-                <CameraOff className="mr-2 h-4 w-4" /> Stop
-              </Button>
-            )}
-          </div>
+        <div className="rounded-xl border">
+          <button
+            type="button"
+            onClick={() => {
+              setPhoneOpen((v) => {
+                const next = !v;
+                localStorage.setItem("rapid_scan_phone_open", next ? "1" : "0");
+                return next;
+              });
+            }}
+            className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+            aria-expanded={phoneOpen}
+          >
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Smartphone className="h-4 w-4" />
+              Phone / Camera
+            </div>
+            <ChevronDown className={cn("h-4 w-4 transition-transform", phoneOpen ? "rotate-180" : "")} />
+          </button>
+          {phoneOpen && (
+            <div className="space-y-3 border-t p-3">
+              <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Camera / Lens
+                  <select
+                    value={selectedDeviceId}
+                    onChange={(e) => void switchCamera(e.target.value)}
+                    className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="">Default Mac/Safari camera</option>
+                    {sortedDevices.map((device, index) => (
+                      <option key={device.deviceId || index} value={device.deviceId}>
+                        {isContinuityDevice(device) ? "📱 " : ""}{deviceLabel(device, index)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={() => void useContinuityCamera()} className="h-10">
+                    <Smartphone className="mr-2 h-4 w-4" /> Use iPhone
+                  </Button>
+                  {!cameraOn ? (
+                    <Button onClick={() => void startCamera()} disabled={busy} className="h-10 min-w-32">
+                      {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
+                      Start Camera
+                    </Button>
+                  ) : (
+                    <Button variant="destructive" onClick={() => void stopCamera()} className="h-10 min-w-28">
+                      <CameraOff className="mr-2 h-4 w-4" /> Stop
+                    </Button>
+                  )}
+                </div>
+              </div>
+              <div className="rounded-lg border bg-muted/30 p-2 text-xs text-muted-foreground">
+                Continuity Camera appears after Safari has camera permission. Unlock the iPhone, keep it near this Mac, tap Refresh cameras, then choose the 📱 iPhone option or Use iPhone.
+              </div>
+            </div>
+          )}
         </div>
-        <div className="rounded-lg border bg-muted/30 p-2 text-xs text-muted-foreground">
-          Continuity Camera appears after Safari has camera permission. Unlock the iPhone, keep it near this Mac, tap Refresh cameras, then choose the 📱 iPhone option or Use iPhone.
-        </div>
+
 
         <div className="rounded-xl border p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
