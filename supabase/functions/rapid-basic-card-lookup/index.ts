@@ -447,3 +447,28 @@ function decodeHtml(value: string): string {
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">");
 }
+
+// ─── YGOPRODeck authoritative identity by printed set code ───
+// Docs: https://ygoprodeck.com/api-guide/  endpoint: cardsetsinfo.php?setcode=XYZ
+async function lookupYgoBySetCode(rawCode: string): Promise<{ name: string; setName: string; setCode: string; rarity: string | null } | null> {
+  const code = rawCode.trim().toUpperCase();
+  if (!/^[A-Z0-9]{2,6}-(?:[A-Z]{2})?\d{1,5}$/.test(code)) return null;
+  try {
+    const res = await fetch(`https://db.ygoprodeck.com/api/v7/cardsetsinfo.php?setcode=${encodeURIComponent(code)}`, {
+      headers: { "Accept": "application/json", "User-Agent": "Mozilla/5.0 (compatible; RapidScan/1.0)" },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data || data.error || !data.name) return null;
+    return {
+      name: String(data.name),
+      setName: String(data.set_name ?? ""),
+      setCode: String(data.set_code ?? code),
+      rarity: data.set_rarity ? String(data.set_rarity) : null,
+    };
+  } catch (e) {
+    console.warn("[lookupYgoBySetCode] failed for", code, e);
+    return null;
+  }
+}
+
