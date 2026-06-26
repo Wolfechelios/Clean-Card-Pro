@@ -384,10 +384,21 @@ async function processQueueItem(item: QueueItem): Promise<void> {
     setName: ocr?.setName ?? null,
     setCode: ocr?.setCode ?? null,
     cardNumber: ocr?.cardNumber ?? null,
+    edition: ocr?.edition ?? null,
+    game: ocr?.game ?? null,
     gameTypeHint,
     allowGoogleLens: Boolean(upload.publicUrl),
     timeoutMs: BASIC_LOOKUP_TIMEOUT_MS,
   });
+
+  // Disambiguation requested by the edge function — keep the scan for manual review.
+  if (lookup.requiresDisambiguation || lookup.source === "requires_user_disambiguation") {
+    await idbUpdateMeta(item.id, {
+      status: "error",
+      error: "No printed set code detected — choose a printing from Recent Scans.",
+    });
+    return;
+  }
 
   // If PriceCharting lookup couldn't identify the card, fall back to OCR's title/set directly.
   let identify = lookup.cardData;
