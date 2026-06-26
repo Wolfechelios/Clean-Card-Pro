@@ -74,49 +74,48 @@ serve(async (req) => {
     const rawText = (data.md_results || "").trim();
     const boxes = data.layout_details || [];
 
-    // Normalize OCR text
-    const normalized = rawText
-      .replace(/\s+/g, " ")
-      .replace(/[|]/g, "I")
-      .replace(/[`]/g, "'")
-      .trim();
+    // Normalize OCR text + fix common OCR confusions on set codes (O↔0, I/l↔1, S↔5)
+    const normalized = normalizeOcrCodes(
+      rawText
+        .replace(/\s+/g, " ")
+        .replace(/[|]/g, "I")
+        .replace(/[`]/g, "'")
+        .trim(),
+    );
 
     const lines = normalized.split(/\n/).map((l: string) => l.trim()).filter(Boolean);
     const rawLines = rawText.split(/\n/).map((l: string) => l.trim()).filter(Boolean);
 
-    // Extract structured fields via regex
-    // Collector number patterns: 4/102, 023/165, SV049/SV122
+    // ── YGO printed set code is the strongest identifier ──
+    // Catches both legacy (LOB-001, SDY-046) and modern (MP25-EN318, RA01-EN001, BROL-EN000).
+    const ygoSetCode = extractYgoSetCode(normalized);
+
+    // Pokémon-style collector number: 4/102, 023/165, SV049/SV122
     const collectorMatch = normalized.match(/\b(\d{1,4})\s*[\/]\s*(\d{1,4})\b/) ||
       normalized.match(/\b(SV\d{1,4})\s*[\/]\s*(SV\d{1,4})\b/i);
     const collectorNumber = collectorMatch ? collectorMatch[0].replace(/\s/g, "") : null;
 
-    // Set code patterns: LOB-EN001, STOR-EN045, BT01-042, SM12-123, etc.
-    const setCodeMatch = normalized.match(/\b([A-Z]{2,5}[-]?[A-Z]{0,3}\d{1,3})\b/) ||
-      normalized.match(/\b([A-Z]{2,5}-[A-Z]{2}\d{3})\b/);
-    const setCode = setCodeMatch ? setCodeMatch[1] : null;
+    // Generic fallback set code (Pokémon TCG: SWSH123, etc.) when no YGO code present
+    const setCode = ygoSetCode ?? (normalized.match(/\b([A-Z]{2,5}-[A-Z]{2}\d{1,4})\b/)?.[1] ?? null);
 
-    // YGO full card number: LOB-EN001, IOC-EN025, etc.
-    const ygoCardNumber = normalized.match(/\b([A-Z]{2,5}-[A-Z]{2}\d{3})\b/);
-    const cardNumber = ygoCardNumber ? ygoCardNumber[1] : collectorNumber;
+    // Prefer printed YGO code as the card number — it uniquely identifies the printing.
+    const cardNumber = ygoSetCode ?? collectorNumber;
 
-    // Extract likely card title — pick the strongest line near the top.
     const title = inferCardTitle(rawLines);
-
-    // Match a known set name fuzzy contains against a curated dictionary.
     const setName = inferSetName(normalized);
 
-    // Confidence scoring
+    // Confidence — printed set code dominates.
     let confidence = 0;
-    if (normalized.length > 5) confidence += 0.2;
-    if (normalized.length > 20) confidence += 0.1;
-    if (collectorNumber || cardNumber) confidence += 0.25;
-    if (setCode) confidence += 0.15;
+    if (normalized.length > 5) confidence += 0.1;
+    if (normalized.length > 20) confidence += 0.05;
+    if (ygoSetCode) confidence += 0.45;
+    else if (collectorNumber) confidence += 0.2;
     if (title) confidence += 0.2;
     if (setName) confidence += 0.1;
     if (lines.length >= 2) confidence += 0.05;
     confidence = Math.min(confidence, 1.0);
 
-    console.log(`[zai-ocr] OCR: title="${title ?? ""}" setName="${setName ?? ""}" setCode=${setCode} num=${cardNumber} conf=${confidence}`);
+    console.log(`[zai-ocr] OCR: title="${title ?? ""}" setName="${setName ?? ""}" setCode=${setCode} ygo=${ygoSetCode} num=${cardNumber} conf=${confidence}`);
 
     return new Response(
       JSON.stringify({
@@ -253,4 +252,36 @@ function inferSetName(text: string): string | null {
   }
   return null;
 }
+
+// ─── YGO set code extraction (printed code = strongest identifier) ───
+// Returns the best-quality YGO printed code, preferring region-coded modern forms.
+function extractYgoSetCode(text: string): string | null {
+  const upper = text.toUpperCase();
+  // Modern: 2-6 alphanum prefix + dash + 2-letter region + 1-5 digits
+  // Examples: LOB-EN001, MP25-EN318, RA01-EN001, BROL-EN000, DUSA-EN001
+  const modern = Array.from(upper.matchAll(/\b([A-Z0-9]{2,6})-((?:EN|JP|KR|DE|FR|IT|SP|PT|JE|AE))(\d{1,5})\b/g))
+    .map((m) => `${m[1]}-${m[2]}${m[3].padStart(3, "0")}`);
+  if (modern.length) return modern[0];
+
+  // Legacy: 3-letter prefix + dash + 3 digits, no region code
+  // Examples: LOB-001, SDK-001, SDY-046, PSV-012
+  const legacy = Array.from(upper.matchAll(/\b([A-Z]{2,4})-(\d{1,4})\b/g))
+    .filter((m) => !/^(EN|JP|KR|DE|FR|IT|SP|PT)$/.test(m[1]))
+    .map((m) => `${m[1]}-${m[2].padStart(3, "0")}`);
+  if (legacy.length) return legacy[0];
+
+  return null;
+}
+
+// Normalize common OCR confusions inside what looks like a set code.
+// Only touches tokens that already look code-shaped, so it won't mangle prose.
+function normalizeOcrCodes(text: string): string {
+  return text.replace(/\b([A-Z0-9OIl]{2,6})-([A-Z0-9OIl]{0,4})(\d|[OIl]){1,5}\b/g, (token) => {
+    return token
+      .replace(/[Il]/g, "1")
+      .replace(/O(?=\d|$)/g, "0")
+      .replace(/(?<=\d)O/g, "0");
+  });
+}
+
 

@@ -73,7 +73,23 @@ serve(async (req) => {
       identifiers.collectorNumbers.unshift(String(cardNumberHint).toUpperCase());
     }
 
-    const queries = buildPriceChartingQueries(normalizedOcr, identifiers, gameTypeHint, setNameHint);
+    // ── STEP 1: Authoritative identity via YGOPRODeck setcode lookup ──
+    // For YGO, the printed code uniquely identifies the printing. Resolve name/set/rarity
+    // BEFORE pricing so PriceCharting gets a strong, exact query.
+    let ygoIdentity: { name: string; setName: string; setCode: string; rarity: string | null } | null = null;
+    for (const code of identifiers.ygoSetCodes) {
+      ygoIdentity = await lookupYgoBySetCode(code);
+      if (ygoIdentity) {
+        console.log("[rapid-basic-card-lookup] YGOPRODeck identified:", code, "→", ygoIdentity.name, "(", ygoIdentity.setName, ")");
+        // Promote authoritative title/set so PC queries use the real values.
+        identifiers.likelyTitle = ygoIdentity.name;
+        if (!setNameHint) (body as any).setName = ygoIdentity.setName;
+        break;
+      }
+    }
+    const resolvedSetName = ygoIdentity?.setName ?? setNameHint ?? null;
+
+    const queries = buildPriceChartingQueries(normalizedOcr, identifiers, gameTypeHint, resolvedSetName);
     console.log("[rapid-basic-card-lookup] queries:", JSON.stringify(queries));
 
     let candidate: Candidate | null = null;
@@ -104,7 +120,30 @@ serve(async (req) => {
     }
 
     if (!candidate) {
-      console.log("[rapid-basic-card-lookup] no match — tried:", tried);
+      console.log("[rapid-basic-card-lookup] no PC match — tried:", tried);
+      // If YGOPRODeck gave us authoritative identity, return it even without pricing
+      // so the queue processor can attempt fetch-card-prices fallback.
+      if (ygoIdentity) {
+        return json({
+          success: true,
+          source: "ygoprodeck",
+          cardData: {
+            card_name: ygoIdentity.name,
+            card_set: ygoIdentity.setName,
+            card_number: ygoIdentity.setCode,
+            rarity: ygoIdentity.rarity,
+            game_type: "YuGiOh",
+            sport_type: null,
+            year: null,
+            manufacturer: "Konami",
+            confidence: 0.9,
+          },
+          pricing: null,
+          priceChartingUrl: null,
+          googleLensUrl,
+          diagnostics: { tried, identifiers, ygoIdentity },
+        });
+      }
       return json({
         success: false,
         source: "none",
@@ -118,7 +157,18 @@ serve(async (req) => {
     const title = extractProductTitle(pageHtml) || candidate.name;
     const pricing = parsePriceChartingPrices(pageHtml, candidate.url);
     const cardData = productTitleToCardData(title, normalizedOcr, identifiers, gameTypeHint, candidate.score);
-    if (setNameHint && !cardData.card_set) cardData.card_set = String(setNameHint);
+    if (resolvedSetName && !cardData.card_set) cardData.card_set = String(resolvedSetName);
+
+    // YGOPRODeck identity is authoritative — overwrite PriceCharting's parsed name/set/rarity.
+    if (ygoIdentity) {
+      cardData.card_name = ygoIdentity.name;
+      cardData.card_set = ygoIdentity.setName;
+      cardData.card_number = ygoIdentity.setCode;
+      cardData.rarity = ygoIdentity.rarity;
+      cardData.game_type = "YuGiOh";
+      cardData.manufacturer = "Konami";
+      cardData.confidence = Math.max(cardData.confidence, 0.92);
+    }
 
     return json({
       success: true,
@@ -127,7 +177,7 @@ serve(async (req) => {
       pricing,
       priceChartingUrl: candidate.url,
       googleLensUrl,
-      diagnostics: { tried, identifiers },
+      diagnostics: { tried, identifiers, ygoIdentity },
     });
   } catch (e) {
     console.error("rapid-basic-card-lookup failed", e);
@@ -397,3 +447,28 @@ function decodeHtml(value: string): string {
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">");
 }
+
+// ─── YGOPRODeck authoritative identity by printed set code ───
+// Docs: https://ygoprodeck.com/api-guide/  endpoint: cardsetsinfo.php?setcode=XYZ
+async function lookupYgoBySetCode(rawCode: string): Promise<{ name: string; setName: string; setCode: string; rarity: string | null } | null> {
+  const code = rawCode.trim().toUpperCase();
+  if (!/^[A-Z0-9]{2,6}-(?:[A-Z]{2})?\d{1,5}$/.test(code)) return null;
+  try {
+    const res = await fetch(`https://db.ygoprodeck.com/api/v7/cardsetsinfo.php?setcode=${encodeURIComponent(code)}`, {
+      headers: { "Accept": "application/json", "User-Agent": "Mozilla/5.0 (compatible; RapidScan/1.0)" },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data || data.error || !data.name) return null;
+    return {
+      name: String(data.name),
+      setName: String(data.set_name ?? ""),
+      setCode: String(data.set_code ?? code),
+      rarity: data.set_rarity ? String(data.set_rarity) : null,
+    };
+  } catch (e) {
+    console.warn("[lookupYgoBySetCode] failed for", code, e);
+    return null;
+  }
+}
+
