@@ -281,6 +281,25 @@ function isHttpUrl(v: unknown): v is string {
   return typeof v === "string" && /^https?:\/\//i.test(v);
 }
 
+const SERVER_PRINTED_CODE_RE = /\b[A-Z0-9]{2,8}-[A-Z]{0,4}\d{1,5}\b/i;
+const SERVER_POKE_FRACTION_RE = /\b\d{1,4}\s*\/\s*\d{1,4}\b/;
+function isValidPrintedCodeServer(s: unknown): boolean {
+  if (!s) return false;
+  const str = String(s);
+  return SERVER_PRINTED_CODE_RE.test(str) || SERVER_POKE_FRACTION_RE.test(str);
+}
+function isReadableTitleServer(s: unknown): boolean {
+  if (!s) return false;
+  const t = String(s).trim();
+  if (t.length < 4) return false;
+  const letters = (t.match(/[A-Za-z]/g) ?? []).length;
+  if (letters < 3) return false;
+  const nonSpace = t.replace(/\s/g, "");
+  if (!nonSpace.length) return false;
+  if (letters / nonSpace.length < 0.6) return false;
+  return /[A-Za-z]{4,}/.test(t);
+}
+
 function normalizeGame(hint?: string | null): Game | null {
   if (!hint) return null;
   const h = String(hint).toLowerCase();
