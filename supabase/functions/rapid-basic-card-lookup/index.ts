@@ -299,12 +299,13 @@ function isHttpUrl(v: unknown): v is string {
   return typeof v === "string" && /^https?:\/\//i.test(v);
 }
 
-const SERVER_PRINTED_CODE_RE = /\b[A-Z0-9]{2,8}-[A-Z]{0,4}\d{1,5}\b/i;
+const SERVER_PRINTED_CODE_RE = /\b(?!ATK\b|DEF\b|HP\b|LP\b)(?:[A-Z0-9]{2,6}-(?:EN|JP|KR|DE|FR|IT|SP|PT|JE|AE)\d{3,5}|[A-Z]{2,4}-\d{3})\b/i;
 const SERVER_POKE_FRACTION_RE = /\b\d{1,4}\s*\/\s*\d{1,4}\b/;
+const SERVER_SPORTS_CODE_RE = /\b(?:19[5-9]\d|20[0-3]\d)\s*#\s*\d{1,4}\b/i;
 function isValidPrintedCodeServer(s: unknown): boolean {
   if (!s) return false;
   const str = String(s);
-  return SERVER_PRINTED_CODE_RE.test(str) || SERVER_POKE_FRACTION_RE.test(str);
+  return SERVER_PRINTED_CODE_RE.test(str) || SERVER_POKE_FRACTION_RE.test(str) || SERVER_SPORTS_CODE_RE.test(str);
 }
 function isReadableTitleServer(s: unknown): boolean {
   if (!s) return false;
