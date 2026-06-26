@@ -358,31 +358,61 @@ async function processQueueItem(item: QueueItem): Promise<void> {
     ocr?.cardNumber,
     ocr?.title,
     ocr?.name,
+    ocr?.setName,
     ocr?.text,
   );
 
-  if (!ocrText) {
+  const hasStructured = Boolean(ocr?.title || ocr?.setCode || ocr?.cardNumber);
+  if (!ocrText && !hasStructured) {
     throw new Error("RapidScan basic lookup failed: OCR did not find set code/title text");
   }
+
+  console.log("[QueueProcessor] ocr →", {
+    title: ocr?.title ?? null,
+    setName: ocr?.setName ?? null,
+    setCode: ocr?.setCode ?? null,
+    cardNumber: ocr?.cardNumber ?? null,
+    source: ocr?.source ?? "cloud",
+  });
 
   const lookup = await runRapidBasicLookup({
     imageUrl: upload.publicUrl,
     ocrText,
+    title: ocr?.title ?? ocr?.name ?? null,
+    setName: ocr?.setName ?? null,
+    setCode: ocr?.setCode ?? null,
+    cardNumber: ocr?.cardNumber ?? null,
     gameTypeHint,
     allowGoogleLens: Boolean(upload.publicUrl),
     timeoutMs: BASIC_LOOKUP_TIMEOUT_MS,
   });
 
-  if (!lookup.success || !lookup.cardData) {
+  // If PriceCharting lookup couldn't identify the card, fall back to OCR's title/set directly.
+  let identify = lookup.cardData;
+  let pricing = lookup.pricing ?? null;
+  if ((!lookup.success || !identify) && (ocr?.title || ocr?.setName)) {
+    console.warn("[QueueProcessor] PriceCharting miss — using OCR fields as identity");
+    identify = {
+      card_name: ocr?.title ?? ocr?.name ?? "Unknown Card",
+      card_set: ocr?.setName ?? null,
+      card_number: ocr?.cardNumber ?? ocr?.setCode ?? null,
+      rarity: null,
+      game_type: gameTypeHint ?? null,
+      sport_type: null,
+      year: null,
+      manufacturer: null,
+      confidence: 0.4,
+    };
+  }
+
+  if (!identify) {
     throw new Error(lookupErrorMessage(lookup));
   }
 
-  const identify = lookup.cardData;
-  const pricing = lookup.pricing ?? null;
   const cardName = String(identify.card_name || "Unknown Card").trim() || "Unknown Card";
   const confidence = Number(identify.confidence ?? 0.35);
 
-  if (cardName === "Unknown Card" || confidence < 0.3) {
+  if (cardName === "Unknown Card" || confidence < 0.2) {
     throw new Error(`Identification confidence ${Math.round(confidence * 100)}% — capture preserved for review`);
   }
 
@@ -396,8 +426,34 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   const playerName = sportType ? cardName : null;
   const team = null;
   const imageUrl = upload.publicUrl ?? base64;
-  const rawPrice = money(pricing?.raw ?? pricing?.highestSold ?? null);
-  const psa10Price = money(pricing?.psa10 ?? pricing?.cgc10 ?? null);
+  let rawPrice = money(pricing?.raw ?? pricing?.highestSold ?? null);
+  let psa10Price = money(pricing?.psa10 ?? pricing?.cgc10 ?? null);
+
+  // Pricing fallback: if PriceCharting returned no usable prices, hit fetch-card-prices.
+  if (rawPrice == null && psa10Price == null) {
+    console.log("[QueueProcessor] price → falling back to fetch-card-prices for", cardName);
+    const fallback = await fetchPricingFallback({
+      cardName,
+      cardSet,
+      cardNumber,
+      gameType,
+      sportType,
+    });
+    if (fallback) {
+      rawPrice = money(fallback.raw ?? fallback.highestSold ?? null);
+      psa10Price = money(fallback.psa10 ?? fallback.cgc10 ?? null);
+      pricing = {
+        raw: fallback.raw,
+        psa10: fallback.psa10,
+        cgc10: fallback.cgc10,
+        highestSold: fallback.highestSold,
+        url: fallback.url,
+      } as any;
+    }
+  }
+
+  console.log("[QueueProcessor] identify → price", { cardName, cardSet, cardNumber, rawPrice, psa10Price });
+
 
   let ownedCount = 0;
   let isInLibrary = false;
