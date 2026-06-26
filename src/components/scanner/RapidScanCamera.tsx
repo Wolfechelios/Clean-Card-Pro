@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Camera,
   CameraOff,
+  ChevronDown,
   Flashlight,
   FlashlightOff,
   Focus,
