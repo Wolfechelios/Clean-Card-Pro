@@ -254,6 +254,14 @@ function lookupErrorMessage(result: RapidBasicLookupResponse | null): string {
   return result?.error || "No PriceCharting match found by set code/title, Google Lens, or web search fallback";
 }
 
+function firstValidPrintedIdentifier(...parts: Array<string | null | undefined>): string | null {
+  for (const part of parts) {
+    const value = String(part ?? "").trim();
+    if (isValidPrintedCode(value)) return value;
+  }
+  return null;
+}
+
 export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   isRunning: false,
   isPaused: readAnomalyPauseFlag(),
