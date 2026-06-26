@@ -14,8 +14,9 @@ export type DetectedCode = {
   confidence: number;            // 0..1 heuristic
 };
 
-// Allow O/I/l in matches; we'll normalize them in the number section afterwards.
-const YGO_RE = /\b([A-Z0-9]{2,6})-([A-Z]{0,3}\d{1,5})\b/;
+// Allow only real Yu-Gi-Oh printed-code shapes. Do not accept stat text like ATK-2500.
+const YGO_MODERN_RE = /\b(?!ATK\b|DEF\b|HP\b|LP\b)([A-Z0-9]{2,6})-((?:EN|JP|KR|DE|FR|IT|SP|PT|JE|AE)\d{3,5})\b/;
+const YGO_LEGACY_RE = /\b(?!ATK\b|DEF\b|HP\b|LP\b)([A-Z]{2,4})-(\d{3})\b/;
 const POKEMON_FRACTION_RE = /\b((?:SV)?\d{1,4})\s*\/\s*((?:SV)?\d{1,4})\b/i;
 const POKEMON_PROMO_RE = /\b(SWSH|SM|XY|BW|HGSS|DP|PR|SVP)\s*-?\s*(\d{1,3}[A-Z]?)\b/i;
 const MTG_COLLECTOR_RE = /\b([A-Z0-9]{3,5})\s+(\d{1,4})(?:\s*\/\s*\d{1,4})?\s*[•·]?\s*[A-Z]?\b/;
@@ -57,7 +58,7 @@ export function extractPrintedCode(rawText: string): DetectedCode {
   const candidates: DetectedCode[] = [];
 
   // ── Yu-Gi-Oh ───────────────────────────────────────────────────────
-  const ygo = upper.match(YGO_RE);
+  const ygo = upper.match(YGO_MODERN_RE) ?? upper.match(YGO_LEGACY_RE);
   if (ygo) {
     const setCode = ygo[1];
     const num = fixNumberSection(ygo[2]);
@@ -164,7 +165,7 @@ export function detectEdition(text: string): string | null {
 export function normalizeSetCodeToken(token: string): string | null {
   if (!token) return null;
   const cleaned = token.toUpperCase().replace(/[–—]/g, "-").replace(/\s+/g, "-").replace(/-+/g, "-");
-  const m = cleaned.match(/^([A-Z0-9]{2,6})-([A-Z]{0,3}\d{1,5})$/);
+  const m = cleaned.match(/^(?!ATK-|DEF-|HP-|LP-)([A-Z0-9]{2,6})-((?:EN|JP|KR|DE|FR|IT|SP|PT|JE|AE)\d{3,5}|\d{3})$/);
   if (!m) return null;
   return `${m[1]}-${fixNumberSection(m[2])}`;
 }
