@@ -98,8 +98,10 @@ serve(async (req) => {
     // Server-side identity gate. If client passed no valid setCode AND the
     // titleHint is unreadable, refuse to search — junk OCR returns wrong cards.
     const validSetCode = isValidPrintedCodeServer(setCodeHint);
+    const validCardNumberCode = isValidPrintedCodeServer(cardNumberHint);
+    const validPrintedIdentifier = validSetCode || validCardNumberCode;
     const validTitle = isReadableTitleServer(titleHint);
-    if (!validSetCode && !validTitle) {
+    if (!validPrintedIdentifier && !validTitle) {
       return json({
         success: false,
         source: "requires_user_disambiguation",
@@ -114,6 +116,9 @@ serve(async (req) => {
     else ids.likelyTitle = null; // do not use junk text as a search title
     if (setCodeHint && validSetCode && !ids.ygoSetCodes.includes(String(setCodeHint).toUpperCase())) {
       ids.ygoSetCodes.unshift(String(setCodeHint).toUpperCase());
+    }
+    if (cardNumberHint && validCardNumberCode && String(cardNumberHint).includes("-") && !ids.ygoSetCodes.includes(String(cardNumberHint).toUpperCase())) {
+      ids.ygoSetCodes.unshift(String(cardNumberHint).toUpperCase());
     }
     if (cardNumberHint && !ids.collectorNumbers.includes(String(cardNumberHint).toUpperCase())) {
       ids.collectorNumbers.unshift(String(cardNumberHint).toUpperCase());
