@@ -31,7 +31,17 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { imageUrl, ocrText, gameTypeHint, allowGoogleLens = true } = await req.json();
+    const body = await req.json();
+    const {
+      imageUrl,
+      ocrText,
+      title: titleHint,
+      setName: setNameHint,
+      setCode: setCodeHint,
+      cardNumber: cardNumberHint,
+      gameTypeHint,
+      allowGoogleLens = true,
+    } = body ?? {};
     const authHeader = req.headers.get("authorization");
 
     if (authHeader) {
@@ -48,10 +58,23 @@ serve(async (req) => {
     }
 
     const normalizedOcr = normalizeSpace(String(ocrText ?? ""));
-    if (!normalizedOcr) return json({ success: false, source: "none", error: "Missing OCR text" }, 400);
+    const hasStructured = Boolean(titleHint || setCodeHint || cardNumberHint);
+    if (!normalizedOcr && !hasStructured) {
+      return json({ success: false, source: "none", error: "Missing OCR text and structured hints" }, 400);
+    }
 
     const identifiers = extractIdentifiers(normalizedOcr);
-    const queries = buildPriceChartingQueries(normalizedOcr, identifiers, gameTypeHint);
+    // Merge in client-provided structured hints so queries are stronger.
+    if (titleHint) identifiers.likelyTitle = String(titleHint);
+    if (setCodeHint && !identifiers.ygoSetCodes.includes(String(setCodeHint).toUpperCase())) {
+      identifiers.ygoSetCodes.unshift(String(setCodeHint).toUpperCase());
+    }
+    if (cardNumberHint && !identifiers.collectorNumbers.includes(String(cardNumberHint).toUpperCase())) {
+      identifiers.collectorNumbers.unshift(String(cardNumberHint).toUpperCase());
+    }
+
+    const queries = buildPriceChartingQueries(normalizedOcr, identifiers, gameTypeHint, setNameHint);
+    console.log("[rapid-basic-card-lookup] queries:", JSON.stringify(queries));
 
     let candidate: Candidate | null = null;
     const tried: string[] = [];
@@ -60,6 +83,7 @@ serve(async (req) => {
       tried.push(`pricecharting:${query}`);
       const found = await searchPriceCharting(query, identifiers);
       if (found) {
+        console.log("[rapid-basic-card-lookup] matched on query:", query, "->", found.url);
         candidate = found;
         break;
       }
@@ -80,6 +104,7 @@ serve(async (req) => {
     }
 
     if (!candidate) {
+      console.log("[rapid-basic-card-lookup] no match — tried:", tried);
       return json({
         success: false,
         source: "none",
@@ -93,6 +118,7 @@ serve(async (req) => {
     const title = extractProductTitle(pageHtml) || candidate.name;
     const pricing = parsePriceChartingPrices(pageHtml, candidate.url);
     const cardData = productTitleToCardData(title, normalizedOcr, identifiers, gameTypeHint, candidate.score);
+    if (setNameHint && !cardData.card_set) cardData.card_set = String(setNameHint);
 
     return json({
       success: true,
@@ -108,6 +134,7 @@ serve(async (req) => {
     return json({ success: false, source: "none", error: String((e as Error)?.message ?? e) }, 500);
   }
 });
+
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -152,27 +179,39 @@ function titleScore(line: string): number {
   return score;
 }
 
-function buildPriceChartingQueries(text: string, ids: ReturnType<typeof extractIdentifiers>, gameTypeHint?: string): string[] {
+function buildPriceChartingQueries(text: string, ids: ReturnType<typeof extractIdentifiers>, gameTypeHint?: string, setName?: string | null): string[] {
   const out: string[] = [];
   const title = ids.likelyTitle;
   const gameTerms = gameTypeHint && gameTypeHint !== "auto" ? [gameTypeHint] : ["pokemon", "yugioh", "yu gi oh", "mtg", "sports"];
 
+  // 1. set code is the strongest signal for YGO/Pokémon
   for (const code of ids.ygoSetCodes) {
     out.push(code);
     if (title) out.push(`${code} ${title}`);
     out.push(`${code} yugioh`);
   }
+  // 2. title + set name
+  if (title && setName) {
+    out.push(`${title} ${setName}`);
+    out.push(`${setName} ${title}`);
+  }
+  // 3. title + collector number
   for (const number of ids.collectorNumbers) {
     if (title) out.push(`${title} ${number}`);
     for (const game of gameTerms.slice(0, 2)) out.push(`${number} ${game}`);
   }
+  // 4. title alone + game hints
   if (title) {
     out.push(title);
     for (const game of gameTerms.slice(0, 3)) out.push(`${title} ${game}`);
   }
-  out.push(text.slice(0, 120));
-  return unique(out.map((q) => normalizeSpace(q)).filter((q) => q.length >= 2)).slice(0, 12);
+  // 5. set name alone as last resort
+  if (setName) out.push(setName);
+  // 6. raw text shred (legacy)
+  if (text) out.push(text.slice(0, 120));
+  return unique(out.map((q) => normalizeSpace(q)).filter((q) => q.length >= 2)).slice(0, 14);
 }
+
 
 function unique<T>(items: T[]): T[] {
   return Array.from(new Set(items));
