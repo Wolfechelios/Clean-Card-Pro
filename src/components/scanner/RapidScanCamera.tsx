@@ -174,6 +174,7 @@ export default function RapidScanCamera() {
   const processor = useQueueProcessor();
 
   const [cameraOn, setCameraOn] = useState(false);
+  const [phoneOpen, setPhoneOpen] = useState(() => localStorage.getItem("rapid_scan_phone_open") !== "0");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("Tap Start Camera");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
