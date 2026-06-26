@@ -161,7 +161,20 @@ serve(async (req) => {
     const resolvedSetName = identity?.setName ?? setNameHint ?? null;
     const resolvedRarity = identity?.rarity ?? null;
 
-    // ── STEP 3: Pricing — only with an identified card ────────────────
+    if (!identity && detectedGame !== "sports") {
+      return json({
+        success: false,
+        source: "requires_user_disambiguation",
+        requiresDisambiguation: true,
+        confidenceTier: "LOW",
+        error: ids.ygoSetCodes.length > 0
+          ? "Printed code was detected but could not be verified by an authoritative card database."
+          : "No verifiable printed set/collector code detected. Retake photo closer to the code.",
+        diagnostics: { ids },
+      });
+    }
+
+    // ── STEP 3: Pricing — only after authoritative identity, except sports ──
     const queries = buildPriceChartingQueries(normalizedOcr, ids, gameTypeHint, resolvedSetName, resolvedRarity);
     console.log("[lookup] PC queries:", JSON.stringify(queries.slice(0, 6)));
 
