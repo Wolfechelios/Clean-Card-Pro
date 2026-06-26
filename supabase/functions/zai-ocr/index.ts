@@ -96,7 +96,7 @@ serve(async (req) => {
     const collectorNumber = collectorMatch ? collectorMatch[0].replace(/\s/g, "") : null;
 
     // Generic fallback set code (Pokémon TCG: SWSH123, etc.) when no YGO code present
-    const setCode = ygoSetCode ?? (normalized.match(/\b([A-Z]{2,5}-[A-Z]{2}\d{1,4})\b/)?.[1] ?? null);
+    const setCode = ygoSetCode ?? (normalized.match(/\b(?!ATK\b|DEF\b|HP\b|LP\b)([A-Z]{2,5}-[A-Z]{2}\d{3,5})\b/)?.[1] ?? null);
 
     // Prefer printed YGO code as the card number — it uniquely identifies the printing.
     const cardNumber = ygoSetCode ?? collectorNumber;
@@ -174,7 +174,7 @@ function inferCardTitle(lines: string[]): string | null {
     .filter((line) => /[a-zA-Z]/.test(line))
     .filter((line) => !/^\d+$/.test(line))
     .filter((line) => !/^\d+\/\d+$/.test(line))
-    .filter((line) => !/^[A-Z]{2,5}-[A-Z]{0,3}\d{1,5}$/.test(line));
+    .filter((line) => !/^(?!ATK-|DEF-|HP-|LP-)(?:[A-Z0-9]{2,6}-(?:EN|JP|KR|DE|FR|IT|SP|PT|JE|AE)\d{3,5}|[A-Z]{2,4}-\d{3})$/.test(line));
 
   if (!candidates.length) return null;
 
@@ -265,7 +265,7 @@ function extractYgoSetCode(text: string): string | null {
 
   // Legacy: 3-letter prefix + dash + 3 digits, no region code
   // Examples: LOB-001, SDK-001, SDY-046, PSV-012
-  const legacy = Array.from(upper.matchAll(/\b([A-Z]{2,4})-(\d{1,4})\b/g))
+  const legacy = Array.from(upper.matchAll(/\b(?!ATK\b|DEF\b|HP\b|LP\b)([A-Z]{2,4})-(\d{3})\b/g))
     .filter((m) => !/^(EN|JP|KR|DE|FR|IT|SP|PT)$/.test(m[1]))
     .map((m) => `${m[1]}-${m[2].padStart(3, "0")}`);
   if (legacy.length) return legacy[0];
@@ -276,7 +276,7 @@ function extractYgoSetCode(text: string): string | null {
 // Normalize common OCR confusions inside what looks like a set code.
 // Only touches tokens that already look code-shaped, so it won't mangle prose.
 function normalizeOcrCodes(text: string): string {
-  return text.replace(/\b([A-Z0-9OIl]{2,6})-([A-Z0-9OIl]{0,4})(\d|[OIl]){1,5}\b/g, (token) => {
+  return text.replace(/\b(?!ATK\b|DEF\b|HP\b|LP\b)([A-Z0-9OIl]{2,6})-([A-Z0-9OIl]{0,4})(\d|[OIl]){3,5}\b/g, (token) => {
     return token
       .replace(/[Il]/g, "1")
       .replace(/O(?=\d|$)/g, "0")
