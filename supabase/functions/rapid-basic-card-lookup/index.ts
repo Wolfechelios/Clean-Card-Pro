@@ -120,7 +120,30 @@ serve(async (req) => {
     }
 
     if (!candidate) {
-      console.log("[rapid-basic-card-lookup] no match — tried:", tried);
+      console.log("[rapid-basic-card-lookup] no PC match — tried:", tried);
+      // If YGOPRODeck gave us authoritative identity, return it even without pricing
+      // so the queue processor can attempt fetch-card-prices fallback.
+      if (ygoIdentity) {
+        return json({
+          success: true,
+          source: "ygoprodeck",
+          cardData: {
+            card_name: ygoIdentity.name,
+            card_set: ygoIdentity.setName,
+            card_number: ygoIdentity.setCode,
+            rarity: ygoIdentity.rarity,
+            game_type: "YuGiOh",
+            sport_type: null,
+            year: null,
+            manufacturer: "Konami",
+            confidence: 0.9,
+          },
+          pricing: null,
+          priceChartingUrl: null,
+          googleLensUrl,
+          diagnostics: { tried, identifiers, ygoIdentity },
+        });
+      }
       return json({
         success: false,
         source: "none",
@@ -134,7 +157,18 @@ serve(async (req) => {
     const title = extractProductTitle(pageHtml) || candidate.name;
     const pricing = parsePriceChartingPrices(pageHtml, candidate.url);
     const cardData = productTitleToCardData(title, normalizedOcr, identifiers, gameTypeHint, candidate.score);
-    if (setNameHint && !cardData.card_set) cardData.card_set = String(setNameHint);
+    if (resolvedSetName && !cardData.card_set) cardData.card_set = String(resolvedSetName);
+
+    // YGOPRODeck identity is authoritative — overwrite PriceCharting's parsed name/set/rarity.
+    if (ygoIdentity) {
+      cardData.card_name = ygoIdentity.name;
+      cardData.card_set = ygoIdentity.setName;
+      cardData.card_number = ygoIdentity.setCode;
+      cardData.rarity = ygoIdentity.rarity;
+      cardData.game_type = "YuGiOh";
+      cardData.manufacturer = "Konami";
+      cardData.confidence = Math.max(cardData.confidence, 0.92);
+    }
 
     return json({
       success: true,
@@ -143,7 +177,7 @@ serve(async (req) => {
       pricing,
       priceChartingUrl: candidate.url,
       googleLensUrl,
-      diagnostics: { tried, identifiers },
+      diagnostics: { tried, identifiers, ygoIdentity },
     });
   } catch (e) {
     console.error("rapid-basic-card-lookup failed", e);
