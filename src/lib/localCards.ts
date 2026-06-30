@@ -14,12 +14,23 @@ function enforce(card: any): any {
   return { ...card, card_set: v, collection_name: v }
 }
 
+function makeLocalCard(cardData: Partial<CardInsert> & Record<string, any>): CardRow {
+  const createdAt = String(cardData.created_at ?? new Date().toISOString())
+  return enforce({
+    ...cardData,
+    id: String(cardData.id ?? crypto.randomUUID()),
+    user_id: cardData.user_id ?? localStorage.getItem("clean_card_local_user_id") ?? "local-user",
+    created_at: createdAt,
+    updated_at: String(cardData.updated_at ?? createdAt),
+  }) as CardRow
+}
+
 // ========== LOCAL-ONLY OPERATIONS ==========
 
 export async function getAllCards(): Promise<CardRow[]> {
   const all: CardRow[] = []
   await db.iterate((value) => { all.push(value as CardRow) })
-  all.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+  all.sort((a, b) => new Date((b as any).created_at ?? 0).getTime() - new Date((a as any).created_at ?? 0).getTime())
   return all
 }
 
@@ -47,71 +58,39 @@ export async function clearAllLocalCards(): Promise<void> {
   await db.clear()
 }
 
-// ========== DUAL-WRITE: SUPABASE + LOCAL ==========
+// ========== LOCAL-FIRST OPERATIONS ==========
 
-/**
- * Insert a card into Supabase and mirror it to IndexedDB.
- * Returns the inserted card with its generated ID.
- */
 export async function insertCardDual(cardData: CardInsert): Promise<CardRow> {
-  const { data, error } = await supabase
-    .from("cards")
-    .insert(cardData)
-    .select()
-    .single()
-
-  if (error) throw error
-  if (!data) throw new Error("No data returned from insert")
-
-  // Mirror to local
-  await upsertCardLocal(data)
-  return data
+  const localCard = makeLocalCard(cardData as any)
+  await upsertCardLocal(localCard)
+  return localCard
 }
 
-/**
- * Update a card in Supabase and mirror changes to IndexedDB.
- */
 export async function updateCardDual(id: string, updates: Partial<CardRow>): Promise<CardRow> {
-  const { data, error } = await supabase
-    .from("cards")
-    .update(updates)
-    .eq("id", id)
-    .select()
-    .single()
-
-  if (error) throw error
-  if (!data) throw new Error("No data returned from update")
-
-  await upsertCardLocal(data)
-  return data
+  const existing = await getCardById(id)
+  const localCard = makeLocalCard({ ...(existing as any), ...updates, id, updated_at: new Date().toISOString() })
+  await upsertCardLocal(localCard)
+  return localCard
 }
 
-/**
- * Delete a card from Supabase and remove from IndexedDB.
- */
 export async function deleteCardDual(id: string): Promise<void> {
-  const { error } = await supabase.from("cards").delete().eq("id", id)
-  if (error) throw error
   await deleteCardLocal(id)
 }
 
-/**
- * Sync all cards from Supabase to local IndexedDB.
- * Call this on app init or after login.
- */
 export async function syncFromSupabase(): Promise<CardRow[]> {
-  const { data, error } = await supabase
-    .from("cards")
-    .select("*")
-    .order("created_at", { ascending: false })
+  try {
+    const { data, error } = await supabase
+      .from("cards")
+      .select("*")
+      .order("created_at", { ascending: false })
 
-  if (error) throw error
-  if (!data) return []
-
-  // Replace local store with fresh data
-  await db.clear()
-  await upsertCardsLocal(data)
-  return data
+    if (error || !data) return getAllCards()
+    await db.clear()
+    await upsertCardsLocal(data as CardRow[])
+    return data as CardRow[]
+  } catch {
+    return getAllCards()
+  }
 }
 
 // Legacy exports for backwards compatibility
