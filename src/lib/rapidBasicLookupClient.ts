@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { withTimeout } from "@/lib/async/withTimeout";
+import { lookupYugiohByPrintedCode } from "@/lib/yugiohDirectLookup";
 
 export type RapidBasicLookupResponse = {
   success: boolean;
@@ -62,6 +63,9 @@ export async function runRapidBasicLookup(args: {
   allowGoogleLens: boolean;
   timeoutMs?: number;
 }): Promise<RapidBasicLookupResponse> {
+  const directYgo = await lookupYugiohByPrintedCode(args.setCode);
+  if (directYgo?.success) return directYgo;
+
   const timeoutMs = args.timeoutMs ?? 18000;
   const res = await withTimeout(
     supabase.functions.invoke<RapidBasicLookupResponse>("rapid-basic-card-lookup", {
@@ -83,7 +87,10 @@ export async function runRapidBasicLookup(args: {
   );
 
   if (res.error) {
-    return { success: false, source: "none", error: res.error.message ?? String(res.error) };
+    return directYgo ?? { success: false, source: "none", error: res.error.message ?? String(res.error) };
   }
-  return res.data ?? { success: false, source: "none", error: "No lookup response" };
+
+  const data = res.data ?? { success: false, source: "none", error: "No lookup response" };
+  if (!data.success && directYgo) return directYgo;
+  return data;
 }
