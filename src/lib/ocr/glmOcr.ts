@@ -1,3 +1,9 @@
+// src/lib/ocr/glmOcr.ts
+// Primary OCR: GLM-OCR via the `zai-ocr` Supabase edge function (Z.AI cloud).
+// The edge function already extracts title / setCode / cardNumber and applies
+// OCR-confusion fixes; we just normalize the response into our internal shape.
+
+import { supabase } from "@/integrations/supabase/client";
 import { extractPrintedCode, normalizeSetCodeToken, type DetectedGame } from "./gameCodePatterns";
 
 export type GlmOcrResult = {
@@ -12,31 +18,6 @@ export type GlmOcrResult = {
   source: "local-glm-ocr";
 };
 
-const OLLAMA_URL = "http://localhost:11434/api/generate";
-const DEFAULT_GLM_MODEL = "glm-ocr:latest";
-
-function cleanLine(line: string): string {
-  return line.replace(/[\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function extractTitle(text: string, codeRaw: string | null): string | undefined {
-  const junk = /^(limited edition|1st edition|edition|common|rare|secret rare|ultra rare|super rare|effect|spell|trap|monster|password|konami|yugioh|yu-?gi-?oh|pokemon|pokémon|trainer|energy|hp\s*\d+|atk|def|illus\.|©|set code|card code|title|name)/i;
-  const lines = text
-    .split(/\r?\n/)
-    .map(cleanLine)
-    .filter((line) => line.length >= 3 && line.length <= 80)
-    .filter((line) => !junk.test(line))
-    .filter((line) => !codeRaw || !line.toUpperCase().includes(codeRaw.toUpperCase()))
-    .filter((line) => !/^\d+\s*\/\s*\d+$/.test(line));
-
-  return lines.find((line) => /[A-Za-z]/.test(line) && !/[.!?]{2,}/.test(line));
-}
-
-function dataUrlToBase64(dataUrl: string): string {
-  const comma = dataUrl.indexOf(",");
-  return comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
-}
-
 async function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -46,81 +27,62 @@ async function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
-function parseResponseText(value: unknown): string {
-  const text = String(value ?? "").trim();
-  if (!text) return "";
-
+export async function runGlmOcr(image: Blob | File | string): Promise<GlmOcrResult | null> {
   try {
-    const parsed = JSON.parse(text);
-    if (typeof parsed === "string") return parsed;
-    return [parsed.setCode, parsed.cardCode, parsed.cardName, parsed.title, parsed.rawText, parsed.text]
-      .map((part) => String(part ?? "").trim())
-      .filter(Boolean)
-      .join("\n");
-  } catch {
-    return text;
-  }
-}
+    const imageUrl = typeof image === "string" ? image : await blobToDataUrl(image);
 
-function finalize(rawText: string): GlmOcrResult {
-  const detected = extractPrintedCode(rawText);
-  const normalizedSet = detected.setCode && detected.cardNumber
-    ? normalizeSetCodeToken(`${detected.setCode}-${detected.cardNumber}`)
-    : null;
-
-  const title = extractTitle(rawText, detected.rawMatch);
-
-  return {
-    rawText,
-    title,
-    setCode: normalizedSet ?? detected.fullCode ?? undefined,
-    cardNumber: detected.cardNumber ?? undefined,
-    fullCode: detected.fullCode ?? undefined,
-    game: detected.game,
-    edition: detected.edition ?? undefined,
-    confidence: Math.max(0.85, detected.confidence || 0),
-    source: "local-glm-ocr",
-  };
-}
-
-export async function runGlmOcr(image: Blob | File | string, model = DEFAULT_GLM_MODEL): Promise<GlmOcrResult | null> {
-  try {
-    const imageDataUrl = typeof image === "string" ? image : await blobToDataUrl(image);
-    const imageBase64 = dataUrlToBase64(imageDataUrl);
-
-    const response = await fetch(OLLAMA_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        stream: false,
-        prompt: [
-          "You are OCR for trading cards.",
-          "Read the card image and return only the visible text needed to identify the exact printing.",
-          "Prioritize the printed set/card code such as LOB-001, SDK-001, SDY-046, RA01-EN001, MP25-EN318.",
-          "Also include the card title if visible.",
-          "Do not guess. If unreadable, return the text you can see."
-        ].join("\n"),
-        images: [imageBase64],
-        options: {
-          temperature: 0,
-          num_predict: 160,
-        },
-      }),
+    const { data, error } = await supabase.functions.invoke("zai-ocr", {
+      body: { imageUrl, mode: "meta" },
     });
 
-    if (!response.ok) {
-      console.warn("[glmOcr] Ollama GLM OCR failed:", response.status, await response.text().catch(() => ""));
+    if (error) {
+      console.warn("[glmOcr] zai-ocr edge function error:", error.message);
+      return null;
+    }
+    if (!data || typeof data !== "object") return null;
+    if ((data as any).error) {
+      console.warn("[glmOcr] zai-ocr returned error:", (data as any).error);
       return null;
     }
 
-    const json = await response.json();
-    const rawText = parseResponseText(json?.response);
+    const rawText = String((data as any).rawText ?? (data as any).text ?? "").trim();
     if (!rawText) return null;
 
-    return finalize(rawText);
+    // Trust the edge function's structured fields first; fall back to local
+    // regex extraction for cards (e.g. MTG, sports) the function doesn't tag.
+    const detected = extractPrintedCode(rawText);
+    const edgeSetCode = String((data as any).setCode ?? "").trim() || null;
+    const edgeCardNumber = String((data as any).cardNumber ?? "").trim() || null;
+    const edgeTitle = String((data as any).title ?? (data as any).name ?? "").trim() || undefined;
+
+    const normalizedLocal =
+      detected.setCode && detected.cardNumber
+        ? normalizeSetCodeToken(`${detected.setCode}-${detected.cardNumber}`)
+        : null;
+
+    const setCode = edgeSetCode ?? normalizedLocal ?? detected.fullCode ?? undefined;
+    const cardNumber = edgeCardNumber ?? detected.cardNumber ?? undefined;
+    const fullCode = edgeSetCode ?? detected.fullCode ?? undefined;
+
+    const confidence = Math.max(
+      Number((data as any).confidence ?? 0) || 0,
+      detected.confidence || 0,
+      0.6,
+    );
+
+    return {
+      rawText,
+      title: edgeTitle,
+      setCode,
+      cardNumber,
+      fullCode,
+      game: detected.game,
+      edition: detected.edition ?? undefined,
+      confidence,
+      source: "local-glm-ocr",
+    };
   } catch (error) {
-    console.warn("[glmOcr] Local GLM OCR unavailable:", error);
+    console.warn("[glmOcr] GLM OCR call failed:", error);
     return null;
   }
 }
