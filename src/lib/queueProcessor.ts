@@ -7,6 +7,7 @@ import { getScannerSettings } from "@/hooks/use-scanner-settings";
 import { addRecentScan } from "@/lib/recentScans";
 import { insertCardDual } from "@/lib/localCards";
 import { runLocalCardOcr } from "@/lib/ocr/localCardOcr";
+import { withTimeout } from "@/lib/async/withTimeout";
 import {
   idbGetNextQueued,
   idbUpdateMeta,
@@ -77,6 +78,8 @@ type ProcessorStore = ProcessorState & {
 
 const QUEUE_REFRESH_INTERVAL_MS = 1000;
 const MIN_JOB_DELAY_MS = 350;
+const LOCAL_OCR_TIMEOUT_MS = 18000;
+const LOCAL_LOOKUP_TIMEOUT_MS = 8000;
 const ANOMALY_PAUSE_STORAGE_KEY = "rapid-scan-anomaly-paused";
 
 let workerActive = false;
@@ -249,7 +252,12 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   const gameTypeHint = scanSettings.gameTypeFilter !== "auto" ? scanSettings.gameTypeFilter : undefined;
   const userId = getLocalUserId();
 
-  const ocr = await runLocalCardOcr(item.blob);
+  const ocr = await withTimeout(
+    runLocalCardOcr(item.blob),
+    LOCAL_OCR_TIMEOUT_MS,
+    "Local OCR",
+  );
+
   const ocrText = compactOcrText(
     ocr?.setCode,
     ocr?.cardNumber,
@@ -274,18 +282,22 @@ async function processQueueItem(item: QueueItem): Promise<void> {
     return;
   }
 
-  const lookup = await runRapidBasicLookup({
-    imageUrl: null,
-    ocrText,
-    title: hasValidTitle ? ocr?.title ?? null : null,
-    setName: null,
-    setCode: printedIdentifier,
-    cardNumber: ocr?.cardNumber ?? null,
-    edition: ocr?.edition ?? null,
-    game: ocr?.game ?? null,
-    gameTypeHint,
-    allowGoogleLens: false,
-  });
+  const lookup = await withTimeout(
+    runRapidBasicLookup({
+      imageUrl: null,
+      ocrText,
+      title: hasValidTitle ? ocr?.title ?? null : null,
+      setName: null,
+      setCode: printedIdentifier,
+      cardNumber: ocr?.cardNumber ?? null,
+      edition: ocr?.edition ?? null,
+      game: ocr?.game ?? null,
+      gameTypeHint,
+      allowGoogleLens: false,
+    }),
+    LOCAL_LOOKUP_TIMEOUT_MS,
+    "Local card database lookup",
+  );
 
   const identify = lookup.cardData;
   const pricing = lookup.pricing ?? null;
