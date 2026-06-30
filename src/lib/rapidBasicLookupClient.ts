@@ -1,3 +1,6 @@
+import { supabase } from "@/integrations/supabase/client";
+import { withTimeout } from "@/lib/async/withTimeout";
+import { findPriceChartingYuGiOhMatch, parseYugiohOcrText } from "@/lib/cardOcrParser";
 import { lookupYugiohByPrintedCode } from "@/lib/yugiohDirectLookup";
 
 export type RapidBasicLookupResponse = {
@@ -61,8 +64,65 @@ export async function runRapidBasicLookup(args: {
   allowGoogleLens: boolean;
   timeoutMs?: number;
 }): Promise<RapidBasicLookupResponse> {
-  const directYgo = await lookupYugiohByPrintedCode(args.setCode);
-  if (directYgo) return directYgo;
+const directYgo = await lookupYugiohByPrintedCode(args.setCode);
+if (directYgo) return directYgo;
+
+const parsed = parseYugiohOcrText(args.ocrText);
+const isYugioh = !args.gameTypeHint || /yugioh|yu-gi-oh/i.test(args.gameTypeHint) || Boolean(parsed.setCode);
+
+if (isYugioh) {
+  const localMatch = await findPriceChartingYuGiOhMatch({
+    cardName: parsed.cardName,
+    cardSet: parsed.cardSet,
+    cardNumber: parsed.cardNumber,
+    setCode: parsed.setCode,
+    rawText: args.ocrText,
+  }).catch((error) => {
+    console.warn("[RapidBasicLookup] Local PriceCharting match failed:", error);
+    return null;
+  });
+
+  if (localMatch && (localMatch.currentPriceRaw || localMatch.currentPricePsa9 || localMatch.currentPricePsa10)) {
+    return {
+      success: true,
+      source: "pricecharting-set-code",
+      cardData: {
+        card_name: localMatch.cardName,
+        card_set: localMatch.cardSet,
+        card_number: localMatch.cardNumber,
+        rarity: localMatch.rarity,
+        game_type: "yugioh",
+        sport_type: null,
+        confidence: localMatch.confidence / 100,
+      },
+      pricing: {
+        raw: localMatch.currentPriceRaw,
+        psa8: null,
+        psa9: localMatch.currentPricePsa9,
+        psa10: localMatch.currentPricePsa10,
+        cgc9: null,
+        cgc10: null,
+        highestSold: localMatch.suggestedPrice,
+        url: localMatch.priceChartingUrl,
+      },
+      priceChartingUrl: localMatch.priceChartingUrl,
+    };
+  }
+}
+
+const timeoutMs = args.timeoutMs ?? 18000;
+const res = await withTimeout(
+  supabase.functions.invoke<RapidBasicLookupResponse>("rapid-basic-card-lookup", {
+    body: {
+      imageUrl: args.imageUrl,
+      ocrText: args.ocrText,
+      gameTypeHint: args.gameTypeHint,
+      allowGoogleLens: args.allowGoogleLens,
+    },
+  }),
+  timeoutMs + 1500,
+  "Rapid basic card lookup",
+);
 
   return {
     success: false,
