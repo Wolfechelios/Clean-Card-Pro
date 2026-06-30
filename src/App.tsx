@@ -4,7 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
-import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import { AuthProvider } from "@/hooks/use-auth";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import AppLayout from "./components/layout/AppLayout";
 import { lazy, Suspense, useState } from "react";
@@ -44,49 +44,40 @@ function FullscreenLoader() {
   );
 }
 
-function Authed({ children }: { children: React.ReactNode }) {
+function LocalPage({ children }: { children: React.ReactNode }) {
   return <AppLayout>{children}</AppLayout>;
 }
 
 function AppRoutes() {
-  const { session, loading } = useAuth();
-
-  if (loading) return <FullscreenLoader />;
-
-  const authed = (children: React.ReactNode) =>
-    session ? <Authed>{children}</Authed> : <Navigate to="/auth" replace />;
-
-  const redirectAuthed = (to: string) =>
-    session ? <Navigate to={to} replace /> : <Navigate to="/auth" replace />;
+  const page = (children: React.ReactNode) => <LocalPage>{children}</LocalPage>;
 
   return (
     <Suspense fallback={<FullscreenLoader />}>
       <Routes>
-        <Route path="/auth" element={<Auth />} />
-        <Route path="/" element={redirectAuthed("/dashboard")} />
+        <Route path="/auth" element={<Navigate to="/scan" replace />} />
+        <Route path="/" element={<Navigate to="/scan" replace />} />
 
-        <Route path="/dashboard" element={authed(<NewDashboard />)} />
-        <Route path="/scan" element={authed(<ScanPage />)} />
-        <Route path="/collections" element={authed(<CollectionsPage />)} />
-        <Route path="/binder" element={authed(<BinderPage />)} />
-        <Route path="/price-database" element={authed(<PriceDatabasePage />)} />
-        <Route path="/settings" element={authed(<SettingsPage />)} />
-        <Route path="/mobile-scan" element={session ? <MobileScanPage /> : <Navigate to="/auth" replace />} />
-        <Route path="/mobile-scanner" element={session ? <MobileScanRedirect /> : <Navigate to="/auth" replace />} />
+        <Route path="/dashboard" element={page(<NewDashboard />)} />
+        <Route path="/scan" element={page(<ScanPage />)} />
+        <Route path="/collections" element={page(<CollectionsPage />)} />
+        <Route path="/binder" element={page(<BinderPage />)} />
+        <Route path="/price-database" element={page(<PriceDatabasePage />)} />
+        <Route path="/settings" element={page(<SettingsPage />)} />
+        <Route path="/mobile-scan" element={<MobileScanPage />} />
+        <Route path="/mobile-scanner" element={<MobileScanRedirect />} />
 
-        {/* Removed clutter routes: keep old links from breaking, but stop loading unused pages. */}
-        <Route path="/install" element={redirectAuthed("/dashboard")} />
-        <Route path="/graded" element={redirectAuthed("/scan")} />
-        <Route path="/visual-search" element={redirectAuthed("/scan")} />
-        <Route path="/price-hub" element={redirectAuthed("/price-database")} />
-        <Route path="/image-backfill" element={redirectAuthed("/settings")} />
-        <Route path="/import-cleaner" element={redirectAuthed("/price-database")} />
-        <Route path="/help" element={redirectAuthed("/settings")} />
-        <Route path="/sell-assist" element={redirectAuthed("/collections")} />
-        <Route path="/deck-builder" element={redirectAuthed("/collections")} />
-        <Route path="/insights" element={redirectAuthed("/dashboard")} />
-        <Route path="/performance" element={redirectAuthed("/dashboard")} />
-        <Route path="/predictions" element={redirectAuthed("/dashboard")} />
+        <Route path="/install" element={<Navigate to="/scan" replace />} />
+        <Route path="/graded" element={<Navigate to="/scan" replace />} />
+        <Route path="/visual-search" element={<Navigate to="/scan" replace />} />
+        <Route path="/price-hub" element={<Navigate to="/price-database" replace />} />
+        <Route path="/image-backfill" element={<Navigate to="/settings" replace />} />
+        <Route path="/import-cleaner" element={<Navigate to="/price-database" replace />} />
+        <Route path="/help" element={<Navigate to="/settings" replace />} />
+        <Route path="/sell-assist" element={<Navigate to="/collections" replace />} />
+        <Route path="/deck-builder" element={<Navigate to="/collections" replace />} />
+        <Route path="/insights" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/performance" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/predictions" element={<Navigate to="/dashboard" replace />} />
 
         <Route path="*" element={<NotFound />} />
       </Routes>
