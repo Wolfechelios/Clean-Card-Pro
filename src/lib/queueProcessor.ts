@@ -162,14 +162,17 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   queueMeta: [],
 
   start: () => {
+    // Do nothing if already running.
     if (get().isRunning) return;
+
+    // Clear any stale anomaly‑pause flag so a previous crash doesn’t block the queue.
     if (readAnomalyPauseFlag()) {
-      set({ isPaused: true, isPausedByAnomaly: true });
-      return;
+      writeAnomalyPauseFlag(false);
     }
+
     set({ isRunning: true, isPaused: false, isPausedByAnomaly: false });
     startWorker();
-  },
+    },
 
   stop: () => {
     if (queueTimer) clearTimeout(queueTimer);
