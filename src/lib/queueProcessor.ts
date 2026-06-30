@@ -1,11 +1,8 @@
 // src/lib/queueProcessor.ts
-// RapidScan queue worker: local browser OCR first, cloud OCR fallback second,
-// PriceCharting set-code/title lookup third, Google Lens/search fallback fourth.
+// Fully local-first RapidScan queue worker.
+// Local image blob → local browser OCR → direct card lookup → local IndexedDB save.
 
 import { create } from "zustand";
-import { supabase } from "@/integrations/supabase/client";
-import { withRetry } from "@/lib/retry";
-import { withTimeout } from "@/lib/async/withTimeout";
 import { getScannerSettings } from "@/hooks/use-scanner-settings";
 import { addRecentScan } from "@/lib/recentScans";
 import { insertCardDual } from "@/lib/localCards";
@@ -25,14 +22,8 @@ import {
   compactOcrText,
   hasReadablePrice,
   runRapidBasicLookup,
-  type RapidBasicLookupResponse,
 } from "@/lib/rapidBasicLookupClient";
-import {
-  isReadableTitle,
-  isValidPrintedCode,
-  validateTitleAgainstRaw,
-  AUTHORITATIVE_SOURCES,
-} from "@/lib/ocr/ocrQuality";
+import { isReadableTitle, isValidPrintedCode } from "@/lib/ocr/ocrQuality";
 
 export type ProcessedCard = {
   id: string;
@@ -84,12 +75,8 @@ type ProcessorStore = ProcessorState & {
   _incrementError: () => void;
 };
 
-const LOCAL_OCR_TIMEOUT_MS = 12000;
-const CLOUD_OCR_TIMEOUT_MS = 3500;
-const UPLOAD_TIMEOUT_MS = 8000;
-const BASIC_LOOKUP_TIMEOUT_MS = 18000;
 const QUEUE_REFRESH_INTERVAL_MS = 1000;
-const MIN_JOB_DELAY_MS = 500;
+const MIN_JOB_DELAY_MS = 350;
 const ANOMALY_PAUSE_STORAGE_KEY = "rapid-scan-anomaly-paused";
 
 let workerActive = false;
@@ -116,6 +103,16 @@ function writeAnomalyPauseFlag(isPaused: boolean): void {
   }
 }
 
+function getLocalUserId(): string {
+  const key = "clean_card_local_user_id";
+  const existing = localStorage.getItem(key);
+  if (existing) return existing;
+
+  const id = `local-${crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
+  localStorage.setItem(key, id);
+  return id;
+}
+
 function scheduleRefresh() {
   if (refreshTimer) return;
   refreshTimer = setTimeout(() => {
@@ -140,119 +137,6 @@ function blobToBase64DataUrl(blob: Blob, mime: string): Promise<string> {
     reader.onerror = reject;
     reader.readAsDataURL(new Blob([blob], { type: mime }));
   });
-}
-
-async function getUserId(): Promise<string | null> {
-  const { data, error } = await supabase.auth.getUser();
-  if (error) return null;
-  return data.user?.id ?? null;
-}
-
-async function uploadScanImage(item: QueueItem): Promise<{ publicUrl: string | null; storagePath: string | null }> {
-  const storagePath = `cards/${item.id}.jpg`;
-  const file = new File([item.blob], item.filename || `${item.id}.jpg`, { type: item.mime || "image/jpeg" });
-
-  const uploaded = await withTimeout(
-    withRetry(async () => {
-      const res = await supabase.storage.from("card-images").upload(storagePath, file, { upsert: false });
-      if (res.error) throw new Error(res.error.message);
-      return res.data;
-    }),
-    UPLOAD_TIMEOUT_MS,
-    "Storage upload",
-  ).catch((e: any) => {
-    console.warn("[QueueProcessor] Upload failed; Google Lens fallback disabled:", e);
-    return null;
-  });
-
-  if (!uploaded) return { publicUrl: null, storagePath: null };
-  const { data } = supabase.storage.from("card-images").getPublicUrl(storagePath);
-  return { publicUrl: data.publicUrl, storagePath };
-}
-
-async function runOcr(base64: string, blob?: Blob) {
-  if (blob) {
-    const local = await withTimeout(
-      runLocalCardOcr(blob),
-      LOCAL_OCR_TIMEOUT_MS,
-      "Local browser OCR",
-    ).catch((e: any) => {
-      console.warn("[QueueProcessor] Local OCR failed; falling back to cloud OCR:", e);
-      return null;
-    });
-
-    if (local && (local.rawText || local.title || local.setCode || local.cardNumber)) {
-      return {
-        setCode: local.setCode,
-        cardNumber: local.cardNumber,
-        fullCode: local.fullCode,
-        title: local.title,
-        name: local.title,
-        setName: null,
-        edition: local.edition,
-        game: local.game,
-        text: local.rawText,
-        confidence: local.confidence,
-        source: local.source,
-      };
-    }
-  }
-
-  const result = await withTimeout(
-    supabase.functions.invoke("zai-ocr", { body: { imageUrl: base64, mode: "meta" } }),
-    CLOUD_OCR_TIMEOUT_MS,
-    "Z.AI OCR",
-  ).catch((e: any) => {
-    console.warn("[QueueProcessor] Cloud OCR failed:", e);
-    return { data: null, error: e } as any;
-  });
-
-  if ((result as any).error || !(result as any).data) return null;
-  return (result as any).data;
-}
-
-async function fetchPricingFallback(args: {
-  cardName: string;
-  cardSet: string | null;
-  cardNumber: string | null;
-  gameType: string | null;
-  sportType: string | null;
-}): Promise<{ raw: number | null; psa10: number | null; cgc10: number | null; highestSold: number | null; url: string | null } | null> {
-  try {
-    const res = await withTimeout(
-      supabase.functions.invoke("fetch-card-prices", {
-        body: {
-          cardName: args.cardName,
-          cardSet: args.cardSet,
-          cardNumber: args.cardNumber,
-          gameType: args.gameType,
-          sportType: args.sportType,
-          condition: "ungraded",
-        },
-      }),
-      15000,
-      "fetch-card-prices fallback",
-    );
-    if ((res as any).error || !(res as any).data) return null;
-    const d = (res as any).data;
-    const raw = d.raw ?? d.medianRaw ?? d.tcgPlayerMarket ?? d.tcgPlayerMid ?? null;
-    const psa10 = d.psa10 ?? d.medianPsa10 ?? null;
-    return {
-      raw: typeof raw === "number" ? raw : null,
-      psa10: typeof psa10 === "number" ? psa10 : null,
-      cgc10: typeof d.cgc10 === "number" ? d.cgc10 : null,
-      highestSold: typeof d.highestSold === "number" ? d.highestSold : null,
-      url: d.ebayUrl ?? d.tcgPlayerUrl ?? null,
-    };
-  } catch (e) {
-    console.warn("[QueueProcessor] fetch-card-prices fallback failed:", e);
-    return null;
-  }
-}
-
-
-function lookupErrorMessage(result: RapidBasicLookupResponse | null): string {
-  return result?.error || "No PriceCharting match found by set code/title, Google Lens, or web search fallback";
 }
 
 function firstValidPrintedIdentifier(...parts: Array<string | null | undefined>): string | null {
@@ -363,41 +247,26 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   const base64 = await blobToBase64DataUrl(item.blob, item.mime || "image/jpeg");
   const scanSettings = getScannerSettings();
   const gameTypeHint = scanSettings.gameTypeFilter !== "auto" ? scanSettings.gameTypeFilter : undefined;
+  const userId = getLocalUserId();
 
-  const [ocr, upload, userId] = await Promise.all([
-    runOcr(base64, item.blob),
-    uploadScanImage(item),
-    getUserId(),
-  ]);
-
+  const ocr = await runLocalCardOcr(item.blob);
   const ocrText = compactOcrText(
     ocr?.setCode,
     ocr?.cardNumber,
     ocr?.title,
-    ocr?.name,
-    ocr?.setName,
-    ocr?.text,
+    ocr?.fullCode,
+    ocr?.rawText,
   );
 
-  const hasStructured = Boolean(ocr?.title || ocr?.setCode || ocr?.cardNumber);
+  const hasStructured = Boolean(ocr?.title || ocr?.setCode || ocr?.cardNumber || ocr?.fullCode);
   if (!ocrText && !hasStructured) {
-    await idbUpdateMeta(item.id, {
-      status: "error",
-      error: "Unreadable scan — retake photo",
-    });
+    await idbUpdateMeta(item.id, { status: "error", error: "Unreadable scan — retake photo" });
     return;
   }
 
-  // ── Identity gate ──────────────────────────────────────────────────────
-  // Require a valid printed identifier before we hit any pricing/identification
-  // service. Title-only OCR is too noisy for Rapid Scan and returns wrong-but-real cards.
   const printedIdentifier = firstValidPrintedIdentifier(ocr?.setCode, ocr?.fullCode, ocr?.cardNumber);
-  const hasValidCode = Boolean(printedIdentifier);
-  const hasValidTitle = isReadableTitle(ocr?.title) || isReadableTitle(ocr?.name);
-  if (!hasValidCode) {
-    console.warn("[QueueProcessor] gate → no printed identifier, refusing to guess", {
-      setCode: ocr?.setCode, title: ocr?.title, sample: (ocr?.text || "").slice(0, 60),
-    });
+  const hasValidTitle = isReadableTitle(ocr?.title);
+  if (!printedIdentifier) {
     await idbUpdateMeta(item.id, {
       status: "error",
       error: "No printed set/card code found — retake photo closer to the code",
@@ -405,89 +274,32 @@ async function processQueueItem(item: QueueItem): Promise<void> {
     return;
   }
 
-  console.log("[QueueProcessor] ocr →", {
-    title: ocr?.title ?? null,
-    setName: ocr?.setName ?? null,
-    setCode: ocr?.setCode ?? null,
-    cardNumber: ocr?.cardNumber ?? null,
-    source: ocr?.source ?? "cloud",
-  });
-
   const lookup = await runRapidBasicLookup({
-    imageUrl: upload.publicUrl,
+    imageUrl: null,
     ocrText,
-    title: hasValidTitle ? (ocr?.title ?? ocr?.name ?? null) : null,
-    setName: ocr?.setName ?? null,
+    title: hasValidTitle ? ocr?.title ?? null : null,
+    setName: null,
     setCode: printedIdentifier,
     cardNumber: ocr?.cardNumber ?? null,
     edition: ocr?.edition ?? null,
     game: ocr?.game ?? null,
     gameTypeHint,
     allowGoogleLens: false,
-    timeoutMs: BASIC_LOOKUP_TIMEOUT_MS,
   });
 
-  if (lookup.requiresDisambiguation || lookup.source === "requires_user_disambiguation") {
-    await idbUpdateMeta(item.id, {
-      status: "error",
-      error: "No printed set code detected — choose a printing from Recent Scans.",
-    });
-    return;
-  }
-
-  // NO invented identity. If lookup didn't return cardData from an
-  // authoritative source, send to needs-review.
   const identify = lookup.cardData;
-  let pricing = lookup.pricing ?? null;
+  const pricing = lookup.pricing ?? null;
 
-  if (!lookup.success || !identify || !identify.card_name) {
+  if (!lookup.success || !identify?.card_name) {
     await idbUpdateMeta(item.id, {
       status: "error",
-      error: lookupErrorMessage(lookup),
+      error: lookup.error || "No local/direct lookup match — retake photo closer to the printed code",
     });
     return;
-  }
-
-  const sourceKey = String(lookup.source ?? "");
-  const isAuthoritative = AUTHORITATIVE_SOURCES.has(sourceKey);
-  const normalizedGame = String(identify.game_type ?? gameTypeHint ?? ocr?.game ?? "").toLowerCase();
-  const allowSportsWebMatch = normalizedGame.includes("sport");
-  if (!isAuthoritative && !allowSportsWebMatch) {
-    await idbUpdateMeta(item.id, {
-      status: "error",
-      error: "Printed code was not verified — retake photo closer to the code",
-    });
-    return;
-  }
-
-  if (!isAuthoritative) {
-    // Non-authoritative match (Lens / web fallback) — name must actually
-    // appear in the OCR raw text. Blocks "Anaba Bodyguard" from junk OCR.
-    const titleOk = validateTitleAgainstRaw(identify.card_name, ocr?.text ?? "");
-    if (!titleOk) {
-      console.warn("[QueueProcessor] reject → non-authoritative match not present in OCR text", {
-        candidate: identify.card_name, source: sourceKey,
-      });
-      await idbUpdateMeta(item.id, {
-        status: "error",
-        error: "Match did not align with on-card text — retake photo",
-      });
-      return;
-    }
   }
 
   const cardName = String(identify.card_name || "").trim();
-  const confidence = Number(identify.confidence ?? 0.35);
-  const minConfidence = isAuthoritative ? 0.5 : 0.55;
-  if (!cardName || confidence < minConfidence) {
-    await idbUpdateMeta(item.id, {
-      status: "error",
-      error: `Identification confidence ${Math.round(confidence * 100)}% — retake photo`,
-    });
-    return;
-  }
-
-
+  const confidence = Number(identify.confidence ?? 0.98);
   const cardSet = identify.card_set ?? null;
   const cardNumber = identify.card_number ?? ocr?.cardNumber ?? ocr?.setCode ?? null;
   const rarity = identify.rarity ?? null;
@@ -497,62 +309,9 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   const manufacturer = identify.manufacturer ?? null;
   const playerName = sportType ? cardName : null;
   const team = null;
-  const imageUrl = upload.publicUrl ?? base64;
-  let rawPrice = money(pricing?.raw ?? pricing?.highestSold ?? null);
-  let psa10Price = money(pricing?.psa10 ?? pricing?.cgc10 ?? null);
-
-  // Pricing fallback: if PriceCharting returned no usable prices, hit fetch-card-prices.
-  if (rawPrice == null && psa10Price == null) {
-    console.log("[QueueProcessor] price → falling back to fetch-card-prices for", cardName);
-    const fallback = await fetchPricingFallback({
-      cardName,
-      cardSet,
-      cardNumber,
-      gameType,
-      sportType,
-    });
-    if (fallback) {
-      rawPrice = money(fallback.raw ?? fallback.highestSold ?? null);
-      psa10Price = money(fallback.psa10 ?? fallback.cgc10 ?? null);
-      pricing = {
-        raw: fallback.raw,
-        psa10: fallback.psa10,
-        cgc10: fallback.cgc10,
-        highestSold: fallback.highestSold,
-        url: fallback.url,
-      } as any;
-    }
-  }
-
-  console.log("[QueueProcessor] identify → price", { cardName, cardSet, cardNumber, rawPrice, psa10Price });
-
-
-  let ownedCount = 0;
-  let isInLibrary = false;
-  let existingId: string | undefined;
-
-  if (userId) {
-    try {
-      const { count } = await supabase
-        .from("cards")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", userId)
-        .ilike("card_name", cardName);
-      ownedCount = count || 0;
-      isInLibrary = ownedCount > 0;
-      if (isInLibrary) {
-        const { data } = await supabase
-          .from("cards")
-          .select("id")
-          .eq("user_id", userId)
-          .ilike("card_name", cardName)
-          .limit(1);
-        existingId = data?.[0]?.id;
-      }
-    } catch {
-      // ownership lookup is non-critical
-    }
-  }
+  const imageUrl = base64;
+  const rawPrice = money(pricing?.raw ?? pricing?.highestSold ?? null);
+  const psa10Price = money(pricing?.psa10 ?? pricing?.cgc10 ?? null);
 
   const processedCard: ProcessedCard = {
     id: item.id,
@@ -565,9 +324,8 @@ async function processQueueItem(item: QueueItem): Promise<void> {
     value: rawPrice,
     psa10Price,
     imageUrl,
-    isInLibrary,
-    libraryQuantity: ownedCount,
-    dbId: existingId,
+    isInLibrary: false,
+    libraryQuantity: 0,
     year: year || undefined,
     playerName: playerName || undefined,
     team: team || undefined,
@@ -577,7 +335,7 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   const confPct = confidence * 100;
   const threshold = scanSettings.autoConfirmThreshold ?? 75;
 
-  if (scanSettings.scanMode === "SAVE" && userId && confPct >= threshold) {
+  if (scanSettings.scanMode === "SAVE" && confPct >= threshold) {
     try {
       const inserted = await insertCardDual({
         user_id: userId,
@@ -588,10 +346,9 @@ async function processQueueItem(item: QueueItem): Promise<void> {
         game_type: gameType,
         sport_type: sportType,
         image_url: imageUrl,
-        image_storage_path: upload.storagePath,
         image_source: "scan",
-        image_status: upload.storagePath ? "stored" : "local-preview",
-        image_search_status: lookup.source === "google-lens-pricecharting" ? "lens_found" : "found",
+        image_status: "local-preview",
+        image_search_status: "found",
         current_price_raw: rawPrice,
         suggested_price: rawPrice,
         last_price_update: rawPrice ? new Date().toISOString() : null,
@@ -610,19 +367,17 @@ async function processQueueItem(item: QueueItem): Promise<void> {
 
       processedCard.isInLibrary = true;
       processedCard.dbId = inserted.id;
-      processedCard.libraryQuantity = ownedCount + 1;
+      processedCard.libraryQuantity = 1;
     } catch (e) {
-      console.error("[QueueProcessor] Auto-save failed:", e);
+      console.error("[QueueProcessor] Local auto-save failed:", e);
     }
   }
 
   useQueueProcessor.getState()._setLastProcessedCard(processedCard);
 
-  console.log("[QueueProcessor] Rapid basic lookup matched", cardName, {
-    ocrSource: ocr?.source ?? "unknown",
+  console.log("[QueueProcessor] Local lookup matched", cardName, {
+    ocrSource: ocr?.source ?? "local-browser-ocr",
     source: lookup.source,
-    priceChartingUrl: lookup.priceChartingUrl,
-    googleLensUrl: lookup.googleLensUrl,
     hasPrice: hasReadablePrice(pricing),
   });
 
@@ -663,9 +418,7 @@ export async function checkAndResumeQueue(): Promise<void> {
   }
 
   const queuedCount = await idbCountQueued();
-  if (queuedCount > 0) {
-    state.start();
-  }
+  if (queuedCount > 0) state.start();
 }
 
 export { idbAdd, idbCount, idbCountQueued, idbClear, idbGetAll, idbDelete } from "@/lib/idbQueue";
