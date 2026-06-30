@@ -1,9 +1,10 @@
 // src/lib/ocr/localCardOcr.ts
-// Multi-game, ROI-aware browser OCR. Reads the printed set/collector code FIRST.
-// Returns structured fields; image AI is invoked only when no code is found.
+// Local OCR pipeline. GLM-OCR via Ollama is the primary engine.
+// Browser Tesseract is only a fallback if GLM/Ollama is unavailable.
 
 import { createWorker, type Worker } from "tesseract.js";
 import { extractPrintedCode, normalizeSetCodeToken, type DetectedGame } from "./gameCodePatterns";
+import { runGlmOcr } from "./glmOcr";
 
 export type LocalCardOcrResult = {
   rawText: string;
@@ -14,10 +15,11 @@ export type LocalCardOcrResult = {
   game?: DetectedGame;
   edition?: string;
   confidence: number;
-  source: "local-browser-ocr";
+  source: "local-glm-ocr" | "local-browser-ocr";
 };
 
 let workerPromise: Promise<Worker> | null = null;
+let warnedTesseractFallback = false;
 
 async function getWorker(): Promise<Worker> {
   if (!workerPromise) workerPromise = createWorker("eng");
@@ -40,9 +42,6 @@ function extractTitle(text: string, codeRaw: string | null): string | undefined 
   return lines.find((line) => /[A-Za-z]/.test(line) && !/[.!?]{2,}/.test(line));
 }
 
-/**
- * Decode a Blob into an ImageBitmap-backed canvas so we can crop ROIs.
- */
 async function blobToCanvas(image: Blob): Promise<HTMLCanvasElement | null> {
   try {
     const bitmap = await createImageBitmap(image);
@@ -59,9 +58,6 @@ async function blobToCanvas(image: Blob): Promise<HTMLCanvasElement | null> {
   }
 }
 
-/**
- * Crop a region (normalized 0..1 coords) and upscale 2x with light contrast bump.
- */
 function cropAndEnhance(
   source: HTMLCanvasElement,
   x: number, y: number, w: number, h: number,
@@ -79,7 +75,6 @@ function cropAndEnhance(
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(source, sx, sy, sw, sh, 0, 0, out.width, out.height);
 
-  // Light contrast boost (grayscale + linear stretch).
   const img = ctx.getImageData(0, 0, out.width, out.height);
   const data = img.data;
   for (let i = 0; i < data.length; i += 4) {
@@ -99,20 +94,21 @@ async function recognize(worker: Worker, src: HTMLCanvasElement | Blob | string)
   };
 }
 
-export async function runLocalCardOcr(image: Blob | File | string): Promise<LocalCardOcrResult> {
-  const worker = await getWorker();
+async function runBrowserTesseractFallback(image: Blob | File | string): Promise<LocalCardOcrResult> {
+  if (!warnedTesseractFallback) {
+    warnedTesseractFallback = true;
+    console.warn("[localCardOcr] GLM OCR unavailable. Falling back to browser Tesseract. Check Ollama is running and glm-ocr:latest is installed.");
+  }
 
-  // Full-card OCR (always run).
+  const worker = await getWorker();
   const full = await recognize(worker, image as any);
 
-  // ROI OCR — only if we have a Blob we can decode into a canvas.
   let codeRoiText = "";
   let titleRoiText = "";
   if (image instanceof Blob) {
     const canvas = await blobToCanvas(image);
     if (canvas) {
       try {
-        // Bottom strip (set/collector code) and top strip (title).
         const codeCanvas = cropAndEnhance(canvas, 0.0, 0.85, 0.55, 0.15, 2.5);
         const titleCanvas = cropAndEnhance(canvas, 0.0, 0.02, 1.0, 0.20, 2);
         const [codeRoi, titleRoi] = await Promise.all([
@@ -128,8 +124,6 @@ export async function runLocalCardOcr(image: Blob | File | string): Promise<Loca
   }
 
   const merged = [codeRoiText, titleRoiText, full.text].filter(Boolean).join("\n");
-
-  // Code ROI gets priority — try it first, then fall back to full text.
   let detected = extractPrintedCode(codeRoiText);
   if (!detected.fullCode) detected = extractPrintedCode(merged);
 
@@ -150,6 +144,16 @@ export async function runLocalCardOcr(image: Blob | File | string): Promise<Loca
     confidence: Math.max(full.confidence, detected.confidence),
     source: "local-browser-ocr",
   };
+}
+
+export async function runLocalCardOcr(image: Blob | File | string): Promise<LocalCardOcrResult> {
+  const glm = await runGlmOcr(image);
+  if (glm && (glm.rawText || glm.setCode || glm.fullCode || glm.title)) {
+    console.info("[localCardOcr] Using local GLM OCR", { setCode: glm.setCode, title: glm.title });
+    return glm;
+  }
+
+  return runBrowserTesseractFallback(image);
 }
 
 export async function shutdownLocalCardOcr(): Promise<void> {
