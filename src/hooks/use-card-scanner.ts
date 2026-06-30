@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { insertCardDual } from "@/lib/localCards";
 import { toast } from "sonner";
-import { analyzeCardFull } from "@/lib/analyzeCardFull";
+import { performEmbeddedCardOcr } from "@/lib/vision/embeddedOcr";
 import { withRetry } from "@/lib/retry";
 import { getScannerSettings, type ScanMode } from "./use-scanner-settings";
 import { addRecentScan } from "@/lib/recentScans";
@@ -164,26 +164,20 @@ export function useCardScanner({
     }
   };
 
-  const performOCR = async (imageUrl: string): Promise<OCRResult> => {
+  const performOCR = async (imageFile: File): Promise<OCRResult> => {
     setScanProgress(10);
-    let ocrText = "";
 
-    // Cloud OCR
-    const analysis = await analyzeCardFull(imageUrl);
-    ocrText = analysis.vision.ocr_text;
+    const embeddedOcr = await performEmbeddedCardOcr(imageFile);
+    const setCode = embeddedOcr.setCode || "";
 
-    setScanProgress(80);
-    const lines = ocrText.split("\n").filter((line) => line.trim());
-    const cardName = lines[0] || "Unknown Card";
-    const cardSet = lines.find((line) => line.toLowerCase().includes("set")) || "";
-    const cardNumber = lines.find((line) => /\d+\/\d+/.test(line)) || "";
+    setScanProgress(30);
 
     return {
-      cardName: cardName.trim(),
-      cardSet: cardSet.replace(/set/i, "").trim(),
-      cardNumber: cardNumber.trim(),
-      confidence: 95,
-      rawText: ocrText,
+      cardName: embeddedOcr.cardName?.trim() || "Unknown Card",
+      cardSet: setCode,
+      cardNumber: setCode,
+      confidence: embeddedOcr.confidence,
+      rawText: embeddedOcr.rawText,
     };
   };
 
@@ -204,11 +198,13 @@ export function useCardScanner({
     const { scanMode, autoConfirmEnabled, autoConfirmThreshold, gameTypeFilter } = getScannerSettings();
 
     try {
-      const fileExt = file.name.split(".").pop();
+      const fileExt = file.name.split(".").pop() || "png";
       const cardId = crypto.randomUUID();
       const fileName = `cards/${cardId}.${fileExt}`;
 
-      setScanProgress(20);
+      const ocr = await performOCR(file);
+      setOcrResult(ocr);
+      setScanProgress(35);
 
       await withRetry(async () => {
         const { error: uploadError } = await supabase.storage
@@ -222,11 +218,7 @@ export function useCardScanner({
         .getPublicUrl(fileName);
       const imageUrl = publicUrlData.publicUrl;
 
-      setScanProgress(40);
-
-      const ocr = await performOCR(imageUrl);
-      setOcrResult(ocr);
-      setScanProgress(60);
+      setScanProgress(55);
 
       toast.info("Identifying card...");
 
