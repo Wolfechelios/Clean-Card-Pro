@@ -1,4 +1,5 @@
 import { createWorker } from "tesseract.js";
+import { runGlmOcr } from "@/lib/ocr/glmOcr";
 import {
   extractEditionFromOcrText,
   extractYugiohSetCode,
@@ -6,7 +7,7 @@ import {
   normalizeOcrText,
 } from "./yugiohOcr";
 
-export type EmbeddedOcrEngine = "native-glm-ocr" | "browser-tesseract";
+export type EmbeddedOcrEngine = "local-glm-ocr" | "native-glm-ocr" | "browser-tesseract";
 
 export type EmbeddedOcrResult = {
   engine: EmbeddedOcrEngine;
@@ -31,6 +32,8 @@ type EmbeddedOcrWindow = Window & {
     };
   };
 };
+
+let warnedTesseractFallback = false;
 
 function getNativeBridge(): NativeOcrBridge | null {
   if (typeof window === "undefined") return null;
@@ -81,7 +84,26 @@ async function runNativeGlmOcr(imageDataUrl: string): Promise<EmbeddedOcrResult 
   return finalizeResult(result, "native-glm-ocr", 85);
 }
 
+async function runOllamaGlmOcr(image: Blob): Promise<EmbeddedOcrResult | null> {
+  const result = await runGlmOcr(image);
+  if (!result) return null;
+
+  return {
+    engine: "local-glm-ocr",
+    rawText: result.rawText,
+    cardName: result.title || null,
+    setCode: result.setCode || result.fullCode || null,
+    edition: result.edition || null,
+    confidence: Math.round(result.confidence * 100),
+  };
+}
+
 async function runBrowserTesseract(imageDataUrl: string): Promise<EmbeddedOcrResult> {
+  if (!warnedTesseractFallback) {
+    warnedTesseractFallback = true;
+    console.warn("[embeddedOcr] GLM OCR unavailable. Falling back to browser Tesseract. Check Ollama is running and glm-ocr:latest is installed.");
+  }
+
   const worker = await createWorker("eng");
 
   try {
@@ -100,8 +122,13 @@ async function runBrowserTesseract(imageDataUrl: string): Promise<EmbeddedOcrRes
 }
 
 export async function performEmbeddedCardOcr(image: Blob): Promise<EmbeddedOcrResult> {
-  const imageDataUrl = await blobToDataUrl(image);
+  const ollamaResult = await runOllamaGlmOcr(image);
+  if (ollamaResult) {
+    console.info("[embeddedOcr] Using local Ollama GLM OCR", { setCode: ollamaResult.setCode, cardName: ollamaResult.cardName });
+    return ollamaResult;
+  }
 
+  const imageDataUrl = await blobToDataUrl(image);
   const nativeResult = await runNativeGlmOcr(imageDataUrl);
   if (nativeResult) return nativeResult;
 
