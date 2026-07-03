@@ -1,5 +1,5 @@
 // src/lib/pricing/adapters.ts
-// Client-side price source adapters that pull from existing pricing infrastructure
+// Client-side price source adapters. Yu-Gi-Oh uses PriceCharting first, TCGplayer only as fallback.
 
 import type { PriceQuote, CardPriceIdentity, PriceSourceAdapter } from "./types";
 import { supabase } from "@/integrations/supabase/client";
@@ -30,7 +30,6 @@ export class EbaySoldAdapter implements PriceSourceAdapter {
       const quotes: PriceQuote[] = [];
       const now = Date.now();
 
-      // eBay raw price
       if (data.ebayRaw != null && data.ebayRaw > 0) {
         quotes.push({
           source: "ebay-sold",
@@ -42,7 +41,6 @@ export class EbaySoldAdapter implements PriceSourceAdapter {
         });
       }
 
-      // eBay PSA 9
       if (data.ebayPsa9 != null && data.ebayPsa9 > 0 && card.condition?.includes("PSA 9")) {
         quotes.push({
           source: "ebay-sold-psa9",
@@ -53,7 +51,6 @@ export class EbaySoldAdapter implements PriceSourceAdapter {
         });
       }
 
-      // eBay PSA 10
       if (data.ebayPsa10 != null && data.ebayPsa10 > 0 && card.condition?.includes("PSA 10")) {
         quotes.push({
           source: "ebay-sold-psa10",
@@ -64,7 +61,6 @@ export class EbaySoldAdapter implements PriceSourceAdapter {
         });
       }
 
-      // Median values from the response as "guide" quotes
       if (data.medianRaw != null && data.medianRaw > 0) {
         quotes.push({
           source: "ebay-median",
@@ -94,17 +90,20 @@ export class PriceChartingLocalAdapter implements PriceSourceAdapter {
       const { data: user } = await supabase.auth.getUser();
       if (!user?.user?.id) return [];
 
-      // Try exact match by set code + card number first
       let query = supabase
         .from("pc_cards")
         .select("*, pc_sets!inner(set_name, game)")
         .eq("user_id", user.user.id);
 
+      const game = card.gameType?.toLowerCase() || "";
+      if (game.includes("yugioh") || game.includes("yu-gi-oh")) {
+        query = query.eq("pc_sets.game", "yugioh");
+      }
+
       if (card.number) {
         query = query.eq("card_number", card.number);
       }
 
-      // Try name-based match
       const cardNameClean = card.name.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
       query = query.ilike("card_name_clean", `%${cardNameClean}%`);
 
@@ -120,6 +119,16 @@ export class PriceChartingLocalAdapter implements PriceSourceAdapter {
             source: "pricecharting",
             kind: "guide",
             priceUSD: pc.ungraded_price,
+            ts: now,
+            url: pc.card_url || undefined,
+          });
+        }
+
+        if (pc.grade9_price != null && pc.grade9_price > 0 && card.condition?.includes("PSA 9")) {
+          quotes.push({
+            source: "pricecharting-psa9",
+            kind: "guide",
+            priceUSD: pc.grade9_price,
             ts: now,
             url: pc.card_url || undefined,
           });
@@ -206,9 +215,6 @@ export class TCGPlayerAdapter implements PriceSourceAdapter {
   }
 }
 
-/**
- * Helper to detect sports cards
- */
 function isSportsCard(card?: CardPriceIdentity | null): boolean {
   if (!card) return false;
   const sport = card.sportType?.toLowerCase();
@@ -217,12 +223,22 @@ function isSportsCard(card?: CardPriceIdentity | null): boolean {
   );
 }
 
-/**
- * All available adapters in priority order.
- * For sports cards, adds SportsCardPro, CardLadder, 130point.com, and eBay Firecrawl adapters.
- */
 export function getDefaultAdapters(card?: CardPriceIdentity | null): PriceSourceAdapter[] {
+  if (isSportsCard(card)) return getSportsCardAdapters();
+
+  const game = card?.gameType?.toLowerCase() || "";
+  const isYugioh = game.includes("yugioh") || game.includes("yu-gi-oh");
+
+  if (isYugioh) {
+    return [
+      new PriceChartingLocalAdapter(),
+      new TCGPlayerAdapter(),
+    ];
+  }
+
   return [
+    new PriceChartingLocalAdapter(),
     new TCGPlayerAdapter(),
+    new EbaySoldAdapter(),
   ];
 }
