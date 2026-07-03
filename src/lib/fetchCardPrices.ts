@@ -1,10 +1,38 @@
-import { supabase } from "@/integrations/supabase/client";
 import { CardPricingSchema, type CardPricing } from "./schemas/api-schemas";
-import { handleApiError, validateOrThrow } from "./errors";
+import { validateOrThrow } from "./errors";
 import { findPriceChartingYuGiOhMatch } from "@/lib/cardOcrParser";
 
-// Re-export the type for backwards compatibility
 export type { CardPricing } from "./schemas/api-schemas";
+
+function emptyPricing(source = "Local Only"): CardPricing {
+  return validateOrThrow(CardPricingSchema, {
+    raw: null,
+    psa9: null,
+    psa10: null,
+    cgc9: null,
+    cgc10: null,
+    suggested: null,
+    highestSold: null,
+    medianRaw: null,
+    medianPsa9: null,
+    medianPsa10: null,
+    medianCgc9: null,
+    medianCgc10: null,
+    ebayRaw: null,
+    ebayPsa9: null,
+    ebayPsa10: null,
+    ebayCgc9: null,
+    ebayCgc10: null,
+    ebayUrl: null,
+    tcgPlayerPrice: null,
+    tcgPlayerLow: null,
+    tcgPlayerMid: null,
+    tcgPlayerHigh: null,
+    tcgPlayerMarket: null,
+    tcgPlayerUrl: null,
+    source,
+  });
+}
 
 export async function fetchCardPrices(
   cardName: string,
@@ -14,10 +42,13 @@ export async function fetchCardPrices(
   sportType?: string | null,
   condition?: string | null
 ): Promise<CardPricing> {
-  const isYugioh = (gameType || "").toLowerCase().includes("yugioh") || (gameType || "").toLowerCase().includes("yu-gi-oh");
+  const isYugioh =
+    (gameType || "").toLowerCase().includes("yugioh") ||
+    (gameType || "").toLowerCase().includes("yu-gi-oh") ||
+    Boolean(cardNumber && /[A-Z0-9]{2,12}[-\s]?(?:[A-Z]{2})?[-\s]?\d{2,5}[A-Z]?/i.test(cardNumber));
 
   if (isYugioh) {
-    const pcMatch = await findPriceChartingYuGiOhMatch({ cardName, cardSet, cardNumber }).catch(() => null);
+    const pcMatch = await findPriceChartingYuGiOhMatch({ cardName, cardSet, cardNumber, setCode: cardNumber }).catch(() => null);
     if (pcMatch?.currentPriceRaw || pcMatch?.currentPricePsa9 || pcMatch?.currentPricePsa10) {
       return validateOrThrow(CardPricingSchema, {
         raw: pcMatch.currentPriceRaw,
@@ -26,7 +57,7 @@ export async function fetchCardPrices(
         cgc9: null,
         cgc10: null,
         suggested: pcMatch.suggestedPrice ?? pcMatch.currentPriceRaw,
-        highestSold: null,
+        highestSold: pcMatch.suggestedPrice ?? pcMatch.currentPriceRaw,
         medianRaw: pcMatch.currentPriceRaw,
         medianPsa9: pcMatch.currentPricePsa9,
         medianPsa10: pcMatch.currentPricePsa10,
@@ -44,25 +75,10 @@ export async function fetchCardPrices(
         tcgPlayerHigh: null,
         tcgPlayerMarket: null,
         tcgPlayerUrl: pcMatch.priceChartingUrl,
-        source: "PriceCharting",
+        source: "PriceCharting Local",
       });
     }
   }
 
-  const { data, error } = await supabase.functions.invoke("fetch-card-prices", {
-    body: {
-      cardName,
-      cardSet,
-      cardNumber,
-      gameType,
-      sportType,
-      condition,
-    },
-  });
-
-  if (error) {
-    throw handleApiError(error);
-  }
-
-  return validateOrThrow(CardPricingSchema, data);
+  return emptyPricing("Local Only - No Price Match");
 }
