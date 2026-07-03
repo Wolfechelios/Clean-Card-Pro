@@ -1,758 +1,1856 @@
+// src/components/scanner/RapidScanCamera.tsx
+// Rapid Scan (simple + stable): manual capture only (no auto-capture, no sliders).
+// Features:
+// - Clear, high-res photo capture from live camera preview
+// - Zoom controls (if supported) + tap-to-focus (if supported)
+// - Flash/torch toggle (if supported)
+// - Persistent queue buffer (IndexedDB) so you can keep shooting while jobs process
+// - Live "now scanning" preview overlay + running total value
+// - List of scanned cards with price + whether it's already in your library
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
 import {
   Camera,
   CameraOff,
-  ChevronDown,
   Flashlight,
   FlashlightOff,
-  Focus,
   Loader2,
-  RefreshCw,
-  RotateCcw,
-  RotateCw,
-  Smartphone,
   Trash2,
-  ZoomIn,
-  ZoomOut,
+  Timer,
+  TimerOff,
+  Save,
+  Eye,
+  SunDim,
 } from "lucide-react";
-import { toast } from "sonner";
-
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
+
+import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
+import { insertCardDual } from "@/lib/localCards";
+import {
+  detectSupport,
+  getVideoTrack,
+  setFocusPoint,
+  setTorch,
+  type MediaSupport,
+} from "@/lib/mediaControls";
+import {
+  idbAdd,
+  idbCount,
+  idbCountQueued,
+  idbDelete,
+  idbUpdateMeta,
+  idbListMetaFast,
+  idbClear,
+  type QueueItemMeta,
+} from "@/lib/idbQueue";
 import { compressImageForQueue } from "@/lib/imageCompressor";
-import { idbAdd, idbClear, idbCount, idbCountQueued } from "@/lib/idbQueue";
+import { applyFastAutofocus, applyAutoColorBalance, applyAntiGlare } from "@/lib/camera-optimizations";
+import { DEFAULT_TUNING, nextAutoCaptureState, rgbaToGray, meanAbsDiff, type AutoCaptureState } from "@/lib/visionAutoCapture";
 import { useQueueProcessor } from "@/lib/queueProcessor";
-import { clearAllRecentScans, getRecentScans } from "@/lib/recentScans";
+import { getRecentScans, clearAllRecentScans, removeRecentScan, updateRecentScan } from "@/lib/recentScans";
+import { useCameraZoom } from "@/hooks/use-camera-zoom";
+import { useClarityZoom } from "@/hooks/use-clarity-zoom";
+import { ZoomControls } from "./ZoomControls";
+import { ScannedCardList } from "./ScannedCardList";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { useNativeCamera } from "@/hooks/use-native-camera";
+import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
+import { getMultiFrameAnalyzer, resetMultiFrameAnalyzer, type MultiFrameResult } from "@/lib/foilTrainer/multiFrameAnalyzer";
+import { FoilDetectionOverlay } from "./FoilDetectionOverlay";
+import { getScannerSettings, useScannerSettings, type ScannerSettings } from "@/hooks/use-scanner-settings";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { hapticTap } from "@/lib/haptics";
+import { useVoiceCommand } from "@/hooks/use-voice-command";
+import { useCameraDevices } from "@/hooks/use-camera-devices";
+import { CameraDeviceSelector } from "./CameraDeviceSelector";
+import { WhiteBalanceControl } from "./WhiteBalanceControl";
+import { playKachingBeep, playShutterBeep, playJackpotBeep, warmUpAudio } from "@/lib/audioBeeps";
 
-type ZoomState = {
-  supported: boolean;
-  min: number;
-  max: number;
-  step: number;
-  value: number;
-};
+// ─────────────────────────────────────────────────────────────────────────────
+// TUNING
+// ─────────────────────────────────────────────────────────────────────────────
 
-type BasicCameraCapabilities = MediaTrackCapabilities & {
-  torch?: boolean;
-  zoom?: { min?: number; max?: number; step?: number } | number[];
-  focusMode?: string[];
-  exposureMode?: string[];
-};
+const QUEUE_MAX = 500; // large buffer - uses IndexedDB (device storage)
 
-type ScanRow = {
+type ScannedCard = {
   id: string;
-  imageUrl: string;
-  status: "queued" | "processing" | "completed" | "error";
+  preview: string;
+  status: "queued" | "uploading" | "processing" | "completed" | "error";
   cardName?: string;
   cardSet?: string;
   cardNumber?: string;
+  playerName?: string;
+  rarity?: string;
+  gameType?: string;
+  sportType?: string;
   value?: number | null;
+  psa10Price?: number | null;
   error?: string;
+  dbId?: string;
+  priceFetching?: boolean;
+  libraryQuantity?: number;
+  isInLibrary?: boolean;
+  imageUrl?: string;
+  addedToLibraryThisSession?: boolean;
+  year?: string;
+  team?: string;
+  manufacturer?: string;
 };
 
-const QUEUE_MAX = 500;
-const DEFAULT_ZOOM: ZoomState = { supported: false, min: 1, max: 3, step: 0.1, value: 1 };
-const ROTATION_OPTIONS = [0, 90, 180, 270] as const;
-type CameraRotation = typeof ROTATION_OPTIONS[number];
+type LastOverlay = {
+  label: string;
+  value?: number | null;
+  isInLibrary?: boolean;
+  libraryQuantity?: number;
+};
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 function safeUUID() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
-  return `scan-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return "xxxx-xxxx-xxxx".replace(/x/g, () => ((Math.random() * 16) | 0).toString(16));
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
+function money(n: number | null | undefined) {
+  if (n == null || Number.isNaN(n)) return null;
+  return Math.round(n * 100) / 100;
 }
 
-function isContinuityDevice(device: MediaDeviceInfo) {
-  const label = device.label.toLowerCase();
-  return label.includes("iphone") || label.includes("continuity") || label.includes("desk view");
-}
-
-function deviceLabel(device: MediaDeviceInfo, index: number) {
-  if (device.label) return device.label;
-  return `Camera ${index + 1}`;
-}
-
-function sortCameraDevices(list: MediaDeviceInfo[]) {
-  return [...list].sort((a, b) => {
-    const ac = isContinuityDevice(a) ? 0 : 1;
-    const bc = isContinuityDevice(b) ? 0 : 1;
-    if (ac !== bc) return ac - bc;
-    return a.label.localeCompare(b.label);
-  });
-}
-
-function normalizeZoom(caps: BasicCameraCapabilities, settings: MediaTrackSettings): ZoomState {
-  const raw = caps.zoom;
-  if (!raw) return DEFAULT_ZOOM;
-
-  if (Array.isArray(raw) && raw.length > 0) {
-    const sorted = raw.filter((n): n is number => typeof n === "number").sort((a, b) => a - b);
-    const min = sorted[0] ?? 1;
-    const max = sorted[sorted.length - 1] ?? Math.max(3, min);
-    return {
-      supported: true,
-      min,
-      max,
-      step: 0.1,
-      value: typeof (settings as any).zoom === "number" ? (settings as any).zoom : min,
-    };
-  }
-
-  if (typeof raw === "object") {
-    const rawObj = raw as { min?: number; max?: number; step?: number };
-    const min = Number(rawObj.min ?? 1);
-    const max = Number(rawObj.max ?? Math.max(3, min));
-    const step = Number(rawObj.step ?? 0.1);
-    return {
-      supported: Number.isFinite(min) && Number.isFinite(max) && max > min,
-      min,
-      max,
-      step: Number.isFinite(step) && step > 0 ? step : 0.1,
-      value: typeof (settings as any).zoom === "number" ? (settings as any).zoom : min,
-    };
-  }
-
-
-  return DEFAULT_ZOOM;
-}
-
-function rowsFromRecent(): ScanRow[] {
-  return getRecentScans().map((scan) => ({
-    id: scan.id,
-    imageUrl: scan.image_url,
-    status: "completed" as const,
-    cardName: scan.card_name,
-    cardSet: scan.card_set ?? undefined,
-    cardNumber: scan.card_number ?? undefined,
-    value: scan.price,
-  }));
-}
-
-function getRotationLabel(rotation: CameraRotation) {
-  if (rotation === 0) return "Portrait";
-  if (rotation === 90) return "Right";
-  if (rotation === 180) return "Upside Down";
-  return "Left";
-}
-
-function drawRotatedVideoToCanvas(video: HTMLVideoElement, canvas: HTMLCanvasElement, rotation: CameraRotation) {
-  const sourceWidth = video.videoWidth || 1920;
-  const sourceHeight = video.videoHeight || 1080;
-  const rotatedSideways = rotation === 90 || rotation === 270;
-  canvas.width = rotatedSideways ? sourceHeight : sourceWidth;
-  canvas.height = rotatedSideways ? sourceWidth : sourceHeight;
-
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Capture canvas unavailable");
-
-  ctx.save();
-  if (rotation === 90) {
-    ctx.translate(canvas.width, 0);
-    ctx.rotate(Math.PI / 2);
-  } else if (rotation === 180) {
-    ctx.translate(canvas.width, canvas.height);
-    ctx.rotate(Math.PI);
-  } else if (rotation === 270) {
-    ctx.translate(0, canvas.height);
-    ctx.rotate((3 * Math.PI) / 2);
-  }
-  ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
-  ctx.restore();
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function RapidScanCamera() {
+  const { settings, updateSettings } = useScannerSettings();
+  const isMobile = useIsMobile();
+
+
+  // Camera devices (for selecting different lenses/optics)
+  const {
+    devices: cameraDevices,
+    selectedDeviceId,
+    setSelectedDeviceId,
+    isLoading: devicesLoading,
+    refreshDevices,
+  } = useCameraDevices();
+
+  // Camera
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const trackRef = useRef<MediaStreamTrack | null>(null);
-  const startingRef = useRef(false);
-  const processor = useQueueProcessor();
+  // Auto-capture stability detector (optional)
+  const autoCaptureStateRef = useRef<AutoCaptureState>({
+    phase: "idle",
+    stableFrames: 0,
+    lastCaptureAt: 0,
+    lastDiff: 0,
+  });
+  const autoCapturePrevGrayRef = useRef<Uint8Array | null>(null);
+  const autoCaptureLastSampleAtRef = useRef<number>(0);
+  const startingCameraRef = useRef(false);
 
   const [cameraOn, setCameraOn] = useState(false);
-  const [phoneOpen, setPhoneOpen] = useState(() => localStorage.getItem("rapid_scan_phone_open") !== "0");
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState("Tap Start Camera");
-  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string>(() => localStorage.getItem("rapid_scan_camera_device_id") ?? "");
-  const [torchSupported, setTorchSupported] = useState(false);
+  const [support, setSupport] = useState<MediaSupport>({ torch: false, focus: false, zoom: false });
   const [torchOn, setTorchOn] = useState(false);
-  const [focusSupported, setFocusSupported] = useState(false);
-  const [focusPoint, setFocusPoint] = useState<{ x: number; y: number } | null>(null);
-  const [zoom, setZoomState] = useState<ZoomState>(DEFAULT_ZOOM);
-  const [digitalZoom, setDigitalZoom] = useState(1);
-  const [cameraRotation, setCameraRotation] = useState<CameraRotation>(() => {
-    const saved = Number(localStorage.getItem("rapid_scan_camera_rotation") ?? 0);
-    return ROTATION_OPTIONS.includes(saved as CameraRotation) ? (saved as CameraRotation) : 0;
+  const [torchDimmer, setTorchDimmer] = useState(100);
+  const [statusLine, setStatusLine] = useState("Tap Start to begin");
+  const [busyCapture, setBusyCapture] = useState(false);
+  const [flashActive, setFlashActive] = useState(false);
+
+  // Foil detection
+  const [foilResult, setFoilResult] = useState<MultiFrameResult | null>(null);
+  const foilAnalyzerRef = useRef(getMultiFrameAnalyzer());
+
+  // Auto-timer
+  const [autoTimerActive, setAutoTimerActive] = useState(false);
+  const autoTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [autoTimerCountdown, setAutoTimerCountdown] = useState(0);
+
+  const autoTimerSeconds = settings.autoTimerIntervalSeconds ?? 2;
+
+  const triggerFlash = useCallback(() => {
+    if (!settings.flashOnCapture) return;
+    setFlashActive(true);
+    window.setTimeout(() => setFlashActive(false), 240);
+  }, [settings.flashOnCapture]);
+
+  const triggerHaptics = useCallback(() => {
+    if (!settings.hapticsOnCapture) return;
+    hapticTap(25);
+  }, [settings.hapticsOnCapture]);
+
+  // Auth/user
+  const [userId, setUserId] = useState<string | null>(null);
+
+  // Native camera for rapid scan
+  const { isNative, takePhoto } = useNativeCamera();
+
+  const captureNow = useCallback(async () => {
+    if (busyCapture) return;
+    if (isNative) {
+      await captureWithNativeCamera();
+      return;
+    }
+    if (!cameraOn) return;
+    await captureAndEnqueue();
+  }, [busyCapture, isNative, cameraOn]);
+
+  const voice = useVoiceCommand({
+    enabled: settings.voiceCaptureEnabled && (isNative || cameraOn),
+    keyword: settings.voiceCaptureKeyword,
+    onMatch: () => {
+      captureNow();
+    },
   });
-  const [queuedCount, setQueuedCount] = useState(0);
-  const [rows, setRows] = useState<ScanRow[]>(() => rowsFromRecent());
 
-  const sortedDevices = useMemo(() => sortCameraDevices(devices), [devices]);
-  const continuityDevice = useMemo(() => sortedDevices.find(isContinuityDevice), [sortedDevices]);
-  const selectedDevice = useMemo(() => sortedDevices.find((d) => d.deviceId === selectedDeviceId), [sortedDevices, selectedDeviceId]);
-  const visibleZoom = zoom.supported ? zoom.value : digitalZoom;
-  const canUseTorch = cameraOn && torchSupported;
-  const canFocus = cameraOn && focusSupported;
-  const rotatedSideways = cameraRotation === 90 || cameraRotation === 270;
-
-  const totalValue = useMemo(() => {
-    return rows.reduce((sum, row) => sum + (row.status === "completed" ? row.value || 0 : 0), 0);
-  }, [rows]);
-
-  const refreshDevices = useCallback(async () => {
-    if (!navigator.mediaDevices?.enumerateDevices) return;
-    try {
-      const list = await navigator.mediaDevices.enumerateDevices();
-      setDevices(sortCameraDevices(list.filter((device) => device.kind === "videoinput")));
-    } catch {
-      // Safari may hide devices until permission is granted.
-    }
-  }, []);
-
-  const refreshQueueCount = useCallback(async () => {
-    try {
-      setQueuedCount(await idbCountQueued());
-    } catch {
-      setQueuedCount(0);
-    }
-  }, []);
-
-  const rotateCamera = useCallback(() => {
-    setCameraRotation((prev) => {
-      const idx = ROTATION_OPTIONS.indexOf(prev);
-      const next = ROTATION_OPTIONS[(idx + 1) % ROTATION_OPTIONS.length];
-      localStorage.setItem("rapid_scan_camera_rotation", String(next));
-      setStatus(`Rotation locked: ${getRotationLabel(next)}`);
-      return next;
-    });
-  }, []);
-
-  const resetRotation = useCallback(() => {
-    localStorage.setItem("rapid_scan_camera_rotation", "0");
-    setCameraRotation(0);
-    setStatus("Rotation locked: Portrait");
-  }, []);
-
+  // Optional hands-free auto-capture: triggers a capture when motion settles and the view becomes stable.
   useEffect(() => {
-    void refreshDevices();
-    void refreshQueueCount();
-  }, [refreshDevices, refreshQueueCount]);
+    if (isNative) return;
+    if (!settings.autoCaptureEnabled) return;
+    if (!cameraOn) return;
 
-  useEffect(() => {
-    const onDeviceChange = () => void refreshDevices();
-    navigator.mediaDevices?.addEventListener?.("devicechange", onDeviceChange);
-    return () => navigator.mediaDevices?.removeEventListener?.("devicechange", onDeviceChange);
-  }, [refreshDevices]);
+    let raf = 0;
+    const tuning = DEFAULT_TUNING;
+    const sampleCanvas = document.createElement("canvas");
+    sampleCanvas.width = tuning.sampleW;
+    sampleCanvas.height = tuning.sampleH;
+    const sctx = sampleCanvas.getContext("2d", { willReadFrequently: true });
+    if (!sctx) return;
 
-  useEffect(() => {
-    const onRecentScanAdded = () => setRows(rowsFromRecent());
-    window.addEventListener("recent-scan-added", onRecentScanAdded);
-    return () => window.removeEventListener("recent-scan-added", onRecentScanAdded);
-  }, []);
+    autoCapturePrevGrayRef.current = null;
+    autoCaptureStateRef.current = {
+      phase: "idle",
+      stableFrames: 0,
+      lastCaptureAt: 0,
+      lastDiff: 0,
+    };
+    autoCaptureLastSampleAtRef.current = 0;
 
-  useEffect(() => {
-    const card = processor.lastProcessedCard;
-    if (!card) return;
-    setRows((prev) => {
-      const patch: ScanRow = {
-        id: card.id,
-        imageUrl: card.imageUrl,
-        status: "completed",
-        cardName: card.cardName,
-        cardSet: card.cardSet,
-        cardNumber: card.cardNumber,
-        value: card.value,
-      };
-      const exists = prev.some((row) => row.id === card.id);
-      return exists ? prev.map((row) => (row.id === card.id ? { ...row, ...patch } : row)) : [patch, ...prev];
-    });
-    void refreshQueueCount();
-  }, [processor.lastProcessedCard, refreshQueueCount]);
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
 
-  useEffect(() => {
-    const current = processor.currentItem;
-    if (!current) return;
-    setRows((prev) => prev.map((row) => (row.id === current ? { ...row, status: "processing" } : row)));
-  }, [processor.currentItem]);
+      const v = videoRef.current;
+      if (!v) return;
+      if (v.readyState < 2) return;
+      if (busyCapture) return;
 
-  function stopPreviewOnly() {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    trackRef.current = null;
-    if (videoRef.current) videoRef.current.srcObject = null;
-    setCameraOn(false);
-    setTorchOn(false);
-    setTorchSupported(false);
-    setFocusSupported(false);
-    setFocusPoint(null);
-  }
+      const now = performance.now();
+      if (now - autoCaptureLastSampleAtRef.current < 120) return;
+      autoCaptureLastSampleAtRef.current = now;
 
-  async function applyZoom(next: number) {
-    const clamped = clamp(next, zoom.min, zoom.max);
-    const track = trackRef.current;
-
-    if (zoom.supported && track?.applyConstraints) {
       try {
-        await track.applyConstraints({ advanced: [{ zoom: clamped } as any] });
-        setZoomState((prev) => ({ ...prev, value: clamped }));
-        return;
+        sctx.drawImage(v, 0, 0, tuning.sampleW, tuning.sampleH);
+        const frame = sctx.getImageData(0, 0, tuning.sampleW, tuning.sampleH);
+        const gray = rgbaToGray(frame.data);
+
+        const prev = autoCapturePrevGrayRef.current;
+        autoCapturePrevGrayRef.current = gray;
+
+        if (!prev) return;
+
+        const diff = meanAbsDiff(prev, gray);
+        const prevState = autoCaptureStateRef.current;
+        const res = nextAutoCaptureState(prevState, diff, Date.now(), tuning);
+        autoCaptureStateRef.current = res.state;
+
+        if (res.shouldCapture) {
+          captureNow();
+        }
       } catch {
-        // Fall back to CSS zoom if Safari exposes no hardware zoom control.
+        // ignore frame sampling errors
       }
+    };
+
+    raf = requestAnimationFrame(tick);
+
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      autoCapturePrevGrayRef.current = null;
+    };
+  }, [isNative, settings.autoCaptureEnabled, cameraOn, busyCapture, captureNow]);
+
+  // Background foil detection — sample frames every ~500ms during camera use
+  useEffect(() => {
+    if (isNative || !cameraOn || !settings.foilDetectionEnabled) return;
+    const analyzer = foilAnalyzerRef.current;
+    let raf = 0;
+    let lastSample = 0;
+
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      const v = videoRef.current;
+      if (!v || v.readyState < 2) return;
+      const now = performance.now();
+      if (now - lastSample < 500) return;
+      lastSample = now;
+
+      analyzer.addFrame(v);
+      const result = analyzer.analyze();
+      setFoilResult(result);
+    };
+
+    analyzer.reset();
+    setFoilResult(null);
+    raf = requestAnimationFrame(tick);
+
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [isNative, cameraOn, settings.foilDetectionEnabled]);
+
+  // Zoom
+  const {
+    zoomLevel,
+    zoomCapabilities,
+    usingDigitalZoom,
+    detectZoomCapabilities,
+    setZoom,
+    zoomIn,
+    zoomOut,
+  } = useCameraZoom({ streamRef });
+
+  // Smart auto zoom-out based on image clarity (for card stacking)
+  const clarityZoom = useClarityZoom({
+    zoomLevel,
+    minZoom: zoomCapabilities.min,
+    setZoom,
+    enabled: settings.autoZoomEnabled !== false,
+  });
+
+  // UI list - hydrate from persistent recentScans on mount
+  const [cards, setCards] = useState<ScannedCard[]>(() => {
+    const stored = getRecentScans();
+    return stored.map(s => ({
+      id: s.id,
+      preview: s.image_url,
+      status: "completed" as const,
+      cardName: s.card_name,
+      cardSet: s.card_set ?? undefined,
+      cardNumber: s.card_number ?? undefined,
+      playerName: s.player_name ?? undefined,
+      rarity: s.rarity ?? undefined,
+      gameType: s.gameType ?? undefined,
+      sportType: s.sportType ?? undefined,
+      value: s.price,
+      dbId: s.dbId ?? undefined,
+      isInLibrary: s.isInLibrary ?? false,
+      libraryQuantity: s.libraryQuantity ?? 0,
+      imageUrl: s.image_url,
+      priceFetching: false,
+      year: s.year ?? undefined,
+      team: s.team ?? undefined,
+      manufacturer: s.manufacturer ?? undefined,
+    }));
+  });
+  const CARD_LIST_RENDER_LIMIT = 30;
+  const [showAllCards, setShowAllCards] = useState(false);
+  const [renderedCount, setRenderedCount] = useState(CARD_LIST_RENDER_LIMIT);
+
+  // Incremental rendering guard: avoids rendering thousands of DOM nodes at once
+  useEffect(() => {
+    if (!showAllCards) {
+      setRenderedCount(CARD_LIST_RENDER_LIMIT);
+      return;
     }
+    setRenderedCount((prev) => Math.max(prev, Math.min(cards.length, CARD_LIST_RENDER_LIMIT * 2)));
+  }, [showAllCards, cards.length]);
 
-    setDigitalZoom(clamp(next, 1, 3));
-  }
+  const loadMoreCards = useCallback(() => {
+    setRenderedCount((prev) => Math.min(cards.length, prev + 50));
+  }, [cards.length]);
 
-  async function startCamera(deviceIdOverride?: string) {
-    if (startingRef.current) return;
-    if (!navigator.mediaDevices?.getUserMedia) {
-      toast.error("Safari camera permission is not available on this page.");
-      setStatus("Camera unavailable");
+  const cardsToRender = useMemo(() => {
+    if (!showAllCards) return cards.slice(0, CARD_LIST_RENDER_LIMIT);
+    return cards.slice(0, renderedCount);
+  }, [cards, showAllCards, renderedCount]);
+
+  const [overlay, setOverlay] = useState<LastOverlay | null>(null);
+
+
+  // Global queue processor - single source of truth for queue state
+  const queueProcessor = useQueueProcessor();
+  
+  // Queue meta from processor (single source of truth - no local duplicate state)
+  const queueMeta = queueProcessor.queueMeta;
+  const isAnomalyPaused = queueProcessor.isPausedByAnomaly;
+  const queuedItemsCount = useMemo(() => queueMeta.filter((q) => q.status === "queued").length, [queueMeta]);
+  const processingItemsCount = useMemo(() => queueMeta.filter((q) => q.status === "processing").length, [queueMeta]);
+  const bufferedItemsCount = queuedItemsCount + processingItemsCount;
+
+  const [rapidDebugOpen, setRapidDebugOpen] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem("rapid-scan-debug-open") !== "0";
+  });
+  const [debugClock, setDebugClock] = useState(Date.now());
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("rapid-scan-debug-open", rapidDebugOpen ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, [rapidDebugOpen]);
+
+  useEffect(() => {
+    if (!rapidDebugOpen) return;
+    const timer = window.setInterval(() => {
+      setDebugClock(Date.now());
+      queueProcessor.refreshQueue().catch(() => {});
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [rapidDebugOpen, queueProcessor.refreshQueue]);
+
+  const lastQueueError = useMemo(() => {
+    return queueMeta.find((q) => q.status === "error" && q.error)?.error ?? null;
+  }, [queueMeta]);
+
+  const videoDebug = useMemo(() => {
+    const v = videoRef.current;
+    const track = trackRef.current;
+    return {
+      readyState: v?.readyState ?? 0,
+      video: v ? `${v.videoWidth || 0}×${v.videoHeight || 0}` : "none",
+      stream: !!streamRef.current,
+      trackState: track?.readyState ?? "none",
+      muted: v?.muted ?? true,
+    };
+  }, [debugClock, cameraOn]);
+
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // INIT
+  // ───────────────────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    supabase.auth
+      .getUser()
+      .then(({ data }) => setUserId(data.user?.id ?? null))
+      .catch(() => setUserId(null));
+  }, []);
+
+  // Refresh queue metadata via the processor's method
+  const refreshMeta = useCallback(async () => {
+    await queueProcessor.refreshQueue();
+  }, [queueProcessor.refreshQueue]);
+
+  // Throttled meta refresh
+  const lastMetaRefreshAtRef = useRef(0);
+  const metaRefreshTimerRef = useRef<number | null>(null);
+
+  const requestRefreshMeta = useCallback(() => {
+    const MIN_INTERVAL_MS = 900;
+    const now = Date.now();
+    const elapsed = now - lastMetaRefreshAtRef.current;
+
+    if (elapsed >= MIN_INTERVAL_MS) {
+      lastMetaRefreshAtRef.current = now;
+      refreshMeta();
       return;
     }
 
-    startingRef.current = true;
-    setBusy(true);
+    if (metaRefreshTimerRef.current != null) return;
+
+    metaRefreshTimerRef.current = window.setTimeout(() => {
+      metaRefreshTimerRef.current = null;
+      lastMetaRefreshAtRef.current = Date.now();
+      refreshMeta();
+    }, Math.max(0, MIN_INTERVAL_MS - elapsed));
+  }, [refreshMeta]);
+
+  useEffect(() => {
+    refreshMeta();
+    return () => {
+      if (metaRefreshTimerRef.current != null) {
+        window.clearTimeout(metaRefreshTimerRef.current);
+        metaRefreshTimerRef.current = null;
+      }
+    };
+  }, [refreshMeta]);
+
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // HELPERS: STATE UPDATE
+  // ───────────────────────────────────────────────────────────────────────────
+
+  const updateCard = useCallback((id: string, patch: Partial<ScannedCard>) => {
+    setCards((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+  }, []);
+
+  const removeCard = useCallback(async (id: string) => {
+    setCards((prev) => {
+      const target = prev.find((c) => c.id === id);
+      if (target?.preview) {
+        try {
+          URL.revokeObjectURL(target.preview);
+        } catch {}
+      }
+      return prev.filter((c) => c.id !== id);
+    });
+    removeRecentScan(id);
+    try {
+      await idbDelete(id);
+    } catch {
+      // ignore
+    }
+    await refreshMeta();
+  }, [refreshMeta]);
+
+  // Total value of completed cards
+  const totalValue = useMemo(() => {
+    return cards.reduce((sum, c) => sum + (c.status === "completed" ? c.value || 0 : 0), 0);
+  }, [cards]);
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // CAMERA
+  // ───────────────────────────────────────────────────────────────────────────
+
+  async function startCamera() {
+    warmUpAudio(); // unlock AudioContext on user gesture
+    if (cameraOn || startingCameraRef.current) return;
+    
+    startingCameraRef.current = true;
 
     try {
-      stopPreviewOnly();
-
-      const requestedDeviceId = deviceIdOverride ?? selectedDeviceId;
-      const video: MediaTrackConstraints = requestedDeviceId
-        ? { deviceId: { exact: requestedDeviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
-        : { width: { ideal: 1920 }, height: { ideal: 1080 } };
-
-      const stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
-      streamRef.current = stream;
-      trackRef.current = stream.getVideoTracks()[0] ?? null;
-
-      const track = trackRef.current;
-      const caps = (track?.getCapabilities?.() ?? {}) as BasicCameraCapabilities;
-      const settings = track?.getSettings?.() ?? {};
-      const actualDeviceId = (settings as MediaTrackSettings).deviceId;
-      if (actualDeviceId) {
-        setSelectedDeviceId(actualDeviceId);
-        localStorage.setItem("rapid_scan_camera_device_id", actualDeviceId);
+      const videoConstraints: MediaTrackConstraints = {
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+      };
+      
+      if (selectedDeviceId) {
+        videoConstraints.deviceId = { exact: selectedDeviceId };
+      } else {
+        videoConstraints.facingMode = "environment";
       }
-      setTorchSupported(Boolean(caps.torch));
-      setFocusSupported(Boolean(caps.focusMode?.length || caps.exposureMode?.length));
-      setZoomState(normalizeZoom(caps, settings));
-      setDigitalZoom(1);
+      
+      const constraints: MediaStreamConstraints = {
+        video: videoConstraints,
+        audio: false,
+      };
 
-      const videoElement = videoRef.current;
-      if (!videoElement) throw new Error("Video preview missing");
-      videoElement.srcObject = stream;
-      videoElement.setAttribute("playsinline", "true");
-      videoElement.muted = true;
-      await videoElement.play();
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
+      trackRef.current = getVideoTrack(stream);
+      setSupport(detectSupport(trackRef.current));
+
+      if (settings.manualFocusLock) {
+        try {
+          const track = trackRef.current;
+          await track?.applyConstraints?.({ advanced: [{ focusMode: "manual" } as MediaTrackConstraintSet] });
+        } catch {
+          // ignore
+        }
+      }
+
+      const v = videoRef.current;
+      if (!v) {
+        startingCameraRef.current = false;
+        return;
+      }
+      
+      if (v.srcObject) {
+        const oldStream = v.srcObject as MediaStream;
+        oldStream.getTracks().forEach(t => t.stop());
+      }
+      
+      v.srcObject = stream;
+      
+      await new Promise<void>((resolve, reject) => {
+        const onCanPlay = () => {
+          v.removeEventListener('canplay', onCanPlay);
+          v.removeEventListener('error', onError);
+          resolve();
+        };
+        const onError = (e: Event) => {
+          v.removeEventListener('canplay', onCanPlay);
+          v.removeEventListener('error', onError);
+          reject(new Error('Video failed to load'));
+        };
+        v.addEventListener('canplay', onCanPlay);
+        v.addEventListener('error', onError);
+        
+        if (v.readyState >= 3) {
+          v.removeEventListener('canplay', onCanPlay);
+          v.removeEventListener('error', onError);
+          resolve();
+        }
+      });
+      
+      try {
+        await v.play();
+      } catch (playErr: any) {
+        if (playErr?.name !== 'AbortError') {
+          throw playErr;
+        }
+      }
 
       setCameraOn(true);
-      await refreshDevices();
-      const label = sortedDevices.find((d) => d.deviceId === (actualDeviceId || requestedDeviceId))?.label;
-      setStatus(label ? `Camera live: ${label}` : "Camera live — choose iPhone/Continuity if listed");
-    } catch (error: any) {
-      console.error(error);
-      setStatus(error?.message ?? "Camera failed");
-      toast.error(error?.message ?? "Camera failed to start");
+      setStatusLine("Camera live — tap Capture for each card");
+      
+      useGlobalProcessControl.getState().setScannerActive(true);
+
+      detectZoomCapabilities();
+      clarityZoom.reset();
+
+      try {
+        await applyFastAutofocus(stream, true);
+      } catch {
+        try {
+          await trackRef.current?.applyConstraints({
+            advanced: [{ focusMode: "continuous" } as any],
+          });
+        } catch {}
+      }
+    } catch (err: any) {
+      setStatusLine(`Camera error: ${err?.message ?? err}`);
+      toast.error("Camera failed to start");
     } finally {
-      setBusy(false);
-      startingRef.current = false;
+      startingCameraRef.current = false;
     }
-  }
-
-  async function switchCamera(deviceId: string) {
-    setSelectedDeviceId(deviceId);
-    localStorage.setItem("rapid_scan_camera_device_id", deviceId);
-    if (cameraOn) {
-      setStatus("Switching camera…");
-      await startCamera(deviceId);
-    }
-  }
-
-  async function useContinuityCamera() {
-    if (!continuityDevice) {
-      await refreshDevices();
-      toast.info("If iPhone does not appear, unlock it and keep it near this Mac, then tap Refresh cameras.");
-      return;
-    }
-    await switchCamera(continuityDevice.deviceId);
-    if (!cameraOn) await startCamera(continuityDevice.deviceId);
   }
 
   async function stopCamera() {
-    if (torchOn) await toggleTorch(false);
-    stopPreviewOnly();
-    setStatus("Camera stopped — queued scans will keep pricing");
-    processor.start();
-    await refreshQueueCount();
-  }
+    stopAutoTimer();
 
-  async function toggleTorch(forced?: boolean) {
-    const track = trackRef.current;
-    if (!track || !torchSupported) return;
-    const next = typeof forced === "boolean" ? forced : !torchOn;
-    try {
-      await track.applyConstraints({ advanced: [{ torch: next } as any] });
-      setTorchOn(next);
-    } catch {
-      toast.error("Torch is blocked by Safari or this camera lens");
+    if (torchOn) {
+      await setTorch(trackRef.current, false);
+      setTorchOn(false);
+    }
+
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    trackRef.current = null;
+    setCameraOn(false);
+
+    useGlobalProcessControl.getState().setScannerActive(false);
+
+    // Clear video element to release decoder resources (important on mobile)
+    if (videoRef.current) {
+      try { (videoRef.current as any).srcObject = null; } catch {}
+    }
+
+    const queuedCount = await idbCountQueued();
+    if (queuedCount > 0) {
+      setStatusLine(`Camera stopped — pricing ${queuedCount} captured card${queuedCount === 1 ? "" : "s"}`);
+      setOverlay({ label: `Pricing ${queuedCount} captured card${queuedCount === 1 ? "" : "s"}…` });
+      ensureWorkersRunning();
+    } else {
+      setStatusLine("Camera stopped");
     }
   }
 
-  async function resetCameraControls() {
-    await applyZoom(1);
-    setDigitalZoom(1);
-    setFocusPoint(null);
-    resetRotation();
-    if (torchOn) await toggleTorch(false);
-    try {
-      await trackRef.current?.applyConstraints?.({ advanced: [{ focusMode: "continuous", exposureMode: "continuous" } as any] });
-    } catch {
-      // not all Safari builds support focus constraints
+  // Cleanup: stop camera & timers on unmount
+  useEffect(() => {
+    return () => {
+      try {
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((t) => t.stop());
+          streamRef.current = null;
+          trackRef.current = null;
+        }
+        useGlobalProcessControl.getState().setScannerActive(false);
+      } catch {}
+    };
+  }, []);
+
+  // Pinch-to-zoom state
+  const pinchRef = useRef<{ initialDistance: number; initialZoom: number } | null>(null);
+
+  const getDistance = useCallback((t1: React.Touch, t2: React.Touch) => {
+    const dx = t1.clientX - t2.clientX;
+    const dy = t1.clientY - t2.clientY;
+    return Math.hypot(dx, dy);
+  }, []);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLVideoElement>) => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      const distance = getDistance(e.touches[0], e.touches[1]);
+      pinchRef.current = { initialDistance: distance, initialZoom: zoomLevel };
     }
-    setStatus("Camera controls reset");
+  }, [zoomLevel, getDistance]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent<HTMLVideoElement>) => {
+    if (e.touches.length === 2 && pinchRef.current) {
+      e.preventDefault();
+      const distance = getDistance(e.touches[0], e.touches[1]);
+      const scale = distance / pinchRef.current.initialDistance;
+      const newZoom = Math.min(
+        Math.max(pinchRef.current.initialZoom * scale, zoomCapabilities.min),
+        zoomCapabilities.max
+      );
+      setZoom(newZoom);
+    }
+  }, [getDistance, zoomCapabilities, setZoom]);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLVideoElement>) => {
+    if (e.touches.length < 2) {
+      pinchRef.current = null;
+    }
+  }, []);
+
+  // Tap-to-focus with auto-focus trigger
+  const handleVideoTap = useCallback(
+    async (e: React.MouseEvent<HTMLVideoElement>) => {
+      const rect = (e.target as HTMLVideoElement).getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width;
+      const y = (e.clientY - rect.top) / rect.height;
+      
+      if (support.focus) {
+        await setFocusPoint(trackRef.current, { x, y });
+      }
+      
+      if (trackRef.current?.applyConstraints) {
+        try {
+          await trackRef.current.applyConstraints({
+            advanced: [{ focusMode: "manual" } as any],
+          });
+          await new Promise((r) => setTimeout(r, 50));
+          await trackRef.current.applyConstraints({
+            advanced: [{ focusMode: "continuous" } as any],
+          });
+        } catch {
+          // Ignore
+        }
+      }
+    },
+    [support.focus]
+  );
+
+  // Auto-focus on camera start
+  useEffect(() => {
+    if (!cameraOn || !trackRef.current) return;
+    
+    const triggerAutoFocus = async () => {
+      try {
+        await trackRef.current?.applyConstraints({
+          advanced: [{ focusMode: "continuous" } as any],
+        });
+      } catch {
+        // Ignore
+      }
+    };
+    
+    triggerAutoFocus();
+  }, [cameraOn]);
+
+  async function toggleTorch() {
+    if (!support.torch) return;
+    const next = !torchOn;
+    const ok = await setTorch(trackRef.current, next);
+    if (ok) setTorchOn(next);
   }
 
-  async function handleTapFocus(e: React.PointerEvent<HTMLVideoElement>) {
-    if (!cameraOn) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = clamp((e.clientX - rect.left) / rect.width, 0, 1);
-    const y = clamp((e.clientY - rect.top) / rect.height, 0, 1);
-    setFocusPoint({ x: x * 100, y: y * 100 });
-    window.setTimeout(() => setFocusPoint(null), 900);
+  // ───────────────────────────────────────────────────────────────────────────
+  // SHUTTER SOUND
+  // ───────────────────────────────────────────────────────────────────────────
 
-    try {
-      await trackRef.current?.applyConstraints?.({
-        advanced: [{ focusMode: "single-shot", exposureMode: "single-shot", pointsOfInterest: [{ x, y }] } as any],
-      });
-      setStatus("Focused");
-    } catch {
-      setStatus("Focus point marked — Safari may auto-focus only");
+  const playShutterSound = useCallback(() => {
+    playShutterBeep();
+  }, []);
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // NATIVE CAMERA CAPTURE
+  // ───────────────────────────────────────────────────────────────────────────
+
+  async function captureWithNativeCamera() {
+    if (isAnomalyPaused) {
+      toast.error("Rapid scan is paused — resume or clear the bad batch first.");
+      return;
     }
-  }
-
-  async function capture() {
-    if (!cameraOn || busy) return;
-    setBusy(true);
+    if (busyCapture) return;
+    setBusyCapture(true);
+    triggerFlash();
+    triggerHaptics();
+    playShutterSound();
 
     try {
       const current = await idbCount();
       if (current >= QUEUE_MAX) {
-        toast.error(`Queue full (${QUEUE_MAX})`);
+        toast.error(`Buffer full (${QUEUE_MAX}). Let it process or clear.`);
+        setBusyCapture(false);
         return;
       }
 
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      if (!video || !canvas) throw new Error("Camera preview not ready");
-
-      drawRotatedVideoToCanvas(video, canvas, cameraRotation);
-
-      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.95));
-      if (!blob) throw new Error("Capture failed");
+      const result = await takePhoto();
+      if (!result) {
+        toast.error("Native camera not available");
+        setBusyCapture(false);
+        return;
+      }
 
       const id = safeUUID();
-      const previewUrl = URL.createObjectURL(blob);
-      setRows((prev) => [{ id, imageUrl: previewUrl, status: "queued" }, ...prev]);
+      const localUrl = URL.createObjectURL(result.blob);
 
-      const compressed = await compressImageForQueue(blob);
+      setCards((prev) => [
+        {
+          id,
+          preview: localUrl,
+          status: "queued",
+          priceFetching: true,
+          isInLibrary: false,
+          libraryQuantity: 0,
+        },
+        ...prev,
+      ]);
+
+      const compressedBlob = await compressImageForQueue(result.blob);
+
       await idbAdd({
         id,
         createdAt: Date.now(),
         status: "queued",
-        blob: compressed,
-        mime: compressed.type || "image/jpeg",
+        blob: compressedBlob,
+        mime: compressedBlob.type || "image/jpeg",
         filename: "card.jpg",
       });
 
-      setStatus(`Captured — ${getRotationLabel(cameraRotation)} rotation applied`);
-      await refreshQueueCount();
-      processor.start();
-    } catch (error: any) {
-      console.error(error);
-      toast.error(error?.message ?? "Capture failed");
+      setStatusLine("Captured — processing queued card…");
+      setOverlay({ label: "Processing…" });
+      ensureWorkersRunning();
+
+      // Progressive zoom-out after each snap to keep card in frame
+      try {
+        if (zoomCapabilities.supported && typeof zoomLevel === "number") {
+          const minZ = zoomCapabilities.min ?? 1;
+          const nextZ = Math.max(minZ, zoomLevel - 0.035);
+          if (nextZ !== zoomLevel) setZoom(nextZ);
+        }
+      } catch {
+        // ignore zoom errors
+      }
+
+      requestRefreshMeta();
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message ?? "Native capture failed");
     } finally {
-      setBusy(false);
+      setBusyCapture(false);
     }
   }
 
-  async function clearQueueAndRecent() {
-    processor.stop();
-    await idbClear();
-    clearAllRecentScans();
-    setRows([]);
-    await refreshQueueCount();
-    setStatus("Cleared");
+  // ───────────────────────────────────────────────────────────────────────────
+  // WEB CAMERA CAPTURE (MANUAL)
+
+  async function captureAndEnqueue() {
+    if (isAnomalyPaused) {
+      toast.error("Rapid scan is paused — resume or clear the bad batch first.");
+      return;
+    }
+    if (!cameraOn) return;
+    if (busyCapture) return;
+    setBusyCapture(true);
+    triggerFlash();
+    triggerHaptics();
+    playShutterSound();
+
+    try {
+      const current = await idbCount();
+      if (current >= QUEUE_MAX) {
+        toast.error(`Buffer full (${QUEUE_MAX}). Let it process or clear.`);
+        setBusyCapture(false);
+        return;
+      }
+
+      const v = videoRef.current;
+      const c = canvasRef.current;
+      if (!v || !c) {
+        setBusyCapture(false);
+        return;
+      }
+
+      const w = v.videoWidth || 1920;
+      const h = v.videoHeight || 1080;
+      c.width = w;
+      c.height = h;
+
+      const ctx = c.getContext("2d", { willReadFrequently: false });
+      if (!ctx) throw new Error("Canvas not available");
+
+      ctx.drawImage(v, 0, 0, w, h);
+      applyAutoColorBalance(ctx, c, 0.5);
+      applyAntiGlare(ctx, c, 0.2);
+
+      if (settings.autoZoomEnabled) {
+        clarityZoom.analyzeAndAdjustZoom(v).catch(() => {});
+      }
+
+      const blob: Blob | null = await new Promise((resolve) =>
+        c.toBlob(resolve, "image/jpeg", 0.95)
+      );
+      if (!blob) throw new Error("Failed to capture image");
+
+      const id = safeUUID();
+
+      const localUrl = URL.createObjectURL(blob);
+      setCards((prev) => [
+        {
+          id,
+          preview: localUrl,
+          status: "queued",
+          priceFetching: true,
+          isInLibrary: false,
+          libraryQuantity: 0,
+        },
+        ...prev,
+      ]);
+
+      const compressedBlob = await compressImageForQueue(blob);
+      
+      await idbAdd({
+        id,
+        createdAt: Date.now(),
+        status: "queued",
+        blob: compressedBlob,
+        mime: compressedBlob.type || "image/jpeg",
+        filename: "card.jpg",
+      });
+
+      setStatusLine("Captured — processing queued card…");
+      setOverlay({ label: "Processing…" });
+      ensureWorkersRunning();
+
+      // Progressive zoom-out after each snap to keep card in frame
+      try {
+        if (zoomCapabilities.supported && typeof zoomLevel === "number") {
+          const minZ = zoomCapabilities.min ?? 1;
+          const nextZ = Math.max(minZ, zoomLevel - 0.035);
+          if (nextZ !== zoomLevel) setZoom(nextZ);
+        }
+      } catch {
+        // ignore zoom errors
+      }
+
+      requestRefreshMeta();
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message ?? "Capture failed");
+    } finally {
+      setBusyCapture(false);
+    }
   }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // AUTO-TIMER
+  // ───────────────────────────────────────────────────────────────────────────
+
+  const startAutoTimer = useCallback(() => {
+    if (isAnomalyPaused) {
+      toast.error("Rapid scan is paused — resume or clear the bad batch first.");
+      return;
+    }
+    if (!cameraOn || isNative) return;
+    setAutoTimerActive(true);
+    setAutoTimerCountdown(autoTimerSeconds);
+    
+    captureAndEnqueue();
+    
+    autoTimerRef.current = setInterval(() => {
+      setAutoTimerCountdown((prev) => {
+        if (prev <= 1) {
+          captureAndEnqueue();
+          return autoTimerSeconds;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, [cameraOn, isNative, autoTimerSeconds, isAnomalyPaused]);
+
+  const stopAutoTimer = useCallback(() => {
+    setAutoTimerActive(false);
+    setAutoTimerCountdown(0);
+    if (autoTimerRef.current) {
+      clearInterval(autoTimerRef.current);
+      autoTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!cameraOn && autoTimerActive) {
+      stopAutoTimer();
+    }
+  }, [cameraOn, autoTimerActive, stopAutoTimer]);
 
   useEffect(() => {
     return () => {
-      stopPreviewOnly();
+      if (autoTimerRef.current) {
+        clearInterval(autoTimerRef.current);
+      }
     };
   }, []);
 
+  useEffect(() => {
+    if (!isAnomalyPaused) return;
+    if (autoTimerActive) {
+      stopAutoTimer();
+    }
+    setStatusLine("Queue paused — repeated identical identifications detected");
+    setOverlay({ label: "Rapid scan paused" });
+  }, [isAnomalyPaused, autoTimerActive, stopAutoTimer]);
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // QUEUE PROCESSING (delegated to standalone processor)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  function ensureWorkersRunning() {
+    queueProcessor.start();
+  }
+
+  // Sync UI state from processor's last processed card
+  useEffect(() => {
+    if (!queueProcessor.lastProcessedCard) return;
+
+    const card = queueProcessor.lastProcessedCard;
+    updateCard(card.id, {
+      status: "completed",
+      cardName: card.cardName,
+      cardSet: card.cardSet,
+      cardNumber: card.cardNumber,
+      playerName: card.playerName || (card.sportType ? card.cardName : undefined),
+      rarity: card.rarity,
+      gameType: card.gameType,
+      sportType: card.sportType,
+      value: card.value,
+      psa10Price: card.psa10Price,
+      imageUrl: card.imageUrl,
+      isInLibrary: card.isInLibrary,
+      libraryQuantity: card.libraryQuantity,
+      dbId: card.dbId,
+      priceFetching: false,
+      year: card.year,
+      team: card.team,
+      manufacturer: card.manufacturer,
+    });
+
+    // Play sound for high-value cards
+    if (typeof card.value === "number" && card.value >= 50) {
+      playJackpotBeep();
+    } else if (typeof card.value === "number" && card.value >= 15) {
+      playKachingBeep();
+    }
+
+    setOverlay({
+      label: card.cardName,
+      value: card.value,
+      isInLibrary: card.isInLibrary,
+      libraryQuantity: card.libraryQuantity,
+    });
+
+    requestRefreshMeta();
+  }, [queueProcessor.lastProcessedCard, updateCard, requestRefreshMeta]);
+
+  // Sync cards from recent-scan-added events (background queue processing)
+  useEffect(() => {
+    const handleRecentScanAdded = () => {
+      const recentScans = getRecentScans();
+      recentScans.forEach((scan) => {
+        updateCard(scan.id, {
+          status: "completed",
+          cardName: scan.card_name,
+          cardSet: scan.card_set || undefined,
+          cardNumber: scan.card_number || undefined,
+          playerName: scan.player_name || undefined,
+          rarity: scan.rarity || undefined,
+          gameType: scan.gameType || undefined,
+          sportType: scan.sportType || undefined,
+          value: scan.price ?? undefined,
+          psa10Price: scan.psa10Price ?? undefined,
+          imageUrl: scan.image_url,
+          isInLibrary: scan.isInLibrary,
+          libraryQuantity: scan.libraryQuantity,
+          dbId: scan.dbId || undefined,
+          priceFetching: false,
+          year: scan.year || undefined,
+          team: scan.team || undefined,
+          manufacturer: scan.manufacturer || undefined,
+        });
+      });
+    };
+
+    window.addEventListener("recent-scan-added", handleRecentScanAdded);
+    // Also hydrate on mount from any scans processed while unmounted
+    handleRecentScanAdded();
+
+    return () => {
+      window.removeEventListener("recent-scan-added", handleRecentScanAdded);
+    };
+  }, [updateCard]);
+
+  // Sync processing state from global processor
+  useEffect(() => {
+    if (queueProcessor.currentItem) {
+      updateCard(queueProcessor.currentItem, { status: "processing" });
+    }
+  }, [queueProcessor.currentItem, updateCard]);
+
+  const retryBlockedQueueItems = useCallback(async () => {
+    const blocked = queueMeta.filter((q) => q.status === "error" || q.status === "processing");
+    if (blocked.length === 0) {
+      toast.info("No blocked rapid scan items found");
+      await refreshMeta();
+      return;
+    }
+
+    await Promise.all(
+      blocked.map((q) =>
+        idbUpdateMeta(q.id, {
+          status: "queued",
+          error: undefined,
+          processingStartedAt: undefined,
+        })
+      )
+    );
+
+    await refreshMeta();
+    queueProcessor.resume();
+    queueProcessor.start();
+    toast.success(`Requeued ${blocked.length} rapid scan item${blocked.length === 1 ? "" : "s"}`);
+  }, [queueMeta, queueProcessor, refreshMeta]);
+
+  const forceStartProcessor = useCallback(async () => {
+    await refreshMeta();
+    queueProcessor.resume();
+    queueProcessor.start();
+    toast.info("Rapid scan processor forced on");
+  }, [queueProcessor, refreshMeta]);
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // ADD TO LIBRARY (optional)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  const handleAddToLibrary = useCallback(
+    async (id: string) => {
+      const c = cards.find((x) => x.id === id);
+      if (!c) return;
+      if (!userId) {
+        toast.error("Login required to save to your library");
+        return;
+      }
+
+      if (!c.cardName) {
+        toast.error("Card not identified yet");
+        return;
+      }
+
+      try {
+        updateCard(id, { priceFetching: true });
+
+        const inserted = await insertCardDual({
+          user_id: userId,
+          card_name: c.cardName,
+          card_set: c.cardSet ?? null,
+          card_number: c.cardNumber ?? null,
+          rarity: c.rarity ?? null,
+          image_url: c.imageUrl ?? null,
+          current_price_raw: c.value ?? null,
+          suggested_price: c.value ?? null,
+        } as any);
+
+        updateCard(id, {
+          dbId: inserted.id,
+          isInLibrary: true,
+          libraryQuantity: Math.max((c.libraryQuantity || 0) + 1, 1),
+          priceFetching: false,
+          addedToLibraryThisSession: true,
+        });
+        updateRecentScan(id, { dbId: inserted.id, isInLibrary: true, libraryQuantity: Math.max((c.libraryQuantity || 0) + 1, 1) });
+
+        toast.success("Saved to library");
+      } catch (e: any) {
+        console.error(e);
+        updateCard(id, { priceFetching: false });
+        toast.error(e?.message ?? "Failed to save");
+      }
+    },
+    [cards, updateCard, userId]
+  );
+
+  const handleAddAllToLibrary = useCallback(async () => {
+    if (!userId) {
+      toast.error("Login required to save to your library");
+      return;
+    }
+
+    const newCards = cards.filter((c) => c.status === "completed" && c.cardName && !c.addedToLibraryThisSession);
+    if (newCards.length === 0) {
+      toast.info("No new cards to add");
+      return;
+    }
+
+    toast.loading(`Adding ${newCards.length} cards to library...`, { id: "bulk-add" });
+
+    let added = 0;
+    for (const c of newCards) {
+      try {
+        updateCard(c.id, { priceFetching: true });
+
+        const inserted = await insertCardDual({
+          user_id: userId,
+          card_name: c.cardName!,
+          card_set: c.cardSet ?? null,
+          card_number: c.cardNumber ?? null,
+          rarity: c.rarity ?? null,
+          image_url: c.imageUrl ?? null,
+          current_price_raw: c.value ?? null,
+          suggested_price: c.value ?? null,
+        } as any);
+
+        updateCard(c.id, {
+          dbId: inserted.id,
+          isInLibrary: true,
+          libraryQuantity: Math.max((c.libraryQuantity || 0) + 1, 1),
+          priceFetching: false,
+          addedToLibraryThisSession: true,
+        });
+
+        added++;
+      } catch (e: any) {
+        console.error(`Failed to add ${c.cardName}:`, e);
+        updateCard(c.id, { priceFetching: false });
+      }
+    }
+
+    toast.success(`Added ${added} of ${newCards.length} cards to library`, { id: "bulk-add" });
+  }, [cards, updateCard, userId]);
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // REMOVE FROM LIBRARY (for remove mode)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  const handleRemoveFromLibrary = useCallback(
+    async (id: string, dbId: string) => {
+      if (!userId) {
+        toast.error("Login required");
+        return;
+      }
+
+      try {
+        updateCard(id, { priceFetching: true });
+
+        const { error } = await supabase.from("cards").delete().eq("id", dbId);
+        if (error) throw error;
+
+        updateCard(id, {
+          dbId: undefined,
+          isInLibrary: false,
+          libraryQuantity: 0,
+          priceFetching: false,
+        });
+
+        toast.success("Removed from collection");
+      } catch (e: any) {
+        console.error(e);
+        updateCard(id, { priceFetching: false });
+        toast.error(e?.message ?? "Failed to remove");
+      }
+    },
+    [updateCard, userId]
+  );
+
+  const handleRemoveAllFromLibrary = useCallback(async () => {
+    if (!userId) {
+      toast.error("Login required");
+      return;
+    }
+
+    const libraryCards = cards.filter((c) => c.status === "completed" && c.isInLibrary && c.dbId);
+    if (libraryCards.length === 0) {
+      toast.info("No cards to remove");
+      return;
+    }
+
+    toast.loading(`Removing ${libraryCards.length} cards from collection...`, { id: "bulk-remove" });
+
+    let removed = 0;
+    for (const c of libraryCards) {
+      try {
+        updateCard(c.id, { priceFetching: true });
+
+        const { error } = await supabase.from("cards").delete().eq("id", c.dbId!);
+        if (error) throw error;
+
+        updateCard(c.id, {
+          dbId: undefined,
+          isInLibrary: false,
+          libraryQuantity: 0,
+          priceFetching: false,
+        });
+
+        removed++;
+      } catch (e: any) {
+        console.error(`Failed to remove ${c.cardName}:`, e);
+        updateCard(c.id, { priceFetching: false });
+      }
+    }
+
+    toast.success(`Removed ${removed} of ${libraryCards.length} cards`, { id: "bulk-remove" });
+  }, [cards, updateCard, userId]);
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // CLEAR
+  // ───────────────────────────────────────────────────────────────────────────
+
+  const clearAll = useCallback(async () => {
+    queueProcessor.stop();
+    setCards((prev) => {
+      prev.forEach((p) => {
+        try {
+          URL.revokeObjectURL(p.preview);
+        } catch {}
+      });
+      return [];
+    });
+    clearAllRecentScans();
+    await idbClear();
+    queueProcessor.resume();
+    await refreshMeta();
+    setOverlay(null);
+    toast.success("Cleared");
+  }, [queueProcessor, refreshMeta]);
+
+  const handleResumeAfterAnomaly = useCallback(async () => {
+    queueProcessor.resume();
+    queueProcessor.start();
+    setStatusLine("Queue resumed — processing queued cards");
+    toast.success("Rapid scan resumed");
+    await refreshMeta();
+  }, [queueProcessor, refreshMeta]);
+
+  const handleClearBadBatch = useCallback(async () => {
+    await clearAll();
+    setStatusLine("Bad batch cleared — ready for new scans");
+  }, [clearAll]);
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // RENDER
+  // ───────────────────────────────────────────────────────────────────────────
+
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={cameraOn ? "default" : "secondary"}>{cameraOn ? "Camera Live" : "Camera Off"}</Badge>
-          <Badge variant="outline">Queued {queuedCount}</Badge>
-          <Badge variant="outline">${totalValue.toFixed(2)}</Badge>
-          <Badge variant="outline">{getRotationLabel(cameraRotation)}</Badge>
-          {selectedDevice?.label && <Badge variant={isContinuityDevice(selectedDevice) ? "default" : "outline"}>{selectedDevice.label}</Badge>}
-        </div>
-        <Button variant="ghost" size="sm" onClick={() => void refreshDevices()}>
-          <RefreshCw className="mr-2 h-4 w-4" /> Refresh cameras
-        </Button>
-      </div>
-
-      <Card className="overflow-hidden bg-black">
-        <div className="relative">
-          <div className="flex h-[62vh] min-h-[360px] max-h-[680px] w-full items-center justify-center overflow-hidden bg-black">
-            <video
-              ref={videoRef}
-              className={cn(
-                "block bg-black object-contain touch-none transition-transform duration-200",
-                rotatedSideways ? "h-full w-auto max-w-none" : "h-full w-full",
-              )}
-              style={{
-                transform: `rotate(${cameraRotation}deg) scale(${!zoom.supported && digitalZoom > 1 ? digitalZoom : 1})`,
-                transformOrigin: "center",
-              }}
-              playsInline
-              muted
-              onPointerUp={handleTapFocus}
-            />
-          </div>
-          <canvas ref={canvasRef} className="hidden" />
-
-          {!cameraOn && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-white">
-              <div className="px-4 text-center">
-                <Camera className="mx-auto mb-3 h-10 w-10" />
-                <div className="text-lg font-semibold">Safari Camera</div>
-                <div className="text-sm text-white/70">Start camera, then switch to iPhone / Continuity if needed.</div>
-              </div>
-            </div>
-          )}
-
-          {focusPoint && (
-            <div
-              className="pointer-events-none absolute h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-primary bg-primary/10"
-              style={{ left: `${focusPoint.x}%`, top: `${focusPoint.y}%` }}
-            >
-              <Focus className="absolute left-1/2 top-1/2 h-6 w-6 -translate-x-1/2 -translate-y-1/2 text-primary" />
-            </div>
-          )}
-
-          <div className="absolute left-3 top-3 flex gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={rotateCamera}
-              className="h-9 bg-black/65 text-white hover:bg-black/80"
-              title="Rotate preview and captured image"
-            >
-              <RotateCw className="mr-2 h-4 w-4" />
-              {cameraRotation}°
-            </Button>
-          </div>
-
-          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-3 text-white">
-            <div className="flex items-end justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-xs text-white/70">{status}</div>
-                <div className="truncate text-sm font-semibold">{selectedDevice?.label || "Tap preview to focus/expose"}</div>
-              </div>
-              <div className="text-right text-xs text-white/70">
-                {visibleZoom.toFixed(1)}× • {getRotationLabel(cameraRotation)}
-              </div>
-            </div>
-          </div>
-        </div>
-      </Card>
-
-      <div className="flex justify-center py-2">
-        <button
-          onClick={() => void capture()}
-          disabled={!cameraOn || busy}
-          className={cn(
-            "flex h-20 w-20 items-center justify-center rounded-full transition active:scale-95",
-            cameraOn ? "bg-primary text-primary-foreground shadow-lg shadow-primary/30" : "bg-secondary text-secondary-foreground",
-            (!cameraOn || busy) && "cursor-not-allowed opacity-50",
-          )}
-          aria-label="Capture card"
-        >
-          {busy ? <Loader2 className="h-8 w-8 animate-spin" /> : <Camera className="h-8 w-8" />}
-        </button>
-      </div>
-
-      <Card className="space-y-3 p-3">
-        <div className="rounded-xl border">
-          <button
-            type="button"
-            onClick={() => {
-              setPhoneOpen((v) => {
-                const next = !v;
-                localStorage.setItem("rapid_scan_phone_open", next ? "1" : "0");
-                return next;
-              });
-            }}
-            className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
-            aria-expanded={phoneOpen}
+    <div
+      className={cn(
+        "space-y-4",
+        settings.fullscreenScanMode && "fixed inset-0 z-50 bg-background p-2 sm:p-4 overflow-auto"
+      )}
+    >
+      {/* ── Compact top bar ── */}
+      <div className="flex items-center justify-between gap-2 px-1">
+        <div className="flex items-center gap-2">
+          <Select
+            value={settings.gameTypeFilter}
+            onValueChange={(val) => updateSettings({ gameTypeFilter: val as ScannerSettings["gameTypeFilter"] })}
           >
-            <div className="flex items-center gap-2 text-sm font-medium">
-              <Smartphone className="h-4 w-4" />
-              Phone / Camera
-            </div>
-            <ChevronDown className={cn("h-4 w-4 transition-transform", phoneOpen ? "rotate-180" : "")} />
-          </button>
-          {phoneOpen && (
-            <div className="space-y-3 border-t p-3">
-              <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Camera / Lens
-                  <select
-                    value={selectedDeviceId}
-                    onChange={(e) => void switchCamera(e.target.value)}
-                    className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  >
-                    <option value="">Default Mac/Safari camera</option>
-                    {sortedDevices.map((device, index) => (
-                      <option key={device.deviceId || index} value={device.deviceId}>
-                        {isContinuityDevice(device) ? "📱 " : ""}{deviceLabel(device, index)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" onClick={() => void useContinuityCamera()} className="h-10">
-                    <Smartphone className="mr-2 h-4 w-4" /> Use iPhone
-                  </Button>
-                  {!cameraOn ? (
-                    <Button onClick={() => void startCamera()} disabled={busy} className="h-10 min-w-32">
-                      {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Camera className="mr-2 h-4 w-4" />}
-                      Start Camera
-                    </Button>
-                  ) : (
-                    <Button variant="destructive" onClick={() => void stopCamera()} className="h-10 min-w-28">
-                      <CameraOff className="mr-2 h-4 w-4" /> Stop
-                    </Button>
-                  )}
-                </div>
-              </div>
-              <div className="rounded-lg border bg-muted/30 p-2 text-xs text-muted-foreground">
-                Continuity Camera appears after Safari has camera permission. Unlock the iPhone, keep it near this Mac, tap Refresh cameras, then choose the 📱 iPhone option or Use iPhone.
-              </div>
-            </div>
-          )}
+            <SelectTrigger className="h-8 w-[130px] text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">Auto Detect</SelectItem>
+              <SelectItem value="mtg">MTG</SelectItem>
+              <SelectItem value="yugioh">Yu-Gi-Oh!</SelectItem>
+              <SelectItem value="pokemon">Pokémon</SelectItem>
+              <SelectItem value="sports">Sports</SelectItem>
+              <SelectItem value="gpk">GPK</SelectItem>
+              <SelectItem value="marvel">Marvel</SelectItem>
+              <SelectItem value="onepiece">One Piece</SelectItem>
+              <SelectItem value="other">Other</SelectItem>
+            </SelectContent>
+          </Select>
+          <Badge 
+            variant={
+              settings.scanMode === "REMOVE" 
+                ? "destructive" 
+                : settings.scanMode === "SAVE" 
+                ? "default" 
+                : "secondary"
+            }
+          >
+            {settings.scanMode === "REMOVE" 
+              ? "Remove" 
+              : settings.scanMode === "SAVE" 
+              ? "Save" 
+              : "Price"}
+          </Badge>
+          <Badge variant="outline" className="text-xs py-1 px-2">
+            ${totalValue.toFixed(2)}
+          </Badge>
+          <Badge variant="outline" className="text-xs py-1 px-2 text-muted-foreground">
+            {bufferedItemsCount} buffered
+          </Badge>
         </div>
 
-
-        <div className="rounded-xl border p-3">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <div className="text-sm font-medium">Zoom</div>
-            <div className="text-xs text-muted-foreground">
-              {visibleZoom.toFixed(1)}× {zoom.supported ? "hardware" : "screen fallback"}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" onClick={() => void applyZoom(visibleZoom - (zoom.step || 0.1))} disabled={!cameraOn}>
-              <ZoomOut className="h-4 w-4" />
-            </Button>
-            <Slider
-              value={[visibleZoom]}
-              min={zoom.supported ? zoom.min : 1}
-              max={zoom.supported ? zoom.max : 3}
-              step={zoom.supported ? zoom.step : 0.05}
-              disabled={!cameraOn}
-              onValueChange={([next]) => void applyZoom(next)}
-              className="flex-1"
-            />
-            <Button variant="outline" size="icon" onClick={() => void applyZoom(visibleZoom + (zoom.step || 0.1))} disabled={!cameraOn}>
-              <ZoomIn className="h-4 w-4" />
-            </Button>
-          </div>
+        <div className="flex rounded-lg border overflow-hidden">
+          <Button
+            variant={settings.scanMode === "SAVE" ? "default" : "ghost"}
+            size="sm"
+            className="rounded-none border-0 px-2.5 h-8"
+            onClick={() => {
+              updateSettings({ scanMode: "SAVE" });
+              toast.info("Save Mode");
+            }}
+          >
+            <Save className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={settings.scanMode === "SCAN_ONLY" ? "secondary" : "ghost"}
+            size="sm"
+            className="rounded-none border-0 border-x px-2.5 h-8"
+            onClick={() => {
+              updateSettings({ scanMode: "SCAN_ONLY" });
+              toast.info("Price Mode");
+            }}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={settings.scanMode === "REMOVE" ? "destructive" : "ghost"}
+            size="sm"
+            className="rounded-none border-0 px-2.5 h-8"
+            onClick={() => {
+              updateSettings({ scanMode: "REMOVE" });
+              toast.info("Remove Mode");
+            }}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
         </div>
+      </div>
 
-        <div className="rounded-xl border p-3">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <div className="text-sm font-medium">Rotation Lock</div>
-            <div className="text-xs text-muted-foreground">Use when the phone is flat</div>
-          </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {ROTATION_OPTIONS.map((rotation) => (
+      {/* Anomaly alert */}
+      {isAnomalyPaused && (
+        <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-0.5">
+              <div className="text-sm font-semibold text-foreground">Rapid scan paused</div>
+              <p className="text-xs text-muted-foreground">
+                Repeated identical cards detected. Queue paused.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => void handleResumeAfterAnomaly()}>Resume</Button>
               <Button
-                key={rotation}
-                variant={cameraRotation === rotation ? "default" : "outline"}
+                variant="outline"
+                size="sm"
                 onClick={() => {
-                  setCameraRotation(rotation);
-                  localStorage.setItem("rapid_scan_camera_rotation", String(rotation));
-                  setStatus(`Rotation locked: ${getRotationLabel(rotation)}`);
+                  if (window.confirm("Clear the current rapid scan batch?")) {
+                    void handleClearBadBatch();
+                  }
                 }}
               >
-                {rotation}°
+                Clear Batch
               </Button>
-            ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Viewfinder ── */}
+      <div className={cn(
+        "relative overflow-hidden rounded-2xl bg-black shadow-xl",
+        settings.scanMode === "REMOVE" ? "ring-2 ring-destructive/50" : "ring-1 ring-primary/20"
+      )}>
+        <video
+          ref={videoRef}
+          className={cn(
+            "w-full object-contain",
+            "h-[60vh] min-h-[350px] max-h-[600px]",
+            "sm:h-[55vh] sm:min-h-[400px] sm:max-h-[580px]",
+            "md:h-[520px] md:min-h-0 md:max-h-none",
+            "lg:h-[560px]",
+            "landscape:h-[65vh] landscape:min-h-[280px] landscape:max-h-[480px]",
+            usingDigitalZoom && zoomLevel > 1 && "transition-transform duration-100"
+          )}
+          style={usingDigitalZoom && zoomLevel > 1 ? { transform: `scale(${zoomLevel})` } : undefined}
+          onClick={handleVideoTap}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          playsInline
+          muted
+        />
+
+        {/* Alignment frame */}
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div 
+            className="border-2 border-dashed border-white/30 rounded-lg relative"
+            style={{ width: "min(80%, 320px)", aspectRatio: "5/7" }}
+          >
+            <div className="absolute -top-1.5 -left-1.5 w-8 h-8 border-t-[3px] border-l-[3px] border-primary/80 rounded-tl-lg" />
+            <div className="absolute -top-1.5 -right-1.5 w-8 h-8 border-t-[3px] border-r-[3px] border-primary/80 rounded-tr-lg" />
+            <div className="absolute -bottom-1.5 -left-1.5 w-8 h-8 border-b-[3px] border-l-[3px] border-primary/80 rounded-bl-lg" />
+            <div className="absolute -bottom-1.5 -right-1.5 w-8 h-8 border-b-[3px] border-r-[3px] border-primary/80 rounded-br-lg" />
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <Button
-            variant={torchOn ? "secondary" : "outline"}
-            onClick={() => void toggleTorch()}
-            disabled={!canUseTorch}
-            className="h-11"
-          >
-            {torchOn ? <FlashlightOff className="mr-2 h-4 w-4" /> : <Flashlight className="mr-2 h-4 w-4" />}
-            Torch
-          </Button>
-          <Button variant={canFocus ? "outline" : "secondary"} disabled className="h-11">
-            <Focus className="mr-2 h-4 w-4" />
-            {canFocus ? "Tap Focus" : "Auto Focus"}
-          </Button>
-          <Button variant="outline" onClick={() => void resetCameraControls()} disabled={!cameraOn} className="h-11">
-            <RotateCcw className="mr-2 h-4 w-4" /> Reset
-          </Button>
-          <Button variant="outline" onClick={() => void clearQueueAndRecent()} className="h-11 text-destructive hover:text-destructive">
-            <Trash2 className="mr-2 h-4 w-4" /> Clear
-          </Button>
-        </div>
-      </Card>
+        {/* Foil detection overlay */}
+        {settings.foilDetectionEnabled && cameraOn && (
+          <FoilDetectionOverlay
+            result={foilResult}
+            frameCount={foilAnalyzerRef.current.frameCount}
+            visible={true}
+          />
+        )}
 
-      <div className="space-y-2">
-        <div className="flex items-center justify-between text-sm">
-          <span className="font-medium">Recent scans</span>
-          <span className="text-xs text-muted-foreground">{rows.length} cards</span>
-        </div>
-        {rows.length === 0 ? (
-          <Card className="p-4 text-center text-sm text-muted-foreground">No scans yet.</Card>
-        ) : (
-          <div className="grid gap-2">
-            {rows.slice(0, 30).map((row) => (
-              <Card key={row.id} className="flex items-center gap-3 p-2">
-                <img src={row.imageUrl} alt="Captured card" className="h-16 w-12 rounded object-cover" />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium">{row.cardName || row.status}</div>
-                  <div className="truncate text-xs text-muted-foreground">
-                    {[row.cardSet, row.cardNumber].filter(Boolean).join(" • ") || "Waiting for lookup"}
-                  </div>
-                  {row.error && <div className="truncate text-xs text-destructive">{row.error}</div>}
+        <canvas ref={canvasRef} className="hidden" />
+        {flashActive && <div className="capture-flash" />}
+
+        {/* Torch dimmer overlay */}
+        {torchOn && torchDimmer < 100 && (
+          <div 
+            className="pointer-events-none absolute inset-0 bg-black/80 transition-opacity duration-200"
+            style={{ opacity: (100 - torchDimmer) / 100 * 0.7 }}
+          />
+        )}
+
+        {/* ── Overlay: top-left camera selector pill ── */}
+        {!isNative && cameraDevices.length > 1 && cameraOn && (
+          <div className="absolute top-3 left-3 z-10">
+            <CameraDeviceSelector
+              devices={cameraDevices}
+              selectedDeviceId={selectedDeviceId}
+              onDeviceChange={async (deviceId) => {
+                setSelectedDeviceId(deviceId);
+                if (cameraOn) {
+                  await stopCamera();
+                  setTimeout(() => startCamera(), 100);
+                }
+              }}
+              onRefresh={refreshDevices}
+              isLoading={devicesLoading}
+              className="bg-black/60 backdrop-blur-sm rounded-full"
+            />
+          </div>
+        )}
+
+        {/* ── Overlay: top-right zoom pill ── */}
+        {cameraOn && zoomCapabilities.supported && zoomLevel > 1 && (
+          <div className="absolute top-3 right-3 z-10">
+            <button
+              onClick={() => setZoom(1)}
+              className="bg-black/60 backdrop-blur-sm rounded-full px-3 py-1.5 flex items-center gap-1.5 hover:bg-black/80 transition-colors"
+            >
+              <span className="text-xs text-white font-medium">
+                {zoomLevel.toFixed(1)}×
+              </span>
+              {usingDigitalZoom && (
+                <span className="text-[10px] text-white/50">digital</span>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* Voice capture pill */}
+        {settings.voiceCaptureEnabled && (
+          <div className="absolute top-3 left-3 z-10" style={{ left: !isNative && cameraDevices.length > 1 ? 'auto' : undefined, right: !isNative && cameraDevices.length > 1 ? '3.5rem' : undefined }}>
+            <div className="bg-black/60 backdrop-blur-sm rounded-full px-3 py-1.5 flex items-center gap-1.5">
+              <span className="text-xs text-white font-medium">Voice</span>
+              <span className={cn("text-[10px]", voice.listening ? "text-emerald-300" : "text-white/50")}>
+                {voice.supported ? (voice.listening ? "●" : "○") : "—"}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* ── Overlay: bottom status gradient ── */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-3 pt-8">
+          <div className="flex items-end justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-xs text-white/70">{statusLine}</div>
+              <div className="truncate text-sm font-semibold text-white">
+                {overlay?.label ? overlay.label : ""}
+              </div>
+              {overlay?.value != null && (
+                <div className="text-xs text-white/80">
+                  ${overlay.value.toFixed(2)}{" "}
+                  {overlay.isInLibrary ? `• In library ×${Math.max(overlay.libraryQuantity || 1, 1)}` : "• New"}
                 </div>
-                <Badge variant={row.status === "completed" ? "default" : row.status === "error" ? "destructive" : "secondary"}>
-                  {row.status === "completed" && typeof row.value === "number" ? `$${row.value.toFixed(2)}` : row.status}
-                </Badge>
-              </Card>
-            ))}
+              )}
+            </div>
+            <div className="text-right text-[10px] text-white/50 shrink-0">
+              {cameraOn ? "Pinch to zoom • Tap to focus • Stop to price" : ""}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Bottom capture bar ── */}
+      <div className="flex items-center justify-center gap-4 py-2">
+        {/* Left: Auto-timer toggle + speed selector */}
+        {!isNative && cameraOn ? (
+          <div className="relative shrink-0">
+            <Button
+              onClick={autoTimerActive ? stopAutoTimer : startAutoTimer}
+              variant={autoTimerActive ? "destructive" : "outline"}
+              size="icon"
+              className="h-14 w-14 rounded-full"
+              disabled={isAnomalyPaused}
+              title={autoTimerActive ? "Stop auto-capture" : `Auto every ${autoTimerSeconds}s`}
+            >
+              {autoTimerActive ? (
+                <div className="flex flex-col items-center">
+                  <TimerOff className="h-5 w-5" />
+                  <span className="text-[10px] mt-0.5 font-semibold">{autoTimerCountdown}s</span>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center">
+                  <Timer className="h-5 w-5" />
+                  <span className="text-[10px] mt-0.5">{autoTimerSeconds}s</span>
+                </div>
+              )}
+            </Button>
+            {/* Speed selector badge — tap to cycle */}
+            {!autoTimerActive && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const speeds: Array<1 | 1.25 | 1.5 | 2 | 5> = [1, 1.25, 1.5, 2, 5];
+                  const idx = speeds.indexOf(autoTimerSeconds as any);
+                  const next = speeds[(idx + 1) % speeds.length];
+                  updateSettings({ autoTimerIntervalSeconds: next });
+                }}
+                className="absolute -top-1 -right-1 bg-primary text-primary-foreground rounded-full h-5 min-w-5 px-1 text-[9px] font-bold flex items-center justify-center shadow-md"
+                title="Tap to change speed"
+              >
+                {autoTimerSeconds}s
+              </button>
+            )}
+          </div>
+        ) : <div className="w-14" />}
+
+        {/* Center: Large capture / start button */}
+        <button
+          onTouchStart={() => warmUpAudio()}
+          onMouseDown={() => warmUpAudio()}
+          onClick={isNative ? captureWithNativeCamera : (cameraOn ? captureAndEnqueue : startCamera)}
+          disabled={isNative ? isAnomalyPaused : (cameraOn ? (busyCapture || autoTimerActive || isAnomalyPaused) : false)}
+          className={cn(
+            "relative h-20 w-20 rounded-full transition-all duration-200 shrink-0",
+            "flex items-center justify-center",
+            "disabled:opacity-40 disabled:cursor-not-allowed",
+            "active:scale-95",
+            cameraOn
+              ? "bg-primary text-primary-foreground shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40"
+              : "bg-secondary text-secondary-foreground border-2 border-primary/50 hover:border-primary"
+          )}
+        >
+          {/* Pulsing ring when camera is ready */}
+          {cameraOn && !busyCapture && !autoTimerActive && (
+            <span className="absolute inset-0 rounded-full border-2 border-primary/60 animate-pulse" />
+          )}
+          {busyCapture ? (
+            <Loader2 className="h-8 w-8 animate-spin" />
+          ) : cameraOn ? (
+            <Camera className="h-8 w-8" />
+          ) : (
+            <Camera className="h-8 w-8" />
+          )}
+        </button>
+
+        {/* Right: Stop + torch controls */}
+        {cameraOn ? (
+          <div className="flex items-center gap-3 shrink-0">
+            <Button
+              variant="destructive"
+              size="icon"
+              className="h-14 w-14 rounded-full"
+              onClick={stopCamera}
+              title="Stop camera and start pricing"
+            >
+              <CameraOff className="h-5 w-5" />
+            </Button>
+            {!isNative && (
+              <Button
+                variant={torchOn ? "secondary" : "outline"}
+                size="icon"
+                className="h-14 w-14 rounded-full"
+                onClick={toggleTorch}
+                disabled={!support.torch}
+                title={support.torch ? "Toggle flash" : "Flash not supported"}
+              >
+                {torchOn ? <FlashlightOff className="h-5 w-5" /> : <Flashlight className="h-5 w-5" />}
+              </Button>
+            )}
+          </div>
+        ) : <div className="w-14" />}
+      </div>
+
+      {/* Start/stop label */}
+      {!cameraOn && !isNative && (
+        <div className="text-center text-sm text-muted-foreground -mt-2">
+          Tap to start camera
+        </div>
+      )}
+
+      {/* ── Live Rapid Scan Debug ── */}
+      <div className="rounded-xl border bg-card/70 p-2 text-xs shadow-sm">
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            className="font-semibold text-foreground"
+            onClick={() => setRapidDebugOpen((v) => !v)}
+          >
+            Rapid Debug {rapidDebugOpen ? "▾" : "▸"}
+          </button>
+          <div className="flex flex-wrap items-center justify-end gap-1">
+            <Badge variant={queueProcessor.isRunning ? "default" : "outline"}>
+              {queueProcessor.isRunning ? "running" : "stopped"}
+            </Badge>
+            {queueProcessor.isPaused && <Badge variant="destructive">paused</Badge>}
+            <Badge variant="outline">Q {queuedItemsCount}</Badge>
+            <Badge variant="outline">P {processingItemsCount}</Badge>
+            <Badge variant="outline">E {queueProcessor.errorCount}</Badge>
+          </div>
+        </div>
+
+        {rapidDebugOpen && (
+          <div className="mt-2 space-y-2">
+            <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
+              <div className="rounded-md bg-muted/50 p-2">Camera: {cameraOn ? "live" : "off"}</div>
+              <div className="rounded-md bg-muted/50 p-2">Capture: {busyCapture ? "busy" : "ready"}</div>
+              <div className="rounded-md bg-muted/50 p-2">Current: {queueProcessor.currentItem?.slice(0, 8) ?? "none"}</div>
+              <div className="rounded-md bg-muted/50 p-2">Video: {videoDebug.video}</div>
+              <div className="rounded-md bg-muted/50 p-2">Ready: {videoDebug.readyState}</div>
+              <div className="rounded-md bg-muted/50 p-2">Stream: {videoDebug.stream ? "yes" : "no"}</div>
+              <div className="rounded-md bg-muted/50 p-2">Track: {videoDebug.trackState}</div>
+              <div className="rounded-md bg-muted/50 p-2">Mode: {settings.scanMode}</div>
+            </div>
+
+            {queueProcessor.lastDebugEvent && (
+              <div className="rounded-md border border-primary/30 bg-primary/5 p-2">
+                <div className="font-medium text-foreground">
+                  {queueProcessor.lastDebugEvent.stage}: {queueProcessor.lastDebugEvent.message}
+                </div>
+                {queueProcessor.lastDebugEvent.details && (
+                  <pre className="mt-1 max-h-20 overflow-auto whitespace-pre-wrap text-[10px] text-muted-foreground">
+                    {JSON.stringify(queueProcessor.lastDebugEvent.details, null, 2)}
+                  </pre>
+                )}
+              </div>
+            )}
+
+            {lastQueueError && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-destructive">
+                Last queue error: {lastQueueError}
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="secondary" onClick={() => void forceStartProcessor()}>
+                Force Start Processor
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => queueProcessor.resume()}>
+                Resume
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => void retryBlockedQueueItems()}>
+                Requeue Errors/Stuck
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => void refreshMeta()}>
+                Refresh
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => queueProcessor.clearDebug()}>
+                Clear Debug
+              </Button>
+            </div>
+
+            <div className="max-h-44 overflow-auto rounded-md border bg-background/60 p-2 font-mono text-[10px]">
+              {queueProcessor.debugEvents.length === 0 ? (
+                <div className="text-muted-foreground">No debug events yet.</div>
+              ) : (
+                queueProcessor.debugEvents.slice(0, 20).map((event, index) => (
+                  <div key={`${event.at}-${index}`} className="border-b border-border/40 py-1 last:border-0">
+                    <span className="text-muted-foreground">
+                      {new Date(event.at).toLocaleTimeString()}
+                    </span>{" "}
+                    <span className="font-semibold">[{event.stage}]</span>{" "}
+                    <span>{event.message}</span>
+                    {event.itemId && <span className="text-muted-foreground"> #{event.itemId.slice(0, 8)}</span>}
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         )}
       </div>
+
+      {/* ── Status strip ── */}
+      <div className="flex items-center justify-between px-2 text-xs text-muted-foreground">
+        <span>
+          Captured waiting: {queuedItemsCount} • Pricing now: {processingItemsCount}
+        </span>
+        <div className="flex items-center gap-2">
+          {!isNative && cameraOn && zoomLevel > 1 && (
+            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={() => setZoom(1)}>
+              Reset {zoomLevel.toFixed(1)}×
+            </Button>
+          )}
+          <Button 
+            variant="ghost" 
+            size="sm"
+            className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
+            onClick={() => {
+              if (window.confirm("Clear all queued cards?")) {
+                if (window.confirm("Are you SURE? This cannot be undone.")) {
+                  clearAll();
+                }
+              }
+            }}
+          >
+            <Trash2 className="h-3 w-3 mr-1" /> Clear
+          </Button>
+        </div>
+      </div>
+
+      {/* ── Scanned cards list ── */}
+      {cards.length > CARD_LIST_RENDER_LIMIT && (
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-xs text-muted-foreground">
+            Showing {showAllCards ? Math.min(renderedCount, cards.length) : Math.min(cards.length, CARD_LIST_RENDER_LIMIT)} of {cards.length}
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowAllCards((v) => !v)}
+          >
+            {showAllCards ? "Show less" : `Show all (${cards.length})`}
+          </Button>
+          {showAllCards && renderedCount < cards.length && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={loadMoreCards}
+            >
+              Load more (+50)
+            </Button>
+          )}
+        </div>
+      )}
+
+      <ScannedCardList
+        cards={cardsToRender}
+        onCardUpdate={(id, updates) => updateCard(id, updates as any)}
+        onCardDelete={(id) => removeCard(id)}
+        scanMode={true}
+        removeMode={settings.scanMode === "REMOVE"}
+        onAddToLibrary={(id) => handleAddToLibrary(id)}
+        onAddAllToLibrary={handleAddAllToLibrary}
+        onRemoveFromLibrary={handleRemoveFromLibrary}
+        onRemoveAllFromLibrary={handleRemoveAllFromLibrary}
+        onReorder={(orderedIds) => {
+          setCards((prev) => {
+            const byId = new Map(prev.map((c) => [c.id, c]));
+            const completed = prev.filter((c) => c.status === "completed");
+            const rest = prev.filter((c) => c.status !== "completed");
+            const nextCompleted = orderedIds.map((id) => byId.get(id)).filter(Boolean) as any[];
+            const missing = completed.filter((c) => !orderedIds.includes(c.id));
+            return [...rest, ...nextCompleted, ...missing];
+          });
+        }}
+      />
     </div>
   );
 }
