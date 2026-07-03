@@ -1,5 +1,3 @@
-import { supabase } from "@/integrations/supabase/client";
-import { withTimeout } from "@/lib/async/withTimeout";
 import { findPriceChartingYuGiOhMatch, parseYugiohOcrText } from "@/lib/cardOcrParser";
 import { lookupYugiohByPrintedCode } from "@/lib/yugiohDirectLookup";
 
@@ -51,6 +49,37 @@ export function hasReadablePrice(pricing: RapidBasicLookupResponse["pricing"]): 
   return Boolean(pricing.raw || pricing.psa8 || pricing.psa9 || pricing.psa10 || pricing.cgc9 || pricing.cgc10 || pricing.highestSold);
 }
 
+function fromPriceChartingMatch(localMatch: NonNullable<Awaited<ReturnType<typeof findPriceChartingYuGiOhMatch>>>): RapidBasicLookupResponse {
+  return {
+    success: true,
+    source: "pricecharting-set-code",
+    confidenceTier: localMatch.confidence >= 90 ? "HIGH" : localMatch.confidence >= 70 ? "MEDIUM" : "LOW",
+    cardData: {
+      card_name: localMatch.cardName,
+      card_set: localMatch.cardSet,
+      card_number: localMatch.cardNumber,
+      rarity: localMatch.rarity,
+      game_type: "Yu-Gi-Oh",
+      sport_type: null,
+      manufacturer: "Konami",
+      confidence: localMatch.confidence / 100,
+    },
+    pricing: {
+      raw: localMatch.currentPriceRaw,
+      psa8: null,
+      psa9: localMatch.currentPricePsa9,
+      psa10: localMatch.currentPricePsa10,
+      cgc9: null,
+      cgc10: null,
+      highestSold: localMatch.suggestedPrice,
+      url: localMatch.priceChartingUrl,
+    },
+    priceChartingUrl: localMatch.priceChartingUrl,
+    googleLensUrl: null,
+    requiresDisambiguation: false,
+  };
+}
+
 export async function runRapidBasicLookup(args: {
   imageUrl: string | null;
   ocrText: string;
@@ -64,69 +93,30 @@ export async function runRapidBasicLookup(args: {
   allowGoogleLens: boolean;
   timeoutMs?: number;
 }): Promise<RapidBasicLookupResponse> {
-const directYgo = await lookupYugiohByPrintedCode(args.setCode);
-if (directYgo) return directYgo;
+  const parsed = parseYugiohOcrText(args.ocrText);
+  const isYugioh = !args.gameTypeHint || /yugioh|yu-gi-oh/i.test(args.gameTypeHint) || Boolean(args.setCode || parsed.setCode);
 
-const parsed = parseYugiohOcrText(args.ocrText);
-const isYugioh = !args.gameTypeHint || /yugioh|yu-gi-oh/i.test(args.gameTypeHint) || Boolean(parsed.setCode);
+  if (isYugioh) {
+    const localMatch = await findPriceChartingYuGiOhMatch({
+      cardName: args.title || parsed.cardName,
+      cardSet: args.setName || parsed.cardSet,
+      cardNumber: args.cardNumber || parsed.cardNumber,
+      setCode: args.setCode || parsed.setCode,
+      rawText: args.ocrText,
+    }).catch((error) => {
+      console.warn("[RapidBasicLookup] Local PriceCharting match failed:", error);
+      return null;
+    });
 
-if (isYugioh) {
-  const localMatch = await findPriceChartingYuGiOhMatch({
-    cardName: parsed.cardName,
-    cardSet: parsed.cardSet,
-    cardNumber: parsed.cardNumber,
-    setCode: parsed.setCode,
-    rawText: args.ocrText,
-  }).catch((error) => {
-    console.warn("[RapidBasicLookup] Local PriceCharting match failed:", error);
-    return null;
-  });
+    if (localMatch) return fromPriceChartingMatch(localMatch);
 
-  if (localMatch && (localMatch.currentPriceRaw || localMatch.currentPricePsa9 || localMatch.currentPricePsa10)) {
-    return {
-      success: true,
-      source: "pricecharting-set-code",
-      cardData: {
-        card_name: localMatch.cardName,
-        card_set: localMatch.cardSet,
-        card_number: localMatch.cardNumber,
-        rarity: localMatch.rarity,
-        game_type: "yugioh",
-        sport_type: null,
-        confidence: localMatch.confidence / 100,
-      },
-      pricing: {
-        raw: localMatch.currentPriceRaw,
-        psa8: null,
-        psa9: localMatch.currentPricePsa9,
-        psa10: localMatch.currentPricePsa10,
-        cgc9: null,
-        cgc10: null,
-        highestSold: localMatch.suggestedPrice,
-        url: localMatch.priceChartingUrl,
-      },
-      priceChartingUrl: localMatch.priceChartingUrl,
-    };
+    const directYgo = await lookupYugiohByPrintedCode(args.setCode || parsed.setCode);
+    if (directYgo) return directYgo;
   }
-}
-
-const timeoutMs = args.timeoutMs ?? 18000;
-const res = await withTimeout(
-  supabase.functions.invoke<RapidBasicLookupResponse>("rapid-basic-card-lookup", {
-    body: {
-      imageUrl: args.imageUrl,
-      ocrText: args.ocrText,
-      gameTypeHint: args.gameTypeHint,
-      allowGoogleLens: args.allowGoogleLens,
-    },
-  }),
-  timeoutMs + 1500,
-  "Rapid basic card lookup",
-);
 
   return {
     success: false,
     source: "none",
-    error: "No local/direct lookup match. Retake photo closer to the printed set code.",
+    error: "No local Yu-Gi-Oh lookup match. Retake photo closer to the printed set/card code.",
   };
 }
