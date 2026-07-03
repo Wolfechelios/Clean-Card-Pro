@@ -5,6 +5,7 @@
 import type { PriceQuote, CardPriceIdentity, PriceSourceAdapter } from "./types";
 import { supabase } from "@/integrations/supabase/client";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 interface SourceResult {
   raw: number | null;
   psa9: number | null;
@@ -20,7 +21,7 @@ interface SportsCardPriceResponse {
   ebay: SourceResult;
 }
 
-/** Shared: call the sports-card-prices edge function once, return full response */
+/** Shared: call the sports-card-prices disabled remote path once, return full response */
 let cachedCall: { key: string; promise: Promise<SportsCardPriceResponse | null> } | null = null;
 
 async function fetchSportsCardPrices(card: CardPriceIdentity): Promise<SportsCardPriceResponse | null> {
@@ -33,7 +34,7 @@ async function fetchSportsCardPrices(card: CardPriceIdentity): Promise<SportsCar
 
   const promise = (async () => {
     try {
-      const { data, error } = await supabase.functions.invoke("sports-card-prices", {
+      const { data, error } = await disabledSupabaseFunctionInvoke("sports-card-prices", {
         body: {
           cardName: card.name,
           cardSet: card.set,

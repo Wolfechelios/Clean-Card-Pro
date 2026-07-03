@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 interface ServiceImportExportProps {
   userId: string | null;
   totalCards: number;
@@ -210,7 +211,7 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
   const lookupCardImage = async (cardId: string, cardName: string, cardSet: string | null, gameType: string | null): Promise<string | null> => {
     try {
       const searchQuery = [cardName, cardSet, gameType].filter(Boolean).join(" ");
-      const { data, error } = await supabase.functions.invoke("generate-card-image-url", {
+      const { data, error } = await disabledSupabaseFunctionInvoke("generate-card-image-url", {
         body: { cardName, cardSet, gameType, searchQuery }
       });
       if (error || !data?.imageUrl) return "";
@@ -238,7 +239,7 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
         const imageUrl = await lookupCardImage(card.id, card.card_name, card.card_set, card.game_type || card.sport_type);
         if (imageUrl) {
           try {
-            const { data: identifyData } = await supabase.functions.invoke("enhanced-card-identify", { body: { imageUrl } });
+            const { data: identifyData } = await disabledSupabaseFunctionInvoke("enhanced-card-identify", { body: { imageUrl } });
             const confidence = identifyData?.cardData?.confidence ?? 100;
             const suggestedName = identifyData?.cardData?.card_name;
             const suggestedSet = identifyData?.cardData?.card_set;
@@ -294,13 +295,13 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
       for (let i = 0; i < lowConfCards.length; i++) {
         const card = lowConfCards[i];
         try {
-          const { data: refData } = await supabase.functions.invoke("generate-card-image-url", { body: { cardName: card.card_name, cardSet: card.card_set, gameType: card.game_type || card.sport_type } });
+          const { data: refData } = await disabledSupabaseFunctionInvoke("generate-card-image-url", { body: { cardName: card.card_name, cardSet: card.card_set, gameType: card.game_type || card.sport_type } });
           let suggestedName = card.card_name;
           let suggestedSet = card.card_set;
           let confidence = card.ocr_confidence || 0;
           if (refData?.imageUrl && !refData.imageUrl.includes("placehold.co")) {
             try {
-              const { data: identifyData } = await supabase.functions.invoke("enhanced-card-identify", { body: { imageUrl: card.image_url } });
+              const { data: identifyData } = await disabledSupabaseFunctionInvoke("enhanced-card-identify", { body: { imageUrl: card.image_url } });
               if (identifyData?.cardData) {
                 suggestedName = identifyData.cardData.primary?.card_name || identifyData.cardData.card_name || card.card_name;
                 suggestedSet = identifyData.cardData.primary?.card_set || identifyData.cardData.card_set || card.card_set;

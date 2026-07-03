@@ -10,6 +10,7 @@ import { TCGPlayerPriceChip } from "@/components/pricing/TCGPlayerPriceChip";
 import { isPremiumYugiohSet } from "@/lib/premiumSets";
 import { Crown } from "lucide-react";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 interface CardThumbnailProps {
   id: string;
   cardName: string;
@@ -86,7 +87,7 @@ export function CardThumbnail({
     setIsLookingUp(true);
 
     try {
-      const { data: lookupData, error: lookupError } = await supabase.functions.invoke("generate-card-image-url", {
+      const { data: lookupData, error: lookupError } = await disabledSupabaseFunctionInvoke("generate-card-image-url", {
         body: {
           cardName,
           cardSet,
@@ -101,7 +102,7 @@ export function CardThumbnail({
         return;
       }
 
-      const { data: attachData, error: attachError } = await supabase.functions.invoke("attach-image", {
+      const { data: attachData, error: attachError } = await disabledSupabaseFunctionInvoke("attach-image", {
         body: {
           cardId: id,
           remoteImageUrl: lookupData.imageUrl,

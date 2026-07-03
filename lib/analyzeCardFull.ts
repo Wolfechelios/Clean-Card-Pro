@@ -1,6 +1,7 @@
 // src/lib/analyzeCardFull.ts
 import { supabase } from "@/integrations/supabase/client";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 export type VisionLabel = {
   description: string;
   score: number;
@@ -69,7 +70,7 @@ export async function analyzeCardFull(
     cardName?: string;
   }
 ): Promise<FullCardAnalysis> {
-  const { data, error } = await supabase.functions.invoke("analyze-card-full", {
+  const { data, error } = await disabledSupabaseFunctionInvoke("analyze-card-full", {
     body: {
       image_url: imageUrl,
       card_id: opts?.cardId,

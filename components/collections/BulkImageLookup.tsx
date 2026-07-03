@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { ImageIcon, CheckCircle2, AlertCircle, Download } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 interface BulkImageLookupProps {
   onComplete?: () => void;
 }
@@ -87,7 +88,7 @@ export function BulkImageLookup({ onComplete }: BulkImageLookupProps) {
         const results = await Promise.allSettled(
           batch.map(async (card) => {
             try {
-              const { data, error } = await supabase.functions.invoke("generate-card-image-url", {
+              const { data, error } = await disabledSupabaseFunctionInvoke("generate-card-image-url", {
                 body: {
                   cardName: card.card_name,
                   cardSet: card.card_set,

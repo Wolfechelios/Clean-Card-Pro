@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 export type Recommendation = {
   type: "buy" | "sell" | "grade" | "protect";
   title: string;
@@ -35,7 +36,7 @@ export async function getCollectionInsights(): Promise<{
   insights: CollectionInsights;
   collectionStats: any;
 }> {
-  const { data, error } = await supabase.functions.invoke("collection-insights", {
+  const { data, error } = await disabledSupabaseFunctionInvoke("collection-insights", {
     body: {},
   });
 

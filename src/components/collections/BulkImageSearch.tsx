@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 interface BulkImageSearchProps {
   onComplete?: () => void;
 }
@@ -87,7 +88,7 @@ export function BulkImageSearch({ onComplete }: BulkImageSearchProps) {
       let totalErrors = 0;
 
       for (let i = 0; i < totalBatches; i++) {
-        const { data, error } = await supabase.functions.invoke("resolve-missing-images", {
+        const { data, error } = await disabledSupabaseFunctionInvoke("resolve-missing-images", {
           body: { limit: batchSize },
         });
 
@@ -138,7 +139,7 @@ export function BulkImageSearch({ onComplete }: BulkImageSearchProps) {
       let totalFailed = 0;
 
       for (let i = 0; i < totalBatches; i++) {
-        const { data, error } = await supabase.functions.invoke("refresh-external-images", {
+        const { data, error } = await disabledSupabaseFunctionInvoke("refresh-external-images", {
           body: { limit: batchSize },
         });
 

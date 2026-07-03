@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -137,7 +138,7 @@ export function CardsNeedingReview() {
     setReanalyzing(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke("analyze-card-full", {
+      const { data, error } = await disabledSupabaseFunctionInvoke("analyze-card-full", {
         body: { image_url: selectedCard.image_url },
       });
 
@@ -186,7 +187,7 @@ export function CardsNeedingReview() {
     setSearchMatches([]);
 
     try {
-      const { data, error } = await supabase.functions.invoke("search-card-details", {
+      const { data, error } = await disabledSupabaseFunctionInvoke("search-card-details", {
         body: { card_name: editValues.card_name, game_type: "yugioh" },
       });
 
@@ -236,7 +237,7 @@ export function CardsNeedingReview() {
       }
 
       try {
-        const { data, error } = await supabase.functions.invoke("search-card-details", {
+        const { data, error } = await disabledSupabaseFunctionInvoke("search-card-details", {
           body: { card_name: card.card_name, game_type: "yugioh" },
         });
 

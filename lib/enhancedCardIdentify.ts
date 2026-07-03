@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
   EnhancedCardIdentifyResponseSchema, 
   type EnhancedCardData 
 } from "./schemas/api-schemas";
@@ -12,7 +13,7 @@ export async function enhancedCardIdentify(
   imageUrl: string,
   ocrText?: string
 ): Promise<EnhancedCardData> {
-  const { data, error } = await supabase.functions.invoke("enhanced-card-identify", {
+  const { data, error } = await disabledSupabaseFunctionInvoke("enhanced-card-identify", {
     body: {
       imageUrl,
       ocrText,

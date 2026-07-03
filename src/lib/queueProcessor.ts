@@ -1,6 +1,6 @@
 // src/lib/queueProcessor.ts
 // Fully local-first RapidScan queue worker.
-// Local image blob → local browser OCR → direct card lookup → local IndexedDB save.
+// Local image blob -> browser OCR -> direct printed-code lookup -> local/Supabase save only after match.
 
 import { create } from "zustand";
 import { getScannerSettings } from "@/hooks/use-scanner-settings";
@@ -9,21 +9,19 @@ import { insertCardDual } from "@/lib/localCards";
 import { runLocalCardOcr } from "@/lib/ocr/localCardOcr";
 import { withTimeout } from "@/lib/async/withTimeout";
 import {
-  idbGetNextQueued,
-  idbUpdateMeta,
-  idbDelete,
+  idbAdd,
+  idbClear,
   idbCount,
   idbCountQueued,
-  idbListMetaFast,
+  idbDelete,
   idbGetAll,
+  idbGetNextQueued,
+  idbListMetaFast,
+  idbUpdateMeta,
   type QueueItem,
   type QueueItemMeta,
 } from "@/lib/idbQueue";
-import {
-  compactOcrText,
-  hasReadablePrice,
-  runRapidBasicLookup,
-} from "@/lib/rapidBasicLookupClient";
+import { compactOcrText, hasReadablePrice, runRapidBasicLookup } from "@/lib/rapidBasicLookupClient";
 import { isReadableTitle, isValidPrintedCode } from "@/lib/ocr/ocrQuality";
 
 export type ProcessedCard = {
@@ -110,7 +108,6 @@ function getLocalUserId(): string {
   const key = "clean_card_local_user_id";
   const existing = localStorage.getItem(key);
   if (existing) return existing;
-
   const id = `local-${crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
   localStorage.setItem(key, id);
   return id;
@@ -252,19 +249,8 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   const gameTypeHint = scanSettings.gameTypeFilter !== "auto" ? scanSettings.gameTypeFilter : undefined;
   const userId = getLocalUserId();
 
-  const ocr = await withTimeout(
-    runLocalCardOcr(item.blob),
-    LOCAL_OCR_TIMEOUT_MS,
-    "Local OCR",
-  );
-
-  const ocrText = compactOcrText(
-    ocr?.setCode,
-    ocr?.cardNumber,
-    ocr?.title,
-    ocr?.fullCode,
-    ocr?.rawText,
-  );
+  const ocr = await withTimeout(runLocalCardOcr(item.blob), LOCAL_OCR_TIMEOUT_MS, "Local OCR");
+  const ocrText = compactOcrText(ocr?.setCode, ocr?.cardNumber, ocr?.title, ocr?.fullCode, ocr?.rawText);
 
   const hasStructured = Boolean(ocr?.title || ocr?.setCode || ocr?.cardNumber || ocr?.fullCode);
   if (!ocrText && !hasStructured) {
@@ -275,10 +261,7 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   const printedIdentifier = firstValidPrintedIdentifier(ocr?.setCode, ocr?.fullCode, ocr?.cardNumber);
   const hasValidTitle = isReadableTitle(ocr?.title);
   if (!printedIdentifier) {
-    await idbUpdateMeta(item.id, {
-      status: "error",
-      error: "No printed set/card code found — retake photo closer to the code",
-    });
+    await idbUpdateMeta(item.id, { status: "error", error: "No printed set/card code found — retake photo closer to the code" });
     return;
   }
 
@@ -296,17 +279,14 @@ async function processQueueItem(item: QueueItem): Promise<void> {
       allowGoogleLens: false,
     }),
     LOCAL_LOOKUP_TIMEOUT_MS,
-    "Local card database lookup",
+    "Printed-code card lookup",
   );
 
   const identify = lookup.cardData;
   const pricing = lookup.pricing ?? null;
 
   if (!lookup.success || !identify?.card_name) {
-    await idbUpdateMeta(item.id, {
-      status: "error",
-      error: lookup.error || "No local/direct lookup match — retake photo closer to the printed code",
-    });
+    await idbUpdateMeta(item.id, { status: "error", error: lookup.error || "No printed-code lookup match — retake photo closer to the printed code" });
     return;
   }
 
@@ -376,22 +356,16 @@ async function processQueueItem(item: QueueItem): Promise<void> {
         raw_manufacturer: manufacturer,
         ocr_confidence: confidence,
       } as any);
-
       processedCard.isInLibrary = true;
       processedCard.dbId = inserted.id;
       processedCard.libraryQuantity = 1;
     } catch (e) {
-      console.error("[QueueProcessor] Local auto-save failed:", e);
+      console.error("[QueueProcessor] auto-save failed:", e);
     }
   }
 
   useQueueProcessor.getState()._setLastProcessedCard(processedCard);
-
-  console.log("[QueueProcessor] Local lookup matched", cardName, {
-    ocrSource: ocr?.source ?? "local-browser-ocr",
-    source: lookup.source,
-    hasPrice: hasReadablePrice(pricing),
-  });
+  console.log("[QueueProcessor] Printed-code lookup matched", cardName, { ocrSource: ocr?.source ?? "local-browser-ocr", source: lookup.source, hasPrice: hasReadablePrice(pricing) });
 
   addRecentScan({
     id: item.id,
@@ -421,14 +395,12 @@ async function processQueueItem(item: QueueItem): Promise<void> {
 export async function checkAndResumeQueue(): Promise<void> {
   if (autoResumeChecked) return;
   autoResumeChecked = true;
-
   const state = useQueueProcessor.getState();
   const anomalyPaused = state.isPausedByAnomaly || readAnomalyPauseFlag();
   if (anomalyPaused) {
     useQueueProcessor.setState({ isPaused: true, isPausedByAnomaly: true });
     return;
   }
-
   const queuedCount = await idbCountQueued();
   if (queuedCount > 0) state.start();
 }

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
   Card,
   CardContent,
   CardDescription,
@@ -80,7 +81,7 @@ export function BulkRarityReanalyze({
       for (let i = 0; i < missingIds.length; i += batchSize) {
         const cardIds = missingIds.slice(i, i + batchSize);
 
-        const { data, error } = await supabase.functions.invoke(
+        const { data, error } = await disabledSupabaseFunctionInvoke(
           "bulk-reanalyze-rarity",
           {
             body: { cardIds },

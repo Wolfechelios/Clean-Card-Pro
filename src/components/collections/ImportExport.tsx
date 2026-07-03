@@ -11,6 +11,7 @@ import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 interface ImportExportProps {
   cards: any[];
   onImportComplete: () => void;
@@ -82,7 +83,7 @@ async function readSpreadsheetFile(file: File): Promise<any[]> {
 
 async function lookupCardImage(cardName: string, cardSet: string | null, gameType: string | null): Promise<string | null> {
   try {
-    const { data, error } = await supabase.functions.invoke('generate-card-image-url', { body: { cardName, cardSet, gameType } });
+    const { data, error } = await disabledSupabaseFunctionInvoke('generate-card-image-url', { body: { cardName, cardSet, gameType } });
     if (error || !data?.imageUrl) return null;
     if (data.imageUrl.includes('placehold.co') || data.imageUrl.includes('placeholder')) return null;
     return data.imageUrl;
@@ -91,7 +92,7 @@ async function lookupCardImage(cardName: string, cardSet: string | null, gameTyp
 
 async function storeImageToCloud(cardId: string, imageUrl: string): Promise<boolean> {
   try {
-    const { data, error } = await supabase.functions.invoke('attach-image', { body: { cardId, remoteImageUrl: imageUrl } });
+    const { data, error } = await disabledSupabaseFunctionInvoke('attach-image', { body: { cardId, remoteImageUrl: imageUrl } });
     return !error && data?.success;
   } catch { return false; }
 }

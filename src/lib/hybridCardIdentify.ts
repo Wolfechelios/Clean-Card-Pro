@@ -9,6 +9,7 @@ import { callLocalVisionLLM } from "./localLLM";
 import { withRetry } from "./retry";
 import { runPaddleOCR, isPaddleOCRReady } from "./paddleOCR";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 export interface IdentifiedCardData {
   card_name: string;
   card_set: string | null;
@@ -111,11 +112,11 @@ async function identifyWithLocalLLM(imageUrl: string): Promise<IdentifiedCardDat
 
 async function identifyWithCloud(
   imageUrl: string,
-  functionName: string = "rapid-card-identify",
+  functionName: string = "disabled-card-identify",
   ocrText?: string,
   gameTypeHint?: string
 ): Promise<IdentifiedCardData> {
-  const { data, error } = await supabase.functions.invoke(functionName, {
+  const { data, error } = await disabledSupabaseFunctionInvoke(functionName, {
     body: { imageUrl, ocrText, gameTypeHint },
   });
 
@@ -179,7 +180,7 @@ export async function hybridIdentifyCard(
   } = {}
 ): Promise<HybridIdentifyResult> {
   const {
-    cloudFunction = "rapid-card-identify",
+    cloudFunction = "disabled-card-identify",
     forceLocal = false,
     forceCloud = false,
     skipOfflineGuard = false,

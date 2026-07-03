@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
   RefreshCw,
   Trash2,
   HardDrive,
@@ -155,7 +156,7 @@ export function OfflineStoragePanel() {
               if (!isOnline) { toast.error("Must be online"); return; }
               setIsFixingUrls(true);
               try {
-                const { data, error } = await supabase.functions.invoke("fix-image-urls");
+                const { data, error } = await disabledSupabaseFunctionInvoke("fix-image-urls");
                 if (error) throw error;
                 toast.success(`Fixed ${data?.fixed ?? 0} expired image URLs`);
               } catch (e: any) {

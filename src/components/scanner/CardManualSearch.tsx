@@ -7,6 +7,7 @@ import { Search, Loader2 } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { supabase } from "@/integrations/supabase/client";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 interface SearchMatch {
   card_name: string;
   card_set: string | null;
@@ -32,7 +33,7 @@ export function CardManualSearch({ gameType, onSelect }: CardManualSearchProps) 
     setSearchResults([]);
 
     try {
-      const { data, error } = await supabase.functions.invoke("search-card-details", {
+      const { data, error } = await disabledSupabaseFunctionInvoke("search-card-details", {
         body: { card_name: searchQuery.trim(), game_type: gameType || "yugioh" },
       });
 

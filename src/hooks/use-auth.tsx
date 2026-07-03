@@ -3,6 +3,7 @@ import { User, Session, AuthError } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { SessionExpiredDialog } from "@/components/auth/SessionExpiredDialog";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 interface AuthContextType {
   user: User | null;
   session: Session | null;
@@ -72,8 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       priceUpdateTriggered = true;
 
       setTimeout(() => {
-        supabase.functions
-          .invoke("update-prices", { body: { user_id: userId } })
+        disabledSupabaseFunctionInvoke("update-prices", { body: { user_id: userId } })
           .then(() => console.log("Background price update started"))
           .catch((err) => console.error("Price update error:", err));
       }, 100);

@@ -1,7 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 export async function callCloudLLM(prompt: string): Promise<string> {
-  const { data, error } = await supabase.functions.invoke("identify-card", {
+  const { data, error } = await disabledSupabaseFunctionInvoke("identify-card", {
     body: { prompt }
   });
   

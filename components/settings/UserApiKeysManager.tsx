@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { Key, Plus, Trash2, Loader2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 interface DisplayKey {
   id: string;
   key_name: string;
@@ -36,7 +37,7 @@ export function UserApiKeysManager() {
   }, [userId]);
 
   const callApi = async (body: Record<string, unknown>) => {
-    const { data, error } = await supabase.functions.invoke("manage-api-keys", { body });
+    const { data, error } = await disabledSupabaseFunctionInvoke("manage-api-keys", { body });
     if (error) throw error;
     return data;
   };

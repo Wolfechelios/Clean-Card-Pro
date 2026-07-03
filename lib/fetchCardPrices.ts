@@ -3,6 +3,7 @@ import { CardPricingSchema, type CardPricing } from "./schemas/api-schemas";
 import { handleApiError, validateOrThrow } from "./errors";
 
 // Re-export the type for backwards compatibility
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 export type { CardPricing } from "./schemas/api-schemas";
 
 export async function fetchCardPrices(
@@ -13,7 +14,7 @@ export async function fetchCardPrices(
   sportType?: string | null,
   condition?: string | null
 ): Promise<CardPricing> {
-  const { data, error } = await supabase.functions.invoke("fetch-card-prices", {
+  const { data, error } = await disabledSupabaseFunctionInvoke("disabled-pricing-lookup", {
     body: {
       cardName,
       cardSet,

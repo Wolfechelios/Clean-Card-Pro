@@ -8,6 +8,7 @@ import { getScannerSettings, type ScanMode } from "./use-scanner-settings";
 import { addRecentScan } from "@/lib/recentScans";
 import { singleScanDetector } from "@/lib/scanAnomalyDetector";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 export interface OCRResult {
   cardName: string;
   cardSet: string;
@@ -235,7 +236,7 @@ export function useCardScanner({
       try {
         const enhancedResult = await withRetry(
           async () => {
-            const { data, error } = await supabase.functions.invoke("enhanced-card-identify", {
+            const { data, error } = await disabledSupabaseFunctionInvoke("enhanced-card-identify", {
               body: { imageUrl, ocrText: ocr.rawText },
             });
             if (error) throw new Error(error.message);
@@ -265,7 +266,7 @@ export function useCardScanner({
       try {
         const cardIdentification = await withRetry(
           async () => {
-            const { data, error } = await supabase.functions.invoke("identify-card", {
+            const { data, error } = await disabledSupabaseFunctionInvoke("identify-card", {
               body: { imageUrl, ocrText: ocr.rawText },
             });
             if (error) throw new Error(error.message);

@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import {
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -310,7 +311,7 @@ setNullRarityCount(missingRarity || 0);
       setIsUpdatingPrices(true);
       toast.loading("Updating prices...", { id: "price-update" });
 
-      const { data, error } = await supabase.functions.invoke("update-prices", {
+      const { data, error } = await disabledSupabaseFunctionInvoke("update-prices", {
         body: { user_id: userId },
       });
 
@@ -334,10 +335,10 @@ setNullRarityCount(missingRarity || 0);
     if (!userId) return;
     
     try {
-      // Call edge function to completely delete user account
+      // Call disabled remote path to completely delete user account
       // This uses admin privileges to delete from auth.users,
       // which CASCADE deletes all related data
-      const { error } = await supabase.functions.invoke("delete-user-account");
+      const { error } = await disabledSupabaseFunctionInvoke("delete-user-account");
       
       if (error) throw error;
       

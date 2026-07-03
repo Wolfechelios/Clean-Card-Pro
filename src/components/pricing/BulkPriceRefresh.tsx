@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { RefreshCw, DollarSign, AlertCircle } from "lucide-react";
 import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 export function BulkPriceRefresh() {
   const { userId } = useAuth();
   const { shouldStop } = useGlobalProcessControl();
@@ -74,8 +75,8 @@ export function BulkPriceRefresh() {
         await Promise.all(
           batch.map(async (card) => {
             try {
-              const { data: priceData, error: priceError } = await supabase.functions.invoke(
-                "fetch-card-prices",
+              const { data: priceData, error: priceError } = await disabledSupabaseFunctionInvoke(
+                "disabled-pricing-lookup",
                 {
                   body: {
                     cardName: card.card_name,

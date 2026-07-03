@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
   Dialog,
   DialogContent,
   DialogDescription,
@@ -179,7 +180,7 @@ export function CardDetailModal({
       setShowVerification(true);
       setReferenceImageUrl(null);
 
-      const { data, error } = await supabase.functions.invoke("generate-card-image-url", {
+      const { data, error } = await disabledSupabaseFunctionInvoke("generate-card-image-url", {
         body: {
           cardName: card.card_name,
           cardSet: card.card_set,

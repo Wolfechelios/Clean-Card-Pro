@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
   TrendingUp,
   TrendingDown,
   Minus,
@@ -90,7 +91,7 @@ export function ValuePrediction({ card, priceHistory }: ValuePredictionProps) {
   const fetchPrediction = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke("predict-card-value", {
+      const { data, error } = await disabledSupabaseFunctionInvoke("predict-card-value", {
         body: {
           card: {
             card_name: card.card_name,

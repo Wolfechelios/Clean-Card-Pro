@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Search, Trash2, RefreshCw, Edit3, ImageOff, X, Download, ImagePlus, Cloud, Gem } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -513,7 +514,7 @@ export default function Collections() {
 
     setIsStoringImages(true);
     try {
-      const { data, error } = await supabase.functions.invoke("refresh-external-images", {
+      const { data, error } = await disabledSupabaseFunctionInvoke("refresh-external-images", {
         body: { limit: 25 },
       });
 
@@ -571,7 +572,7 @@ export default function Collections() {
         const results = await Promise.allSettled(
           batch.map(async (card) => {
             try {
-              const { data, error } = await supabase.functions.invoke("generate-card-image-url", {
+              const { data, error } = await disabledSupabaseFunctionInvoke("generate-card-image-url", {
                 body: {
                   cardName: card.card_name,
                   cardSet: card.card_set,
@@ -708,7 +709,7 @@ export default function Collections() {
       setIsUpdatingPrices(true);
       toast.loading("Updating prices...", { id: "price-update" });
 
-      const { data, error } = await supabase.functions.invoke("update-prices", {
+      const { data, error } = await disabledSupabaseFunctionInvoke("update-prices", {
         body: { user_id: userId },
       });
 

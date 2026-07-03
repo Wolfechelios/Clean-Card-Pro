@@ -1,6 +1,7 @@
 // src/lib/analyzeCardFull.ts
-import { performEmbeddedCardOcrFromUrl } from "@/lib/vision/embeddedOcr";
+import { supabase } from "@/integrations/supabase/client";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 export type VisionLabel = {
   description: string;
   score: number;
@@ -69,60 +70,19 @@ export async function analyzeCardFull(
     cardName?: string;
   }
 ): Promise<FullCardAnalysis> {
-  const ocr = await performEmbeddedCardOcrFromUrl(imageUrl);
-  const setCode = opts?.setCode || ocr.setCode;
-  const cardName = opts?.cardName || ocr.cardName;
-  const game = opts?.game || (setCode ? "Yu-Gi-Oh" : null);
+  const { data, error } = await disabledSupabaseFunctionInvoke("analyze-card-full", {
+    body: {
+      image_url: imageUrl,
+      card_id: opts?.cardId,
+      game: opts?.game,
+      set_code: opts?.setCode,
+      card_name: opts?.cardName,
+    },
+  });
 
-  return {
-    image_url: imageUrl,
-    card_id: opts?.cardId || null,
-    game,
-    set_code: setCode || null,
-    card_name: cardName || null,
-    vision: {
-      ocr_text: ocr.rawText,
-      ocr_locale: "en",
-      crop_hint: null,
-      image_properties: null,
-      labels: [
-        {
-          description: `embedded-ocr:${ocr.engine}`,
-          score: Math.max(0, Math.min(1, ocr.confidence / 100)),
-          topicality: 1,
-        },
-      ],
-      logos: [],
-      web_detection: {
-        entities: [],
-        similar_images: [],
-        matching_images: [],
-      },
-      raw_vision_response: {
-        engine: ocr.engine,
-        confidence: ocr.confidence,
-        set_code: setCode || null,
-        card_name: cardName || null,
-        edition: ocr.edition || null,
-        offline_ocr: true,
-      },
-    },
-    condition_estimate: {
-      card_id: opts?.cardId || null,
-      game,
-      set_code: setCode || null,
-      card_name: cardName || null,
-      raw_grade_estimate: { min: 0, max: 0, confidence: 0 },
-      condition_notes: ["Condition analysis skipped during embedded local OCR pass."],
-      defect_flags: {
-        centering: "unknown",
-        corners: "unknown",
-        edges: "unknown",
-        surface: "unknown",
-        structural_damage: "unknown",
-      },
-      recommended_action: "Use pricing/identification lookup after OCR, then confirm card manually if confidence is low.",
-      analyzed_at: new Date().toISOString(),
-    },
-  };
+  if (error) {
+    throw new Error(`analyze-card-full failed: ${error.message}`);
+  }
+
+  return data as FullCardAnalysis;
 }

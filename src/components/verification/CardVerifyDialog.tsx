@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Loader2, CheckCircle2, Sparkles, ArrowRightLeft } from "lucide-react";
 import { toast } from "sonner";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 type Candidate = {
   id: string;
   card_name: string;
@@ -101,7 +102,7 @@ export function CardVerifyDialog({
     setSelected(null);
 
     try {
-      const { data, error } = await supabase.functions.invoke("search-card-details", {
+      const { data, error } = await disabledSupabaseFunctionInvoke("search-card-details", {
         body: {
           card_name: q,
           game_type: card.gameType || card.sportType || "yugioh",
@@ -121,7 +122,7 @@ export function CardVerifyDialog({
 
           try {
             const [imageRes, priceRes] = await Promise.allSettled([
-              supabase.functions.invoke("generate-card-image-url", {
+              disabledSupabaseFunctionInvoke("generate-card-image-url", {
                 body: {
                   cardName: match.card_name,
                   cardSet: match.card_set,
@@ -142,10 +143,10 @@ export function CardVerifyDialog({
               image_url = imageRes.value.data.imageUrl;
             }
 
-             if (priceRes.status === "fulfilled") {
-               market_price = priceRes.value.raw ?? priceRes.value.suggested ?? market_price ?? null;
-               psa10_price = priceRes.value.psa10 ?? null;
-             }
+            if (priceRes.status === "fulfilled") {
+              market_price = priceRes.value.price ?? priceRes.value.marketPrice ?? market_price ?? null;
+              psa10_price = priceRes.value.psa10Price ?? null;
+            }
           } catch {
             // keep partial results
           }

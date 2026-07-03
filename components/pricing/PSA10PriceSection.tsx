@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 interface PSA10PriceSectionProps {
   cardId: string;
   price: number | null | undefined;
@@ -44,7 +45,7 @@ export function PSA10PriceSection({
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      const { data, error } = await supabase.functions.invoke("get-psa10-price", {
+      const { data, error } = await disabledSupabaseFunctionInvoke("get-psa10-price", {
         body: { card_id: cardId }
       });
 

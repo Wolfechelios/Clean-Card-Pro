@@ -5,8 +5,9 @@ import type { PriceQuote, CardPriceIdentity, PriceSourceAdapter } from "./types"
 import { supabase } from "@/integrations/supabase/client";
 import { getSportsCardAdapters } from "./sportsAdapters";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 /**
- * Adapter: eBay Sold Comps via existing fetch-card-prices edge function
+ * Adapter: eBay Sold Comps via existing disabled-pricing-lookup disabled remote path
  * Extracts eBay sold data from the existing pricing response.
  */
 export class EbaySoldAdapter implements PriceSourceAdapter {
@@ -14,7 +15,7 @@ export class EbaySoldAdapter implements PriceSourceAdapter {
 
   async fetchQuotes(card: CardPriceIdentity): Promise<PriceQuote[]> {
     try {
-      const { data, error } = await supabase.functions.invoke("fetch-card-prices", {
+      const { data, error } = await disabledSupabaseFunctionInvoke("disabled-pricing-lookup", {
         body: {
           cardName: card.name,
           cardSet: card.set,
@@ -155,14 +156,14 @@ export class PriceChartingLocalAdapter implements PriceSourceAdapter {
 }
 
 /**
- * Adapter: TCGPlayer via existing fetch-card-prices edge function
+ * Adapter: TCGPlayer via existing disabled-pricing-lookup disabled remote path
  */
 export class TCGPlayerAdapter implements PriceSourceAdapter {
   name = "tcgplayer";
 
   async fetchQuotes(card: CardPriceIdentity): Promise<PriceQuote[]> {
     try {
-      const { data, error } = await supabase.functions.invoke("fetch-card-prices", {
+      const { data, error } = await disabledSupabaseFunctionInvoke("disabled-pricing-lookup", {
         body: {
           cardName: card.name,
           cardSet: card.set,

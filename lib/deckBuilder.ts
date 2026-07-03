@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 export interface DeckCard {
   cardName: string;
   quantity: number;
@@ -53,7 +54,7 @@ export async function buildDeck(params: {
   deckSize?: number;
   useCollectionOnly: boolean;
 }): Promise<DeckBuilderResult> {
-  const { data, error } = await supabase.functions.invoke("deck-builder", {
+  const { data, error } = await disabledSupabaseFunctionInvoke("deck-builder", {
     body: params,
   });
 

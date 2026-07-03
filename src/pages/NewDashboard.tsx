@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Database } from "@/integrations/supabase/types";
 import {
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
   TrendingUp,
   TrendingDown,
   DollarSign,
@@ -359,7 +360,7 @@ export default function NewDashboard() {
         topSets: Object.entries(setCounts).sort((a, b) => b[1] - a[1]).slice(0, 10),
       };
 
-      const { data, error } = await supabase.functions.invoke("collection-advisor", {
+      const { data, error } = await disabledSupabaseFunctionInvoke("collection-advisor", {
         body: { collectionSummary }
       });
 
@@ -469,7 +470,7 @@ export default function NewDashboard() {
       const results = await Promise.allSettled(
         batch.map(async (card) => {
           try {
-            const { data, error } = await supabase.functions.invoke("analyze-psa10-viability", {
+            const { data, error } = await disabledSupabaseFunctionInvoke("analyze-psa10-viability", {
               body: { card_id: card.id }
             });
             

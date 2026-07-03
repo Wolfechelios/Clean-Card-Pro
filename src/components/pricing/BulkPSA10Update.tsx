@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 import { PSA10CardSelector } from "./PSA10CardSelector";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 interface PriceJob {
   id: string;
   status: string;
@@ -123,7 +124,7 @@ export function BulkPSA10Update() {
 
       setCurrentJob(job as PriceJob);
 
-      const { error: invokeError } = await supabase.functions.invoke("run-psa10-job", {
+      const { error: invokeError } = await disabledSupabaseFunctionInvoke("run-psa10-job", {
         body: { 
           job_id: job.id,
           use_estimation: fastMode,

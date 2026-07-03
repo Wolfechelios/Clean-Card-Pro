@@ -6,6 +6,7 @@ import { ImagePlus, Lock, Unlock, Loader2, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 interface CardImageActionsProps {
   cardId: string;
   imageUrl: string | null;
@@ -33,7 +34,7 @@ export function CardImageActions({
 
     setIsSearching(true);
     try {
-      const { data, error } = await supabase.functions.invoke("resolve-card-image", {
+      const { data, error } = await disabledSupabaseFunctionInvoke("resolve-card-image", {
         body: { card_id: cardId },
       });
 

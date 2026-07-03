@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 interface BulkCardReidentifyProps {
   onComplete?: () => void;
 }
@@ -113,7 +114,7 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
 
       if (hasValidImage) {
         // Use AI vision to re-identify the card from its image
-        const { data: identifyData, error: identifyError } = await supabase.functions.invoke(
+        const { data: identifyData, error: identifyError } = await disabledSupabaseFunctionInvoke(
           "enhanced-card-identify",
           {
             body: {
@@ -154,7 +155,7 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
       }
 
       // If no valid image or AI failed, try to find an image using text-based lookup
-      const { data: imageData, error: imageError } = await supabase.functions.invoke(
+      const { data: imageData, error: imageError } = await disabledSupabaseFunctionInvoke(
         "generate-card-image-url",
         {
           body: {
@@ -173,7 +174,7 @@ export function BulkCardReidentify({ onComplete }: BulkCardReidentifyProps) {
 
       if (imageData?.found && imageData?.imageUrl && !imageData.imageUrl.includes("placehold")) {
         // Attach the image to the card
-        const { error: attachError } = await supabase.functions.invoke("attach-image", {
+        const { error: attachError } = await disabledSupabaseFunctionInvoke("attach-image", {
           body: {
             cardId: card.id,
             remoteImageUrl: imageData.imageUrl,

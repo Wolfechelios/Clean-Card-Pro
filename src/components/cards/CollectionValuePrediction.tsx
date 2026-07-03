@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
   TrendingUp,
   TrendingDown,
   Minus,
@@ -118,7 +119,7 @@ export function CollectionValuePrediction({ cards, totalValue }: CollectionValue
           gameType: c.game_type || c.sport_type,
         }));
 
-      const { data, error } = await supabase.functions.invoke("predict-collection-value", {
+      const { data, error } = await disabledSupabaseFunctionInvoke("predict-collection-value", {
         body: {
           totalCards: cards.length,
           totalValue,
