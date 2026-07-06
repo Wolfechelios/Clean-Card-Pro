@@ -24,6 +24,7 @@ import { useDisplayScale } from "@/hooks/use-display-scale";
 import ServiceImportExport from "@/components/settings/ServiceImportExport";
 import DeviceStorageSettings from "@/components/settings/DeviceStorageSettings";
 import { OfflineStoragePanel } from "@/components/settings/OfflineStoragePanel";
+import { RestoreFromCloud } from "@/components/settings/RestoreFromCloud";
 import { BulkRarityReanalyze } from "@/components/collections/BulkRarityReanalyze";
 import { CardsNeedingReview } from "@/components/collections/CardsNeedingReview";
 import { BulkImageLookup } from "@/components/collections/BulkImageLookup";
