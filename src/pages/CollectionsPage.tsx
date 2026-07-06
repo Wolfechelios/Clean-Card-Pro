@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { getAllCards, deleteCardLocal, upsertCardLocal, getCardById } from "@/lib/localCards";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -140,28 +141,17 @@ export default function Collections() {
     checkPlaceholderCards();
     checkExternalImages();
 
-    // Set up real-time subscription for card changes
-    const channel = supabase
-      .channel('cards-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'cards'
-        },
-        (payload) => {
-          console.log('Card change detected:', payload);
-          // Refresh the cards list on any change
-          fetchCards();
-          checkRecentImports();
-          checkNoImageCards();
-        }
-      )
-      .subscribe();
-
+    // Local-first: poll on window focus + storage events instead of Supabase realtime.
+    const refresh = () => {
+      fetchCards();
+      checkRecentImports();
+      checkNoImageCards();
+    };
+    window.addEventListener("focus", refresh);
+    window.addEventListener("storage", refresh);
     return () => {
-      supabase.removeChannel(channel);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("storage", refresh);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
@@ -284,39 +274,15 @@ export default function Collections() {
 
   const fetchCards = async () => {
     if (!userId) return;
-    
     try {
-      // Fetch all cards using pagination to handle 1000+ card collections
-      const allCards: CardItem[] = [];
-      const pageSize = 1000;
-      let page = 0;
-      let hasMore = true;
-
-      while (hasMore) {
-        const { data, error } = await supabase
-          .from("cards")
-          .select("*")
-          .eq("user_id", userId)
-          .order("created_at", { ascending: false })
-          .range(page * pageSize, (page + 1) * pageSize - 1);
-
-        if (error) throw error;
-
-        if (data && data.length > 0) {
-          // Convert expired signed URLs to public URLs
-          const fixed = data.map(card => ({
-            ...card,
-            image_url: toPublicImageUrl(card.image_url),
-            thumbnail_url: card.thumbnail_url ? toPublicImageUrl(card.thumbnail_url) : card.thumbnail_url,
-          }));
-          allCards.push(...fixed);
-          page++;
-          hasMore = data.length === pageSize;
-        } else {
-          hasMore = false;
-        }
-      }
-
+      const local = await getAllCards();
+      const allCards = local
+        .filter((c: any) => !c.user_id || c.user_id === userId || c.user_id === "local-user")
+        .map((card: any) => ({
+          ...card,
+          image_url: toPublicImageUrl(card.image_url),
+          thumbnail_url: card.thumbnail_url ? toPublicImageUrl(card.thumbnail_url) : card.thumbnail_url,
+        })) as CardItem[];
       setCards(allCards);
       setFilteredCards(allCards);
     } catch (error) {
@@ -328,15 +294,8 @@ export default function Collections() {
 
   const handleDelete = async () => {
     if (!cardToDelete) return;
-
     try {
-      const { error } = await supabase
-        .from("cards")
-        .delete()
-        .eq("id", cardToDelete);
-
-      if (error) throw error;
-
+      await deleteCardLocal(cardToDelete);
       setCards(cards.filter(card => card.id !== cardToDelete));
       setFilteredCards(filteredCards.filter(card => card.id !== cardToDelete));
       toast.success("Card deleted successfully");
@@ -350,15 +309,8 @@ export default function Collections() {
 
   const handleBulkDelete = async () => {
     if (selectedCards.size === 0) return;
-
     try {
-      const { error } = await supabase
-        .from("cards")
-        .delete()
-        .in("id", Array.from(selectedCards));
-
-      if (error) throw error;
-
+      await Promise.all(Array.from(selectedCards).map((id) => deleteCardLocal(id)));
       setCards(cards.filter(card => !selectedCards.has(card.id)));
       setFilteredCards(filteredCards.filter(card => !selectedCards.has(card.id)));
       toast.success(`${selectedCards.size} card(s) deleted successfully`);
@@ -391,33 +343,17 @@ export default function Collections() {
 
   const handleDeleteRecentImport = async () => {
     if (!userId) return;
-    
     try {
-      const cutoff = new Date(Date.now() - recentTimeRange * 60 * 60 * 1000).toISOString();
-      
-      const { data: recentCards, error: fetchError } = await supabase
-        .from("cards")
-        .select("id")
-        .eq("user_id", userId)
-        .gte("created_at", cutoff);
-
-      if (fetchError) throw fetchError;
-
-      if (!recentCards || recentCards.length === 0) {
+      const cutoffMs = Date.now() - recentTimeRange * 60 * 60 * 1000;
+      const all = await getAllCards();
+      const recent = all.filter((c: any) => new Date(c.created_at ?? 0).getTime() >= cutoffMs);
+      if (recent.length === 0) {
         toast.error(`No recent imports found (last ${recentTimeRange}h)`);
         setShowDeleteRecent(false);
         return;
       }
-
-      const { error } = await supabase
-        .from("cards")
-        .delete()
-        .eq("user_id", userId)
-        .gte("created_at", cutoff);
-
-      if (error) throw error;
-
-      toast.success(`Deleted ${recentCards.length} recently imported card(s)`);
+      await Promise.all(recent.map((c: any) => deleteCardLocal(c.id)));
+      toast.success(`Deleted ${recent.length} recently imported card(s)`);
       fetchCards();
     } catch (error) {
       console.error("Error deleting recent imports:", error);
@@ -429,19 +365,10 @@ export default function Collections() {
 
   const checkRecentImports = async () => {
     if (!userId) return;
-    
     try {
-      const cutoff = new Date(Date.now() - recentTimeRange * 60 * 60 * 1000).toISOString();
-      
-      const { count, error } = await supabase
-        .from("cards")
-        .select("*", { count: 'exact', head: true })
-        .eq("user_id", userId)
-        .gte("created_at", cutoff);
-
-      if (!error && count !== null) {
-        setRecentImportCount(count);
-      }
+      const cutoffMs = Date.now() - recentTimeRange * 60 * 60 * 1000;
+      const all = await getAllCards();
+      setRecentImportCount(all.filter((c: any) => new Date(c.created_at ?? 0).getTime() >= cutoffMs).length);
     } catch (error) {
       console.error("Error checking recent imports:", error);
     }
@@ -449,17 +376,9 @@ export default function Collections() {
 
   const checkNoImageCards = async () => {
     if (!userId) return;
-    
     try {
-      const { count, error } = await supabase
-        .from("cards")
-        .select("*", { count: 'exact', head: true })
-        .eq("user_id", userId)
-        .or("image_url.is.null,image_url.eq.");
-
-      if (!error && count !== null) {
-        setNoImageCount(count);
-      }
+      const all = await getAllCards();
+      setNoImageCount(all.filter((c: any) => !c.image_url).length);
     } catch (error) {
       console.error("Error checking no-image cards:", error);
     }
@@ -467,17 +386,9 @@ export default function Collections() {
 
   const checkPlaceholderCards = async () => {
     if (!userId) return;
-    
     try {
-      const { count, error } = await supabase
-        .from("cards")
-        .select("*", { count: 'exact', head: true })
-        .eq("user_id", userId)
-        .like("image_url", "%placehold%");
-
-      if (!error && count !== null) {
-        setPlaceholderCount(count);
-      }
+      const all = await getAllCards();
+      setPlaceholderCount(all.filter((c: any) => (c.image_url || "").includes("placehold")).length);
     } catch (error) {
       console.error("Error checking placeholder cards:", error);
     }
@@ -485,23 +396,12 @@ export default function Collections() {
 
   const checkExternalImages = async () => {
     if (!userId) return;
-    
     try {
-      // Get all cards with image URLs
-      const { data: allCards, error } = await supabase
-        .from("cards")
-        .select("image_url")
-        .eq("user_id", userId)
-        .eq("image_locked", false)
-        .not("image_url", "is", null)
-        .not("image_url", "ilike", "%placehold%");
-
-      if (error) throw error;
-
-      // Count external URLs (not from our Supabase storage)
-      const externalCards = (allCards || []).filter(card => {
-        const url = card.image_url || "";
-        return url && !url.includes("supabase") && !url.includes("cyyaapagcftbhafhlofb");
+      const all = await getAllCards();
+      const externalCards = all.filter((c: any) => {
+        const url = c.image_url || "";
+        if (!url || c.image_locked || url.includes("placehold")) return false;
+        return !url.startsWith("data:") && !url.startsWith("blob:");
       });
       setExternalImageCount(externalCards.length);
     } catch (error) {
@@ -627,31 +527,16 @@ export default function Collections() {
 
   const handleDeleteNoImage = async () => {
     if (!userId) return;
-    
     try {
-      const { data: noImageCards, error: fetchError } = await supabase
-        .from("cards")
-        .select("id")
-        .eq("user_id", userId)
-        .or("image_url.is.null,image_url.eq.");
-
-      if (fetchError) throw fetchError;
-
-      if (!noImageCards || noImageCards.length === 0) {
+      const all = await getAllCards();
+      const noImage = all.filter((c: any) => !c.image_url);
+      if (noImage.length === 0) {
         toast.error("No cards without images found");
         setShowDeleteNoImage(false);
         return;
       }
-
-      const { error } = await supabase
-        .from("cards")
-        .delete()
-        .eq("user_id", userId)
-        .or("image_url.is.null,image_url.eq.");
-
-      if (error) throw error;
-
-      toast.success(`Deleted ${noImageCards.length} card(s) without images`);
+      await Promise.all(noImage.map((c: any) => deleteCardLocal(c.id)));
+      toast.success(`Deleted ${noImage.length} card(s) without images`);
       fetchCards();
     } catch (error) {
       console.error("Error deleting no-image cards:", error);
@@ -663,7 +548,6 @@ export default function Collections() {
 
   const handleBulkEdit = async () => {
     if (selectedCards.size === 0) return;
-
     try {
       const updates: any = {};
       if (bulkEditData.condition) updates.condition = bulkEditData.condition;
@@ -676,12 +560,14 @@ export default function Collections() {
         return;
       }
 
-      const { error } = await supabase
-        .from("cards")
-        .update(updates)
-        .in("id", Array.from(selectedCards));
-
-      if (error) throw error;
+      const ids = Array.from(selectedCards);
+      await Promise.all(
+        ids.map(async (id) => {
+          const existing = await getCardById(id);
+          if (!existing) return;
+          await upsertCardLocal({ ...(existing as any), ...updates, updated_at: new Date().toISOString() } as any);
+        })
+      );
 
       toast.success(`Updated ${selectedCards.size} card(s) successfully`);
       fetchCards();

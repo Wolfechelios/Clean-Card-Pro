@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { updateCardDual, deleteCardLocal, getCardById } from "@/lib/localCards";
 import {
   Dialog,
   DialogContent,
@@ -216,15 +217,10 @@ export function CardDetailModal({
       try {
         setIsSaving(true);
         
-        const { error } = await supabase
-          .from("cards")
-          .update({
-            image_url: referenceImageUrl,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", card.id);
-
-        if (error) throw error;
+        await updateCardDual(card.id, {
+          image_url: referenceImageUrl,
+          updated_at: new Date().toISOString(),
+        } as any);
 
         const updatedCard: CardData = {
           ...card,
@@ -261,21 +257,16 @@ export function CardDetailModal({
 
     try {
       setIsSaving(true);
-      const { error } = await supabase
-        .from("cards")
-        .update({
-          card_name: updates.cardName,
-          card_set: updates.cardSet,
-          card_number: updates.cardNumber,
-          rarity: updates.rarity,
-          current_price_raw: updates.value,
-          psa10_price: updates.psa10Price,
-          image_url: updates.imageUrl || card.image_url || null,
-          updated_at: new Date().toISOString(),
-        } as any)
-        .eq("id", card.id);
-
-      if (error) throw error;
+      await updateCardDual(card.id, {
+        card_name: updates.cardName,
+        card_set: updates.cardSet,
+        card_number: updates.cardNumber,
+        rarity: updates.rarity,
+        current_price_raw: updates.value,
+        psa10_price: updates.psa10Price,
+        image_url: updates.imageUrl || card.image_url || null,
+        updated_at: new Date().toISOString(),
+      } as any);
 
       const updatedCard: CardData = {
         ...card,
@@ -309,22 +300,17 @@ export function CardDetailModal({
 
       const synced = syncSetCollection(editData.card_set, editData.collection_name);
 
-      const { error } = await supabase
-        .from("cards")
-        .update({
-          card_name: editData.card_name,
-          card_set: synced.set || null,
-          card_number: editData.card_number || null,
-          rarity: editData.rarity || null,
-          condition: editData.condition || null,
-          collection_name: synced.collection || null,
-          game_type: editData.game_type || null,
-          sport_type: editData.sport_type || null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", card.id);
-
-      if (error) throw error;
+      await updateCardDual(card.id, {
+        card_name: editData.card_name,
+        card_set: synced.set || null,
+        card_number: editData.card_number || null,
+        rarity: editData.rarity || null,
+        condition: editData.condition || null,
+        collection_name: synced.collection || null,
+        game_type: editData.game_type || null,
+        sport_type: editData.sport_type || null,
+        updated_at: new Date().toISOString(),
+      } as any);
 
       const updatedCard: CardData = {
         ...card,
@@ -351,14 +337,8 @@ export function CardDetailModal({
 
   const handleDelete = async () => {
     if (!card) return;
-
     try {
-      const { error } = await supabase
-        .from("cards")
-        .delete()
-        .eq("id", card.id);
-
-      if (error) throw error;
+      await deleteCardLocal(card.id);
 
       toast.success("Card deleted successfully");
       setShowDeleteConfirm(false);
@@ -717,17 +697,16 @@ export function CardDetailModal({
                   error={consensusError}
                   needsReview={needsReview}
                   onUseConsensusPrice={async (price) => {
-                    const { error } = await supabase
-                      .from("cards")
-                      .update({ suggested_price: price, current_price_raw: price })
-                      .eq("id", card.id);
-                    if (!error) {
+                    try {
+                      await updateCardDual(card.id, { suggested_price: price, current_price_raw: price } as any);
                       toast.success(`Price updated to $${price.toFixed(2)}`);
                       if (cardState) {
                         const updated = { ...cardState, current_price_raw: price };
                         setCardState(updated);
                         onUpdate?.(updated);
                       }
+                    } catch (e) {
+                      console.error(e);
                     }
                   }}
                   onRescan={() => navigate(`/scan`)}
@@ -749,14 +728,16 @@ export function CardDetailModal({
                     imageLocked={card.image_locked || false}
                     imageSource={card.image_source || null}
                     onImageUpdated={async () => {
-                      const { data } = await supabase
-                        .from("cards")
-                        .select("image_url, thumbnail_url, image_locked, image_source")
-                        .eq("id", card.id)
-                        .single();
+                      const data: any = await getCardById(card.id);
                       if (data && cardState) {
-                        setCardState({ ...cardState, ...data });
-                        onUpdate?.({ ...card, ...data });
+                        const picked = {
+                          image_url: data.image_url,
+                          thumbnail_url: data.thumbnail_url,
+                          image_locked: data.image_locked,
+                          image_source: data.image_source,
+                        };
+                        setCardState({ ...cardState, ...picked });
+                        onUpdate?.({ ...card, ...picked });
                       }
                     }}
                   />
@@ -773,14 +754,18 @@ export function CardDetailModal({
                   sourceRef={cardState?.psa10_source_ref}
                   locked={cardState?.psa10_locked}
                   onUpdate={async () => {
-                    // Refetch card data to get updated PSA10 info
-                    const { data } = await supabase
-                      .from("cards")
-                      .select("psa10_price, psa10_currency, psa10_source, psa10_updated_at, psa10_match_confidence, psa10_source_ref, psa10_locked")
-                      .eq("id", card.id)
-                      .single();
+                    const data: any = await getCardById(card.id);
                     if (data && cardState) {
-                      setCardState({ ...cardState, ...data });
+                      const picked = {
+                        psa10_price: data.psa10_price,
+                        psa10_currency: data.psa10_currency,
+                        psa10_source: data.psa10_source,
+                        psa10_updated_at: data.psa10_updated_at,
+                        psa10_match_confidence: data.psa10_match_confidence,
+                        psa10_source_ref: data.psa10_source_ref,
+                        psa10_locked: data.psa10_locked,
+                      };
+                      setCardState({ ...cardState, ...picked });
                     }
                   }}
                 />

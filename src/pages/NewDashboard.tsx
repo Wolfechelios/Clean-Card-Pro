@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { getAllCards } from "@/lib/localCards";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Database } from "@/integrations/supabase/types";
@@ -151,25 +152,14 @@ export default function NewDashboard() {
 
     triggerDashboardRefresh();
 
-    // Real-time subscription for card changes (throttled)
-    const channel = supabase
-      .channel("dashboard-cards-changes")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "cards",
-        },
-        () => {
-          triggerDashboardRefresh();
-        }
-      )
-      .subscribe();
-
+    // Local-first: refresh on window focus / storage events instead of Supabase realtime.
+    const refresh = () => triggerDashboardRefresh();
+    window.addEventListener("focus", refresh);
+    window.addEventListener("storage", refresh);
     return () => {
       if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
-      supabase.removeChannel(channel);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("storage", refresh);
     };
   }, [authLoading, userId, triggerDashboardRefresh]);
 
@@ -182,36 +172,18 @@ export default function NewDashboard() {
     
     setIsRefreshing(true);
 
-    const allCards: CardType[] = [];
-    const pageSize = 1000;
-    let page = 0;
-    let hasMore = true;
-
-    while (hasMore) {
-      const { data: cards, error } = await supabase
-        .from("cards")
-        .select("*")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false })
-        .range(page * pageSize, (page + 1) * pageSize - 1);
-
-      if (error) {
-        console.error("Error fetching cards:", error);
-        break;
-      }
-
-      if (cards && cards.length > 0) {
-        const fixed = cards.map(c => ({
+    let allCards: CardType[] = [];
+    try {
+      const local = await getAllCards();
+      allCards = local
+        .filter((c: any) => !c.user_id || c.user_id === userId || c.user_id === "local-user")
+        .map((c: any) => ({
           ...c,
           image_url: toPublicImageUrl(c.image_url),
           thumbnail_url: c.thumbnail_url ? toPublicImageUrl(c.thumbnail_url) : c.thumbnail_url,
-        }));
-        allCards.push(...fixed);
-        page++;
-        hasMore = cards.length === pageSize;
-      } else {
-        hasMore = false;
-      }
+        })) as CardType[];
+    } catch (error) {
+      console.error("Error fetching cards:", error);
     }
 
     if (allCards.length > 0) {
