@@ -156,8 +156,10 @@ function markQueueItemError(id: string, error: string): Promise<void> {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("rapid-scan-item-error", { detail: { id, error } }));
   }
-  return idbUpdateMeta(id, { status: "error", error }).catch(() => undefined);
+  // Delete the failed item so it never gets re-picked and doesn't clog IDB.
+  return idbDelete(id).catch(() => undefined);
 }
+
 
 export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   isRunning: false,
