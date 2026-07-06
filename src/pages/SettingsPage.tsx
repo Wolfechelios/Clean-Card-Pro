@@ -859,6 +859,10 @@ setNullRarityCount(missingRarity || 0);
       {/* Offline Storage */}
       <OfflineStoragePanel />
 
+      {/* Restore from Cloud */}
+      <RestoreFromCloud />
+
+
       {/* Device Storage (Android/iOS only) */}
       <DeviceStorageSettings />
 
