@@ -240,11 +240,21 @@ async function workerLoop() {
 
     try {
       await processQueueItem(item);
+      consecutiveErrorCount = 0;
       useQueueProcessor.getState()._incrementProcessed();
     } catch (e: any) {
       console.error("[QueueProcessor] RapidScan item failed:", e);
       await markQueueItemError(item.id, e?.message || String(e));
       useQueueProcessor.getState()._incrementError();
+      consecutiveErrorCount++;
+      if (consecutiveErrorCount >= CONSECUTIVE_ERROR_LIMIT) {
+        console.warn(`[QueueProcessor] Pausing — ${consecutiveErrorCount} consecutive failures. Likely OCR engine is unavailable.`);
+        writeAnomalyPauseFlag(true);
+        useQueueProcessor.setState({ isRunning: false, isPaused: true, isPausedByAnomaly: true, currentItem: null });
+        workerActive = false;
+        scheduleRefresh();
+        return;
+      }
     } finally {
       useQueueProcessor.getState()._setCurrentItem(null);
       scheduleRefresh();
@@ -252,6 +262,7 @@ async function workerLoop() {
     }
   }
 }
+
 
 async function processQueueItem(item: QueueItem): Promise<void> {
   const store = useQueueProcessor.getState();
