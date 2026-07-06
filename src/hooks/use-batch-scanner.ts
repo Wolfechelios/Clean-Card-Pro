@@ -59,16 +59,8 @@ export function useBatchScanner() {
   }
 
   async function scanOne(job: BatchJob): Promise<{ source: "local" | "cloud" | "gpu" }> {
-    const path = `cards/${job.id}.jpg`
-
-    await withRetry(() =>
-      supabase.storage.from("card-images").upload(path, job.file)
-    )
-
-    const { data: publicUrlData } = supabase.storage
-      .from("card-images")
-      .getPublicUrl(path)
-    const signedUrl = publicUrlData.publicUrl
+    const { fileToDataUrl } = await import("@/lib/local/fileToDataUrl");
+    const signedUrl = await fileToDataUrl(job.file);
 
     // Use hybrid routing for card identification
     const result = await hybridIdentifyCard(signedUrl, {

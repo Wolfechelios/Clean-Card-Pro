@@ -211,9 +211,11 @@ export default function ImportExport({ cards, onImportComplete }: ImportExportPr
           };
         }));
         const cleanCards = cardsToInsert.map(({ _isExternalUrl, ...card }) => card);
-        const { data: insertedCards, error } = await supabase.from("cards").insert(cleanCards).select("id, image_url");
-        if (error) { console.error("Batch import error:", error); errors += batch.length; }
-        else {
+        try {
+          const { insertCardDual } = await import("@/lib/localCards");
+          const insertedCards = await Promise.all(
+            cleanCards.map((c) => insertCardDual(c as any))
+          );
           imported += batch.length;
           if (autoStoreImages && insertedCards) {
             insertedCards.forEach((card, idx) => {
@@ -223,6 +225,9 @@ export default function ImportExport({ cards, onImportComplete }: ImportExportPr
               }
             });
           }
+        } catch (error) {
+          console.error("Batch import error:", error);
+          errors += batch.length;
         }
         setImportProgress(Math.round(((i + batch.length) / jsonData.length) * 100));
       }

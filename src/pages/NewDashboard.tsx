@@ -375,20 +375,8 @@ export default function NewDashboard() {
         };
 
         try {
-          const ext = file.name.split(".").pop() ?? "jpg";
-          const filePath = `bulk/${crypto.randomUUID()}.${ext}`;
-
-          const { error: uploadError } = await supabase.storage.from("card-images").upload(filePath, file, {
-            cacheControl: "3600",
-            upsert: false,
-          });
-
-          if (uploadError) {
-            throw new Error(uploadError.message);
-          }
-
-          const { data } = supabase.storage.from("card-images").getPublicUrl(filePath);
-          const publicUrl = data.publicUrl;
+          const { fileToDataUrl } = await import("@/lib/local/fileToDataUrl");
+          const publicUrl = await fileToDataUrl(file);
           item.imageUrl = publicUrl;
 
           await analyzeCardFull(publicUrl);

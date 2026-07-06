@@ -20,34 +20,14 @@ export default function MobileScanPage() {
   const handleImageCaptured = async (imageFile: File) => {
     try {
       console.log("Image captured:", imageFile.name, imageFile.size);
-      
-      // Upload to storage
-      const fileExt = imageFile.name.split('.').pop();
-      const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
-      const filePath = `cards/${fileName}`;
 
-      const { error: uploadError, data } = await supabase.storage
-        .from('card-images')
-        .upload(filePath, imageFile, {
-          cacheControl: '3600',
-          upsert: false
-        });
+      const { fileToDataUrl } = await import("@/lib/local/fileToDataUrl");
+      const publicUrl = await fileToDataUrl(imageFile);
 
-      if (uploadError) {
-        console.error("Upload error:", uploadError);
-        toast.error("Failed to upload image");
-        return;
-      }
+      console.log("Image stored locally:", publicUrl.slice(0, 64) + "…");
+      toast.success("Image captured! Processing...");
 
-      const { data: { publicUrl } } = supabase.storage
-        .from('card-images')
-        .getPublicUrl(filePath);
-
-      console.log("Image uploaded:", publicUrl);
-      toast.success("Image uploaded! Processing...");
-      
       // TODO: Trigger card identification here
-      
     } catch (error: any) {
       console.error("Error handling captured image:", error);
       toast.error("Failed to process image");

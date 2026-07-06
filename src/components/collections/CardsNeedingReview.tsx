@@ -31,7 +31,7 @@ import {
   Search
 } from "lucide-react";
 import { useCardsNeedingReview, type ReviewReason, type CardNeedingReview } from "@/hooks/use-cards-needing-review";
-import { supabase } from "@/integrations/supabase/client";
+// supabase client removed — local-first
 import { toast } from "sonner";
 import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 
@@ -166,7 +166,8 @@ export function CardsNeedingReview() {
         }
 
         if (Object.keys(dbUpdates).length > 0) {
-          await supabase.from("cards").update(dbUpdates as any).eq("id", selectedCard.id);
+          const { updateCardDual } = await import("@/lib/localCards");
+          await updateCardDual(selectedCard.id, dbUpdates as any);
         }
 
         toast.success("Re-analysis complete — review the updated fields");
@@ -249,7 +250,8 @@ export function CardsNeedingReview() {
           if (best.rarity && (!card.rarity || card.rarity === "")) updates.rarity = best.rarity;
 
           if (Object.keys(updates).length > 0) {
-            await supabase.from("cards").update(updates as any).eq("id", card.id);
+            const { updateCardDual } = await import("@/lib/localCards");
+            await updateCardDual(card.id, updates as any);
             updated++;
           }
         }

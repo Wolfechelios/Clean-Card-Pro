@@ -78,23 +78,13 @@ export default function VisualSearchPage() {
 
     setIsAnalyzing(true);
     try {
-      // Upload image to storage
-      const fileExt = imageFile.name.split(".").pop();
-      const filePath = `search/${userId}/${Date.now()}.${fileExt}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("card-images")
-        .upload(filePath, imageFile);
-
-      if (uploadError) throw uploadError;
-
-      const { data: urlData } = supabase.storage
-        .from("card-images")
-        .getPublicUrl(filePath);
+      // Convert image to local data URL (no upload)
+      const { fileToDataUrl } = await import("@/lib/local/fileToDataUrl");
+      const dataUrl = await fileToDataUrl(imageFile);
 
       // Call visual similarity function
       const { data, error } = await disabledSupabaseFunctionInvoke("visual-similarity", {
-        body: { imageUrl: urlData.publicUrl, mode },
+        body: { imageUrl: dataUrl, mode },
       });
 
       if (error) throw error;

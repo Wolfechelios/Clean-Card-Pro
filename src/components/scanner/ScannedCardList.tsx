@@ -12,7 +12,7 @@ import { Edit2, DollarSign, ShieldCheck, Hash, Sparkles, Trash2, Loader2, Librar
 import { isPremiumYugiohSet } from "@/lib/premiumSets";
 import JSZip from "jszip";
 import { toPublicImageUrl } from "@/lib/storage/getPublicImageUrl";
-import { supabase } from "@/integrations/supabase/client";
+import { deleteCardLocal } from "@/lib/localCards";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { CardVerifyDialog, type VerifyTarget } from "@/components/verification/CardVerifyDialog";
@@ -305,8 +305,7 @@ export const ScannedCardList = ({
       setDeletingId(card.id);
       try {
       if (card.dbId) {
-          const res = await supabase.from("cards").delete().eq("id", card.dbId);
-          if (res.error) throw res.error;
+          await deleteCardLocal(card.dbId);
         }
 
         onCardDelete(card.id);
@@ -335,17 +334,14 @@ export const ScannedCardList = ({
       });
 
       if (editingCard.dbId) {
-        const res = await supabase
-          .from("cards")
-          .update({
-            card_name: editForm.cardName,
-            card_set: editForm.cardSet,
-            card_number: editForm.cardNumber,
-            rarity: editForm.rarity,
-            suggested_price: editForm.value ? parseFloat(editForm.value) : null,
-          })
-          .eq("id", editingCard.dbId);
-        if (res.error) throw res.error;
+        const { updateCardDual } = await import("@/lib/localCards");
+        await updateCardDual(editingCard.dbId, {
+          card_name: editForm.cardName,
+          card_set: editForm.cardSet,
+          card_number: editForm.cardNumber,
+          rarity: editForm.rarity,
+          suggested_price: editForm.value ? parseFloat(editForm.value) : null,
+        } as any);
       }
 
       toast.success("Card updated successfully");
@@ -383,20 +379,17 @@ export const ScannedCardList = ({
       });
 
       if (verifyCard.dbId) {
-        const { error } = await supabase
-          .from("cards")
-          .update({
-            card_name: updates.cardName,
-            card_set: updates.cardSet,
-            card_number: updates.cardNumber,
-            rarity: updates.rarity,
-            current_price_raw: updates.value,
-            psa10_price: updates.psa10Price,
-            image_url: updates.imageUrl || verifyCard.imageUrl || null,
-            updated_at: new Date().toISOString(),
-          } as any)
-          .eq("id", verifyCard.dbId);
-        if (error) throw error;
+        const { updateCardDual } = await import("@/lib/localCards");
+        await updateCardDual(verifyCard.dbId, {
+          card_name: updates.cardName,
+          card_set: updates.cardSet,
+          card_number: updates.cardNumber,
+          rarity: updates.rarity,
+          current_price_raw: updates.value,
+          psa10_price: updates.psa10Price,
+          image_url: updates.imageUrl || verifyCard.imageUrl || null,
+          updated_at: new Date().toISOString(),
+        } as any);
       }
 
       toast.success("Verified match applied");
