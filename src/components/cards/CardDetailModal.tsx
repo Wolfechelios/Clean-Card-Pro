@@ -754,14 +754,18 @@ export function CardDetailModal({
                   sourceRef={cardState?.psa10_source_ref}
                   locked={cardState?.psa10_locked}
                   onUpdate={async () => {
-                    // Refetch card data to get updated PSA10 info
-                    const { data } = await supabase
-                      .from("cards")
-                      .select("psa10_price, psa10_currency, psa10_source, psa10_updated_at, psa10_match_confidence, psa10_source_ref, psa10_locked")
-                      .eq("id", card.id)
-                      .single();
+                    const data: any = await getCardById(card.id);
                     if (data && cardState) {
-                      setCardState({ ...cardState, ...data });
+                      const picked = {
+                        psa10_price: data.psa10_price,
+                        psa10_currency: data.psa10_currency,
+                        psa10_source: data.psa10_source,
+                        psa10_updated_at: data.psa10_updated_at,
+                        psa10_match_confidence: data.psa10_match_confidence,
+                        psa10_source_ref: data.psa10_source_ref,
+                        psa10_locked: data.psa10_locked,
+                      };
+                      setCardState({ ...cardState, ...picked });
                     }
                   }}
                 />
