@@ -141,28 +141,17 @@ export default function Collections() {
     checkPlaceholderCards();
     checkExternalImages();
 
-    // Set up real-time subscription for card changes
-    const channel = supabase
-      .channel('cards-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'cards'
-        },
-        (payload) => {
-          console.log('Card change detected:', payload);
-          // Refresh the cards list on any change
-          fetchCards();
-          checkRecentImports();
-          checkNoImageCards();
-        }
-      )
-      .subscribe();
-
+    // Local-first: poll on window focus + storage events instead of Supabase realtime.
+    const refresh = () => {
+      fetchCards();
+      checkRecentImports();
+      checkNoImageCards();
+    };
+    window.addEventListener("focus", refresh);
+    window.addEventListener("storage", refresh);
     return () => {
-      supabase.removeChannel(channel);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("storage", refresh);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
