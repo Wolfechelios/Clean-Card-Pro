@@ -300,22 +300,17 @@ export function CardDetailModal({
 
       const synced = syncSetCollection(editData.card_set, editData.collection_name);
 
-      const { error } = await supabase
-        .from("cards")
-        .update({
-          card_name: editData.card_name,
-          card_set: synced.set || null,
-          card_number: editData.card_number || null,
-          rarity: editData.rarity || null,
-          condition: editData.condition || null,
-          collection_name: synced.collection || null,
-          game_type: editData.game_type || null,
-          sport_type: editData.sport_type || null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", card.id);
-
-      if (error) throw error;
+      await updateCardDual(card.id, {
+        card_name: editData.card_name,
+        card_set: synced.set || null,
+        card_number: editData.card_number || null,
+        rarity: editData.rarity || null,
+        condition: editData.condition || null,
+        collection_name: synced.collection || null,
+        game_type: editData.game_type || null,
+        sport_type: editData.sport_type || null,
+        updated_at: new Date().toISOString(),
+      } as any);
 
       const updatedCard: CardData = {
         ...card,
