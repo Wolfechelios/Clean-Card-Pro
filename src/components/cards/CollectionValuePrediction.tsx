@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
   TrendingUp,
   TrendingDown,
   Minus,
@@ -22,6 +21,7 @@ import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled"
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 
 interface CollectionCard {
   id: string;

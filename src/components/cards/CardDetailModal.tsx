@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
-import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
   Dialog,
   DialogContent,
   DialogDescription,
@@ -37,6 +36,7 @@ import { toast } from "sonner";
 import { Pencil, Trash2, X, Save, Search, ImageIcon, CheckCircle2, XCircle, Box, Image, Sparkles, ShieldCheck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { CardVerifyDialog, type VerifyTarget } from "@/components/verification/CardVerifyDialog";
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 
 export interface CardData {
   id: string;

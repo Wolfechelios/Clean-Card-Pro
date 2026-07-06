@@ -1,10 +1,10 @@
 import { supabase } from "@/integrations/supabase/client";
 import { 
-import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
   EnhancedCardIdentifyResponseSchema, 
   type EnhancedCardData 
 } from "./schemas/api-schemas";
 import { handleApiError, safeValidate, AppError } from "./errors";
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 
 // Re-export the type for backwards compatibility
 export type { EnhancedCardData } from "./schemas/api-schemas";

@@ -11,7 +11,6 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { 
-import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
   Sparkles, 
   RefreshCw, 
   AlertTriangle, 
@@ -28,6 +27,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 
 interface NormalizeResult {
   id: string;

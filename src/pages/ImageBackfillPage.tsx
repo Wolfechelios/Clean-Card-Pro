@@ -13,7 +13,6 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { 
-import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
   ImageIcon, 
   RefreshCw, 
   AlertTriangle, 
@@ -38,6 +37,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 
 interface BackfillResult {
   id: string;
