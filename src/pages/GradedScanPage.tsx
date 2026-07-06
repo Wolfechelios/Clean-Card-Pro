@@ -262,25 +262,9 @@ export default function GradedScanPage() {
       setPreview(previewUrl);
       stopCamera();
 
-      const fileName = `cards/graded/${userId}/${Date.now()}.jpg`;
-      const { error: uploadError } = await supabase.storage
-        .from("card-images")
-        .upload(fileName, blob, {
-          contentType: "image/jpeg",
-          cacheControl: "3600",
-          upsert: false,
-        });
-
-      if (uploadError) {
-        console.error("Graded scan upload error:", uploadError);
-        toast.error(uploadError.message || "Failed to upload image");
-        return;
-      }
-
-      const { data: publicUrlData } = supabase.storage
-        .from("card-images")
-        .getPublicUrl(fileName);
-      await processImage(publicUrlData.publicUrl);
+      const { fileToDataUrl } = await import("@/lib/local/fileToDataUrl");
+      const publicUrl = await fileToDataUrl(blob);
+      await processImage(publicUrl);
     } catch (err) {
       console.error("Capture error:", err);
       toast.error("Failed to capture photo");
