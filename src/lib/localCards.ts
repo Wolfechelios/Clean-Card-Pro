@@ -77,18 +77,26 @@ export async function deleteCardDual(id: string): Promise<void> {
   await deleteCardLocal(id)
 }
 
-export async function syncFromSupabase(): Promise<CardRow[]> {
+export async function syncFromSupabase(options: { replace?: boolean } = {}): Promise<CardRow[]> {
+  const PAGE = 1000
+  const all: CardRow[] = []
   try {
-    const { data, error } = await supabase
-      .from("cards")
-      .select("*")
-      .order("created_at", { ascending: false })
-
-    if (error || !data) return getAllCards()
-    await db.clear()
-    await upsertCardsLocal(data as CardRow[])
-    return data as CardRow[]
-  } catch {
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .from("cards")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .range(from, from + PAGE - 1)
+      if (error) throw error
+      if (!data || data.length === 0) break
+      all.push(...(data as CardRow[]))
+      if (data.length < PAGE) break
+    }
+    if (options.replace) await db.clear()
+    if (all.length) await upsertCardsLocal(all)
+    return all.length ? all : getAllCards()
+  } catch (e) {
+    console.warn("syncFromSupabase failed", e)
     return getAllCards()
   }
 }
