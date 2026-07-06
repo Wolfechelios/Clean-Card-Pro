@@ -193,10 +193,12 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
 
   resume: () => {
     writeAnomalyPauseFlag(false);
+    consecutiveErrorCount = 0;
     set({ isPaused: false, isPausedByAnomaly: false });
     if (!get().isRunning) set({ isRunning: true });
     startWorker();
   },
+
 
   refreshQueue: async () => {
     const queuedCount = await idbCountQueued();
