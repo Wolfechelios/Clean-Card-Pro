@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 
-export type LensType = "wide" | "ultrawide" | "telephoto" | "macro" | "depth" | "standard" | "usb" | "unknown";
+export type LensType = "wide" | "ultrawide" | "telephoto" | "macro" | "depth" | "standard" | "usb" | "continuity" | "unknown";
 
 export interface CameraDevice {
   deviceId: string;
