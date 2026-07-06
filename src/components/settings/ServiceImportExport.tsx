@@ -243,13 +243,13 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
             const confidence = identifyData?.cardData?.confidence ?? 100;
             const suggestedName = identifyData?.cardData?.card_name;
             const suggestedSet = identifyData?.cardData?.card_set;
-            await supabase.from("cards").update({ image_url: imageUrl, thumbnail_url: imageUrl, ocr_confidence: confidence }).eq("id", card.id);
+            { const { updateCardDual } = await import("@/lib/localCards"); await updateCardDual(card.id, { image_url: imageUrl, thumbnail_url: imageUrl, ocr_confidence: confidence } as any); }
             if (confidence < 90) {
               lowConfidenceCards.push({ id: card.id, card_name: card.card_name, card_set: card.card_set, image_url: imageUrl, confidence, suggested_name: suggestedName, suggested_set: suggestedSet });
             }
           } catch (err) {
             console.error("Card identification error:", err);
-            await supabase.from("cards").update({ image_url: imageUrl, thumbnail_url: imageUrl }).eq("id", card.id);
+            { const { updateCardDual } = await import("@/lib/localCards"); await updateCardDual(card.id, { image_url: imageUrl, thumbnail_url: imageUrl } as any); }
           }
         }
       }));
@@ -267,8 +267,10 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
   };
 
   const handleVerifyCard = async (cardId: string, newName: string, newSet: string | null) => {
-    const { error } = await supabase.from("cards").update({ card_name: newName, card_set: newSet, ocr_confidence: 100 }).eq("id", cardId);
-    if (error) { toast.error("Failed to update card"); return; }
+    try {
+      const { updateCardDual } = await import("@/lib/localCards");
+      await updateCardDual(cardId, { card_name: newName, card_set: newSet, ocr_confidence: 100 } as any);
+    } catch { toast.error("Failed to update card"); return; }
     setCardsToVerify(prev => prev.filter(c => c.id !== cardId));
     toast.success("Card verified");
   };
@@ -276,7 +278,8 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
   const handleDismissCard = (cardId: string) => { setCardsToVerify(prev => prev.filter(c => c.id !== cardId)); };
 
   const handleVerifyAll = async () => {
-    const updates = cardsToVerify.map(card => supabase.from("cards").update({ ocr_confidence: 100 }).eq("id", card.id));
+    const { updateCardDual } = await import("@/lib/localCards");
+    const updates = cardsToVerify.map(card => updateCardDual(card.id, { ocr_confidence: 100 } as any));
     await Promise.all(updates);
     setCardsToVerify([]);
     setActiveSection("import");
