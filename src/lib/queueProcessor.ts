@@ -85,6 +85,9 @@ let workerActive = false;
 let queueTimer: ReturnType<typeof setTimeout> | null = null;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let autoResumeChecked = false;
+let consecutiveErrorCount = 0;
+const CONSECUTIVE_ERROR_LIMIT = 5;
+
 
 function readAnomalyPauseFlag(): boolean {
   if (typeof window === "undefined") return false;
@@ -153,8 +156,10 @@ function markQueueItemError(id: string, error: string): Promise<void> {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("rapid-scan-item-error", { detail: { id, error } }));
   }
-  return idbUpdateMeta(id, { status: "error", error }).catch(() => undefined);
+  // Delete the failed item so it never gets re-picked and doesn't clog IDB.
+  return idbDelete(id).catch(() => undefined);
 }
+
 
 export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   isRunning: false,
@@ -188,10 +193,12 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
 
   resume: () => {
     writeAnomalyPauseFlag(false);
+    consecutiveErrorCount = 0;
     set({ isPaused: false, isPausedByAnomaly: false });
     if (!get().isRunning) set({ isRunning: true });
     startWorker();
   },
+
 
   refreshQueue: async () => {
     const queuedCount = await idbCountQueued();
@@ -235,11 +242,21 @@ async function workerLoop() {
 
     try {
       await processQueueItem(item);
+      consecutiveErrorCount = 0;
       useQueueProcessor.getState()._incrementProcessed();
     } catch (e: any) {
       console.error("[QueueProcessor] RapidScan item failed:", e);
       await markQueueItemError(item.id, e?.message || String(e));
       useQueueProcessor.getState()._incrementError();
+      consecutiveErrorCount++;
+      if (consecutiveErrorCount >= CONSECUTIVE_ERROR_LIMIT) {
+        console.warn(`[QueueProcessor] Pausing — ${consecutiveErrorCount} consecutive failures. Likely OCR engine is unavailable.`);
+        writeAnomalyPauseFlag(true);
+        useQueueProcessor.setState({ isRunning: false, isPaused: true, isPausedByAnomaly: true, currentItem: null });
+        workerActive = false;
+        scheduleRefresh();
+        return;
+      }
     } finally {
       useQueueProcessor.getState()._setCurrentItem(null);
       scheduleRefresh();
@@ -247,6 +264,7 @@ async function workerLoop() {
     }
   }
 }
+
 
 async function processQueueItem(item: QueueItem): Promise<void> {
   const store = useQueueProcessor.getState();
