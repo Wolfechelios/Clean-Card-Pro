@@ -1,6 +1,6 @@
 // src/lib/queueProcessor.ts
 // Fully local-first RapidScan queue worker.
-// Local image blob -> browser OCR -> direct printed-code lookup -> local/Supabase save only after match.
+// Local image blob -> browser OCR -> direct printed-code lookup -> local/LocalOnly save only after match.
 
 import { create } from "zustand";
 import { getScannerSettings } from "@/hooks/use-scanner-settings";
@@ -22,6 +22,7 @@ import {
   type QueueItemMeta,
 } from "@/lib/idbQueue";
 import { compactOcrText, hasReadablePrice, runRapidBasicLookup } from "@/lib/rapidBasicLookupClient";
+import { logTrace } from "@/lib/rapidDebug";
 import { isReadableTitle, isValidPrintedCode } from "@/lib/ocr/ocrQuality";
 
 export type ProcessedCard = {
@@ -147,6 +148,14 @@ function firstValidPrintedIdentifier(...parts: Array<string | null | undefined>)
   return null;
 }
 
+function markQueueItemError(id: string, error: string): Promise<void> {
+  logTrace(id, "error", { message: error });
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("rapid-scan-item-error", { detail: { id, error } }));
+  }
+  return idbUpdateMeta(id, { status: "error", error }).catch(() => undefined);
+}
+
 export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   isRunning: false,
   isPaused: readAnomalyPauseFlag(),
@@ -229,7 +238,7 @@ async function workerLoop() {
       useQueueProcessor.getState()._incrementProcessed();
     } catch (e: any) {
       console.error("[QueueProcessor] RapidScan item failed:", e);
-      await idbUpdateMeta(item.id, { status: "error", error: e?.message || String(e) }).catch(() => undefined);
+      await markQueueItemError(item.id, e?.message || String(e));
       useQueueProcessor.getState()._incrementError();
     } finally {
       useQueueProcessor.getState()._setCurrentItem(null);
@@ -249,22 +258,39 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   const gameTypeHint = scanSettings.gameTypeFilter !== "auto" ? scanSettings.gameTypeFilter : undefined;
   const userId = getLocalUserId();
 
+  logTrace(item.id, "ocr-start");
+  const ocrStartedAt = performance.now();
   const ocr = await withTimeout(runLocalCardOcr(item.blob), LOCAL_OCR_TIMEOUT_MS, "Local OCR");
+  const ocrDurationMs = Math.round(performance.now() - ocrStartedAt);
   const ocrText = compactOcrText(ocr?.setCode, ocr?.cardNumber, ocr?.title, ocr?.fullCode, ocr?.rawText);
+  logTrace(item.id, "ocr-result", {
+    durationMs: ocrDurationMs,
+    data: {
+      title: ocr?.title,
+      setCode: ocr?.setCode,
+      cardNumber: ocr?.cardNumber,
+      fullCode: ocr?.fullCode,
+      game: ocr?.game,
+      confidence: ocr?.confidence,
+      rawText: ocr?.rawText ? ocr.rawText.slice(0, 600) : "",
+    },
+  });
 
   const hasStructured = Boolean(ocr?.title || ocr?.setCode || ocr?.cardNumber || ocr?.fullCode);
   if (!ocrText && !hasStructured) {
-    await idbUpdateMeta(item.id, { status: "error", error: "Unreadable scan — retake photo" });
+    await markQueueItemError(item.id, "Unreadable scan — retake photo");
     return;
   }
 
   const printedIdentifier = firstValidPrintedIdentifier(ocr?.setCode, ocr?.fullCode, ocr?.cardNumber);
   const hasValidTitle = isReadableTitle(ocr?.title);
   if (!printedIdentifier) {
-    await idbUpdateMeta(item.id, { status: "error", error: "No printed set/card code found — retake photo closer to the code" });
+    await markQueueItemError(item.id, "No printed set/card code found — retake photo closer to the code");
     return;
   }
 
+  logTrace(item.id, "lookup-start", { data: { setCode: printedIdentifier, cardNumber: ocr?.cardNumber ?? null, game: ocr?.game ?? null } });
+  const lookupStartedAt = performance.now();
   const lookup = await withTimeout(
     runRapidBasicLookup({
       imageUrl: null,
@@ -281,12 +307,23 @@ async function processQueueItem(item: QueueItem): Promise<void> {
     LOCAL_LOOKUP_TIMEOUT_MS,
     "Printed-code card lookup",
   );
+  const lookupDurationMs = Math.round(performance.now() - lookupStartedAt);
 
   const identify = lookup.cardData;
   const pricing = lookup.pricing ?? null;
+  logTrace(item.id, "lookup-result", {
+    durationMs: lookupDurationMs,
+    data: {
+      success: lookup.success,
+      source: (lookup as any).source ?? null,
+      cardName: identify?.card_name ?? null,
+      error: lookup.error ?? null,
+      hasPrice: hasReadablePrice(pricing),
+    },
+  });
 
   if (!lookup.success || !identify?.card_name) {
-    await idbUpdateMeta(item.id, { status: "error", error: lookup.error || "No printed-code lookup match — retake photo closer to the printed code" });
+    await markQueueItemError(item.id, lookup.error || "No printed-code lookup match — retake photo closer to the printed code");
     return;
   }
 
@@ -388,6 +425,10 @@ async function processQueueItem(item: QueueItem): Promise<void> {
     manufacturer,
   });
 
+  logTrace(item.id, "success", {
+    message: cardName,
+    data: { cardName, cardSet, cardNumber, value: rawPrice, source: (lookup as any).source ?? null },
+  });
   window.dispatchEvent(new CustomEvent("recent-scan-added"));
   await idbDelete(item.id);
 }
