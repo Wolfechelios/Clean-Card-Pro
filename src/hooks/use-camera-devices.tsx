@@ -73,14 +73,28 @@ function isRearCamera(label: string): boolean {
   return true;
 }
 
+/**
+ * Detect Apple Continuity Camera (iPhone/iPad used as a webcam on macOS 13+).
+ * These devices typically surface with labels like:
+ *   "iPhone", "iPhone Camera", "Alex's iPhone", "iPad Camera"
+ * The Safari/Chrome label doesn't include the word "Continuity" itself.
+ */
+function isContinuityCamera(label: string): boolean {
+  const l = label.toLowerCase();
+  if (l.includes("continuity")) return true;
+  // Match iPhone/iPad but exclude generic "iPhone-shaped" USB webcam brands.
+  if ((l.includes("iphone") || l.includes("ipad")) && !l.includes("usb")) return true;
+  return false;
+}
+
 function isUSBDevice(label: string): boolean {
   const l = label.toLowerCase();
+  if (isContinuityCamera(label)) return true;
   return (
     l.includes("usb") ||
     l.includes("phone") ||
     l.includes("android") ||
     l.includes("iphone") ||
-    l.includes("continuity") ||
     l.includes("webcam") ||
     l.includes("droidcam") ||
     l.includes("iriun") ||
@@ -97,9 +111,9 @@ function isUSBDevice(label: string): boolean {
 // Virtual cameras the user explicitly does NOT want listed.
 // iPhone via Continuity Camera (native macOS) is preserved.
 function isBlockedVirtualCamera(label: string): boolean {
+  if (isContinuityCamera(label)) return false;
   const l = label.toLowerCase();
   return (
-    l.includes("external-camera") ||
     l.includes("reincubate") ||
     l.includes("facebook") ||
     l.includes("portal") ||
