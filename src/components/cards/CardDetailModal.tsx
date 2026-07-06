@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { updateCardDual, deleteCardLocal, getCardById } from "@/lib/localCards";
 import {
   Dialog,
   DialogContent,
