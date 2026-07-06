@@ -334,17 +334,14 @@ export const ScannedCardList = ({
       });
 
       if (editingCard.dbId) {
-        const res = await supabase
-          .from("cards")
-          .update({
-            card_name: editForm.cardName,
-            card_set: editForm.cardSet,
-            card_number: editForm.cardNumber,
-            rarity: editForm.rarity,
-            suggested_price: editForm.value ? parseFloat(editForm.value) : null,
-          })
-          .eq("id", editingCard.dbId);
-        if (res.error) throw res.error;
+        const { updateCardDual } = await import("@/lib/localCards");
+        await updateCardDual(editingCard.dbId, {
+          card_name: editForm.cardName,
+          card_set: editForm.cardSet,
+          card_number: editForm.cardNumber,
+          rarity: editForm.rarity,
+          suggested_price: editForm.value ? parseFloat(editForm.value) : null,
+        } as any);
       }
 
       toast.success("Card updated successfully");
@@ -382,20 +379,17 @@ export const ScannedCardList = ({
       });
 
       if (verifyCard.dbId) {
-        const { error } = await supabase
-          .from("cards")
-          .update({
-            card_name: updates.cardName,
-            card_set: updates.cardSet,
-            card_number: updates.cardNumber,
-            rarity: updates.rarity,
-            current_price_raw: updates.value,
-            psa10_price: updates.psa10Price,
-            image_url: updates.imageUrl || verifyCard.imageUrl || null,
-            updated_at: new Date().toISOString(),
-          } as any)
-          .eq("id", verifyCard.dbId);
-        if (error) throw error;
+        const { updateCardDual } = await import("@/lib/localCards");
+        await updateCardDual(verifyCard.dbId, {
+          card_name: updates.cardName,
+          card_set: updates.cardSet,
+          card_number: updates.cardNumber,
+          rarity: updates.rarity,
+          current_price_raw: updates.value,
+          psa10_price: updates.psa10Price,
+          image_url: updates.imageUrl || verifyCard.imageUrl || null,
+          updated_at: new Date().toISOString(),
+        } as any);
       }
 
       toast.success("Verified match applied");
