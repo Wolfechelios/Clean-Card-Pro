@@ -527,31 +527,16 @@ export default function Collections() {
 
   const handleDeleteNoImage = async () => {
     if (!userId) return;
-    
     try {
-      const { data: noImageCards, error: fetchError } = await supabase
-        .from("cards")
-        .select("id")
-        .eq("user_id", userId)
-        .or("image_url.is.null,image_url.eq.");
-
-      if (fetchError) throw fetchError;
-
-      if (!noImageCards || noImageCards.length === 0) {
+      const all = await getAllCards();
+      const noImage = all.filter((c: any) => !c.image_url);
+      if (noImage.length === 0) {
         toast.error("No cards without images found");
         setShowDeleteNoImage(false);
         return;
       }
-
-      const { error } = await supabase
-        .from("cards")
-        .delete()
-        .eq("user_id", userId)
-        .or("image_url.is.null,image_url.eq.");
-
-      if (error) throw error;
-
-      toast.success(`Deleted ${noImageCards.length} card(s) without images`);
+      await Promise.all(noImage.map((c: any) => deleteCardLocal(c.id)));
+      toast.success(`Deleted ${noImage.length} card(s) without images`);
       fetchCards();
     } catch (error) {
       console.error("Error deleting no-image cards:", error);
@@ -563,7 +548,6 @@ export default function Collections() {
 
   const handleBulkEdit = async () => {
     if (selectedCards.size === 0) return;
-
     try {
       const updates: any = {};
       if (bulkEditData.condition) updates.condition = bulkEditData.condition;
@@ -576,12 +560,14 @@ export default function Collections() {
         return;
       }
 
-      const { error } = await supabase
-        .from("cards")
-        .update(updates)
-        .in("id", Array.from(selectedCards));
-
-      if (error) throw error;
+      const ids = Array.from(selectedCards);
+      await Promise.all(
+        ids.map(async (id) => {
+          const existing = await getCardById(id);
+          if (!existing) return;
+          await upsertCardLocal({ ...(existing as any), ...updates, updated_at: new Date().toISOString() } as any);
+        })
+      );
 
       toast.success(`Updated ${selectedCards.size} card(s) successfully`);
       fetchCards();
