@@ -217,15 +217,10 @@ export function CardDetailModal({
       try {
         setIsSaving(true);
         
-        const { error } = await supabase
-          .from("cards")
-          .update({
-            image_url: referenceImageUrl,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", card.id);
-
-        if (error) throw error;
+        await updateCardDual(card.id, {
+          image_url: referenceImageUrl,
+          updated_at: new Date().toISOString(),
+        } as any);
 
         const updatedCard: CardData = {
           ...card,
