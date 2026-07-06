@@ -35,6 +35,14 @@ async function initPaddleOCR(): Promise<void> {
     const startTime = performance.now();
     
     try {
+      // Point onnxruntime-web at a CDN that serves .wasm with the correct MIME type.
+      // Without this, the bundler's resolved URL returns HTML (404) and every ORT
+      // backend fails to initialize.
+      const ort = await import("onnxruntime-web");
+      ort.env.wasm.wasmPaths =
+        "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.3/dist/";
+      ort.env.wasm.numThreads = 1;
+
       // Dynamic import to avoid bundling into main chunk
       if (!OcrClass) {
         const module = await import("@gutenye/ocr-browser");
