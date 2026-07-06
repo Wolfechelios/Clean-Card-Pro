@@ -81,51 +81,15 @@ export function SetCardsList({ set, allSets, onBack, onRefresh }: SetCardsListPr
   };
 
   const deleteSelected = async () => {
-    const ids = Array.from(selected);
-    const { error } = await supabase.from("pc_cards").delete().in("id", ids);
-    if (error) {
-      toast.error("Failed to delete cards");
-    } else {
-      toast.success(`Deleted ${ids.length} card(s)`);
-      setSelected(new Set());
-      fetchCards();
-      // Update set count
-      const remaining = cards.length - ids.length;
-      await supabase.from("pc_sets").update({ total_cards: remaining }).eq("id", set.id);
-      onRefresh();
-    }
+    toast.info("Price DB is disabled in local-first mode");
   };
 
   const moveSelected = async () => {
-    if (!moveTarget || moveTarget === set.id) return;
-    const ids = Array.from(selected);
-    const { error } = await supabase.from("pc_cards").update({ set_id: moveTarget }).in("id", ids);
-    if (error) {
-      toast.error("Failed to move cards");
-    } else {
-      toast.success(`Moved ${ids.length} card(s)`);
-      setSelected(new Set());
-      setMoveTarget("");
-      fetchCards();
-      // Update counts for both sets
-      const { count: srcCount } = await supabase.from("pc_cards").select("id", { count: "exact", head: true }).eq("set_id", set.id);
-      const { count: dstCount } = await supabase.from("pc_cards").select("id", { count: "exact", head: true }).eq("set_id", moveTarget);
-      await supabase.from("pc_sets").update({ total_cards: srcCount || 0 }).eq("id", set.id);
-      await supabase.from("pc_sets").update({ total_cards: dstCount || 0 }).eq("id", moveTarget);
-      onRefresh();
-    }
+    toast.info("Price DB is disabled in local-first mode");
   };
 
-  const deleteSingle = async (id: string) => {
-    const { error } = await supabase.from("pc_cards").delete().eq("id", id);
-    if (error) {
-      toast.error("Failed to delete card");
-    } else {
-      toast.success("Card deleted");
-      fetchCards();
-      await supabase.from("pc_sets").update({ total_cards: cards.length - 1 }).eq("id", set.id);
-      onRefresh();
-    }
+  const deleteSingle = async (_id: string) => {
+    toast.info("Price DB is disabled in local-first mode");
   };
 
   return (

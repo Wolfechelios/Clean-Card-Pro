@@ -105,32 +105,12 @@ function PriceDBContent({ userId }: { userId: string }) {
     }
   };
 
-  const deleteSet = async (setId: string) => {
-    const { error } = await supabase.from("pc_sets").delete().eq("id", setId);
-    if (error) {
-      toast.error("Failed to delete set");
-    } else {
-      toast.success("Set deleted");
-      fetchSets();
-      if (completion?.set_id === setId) setCompletion(null);
-      if (viewingSet?.id === setId) setViewingSet(null);
-    }
+  const deleteSet = async (_setId: string) => {
+    toast.info("Price DB is disabled in local-first mode");
   };
 
   const deleteAllSets = async () => {
-    // Delete all cards first, then sets
-    const setIds = sets.map((s) => s.id);
-    if (setIds.length === 0) return;
-    await supabase.from("pc_cards").delete().in("set_id", setIds);
-    const { error } = await supabase.from("pc_sets").delete().eq("user_id", userId);
-    if (error) {
-      toast.error("Failed to delete all sets");
-    } else {
-      toast.success("All sets deleted");
-      fetchSets();
-      setCompletion(null);
-      setViewingSet(null);
-    }
+    toast.info("Price DB is disabled in local-first mode");
   };
 
   const viewCompletion = async (setId: string) => {
