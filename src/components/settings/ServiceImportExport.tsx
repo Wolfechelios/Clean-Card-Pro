@@ -243,13 +243,13 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
             const confidence = identifyData?.cardData?.confidence ?? 100;
             const suggestedName = identifyData?.cardData?.card_name;
             const suggestedSet = identifyData?.cardData?.card_set;
-            await supabase.from("cards").update({ image_url: imageUrl, thumbnail_url: imageUrl, ocr_confidence: confidence }).eq("id", card.id);
+            { const { updateCardDual } = await import("@/lib/localCards"); await updateCardDual(card.id, { image_url: imageUrl, thumbnail_url: imageUrl, ocr_confidence: confidence } as any); }
             if (confidence < 90) {
               lowConfidenceCards.push({ id: card.id, card_name: card.card_name, card_set: card.card_set, image_url: imageUrl, confidence, suggested_name: suggestedName, suggested_set: suggestedSet });
             }
           } catch (err) {
             console.error("Card identification error:", err);
-            await supabase.from("cards").update({ image_url: imageUrl, thumbnail_url: imageUrl }).eq("id", card.id);
+            { const { updateCardDual } = await import("@/lib/localCards"); await updateCardDual(card.id, { image_url: imageUrl, thumbnail_url: imageUrl } as any); }
           }
         }
       }));
@@ -267,8 +267,10 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
   };
 
   const handleVerifyCard = async (cardId: string, newName: string, newSet: string | null) => {
-    const { error } = await supabase.from("cards").update({ card_name: newName, card_set: newSet, ocr_confidence: 100 }).eq("id", cardId);
-    if (error) { toast.error("Failed to update card"); return; }
+    try {
+      const { updateCardDual } = await import("@/lib/localCards");
+      await updateCardDual(cardId, { card_name: newName, card_set: newSet, ocr_confidence: 100 } as any);
+    } catch { toast.error("Failed to update card"); return; }
     setCardsToVerify(prev => prev.filter(c => c.id !== cardId));
     toast.success("Card verified");
   };
@@ -276,7 +278,8 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
   const handleDismissCard = (cardId: string) => { setCardsToVerify(prev => prev.filter(c => c.id !== cardId)); };
 
   const handleVerifyAll = async () => {
-    const updates = cardsToVerify.map(card => supabase.from("cards").update({ ocr_confidence: 100 }).eq("id", card.id));
+    const { updateCardDual } = await import("@/lib/localCards");
+    const updates = cardsToVerify.map(card => updateCardDual(card.id, { ocr_confidence: 100 } as any));
     await Promise.all(updates);
     setCardsToVerify([]);
     setActiveSection("import");
@@ -287,8 +290,11 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
     if (!userId) return;
     try {
       setScanningLowConfidence(true);
-      const { data: lowConfCards, error } = await supabase.from("cards").select("id, card_name, card_set, image_url, ocr_confidence, game_type, sport_type").eq("user_id", userId).or("ocr_confidence.is.null,ocr_confidence.lt.80").limit(50);
-      if (error) throw error;
+      const { getAllCards } = await import("@/lib/localCards");
+      const allLocal = await getAllCards();
+      const lowConfCards = allLocal
+        .filter((c: any) => c.user_id === userId && (c.ocr_confidence == null || c.ocr_confidence < 80))
+        .slice(0, 50) as any[];
       if (!lowConfCards || lowConfCards.length === 0) { toast.info("No cards with low confidence found"); setScanningLowConfidence(false); return; }
       setImageLookupProgress({ current: 0, total: lowConfCards.length });
       const verificationQueue: CardToVerify[] = [];
@@ -409,9 +415,12 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
       for (let i = 0; i < jsonData.length; i += batchSize) {
         const batch = jsonData.slice(i, i + batchSize);
         const cardsToInsert = batch.map((row: any) => parseRowByFormat(row, importFormat, userId));
-        const { data: insertedCards, error } = await supabase.from("cards").insert(cardsToInsert).select("id");
-        if (error) { console.error("Batch import error:", error); }
-        else { imported += batch.length; if (insertedCards) { importedCardIds.push(...insertedCards.map(c => c.id)); } }
+        try {
+          const { insertCardDual } = await import("@/lib/localCards");
+          const insertedCards = await Promise.all(cardsToInsert.map((c: any) => insertCardDual(c)));
+          imported += batch.length;
+          importedCardIds.push(...insertedCards.map((c: any) => c.id));
+        } catch (error) { console.error("Batch import error:", error); }
         setImportProgress(Math.round(((i + batch.length) / jsonData.length) * 100));
       }
       toast.success(`Successfully imported ${imported} cards`);

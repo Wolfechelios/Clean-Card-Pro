@@ -200,25 +200,15 @@ export async function processPendingSync(): Promise<{ success: number; failed: n
 
     for (const item of items) {
       try {
-        switch (item.action) {
-          case "insert":
-            await supabase.from(item.table as "cards").insert(item.data);
-            break;
-          case "update":
-            await supabase.from(item.table as "cards").update(item.data).eq("id", item.data.id);
-            break;
-          case "delete":
-            await supabase.from(item.table as "cards").delete().eq("id", item.data.id);
-            break;
-        }
-
+        // Local-first: writes stay in Dexie/localforage. Nothing is
+        // shipped to the cloud, so we just drop the queued item.
         await removePendingSync(item.id);
         success++;
       } catch (error: any) {
         failed++;
         await updatePendingSync(item.id, {
           retryCount: item.retryCount + 1,
-          lastError: error.message,
+          lastError: error?.message ?? "unknown",
         });
 
         // Remove after 5 failed attempts
@@ -239,38 +229,12 @@ export async function processPendingSync(): Promise<{ success: number; failed: n
 
 // ============= Full Sync from Server =============
 
-export async function syncFromServer(userId: string): Promise<number> {
-  if (!isOnline) throw new Error("Cannot sync while offline");
-
-  // Fetch all cards in batches of 1000 (Supabase default limit)
-  let allCards: any[] = [];
-  let from = 0;
-  const batchSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabase
-      .from("cards")
-      .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .range(from, from + batchSize - 1);
-
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-
-    allCards = allCards.concat(data);
-    if (data.length < batchSize) break;
-    from += batchSize;
-  }
-
-  // Clear and repopulate cache
-  await cardsStore.clear();
-  if (allCards.length > 0) {
-    await cacheCards(allCards);
-  }
-
+export async function syncFromServer(_userId: string): Promise<number> {
+  // Local-first: no cloud database attached. The cache IS the source of
+  // truth. Report existing count so callers can display "up to date".
+  const existing = await cardsStore.length().catch(() => 0);
   await metaStore.setItem("lastSyncAt", Date.now());
-  return allCards.length;
+  return existing;
 }
 
 // ============= Storage Stats =============

@@ -173,27 +173,15 @@ export default function GradedScanPage() {
     const previewUrl = URL.createObjectURL(file);
     setPreview(previewUrl);
 
-    const safeName = file.name.replace(/[^\w.\-]+/g, "_");
-    const fileName = `cards/graded/${userId}/${Date.now()}-${safeName}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from("card-images")
-      .upload(fileName, file, {
-        contentType: file.type || "image/jpeg",
-        cacheControl: "3600",
-        upsert: false,
-      });
-
-    if (uploadError) {
-      console.error("Graded scan upload error:", uploadError);
-      toast.error(uploadError.message || "Failed to upload image");
+    try {
+      const { fileToDataUrl } = await import("@/lib/local/fileToDataUrl");
+      const publicUrl = await fileToDataUrl(file);
+      await processImage(publicUrl);
+    } catch (uploadError: any) {
+      console.error("Graded scan local read error:", uploadError);
+      toast.error(uploadError?.message || "Failed to read image");
       return;
     }
-
-    const { data: publicUrlData } = supabase.storage
-      .from("card-images")
-      .getPublicUrl(fileName);
-    await processImage(publicUrlData.publicUrl);
   };
 
   const startCamera = async () => {
@@ -274,25 +262,9 @@ export default function GradedScanPage() {
       setPreview(previewUrl);
       stopCamera();
 
-      const fileName = `cards/graded/${userId}/${Date.now()}.jpg`;
-      const { error: uploadError } = await supabase.storage
-        .from("card-images")
-        .upload(fileName, blob, {
-          contentType: "image/jpeg",
-          cacheControl: "3600",
-          upsert: false,
-        });
-
-      if (uploadError) {
-        console.error("Graded scan upload error:", uploadError);
-        toast.error(uploadError.message || "Failed to upload image");
-        return;
-      }
-
-      const { data: publicUrlData } = supabase.storage
-        .from("card-images")
-        .getPublicUrl(fileName);
-      await processImage(publicUrlData.publicUrl);
+      const { fileToDataUrl } = await import("@/lib/local/fileToDataUrl");
+      const publicUrl = await fileToDataUrl(blob);
+      await processImage(publicUrl);
     } catch (err) {
       console.error("Capture error:", err);
       toast.error("Failed to capture photo");
