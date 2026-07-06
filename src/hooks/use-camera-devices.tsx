@@ -6,6 +6,7 @@ export interface CameraDevice {
   deviceId: string;
   label: string;
   isUSB: boolean;
+  isContinuity: boolean;
   lensType: LensType;
   lensLabel: string;
 }
