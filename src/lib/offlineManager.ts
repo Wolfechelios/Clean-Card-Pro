@@ -200,25 +200,15 @@ export async function processPendingSync(): Promise<{ success: number; failed: n
 
     for (const item of items) {
       try {
-        switch (item.action) {
-          case "insert":
-            await supabase.from(item.table as "cards").insert(item.data);
-            break;
-          case "update":
-            await supabase.from(item.table as "cards").update(item.data).eq("id", item.data.id);
-            break;
-          case "delete":
-            await supabase.from(item.table as "cards").delete().eq("id", item.data.id);
-            break;
-        }
-
+        // Local-first: writes stay in Dexie/localforage. Nothing is
+        // shipped to the cloud, so we just drop the queued item.
         await removePendingSync(item.id);
         success++;
       } catch (error: any) {
         failed++;
         await updatePendingSync(item.id, {
           retryCount: item.retryCount + 1,
-          lastError: error.message,
+          lastError: error?.message ?? "unknown",
         });
 
         // Remove after 5 failed attempts
