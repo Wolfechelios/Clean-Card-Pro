@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 
-export type LensType = "wide" | "ultrawide" | "telephoto" | "macro" | "depth" | "standard" | "usb" | "unknown";
+export type LensType = "wide" | "ultrawide" | "telephoto" | "macro" | "depth" | "standard" | "usb" | "continuity" | "unknown";
 
 export interface CameraDevice {
   deviceId: string;
   label: string;
   isUSB: boolean;
+  isContinuity: boolean;
   lensType: LensType;
   lensLabel: string;
 }
@@ -73,14 +74,28 @@ function isRearCamera(label: string): boolean {
   return true;
 }
 
+/**
+ * Detect Apple Continuity Camera (iPhone/iPad used as a webcam on macOS 13+).
+ * These devices typically surface with labels like:
+ *   "iPhone", "iPhone Camera", "Alex's iPhone", "iPad Camera"
+ * The Safari/Chrome label doesn't include the word "Continuity" itself.
+ */
+function isContinuityCamera(label: string): boolean {
+  const l = label.toLowerCase();
+  if (l.includes("continuity")) return true;
+  // Match iPhone/iPad but exclude generic "iPhone-shaped" USB webcam brands.
+  if ((l.includes("iphone") || l.includes("ipad")) && !l.includes("usb")) return true;
+  return false;
+}
+
 function isUSBDevice(label: string): boolean {
   const l = label.toLowerCase();
+  if (isContinuityCamera(label)) return true;
   return (
     l.includes("usb") ||
     l.includes("phone") ||
     l.includes("android") ||
     l.includes("iphone") ||
-    l.includes("continuity") ||
     l.includes("webcam") ||
     l.includes("droidcam") ||
     l.includes("iriun") ||
@@ -97,9 +112,9 @@ function isUSBDevice(label: string): boolean {
 // Virtual cameras the user explicitly does NOT want listed.
 // iPhone via Continuity Camera (native macOS) is preserved.
 function isBlockedVirtualCamera(label: string): boolean {
+  if (isContinuityCamera(label)) return false;
   const l = label.toLowerCase();
   return (
-    l.includes("external-camera") ||
     l.includes("reincubate") ||
     l.includes("facebook") ||
     l.includes("portal") ||
@@ -142,13 +157,18 @@ export const useCameraDevices = () => {
         // Drop blocked virtual webcams (external camera, Facebook Portal, etc.)
         if (isBlockedVirtualCamera(label)) return null;
 
+        const continuity = isContinuityCamera(label);
         const usb = isUSBDevice(label);
         const rear = isRearCamera(label);
 
         let lensType: LensType = "unknown";
         let lensLabel = label;
 
-        if (usb) {
+        if (continuity) {
+          lensType = "continuity";
+          // Preserve device name (e.g. "Alex's iPhone") and tag it clearly.
+          lensLabel = /continuity/i.test(label) ? label : `${label} (Continuity Cam)`;
+        } else if (usb) {
           lensType = "usb";
           lensLabel = label;
         } else if (rear) {
@@ -158,7 +178,7 @@ export const useCameraDevices = () => {
           rearCounter++;
         }
         // Skip front cameras entirely
-        if (!rear && !usb) {
+        if (!rear && !usb && !continuity) {
           return null;
         }
 
@@ -167,6 +187,7 @@ export const useCameraDevices = () => {
           deviceId: device.deviceId,
           label,
           isUSB: usb,
+          isContinuity: continuity,
           lensType,
           lensLabel,
         };
@@ -174,10 +195,12 @@ export const useCameraDevices = () => {
 
       setDevices(videoDevices);
 
-      // Auto-select main wide lens or first device
+      // Auto-select: prefer Continuity Camera (iPhone) → main wide lens → first device
       setSelectedDeviceId(prev => {
         if (prev && videoDevices.some(d => d.deviceId === prev)) return prev;
         if (videoDevices.length === 0) return "";
+        const continuityDev = videoDevices.find(d => d.isContinuity);
+        if (continuityDev) return continuityDev.deviceId;
         const mainLens = videoDevices.find(d => d.lensType === "wide") || videoDevices[0];
         return mainLens.deviceId;
       });
