@@ -23,6 +23,8 @@ function getLensIcon(lensType: LensType) {
     case "macro":
     case "depth":
       return <Focus className="h-4 w-4 text-primary" />;
+    case "continuity":
+      return <Apple className="h-4 w-4 text-primary" />;
     case "usb":
       return <Smartphone className="h-4 w-4 text-primary" />;
     default:
