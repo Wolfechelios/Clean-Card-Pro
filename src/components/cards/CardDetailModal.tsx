@@ -257,21 +257,16 @@ export function CardDetailModal({
 
     try {
       setIsSaving(true);
-      const { error } = await supabase
-        .from("cards")
-        .update({
-          card_name: updates.cardName,
-          card_set: updates.cardSet,
-          card_number: updates.cardNumber,
-          rarity: updates.rarity,
-          current_price_raw: updates.value,
-          psa10_price: updates.psa10Price,
-          image_url: updates.imageUrl || card.image_url || null,
-          updated_at: new Date().toISOString(),
-        } as any)
-        .eq("id", card.id);
-
-      if (error) throw error;
+      await updateCardDual(card.id, {
+        card_name: updates.cardName,
+        card_set: updates.cardSet,
+        card_number: updates.cardNumber,
+        rarity: updates.rarity,
+        current_price_raw: updates.value,
+        psa10_price: updates.psa10Price,
+        image_url: updates.imageUrl || card.image_url || null,
+        updated_at: new Date().toISOString(),
+      } as any);
 
       const updatedCard: CardData = {
         ...card,
