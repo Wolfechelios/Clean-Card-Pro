@@ -1,6 +1,6 @@
 import * as ExcelJS from "exceljs";
-import { Database } from "@/integrations/supabase/types";
-import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
+import { insertCardDual, getAllCards } from "@/lib/localCards";
 
 type Card = Database["public"]["Tables"]["cards"]["Row"];
 
@@ -184,76 +184,40 @@ export async function importParsedSets(userId: string, sets: ParsedSet[]): Promi
       });
     }
   }
-  const { data, error } = await supabase.from("cards").insert(cardsToInsert).select("*");
-  if (error) {
-    console.error("Error importing cards", error);
-    throw error;
+  const inserted: Card[] = [];
+  for (const c of cardsToInsert) {
+    try {
+      const row = await insertCardDual(c);
+      inserted.push(row as Card);
+    } catch (err) {
+      console.error("Error importing card locally", err);
+    }
   }
-  return data || [];
+  return inserted;
 }
 
 export async function matchCardLocally(cardName: string, cardSet: string | null, gameType: string | null): Promise<Card | null> {
   if (!cardName) return null;
-  const cardNameClean = cardName.replace(/[^a-zA-Z0-9\s]/g, "").trim().toLowerCase();
-  const cardSetNameClean = cardSet?.replace(/[^a-zA-Z0-9\s]/g, "").trim().toLowerCase() || null;
-  const { data, error } = await supabase
-    .from("cards")
-    .select("*")
-    .ilike("card_name", cardNameClean)
-    .eq("card_set", cardSet)
-    .eq("game_type", gameType)
-    .limit(1);
-  if (error) {
-    console.error("Error matching card locally", error);
-    return null;
-  }
-  return data?.[0] || null;
+  const needle = cardName.trim().toLowerCase();
+  const all = await getAllCards();
+  return (all.find(
+    (r) =>
+      String(r.card_name ?? "").toLowerCase() === needle &&
+      (cardSet ? r.card_set === cardSet : true) &&
+      (gameType ? (r as any).game_type === gameType : true),
+  ) ?? null) as Card | null;
 }
 
 export async function toMatch(cardName: string): Promise<Card[]> {
   if (!cardName) return [];
-  const cardNameClean = cardName.replace(/[^a-zA-Z0-9\s]/g, "").trim().toLowerCase();
-  const { data, error } = await supabase
-    .from("cards")
-    .select("*")
-    .ilike("card_name", cardNameClean)
-    .limit(5);
-  if (error) {
-    console.error("Error matching card locally", error);
-    return [];
-  }
-  return data || [];
+  const needle = cardName.trim().toLowerCase();
+  const all = await getAllCards();
+  return all
+    .filter((r) => String(r.card_name ?? "").toLowerCase().includes(needle))
+    .slice(0, 5) as Card[];
 }
 
-export async function getSetCompletion(userId: string, setId: string): Promise<SetCompletion> {
-  // Get set info
-  const { data: setData } = await supabase.from("pc_sets").select("*").eq("id", setId).single();
-  if (!setData) return { set_id: setId, set_name: "", set_code: null, total_cards: 0, owned_cards: 0, completion_pct: 0, missing: [] };
-
-  // Get all cards in this set
-  const { data: allCards } = await supabase.from("pc_cards").select("*").eq("set_id", setId);
-  const totalCards = allCards?.length || 0;
-
-  // Get user's owned cards matching this set name
-  const { data: ownedCards } = await supabase
-    .from("cards")
-    .select("card_name")
-    .eq("user_id", userId)
-    .ilike("card_set", setData.set_name);
-
-  const ownedNames = new Set((ownedCards || []).map(c => c.card_name?.toLowerCase()));
-  const owned = allCards?.filter(c => ownedNames.has(c.card_name?.toLowerCase())) || [];
-  const missing = (allCards || [])
-    .filter(c => !ownedNames.has(c.card_name?.toLowerCase()))
-    .map(c => ({ card_name: c.card_name, card_number: c.card_number, variant: c.variant, ungraded_price: c.ungraded_price }));
-
-  return {
-    set_id: setId,
-    set_name: setData.set_name,
-    set_code: setData.set_code,
-    total_cards: totalCards,
-    owned_cards: owned.length,
-    completion_pct: totalCards > 0 ? Math.round((owned.length / totalCards) * 100) : 0,
-    missing,
-  };
+export async function getSetCompletion(_userId: string, setId: string): Promise<SetCompletion> {
+  // Price DB (pc_sets/pc_cards) is cloud-only and disabled in local-first mode.
+  return { set_id: setId, set_name: "", set_code: null, total_cards: 0, owned_cards: 0, completion_pct: 0, missing: [] };
 }
