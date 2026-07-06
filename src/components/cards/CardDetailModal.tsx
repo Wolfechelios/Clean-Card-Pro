@@ -697,17 +697,16 @@ export function CardDetailModal({
                   error={consensusError}
                   needsReview={needsReview}
                   onUseConsensusPrice={async (price) => {
-                    const { error } = await supabase
-                      .from("cards")
-                      .update({ suggested_price: price, current_price_raw: price })
-                      .eq("id", card.id);
-                    if (!error) {
+                    try {
+                      await updateCardDual(card.id, { suggested_price: price, current_price_raw: price } as any);
                       toast.success(`Price updated to $${price.toFixed(2)}`);
                       if (cardState) {
                         const updated = { ...cardState, current_price_raw: price };
                         setCardState(updated);
                         onUpdate?.(updated);
                       }
+                    } catch (e) {
+                      console.error(e);
                     }
                   }}
                   onRescan={() => navigate(`/scan`)}
