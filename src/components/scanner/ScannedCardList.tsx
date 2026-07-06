@@ -12,7 +12,7 @@ import { Edit2, DollarSign, ShieldCheck, Hash, Sparkles, Trash2, Loader2, Librar
 import { isPremiumYugiohSet } from "@/lib/premiumSets";
 import JSZip from "jszip";
 import { toPublicImageUrl } from "@/lib/storage/getPublicImageUrl";
-import { supabase } from "@/integrations/supabase/client";
+import { deleteCardLocal } from "@/lib/localCards";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { CardVerifyDialog, type VerifyTarget } from "@/components/verification/CardVerifyDialog";
@@ -305,8 +305,7 @@ export const ScannedCardList = ({
       setDeletingId(card.id);
       try {
       if (card.dbId) {
-          const res = await supabase.from("cards").delete().eq("id", card.dbId);
-          if (res.error) throw res.error;
+          await deleteCardLocal(card.dbId);
         }
 
         onCardDelete(card.id);
