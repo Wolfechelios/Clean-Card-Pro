@@ -290,8 +290,11 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
     if (!userId) return;
     try {
       setScanningLowConfidence(true);
-      const { data: lowConfCards, error } = await supabase.from("cards").select("id, card_name, card_set, image_url, ocr_confidence, game_type, sport_type").eq("user_id", userId).or("ocr_confidence.is.null,ocr_confidence.lt.80").limit(50);
-      if (error) throw error;
+      const { getAllCards } = await import("@/lib/localCards");
+      const allLocal = await getAllCards();
+      const lowConfCards = allLocal
+        .filter((c: any) => c.user_id === userId && (c.ocr_confidence == null || c.ocr_confidence < 80))
+        .slice(0, 50) as any[];
       if (!lowConfCards || lowConfCards.length === 0) { toast.info("No cards with low confidence found"); setScanningLowConfidence(false); return; }
       setImageLookupProgress({ current: 0, total: lowConfCards.length });
       const verificationQueue: CardToVerify[] = [];
@@ -412,9 +415,12 @@ export default function ServiceImportExport({ userId, totalCards, onComplete }: 
       for (let i = 0; i < jsonData.length; i += batchSize) {
         const batch = jsonData.slice(i, i + batchSize);
         const cardsToInsert = batch.map((row: any) => parseRowByFormat(row, importFormat, userId));
-        const { data: insertedCards, error } = await supabase.from("cards").insert(cardsToInsert).select("id");
-        if (error) { console.error("Batch import error:", error); }
-        else { imported += batch.length; if (insertedCards) { importedCardIds.push(...insertedCards.map(c => c.id)); } }
+        try {
+          const { insertCardDual } = await import("@/lib/localCards");
+          const insertedCards = await Promise.all(cardsToInsert.map((c: any) => insertCardDual(c)));
+          imported += batch.length;
+          importedCardIds.push(...insertedCards.map((c: any) => c.id));
+        } catch (error) { console.error("Batch import error:", error); }
         setImportProgress(Math.round(((i + batch.length) / jsonData.length) * 100));
       }
       toast.success(`Successfully imported ${imported} cards`);
