@@ -274,39 +274,15 @@ export default function Collections() {
 
   const fetchCards = async () => {
     if (!userId) return;
-    
     try {
-      // Fetch all cards using pagination to handle 1000+ card collections
-      const allCards: CardItem[] = [];
-      const pageSize = 1000;
-      let page = 0;
-      let hasMore = true;
-
-      while (hasMore) {
-        const { data, error } = await supabase
-          .from("cards")
-          .select("*")
-          .eq("user_id", userId)
-          .order("created_at", { ascending: false })
-          .range(page * pageSize, (page + 1) * pageSize - 1);
-
-        if (error) throw error;
-
-        if (data && data.length > 0) {
-          // Convert expired signed URLs to public URLs
-          const fixed = data.map(card => ({
-            ...card,
-            image_url: toPublicImageUrl(card.image_url),
-            thumbnail_url: card.thumbnail_url ? toPublicImageUrl(card.thumbnail_url) : card.thumbnail_url,
-          }));
-          allCards.push(...fixed);
-          page++;
-          hasMore = data.length === pageSize;
-        } else {
-          hasMore = false;
-        }
-      }
-
+      const local = await getAllCards();
+      const allCards = local
+        .filter((c: any) => !c.user_id || c.user_id === userId || c.user_id === "local-user")
+        .map((card: any) => ({
+          ...card,
+          image_url: toPublicImageUrl(card.image_url),
+          thumbnail_url: card.thumbnail_url ? toPublicImageUrl(card.thumbnail_url) : card.thumbnail_url,
+        })) as CardItem[];
       setCards(allCards);
       setFilteredCards(allCards);
     } catch (error) {
@@ -318,15 +294,8 @@ export default function Collections() {
 
   const handleDelete = async () => {
     if (!cardToDelete) return;
-
     try {
-      const { error } = await supabase
-        .from("cards")
-        .delete()
-        .eq("id", cardToDelete);
-
-      if (error) throw error;
-
+      await deleteCardLocal(cardToDelete);
       setCards(cards.filter(card => card.id !== cardToDelete));
       setFilteredCards(filteredCards.filter(card => card.id !== cardToDelete));
       toast.success("Card deleted successfully");
@@ -340,15 +309,8 @@ export default function Collections() {
 
   const handleBulkDelete = async () => {
     if (selectedCards.size === 0) return;
-
     try {
-      const { error } = await supabase
-        .from("cards")
-        .delete()
-        .in("id", Array.from(selectedCards));
-
-      if (error) throw error;
-
+      await Promise.all(Array.from(selectedCards).map((id) => deleteCardLocal(id)));
       setCards(cards.filter(card => !selectedCards.has(card.id)));
       setFilteredCards(filteredCards.filter(card => !selectedCards.has(card.id)));
       toast.success(`${selectedCards.size} card(s) deleted successfully`);
