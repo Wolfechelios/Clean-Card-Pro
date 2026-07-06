@@ -76,17 +76,17 @@ type ProcessorStore = ProcessorState & {
 };
 
 const QUEUE_REFRESH_INTERVAL_MS = 1000;
-const MIN_JOB_DELAY_MS = 350;
-const LOCAL_OCR_TIMEOUT_MS = 18000;
+const MIN_JOB_DELAY_MS = 100;
+const LOCAL_OCR_TIMEOUT_MS = 12000;
 const LOCAL_LOOKUP_TIMEOUT_MS = 8000;
 const ANOMALY_PAUSE_STORAGE_KEY = "rapid-scan-anomaly-paused";
+const WORKER_CONCURRENCY = 3;
 
-let workerActive = false;
+let activeWorkers = 0;
 let queueTimer: ReturnType<typeof setTimeout> | null = null;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let autoResumeChecked = false;
-let consecutiveErrorCount = 0;
-const CONSECUTIVE_ERROR_LIMIT = 5;
+
 
 
 function readAnomalyPauseFlag(): boolean {
