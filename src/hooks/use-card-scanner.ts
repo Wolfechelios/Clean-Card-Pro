@@ -1,15 +1,18 @@
+// Local-first single-card scanner hook.
+// No Supabase storage uploads, no edge function calls, no remote DB reads.
+// OCR + identification + duplicate check + save all run against local browser storage.
+
 import { useState, useCallback, useRef } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { insertCardDual } from "@/lib/localCards";
+import { insertCardDual, getAllCards } from "@/lib/localCards";
 import { toast } from "sonner";
-import { analyzeCardFull } from "@/lib/analyzeCardFull";
-import { withRetry } from "@/lib/retry";
 import { getScannerSettings, type ScanMode } from "./use-scanner-settings";
 import { addRecentScan } from "@/lib/recentScans";
 import { singleScanDetector } from "@/lib/scanAnomalyDetector";
 import { analyzeMtgIdentification, buildMtgNotes } from "@/lib/mtg/alphaBetaDetector";
+import { runLocalCardOcr } from "@/lib/ocr/localCardOcr";
+import { compactOcrText, runRapidBasicLookup } from "@/lib/rapidBasicLookupClient";
+import { withTimeout } from "@/lib/async/withTimeout";
 
-import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 export interface OCRResult {
   cardName: string;
   cardSet: string;
@@ -45,9 +48,8 @@ export interface PendingCardData {
   imageUrl: string;
   fallbackData?: any;
 
-  // NEW: scan workspace metadata
   scanMode?: ScanMode;
-  ownedCount?: number; // how many copies user has already
+  ownedCount?: number;
   isInLibrary?: boolean;
   existingCard?: {
     id: string;
@@ -57,7 +59,6 @@ export interface PendingCardData {
     current_price_raw: number | null;
   };
 
-  // existing duplicate structure (kept)
   isDuplicate?: boolean;
 }
 
@@ -65,6 +66,18 @@ interface UseCardScannerOptions {
   userId: string;
   onScanComplete?: () => void;
   skipDuplicateCheck?: boolean;
+}
+
+const LOCAL_OCR_TIMEOUT_MS = 18000;
+const LOCAL_LOOKUP_TIMEOUT_MS = 8000;
+
+function normalize(s: string) {
+  return (s || "").toLowerCase().trim();
+}
+
+function money(n: number | null | undefined) {
+  if (n == null || Number.isNaN(Number(n))) return null;
+  return Math.round(Number(n) * 100) / 100;
 }
 
 export function useCardScanner({
@@ -83,109 +96,45 @@ export function useCardScanner({
   const folderInputRef = useRef<HTMLInputElement>(null);
   const scanLockRef = useRef(false);
 
-  const normalize = (s: string) => s.toLowerCase().trim();
-
-  // Check if card already exists in collection
+  // Local duplicate check — scans local cards store, never touches network.
   const checkForDuplicate = async (
     cardName: string,
-    cardSet: string | null
+    cardSet: string | null,
   ): Promise<{
     isDuplicate: boolean;
     ownedCount: number;
-    existingCard?: {
-      id: string;
-      card_name: string;
-      card_set: string | null;
-      image_url: string;
-      current_price_raw: number | null;
-    };
+    existingCard?: PendingCardData["existingCard"];
   }> => {
-    if (skipDuplicateCheck || !userId) {
-      return { isDuplicate: false, ownedCount: 0 };
-    }
-
+    if (skipDuplicateCheck) return { isDuplicate: false, ownedCount: 0 };
     try {
-      const normalizedName = normalize(cardName);
-      const normalizedSet = normalize(cardSet || "");
-
-      const { data: existingCards, error } = await supabase
-        .from("cards")
-        .select("id, card_name, card_set, image_url, current_price_raw")
-        .eq("user_id", userId)
-        .ilike("card_name", `%${normalizedName.split(" ").slice(0, 3).join("%")}%`)
-        .limit(25);
-
-      if (error || !existingCards || existingCards.length === 0) {
-        return { isDuplicate: false, ownedCount: 0 };
-      }
-
-      // Find exact-ish match
-      const match = existingCards.find((card) => {
-        const existingName = normalize(card.card_name);
-        const existingSet = normalize(card.card_set || "");
-
-        if (existingName !== normalizedName) return false;
-
-        // If sets match or one is empty, count as same printing-ish
-        if (!normalizedSet || !existingSet) return true;
-        if (existingSet === normalizedSet) return true;
-        if (existingSet.includes(normalizedSet) || normalizedSet.includes(existingSet)) return true;
-
-        return false;
+      const all = await getAllCards();
+      const nName = normalize(cardName);
+      const nSet = normalize(cardSet || "");
+      const matches = all.filter((c: any) => {
+        const eName = normalize(c.card_name);
+        if (eName !== nName) return false;
+        const eSet = normalize(c.card_set || "");
+        if (!nSet || !eSet) return true;
+        if (eSet === nSet) return true;
+        return eSet.includes(nSet) || nSet.includes(eSet);
       });
-
-      // Owned count (best-effort, cheap count using exact-ish filters)
-      // NOTE: Supabase "count" requires select with head:true
-      let ownedCount = 0;
-      try {
-        let q = supabase
-          .from("cards")
-          .select("id", { count: "exact", head: true })
-          .eq("user_id", userId)
-          .ilike("card_name", normalizedName);
-
-        if (cardSet && cardSet.trim().length > 0) {
-          q = q.ilike("card_set", cardSet.trim());
-        }
-
-        const { count } = await q;
-        ownedCount = count || 0;
-      } catch {
-        ownedCount = match ? 1 : 0;
-      }
-
-      if (match) {
-        return { isDuplicate: true, ownedCount: Math.max(ownedCount, 1), existingCard: match };
-      }
-
-      return { isDuplicate: false, ownedCount: 0 };
+      if (matches.length === 0) return { isDuplicate: false, ownedCount: 0 };
+      const first: any = matches[0];
+      return {
+        isDuplicate: true,
+        ownedCount: matches.length,
+        existingCard: {
+          id: first.id,
+          card_name: first.card_name,
+          card_set: first.card_set ?? null,
+          image_url: first.image_url ?? "",
+          current_price_raw: first.current_price_raw ?? null,
+        },
+      };
     } catch (err) {
-      console.error("Duplicate check error:", err);
+      console.error("Local duplicate check error:", err);
       return { isDuplicate: false, ownedCount: 0 };
     }
-  };
-
-  const performOCR = async (imageUrl: string): Promise<OCRResult> => {
-    setScanProgress(10);
-    let ocrText = "";
-
-    // Cloud OCR
-    const analysis = await analyzeCardFull(imageUrl);
-    ocrText = analysis.vision.ocr_text;
-
-    setScanProgress(80);
-    const lines = ocrText.split("\n").filter((line) => line.trim());
-    const cardName = lines[0] || "Unknown Card";
-    const cardSet = lines.find((line) => line.toLowerCase().includes("set")) || "";
-    const cardNumber = lines.find((line) => /\d+\/\d+/.test(line)) || "";
-
-    return {
-      cardName: cardName.trim(),
-      cardSet: cardSet.replace(/set/i, "").trim(),
-      cardNumber: cardNumber.trim(),
-      confidence: 95,
-      rawText: ocrText,
-    };
   };
 
   const handleScan = async () => {
@@ -203,121 +152,91 @@ export function useCardScanner({
     setScanProgress(0);
 
     const { scanMode, autoConfirmEnabled, autoConfirmThreshold, gameTypeFilter } = getScannerSettings();
+    const gameTypeHint = gameTypeFilter !== "auto" ? gameTypeFilter : undefined;
 
     try {
-      const fileExt = file.name.split(".").pop();
-      const cardId = crypto.randomUUID();
-      const fileName = `cards/${cardId}.${fileExt}`;
-
+      // Use the local data URL directly — no upload before we display a result.
+      const imageUrl = preview;
       setScanProgress(20);
 
-      await withRetry(async () => {
-        const { error: uploadError } = await supabase.storage
-          .from("card-images")
-          .upload(fileName, file, { upsert: false });
-        if (uploadError) throw uploadError;
-      });
+      // Local, offline OCR.
+      const ocr = await withTimeout(runLocalCardOcr(file), LOCAL_OCR_TIMEOUT_MS, "Local OCR");
+      const ocrText = compactOcrText(ocr?.setCode, ocr?.cardNumber, ocr?.title, ocr?.fullCode, ocr?.rawText);
+      const legacyOcr: OCRResult = {
+        cardName: ocr?.title || "Unknown Card",
+        cardSet: ocr?.setCode || "",
+        cardNumber: ocr?.cardNumber || ocr?.fullCode || "",
+        confidence: Math.round((ocr?.confidence ?? 0.5) * 100),
+        rawText: ocr?.rawText || ocrText,
+      };
+      setOcrResult(legacyOcr);
+      setScanProgress(55);
 
-      const { data: publicUrlData } = supabase.storage
-        .from("card-images")
-        .getPublicUrl(fileName);
-      const imageUrl = publicUrlData.publicUrl;
+      // Local printed-code / catalog lookup. No edge function.
+      const lookup = await withTimeout(
+        runRapidBasicLookup({
+          imageUrl: null,
+          ocrText,
+          title: ocr?.title ?? null,
+          setName: null,
+          setCode: ocr?.setCode ?? null,
+          cardNumber: ocr?.cardNumber ?? null,
+          edition: ocr?.edition ?? null,
+          game: ocr?.game ?? null,
+          gameTypeHint,
+          allowGoogleLens: false,
+        }),
+        LOCAL_LOOKUP_TIMEOUT_MS,
+        "Local card lookup",
+      );
 
-      setScanProgress(40);
+      const cd = lookup.cardData || {};
+      const pricing = lookup.pricing || null;
+      setScanProgress(80);
 
-      const ocr = await performOCR(imageUrl);
-      setOcrResult(ocr);
-      setScanProgress(60);
-
-      toast.info("Identifying card...");
-
-      let enhancedData: any;
-      let alternatives: Alternative[] = [];
-
-      try {
-        const enhancedResult = await withRetry(
-          async () => {
-            const { data, error } = await disabledSupabaseFunctionInvoke("enhanced-card-identify", {
-              body: { imageUrl, ocrText: ocr.rawText, gameTypeHint: gameTypeFilter !== "auto" ? gameTypeFilter : undefined },
-            });
-            if (error) throw new Error(error.message);
-            return data;
-          },
-          { retries: 3, baseMs: 600, maxMs: 5000 }
-        );
-
-        if (enhancedResult?.success) {
-          const cardData = enhancedResult.cardData;
-          if (cardData.primary) {
-            enhancedData = cardData.primary;
-            alternatives = cardData.alternatives || [];
-          } else {
-            enhancedData = cardData;
-          }
-          toast.success(`Card identified: ${enhancedData.card_name}`);
-        }
-      } catch (error) {
-        console.error("Enhanced identification error:", error);
-        toast.warning("Using fallback identification...");
-      }
-
-      setScanProgress(70);
-
-      let pricingData: any;
-      try {
-        const cardIdentification = await withRetry(
-          async () => {
-            const { data, error } = await disabledSupabaseFunctionInvoke("identify-card", {
-              body: { imageUrl, ocrText: ocr.rawText, gameTypeHint: gameTypeFilter !== "auto" ? gameTypeFilter : undefined },
-            });
-            if (error) throw new Error(error.message);
-            return data;
-          },
-          { retries: 3, baseMs: 600, maxMs: 7000 }
-        );
-
-        if (cardIdentification) pricingData = cardIdentification;
-      } catch (error) {
-        console.error("Pricing fetch error:", error);
-        toast.warning("Could not fetch pricing data");
-      }
-
-      setScanProgress(90);
-
-      const identifiedCard: IdentifiedCard = enhancedData || {
-        card_name: pricingData?.cardName || ocr.cardName,
-        card_set: pricingData?.cardSet || ocr.cardSet,
-        card_number: pricingData?.cardNumber || ocr.cardNumber,
-        rarity: pricingData?.rarity || null,
-        edition: pricingData?.edition || null,
-        game_type: pricingData?.gameType || null,
-        sport_type: pricingData?.sportType || null,
-        year: pricingData?.year || null,
-        manufacturer: pricingData?.manufacturer || null,
-        confidence: enhancedData?.confidence || pricingData?.confidence || ocr.confidence,
-        description: pricingData?.notes || "",
+      const identifiedCard: IdentifiedCard = {
+        card_name: (cd.card_name || legacyOcr.cardName || "Unknown Card").trim(),
+        card_set: cd.card_set ?? legacyOcr.cardSet ?? null,
+        card_number: cd.card_number ?? legacyOcr.cardNumber ?? null,
+        rarity: cd.rarity ?? null,
+        edition: ocr?.edition ?? null,
+        game_type: cd.game_type ?? ocr?.game ?? null,
+        sport_type: cd.sport_type ?? null,
+        year: cd.year ?? null,
+        manufacturer: cd.manufacturer ?? null,
+        confidence: Math.round(Number(cd.confidence ?? ocr?.confidence ?? 0.5) * 100),
+        description: lookup.success ? "" : lookup.error || "",
       };
 
-      const mtgInsights = analyzeMtgIdentification(identifiedCard, ocr.rawText);
+      const pricingData = pricing
+        ? {
+            currentPriceRaw: money(pricing.raw ?? pricing.highestSold ?? null),
+            currentPricePsa9: money(pricing.psa9 ?? null),
+            currentPricePsa10: money(pricing.psa10 ?? pricing.cgc10 ?? null),
+            suggestedPrice: money(pricing.raw ?? pricing.highestSold ?? null),
+            ebayListingUrl: pricing.url ?? null,
+            condition: "ungraded",
+          }
+        : undefined;
+
+      // MTG heuristics (local).
+      const mtgInsights = analyzeMtgIdentification(identifiedCard, legacyOcr.rawText);
       const mtgNotes = buildMtgNotes(mtgInsights);
       if (mtgNotes) {
         identifiedCard.description = [identifiedCard.description, mtgNotes].filter(Boolean).join("\n\n");
-        if (!identifiedCard.edition && mtgInsights.alphaBeta.status === "confirmed_alpha") {
-          identifiedCard.edition = "Alpha";
-        } else if (!identifiedCard.edition && mtgInsights.alphaBeta.status === "confirmed_beta") {
-          identifiedCard.edition = "Beta";
-        }
+        if (!identifiedCard.edition && mtgInsights.alphaBeta.status === "confirmed_alpha") identifiedCard.edition = "Alpha";
+        else if (!identifiedCard.edition && mtgInsights.alphaBeta.status === "confirmed_beta") identifiedCard.edition = "Beta";
       }
 
       const dup = await checkForDuplicate(identifiedCard.card_name, identifiedCard.card_set);
 
-      // ─── Anomaly detection for single scan ───
       const anomaly = singleScanDetector.trackIdentification(identifiedCard.card_name);
       if (anomaly.consecutiveCount >= 2) {
         toast.warning("Same card detected twice in a row — check image quality or try a different angle.");
       }
 
-      // SAVE MODE: keep existing duplicate dialog behavior
+      const alternatives: Alternative[] = [];
+
       if (scanMode === "SAVE" && dup.isDuplicate && dup.existingCard) {
         setDuplicateCard({
           identifiedCard,
@@ -334,7 +253,6 @@ export function useCardScanner({
         return;
       }
 
-      // SAVE MODE: keep existing auto-confirm behavior
       if (
         scanMode === "SAVE" &&
         autoConfirmEnabled &&
@@ -353,7 +271,7 @@ export function useCardScanner({
             game_type: identifiedCard.game_type,
             notes: identifiedCard.description,
             ocr_confidence: identifiedCard.confidence,
-            ocr_raw_text: ocr.rawText,
+            ocr_raw_text: legacyOcr.rawText,
             current_price_raw: pricingData?.currentPriceRaw,
             current_price_psa9: pricingData?.currentPricePsa9,
             current_price_psa10: pricingData?.currentPricePsa10,
@@ -362,9 +280,8 @@ export function useCardScanner({
             image_url: imageUrl,
             thumbnail_url: imageUrl,
             last_price_update: new Date().toISOString(),
-          });
+          } as any);
 
-          // Track in recent scans
           addRecentScan({
             id: crypto.randomUUID(),
             card_name: identifiedCard.card_name,
@@ -377,9 +294,7 @@ export function useCardScanner({
           });
           window.dispatchEvent(new CustomEvent("recent-scan-added"));
 
-          toast.success(
-            `Card auto-saved: ${identifiedCard.card_name} (${identifiedCard.confidence}% confidence)`
-          );
+          toast.success(`Card auto-saved: ${identifiedCard.card_name} (${identifiedCard.confidence}% confidence)`);
           clearSelection();
           setScanProgress(100);
           onScanComplete?.();
@@ -390,7 +305,6 @@ export function useCardScanner({
         }
       }
 
-      // Show editor (both modes)
       setPendingCard({
         identifiedCard,
         alternatives,
@@ -427,7 +341,6 @@ export function useCardScanner({
 
   const handleConfirmCard = async (editedCard: IdentifiedCard) => {
     if (!pendingCard) return;
-
     try {
       await insertCardDual({
         user_id: userId,
@@ -450,9 +363,8 @@ export function useCardScanner({
         image_url: pendingCard.imageUrl,
         thumbnail_url: pendingCard.imageUrl,
         last_price_update: new Date().toISOString(),
-      });
+      } as any);
 
-      // Track in recent scans
       addRecentScan({
         id: crypto.randomUUID(),
         card_name: editedCard.card_name,
@@ -465,7 +377,6 @@ export function useCardScanner({
       });
       window.dispatchEvent(new CustomEvent("recent-scan-added"));
 
-      // Scan-only mode: "Add" is explicit user action, so we still save here—just don't auto-save.
       toast.success(
         pendingCard.scanMode === "SCAN_ONLY"
           ? (pendingCard.isInLibrary ? "Added copy to library!" : "Added to library!")
@@ -485,12 +396,10 @@ export function useCardScanner({
     toast.info("Dismissed");
   }, []);
 
-  // Handle confirming a duplicate card (add anyway) - KEEP existing
   const handleConfirmDuplicate = async () => {
     if (!duplicateCard) return;
-
     try {
-      const { error: dbError } = await supabase.from("cards").insert({
+      await insertCardDual({
         user_id: userId,
         card_name: duplicateCard.identifiedCard.card_name,
         card_set: duplicateCard.identifiedCard.card_set,
@@ -511,11 +420,8 @@ export function useCardScanner({
         image_url: duplicateCard.imageUrl,
         thumbnail_url: duplicateCard.imageUrl,
         last_price_update: new Date().toISOString(),
-      });
+      } as any);
 
-      if (dbError) throw dbError;
-
-      // Track in recent scans
       addRecentScan({
         id: crypto.randomUUID(),
         card_name: duplicateCard.identifiedCard.card_name,
@@ -537,7 +443,6 @@ export function useCardScanner({
     }
   };
 
-  // Handle skipping a duplicate card - KEEP existing
   const handleSkipDuplicate = useCallback(() => {
     setDuplicateCard(null);
     toast.info("Card skipped - already in collection");
@@ -547,7 +452,6 @@ export function useCardScanner({
   const handleSelectAlternative = useCallback(
     (alternative: Alternative) => {
       if (!pendingCard) return;
-
       setPendingCard({
         ...pendingCard,
         identifiedCard: {
@@ -570,7 +474,6 @@ export function useCardScanner({
   }, []);
 
   return {
-    // State
     file,
     preview,
     isScanning,
@@ -581,7 +484,6 @@ export function useCardScanner({
     fileInputRef,
     folderInputRef,
 
-    // Actions
     setFile,
     setPreview,
     setFileWithPreview,
