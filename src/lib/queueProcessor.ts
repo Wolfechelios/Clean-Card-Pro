@@ -85,6 +85,9 @@ let workerActive = false;
 let queueTimer: ReturnType<typeof setTimeout> | null = null;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let autoResumeChecked = false;
+let consecutiveErrorCount = 0;
+const CONSECUTIVE_ERROR_LIMIT = 5;
+
 
 function readAnomalyPauseFlag(): boolean {
   if (typeof window === "undefined") return false;
