@@ -229,38 +229,12 @@ export async function processPendingSync(): Promise<{ success: number; failed: n
 
 // ============= Full Sync from Server =============
 
-export async function syncFromServer(userId: string): Promise<number> {
-  if (!isOnline) throw new Error("Cannot sync while offline");
-
-  // Fetch all cards in batches of 1000 (Supabase default limit)
-  let allCards: any[] = [];
-  let from = 0;
-  const batchSize = 1000;
-
-  while (true) {
-    const { data, error } = await supabase
-      .from("cards")
-      .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .range(from, from + batchSize - 1);
-
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-
-    allCards = allCards.concat(data);
-    if (data.length < batchSize) break;
-    from += batchSize;
-  }
-
-  // Clear and repopulate cache
-  await cardsStore.clear();
-  if (allCards.length > 0) {
-    await cacheCards(allCards);
-  }
-
+export async function syncFromServer(_userId: string): Promise<number> {
+  // Local-first: no cloud database attached. The cache IS the source of
+  // truth. Report existing count so callers can display "up to date".
+  const existing = await cardsStore.length().catch(() => 0);
   await metaStore.setItem("lastSyncAt", Date.now());
-  return allCards.length;
+  return existing;
 }
 
 // ============= Storage Stats =============
