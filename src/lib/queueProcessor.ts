@@ -76,17 +76,17 @@ type ProcessorStore = ProcessorState & {
 };
 
 const QUEUE_REFRESH_INTERVAL_MS = 1000;
-const MIN_JOB_DELAY_MS = 350;
-const LOCAL_OCR_TIMEOUT_MS = 18000;
+const MIN_JOB_DELAY_MS = 100;
+const LOCAL_OCR_TIMEOUT_MS = 12000;
 const LOCAL_LOOKUP_TIMEOUT_MS = 8000;
 const ANOMALY_PAUSE_STORAGE_KEY = "rapid-scan-anomaly-paused";
+const WORKER_CONCURRENCY = 3;
 
-let workerActive = false;
+let activeWorkers = 0;
 let queueTimer: ReturnType<typeof setTimeout> | null = null;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 let autoResumeChecked = false;
-let consecutiveErrorCount = 0;
-const CONSECUTIVE_ERROR_LIMIT = 5;
+
 
 
 function readAnomalyPauseFlag(): boolean {
@@ -185,7 +185,7 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   stop: () => {
     if (queueTimer) clearTimeout(queueTimer);
     queueTimer = null;
-    workerActive = false;
+    activeWorkers = 0;
     set({ isRunning: false, isPaused: false, currentItem: null });
   },
 
@@ -193,7 +193,6 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
 
   resume: () => {
     writeAnomalyPauseFlag(false);
-    consecutiveErrorCount = 0;
     set({ isPaused: false, isPausedByAnomaly: false });
     if (!get().isRunning) set({ isRunning: true });
     startWorker();
@@ -219,51 +218,49 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
 }));
 
 function startWorker() {
-  if (workerActive) return;
-  workerActive = true;
-  void workerLoop();
+  while (activeWorkers < WORKER_CONCURRENCY) {
+    activeWorkers++;
+    void workerLoop();
+  }
 }
 
 async function workerLoop() {
-  while (workerActive) {
-    const store = useQueueProcessor.getState();
-    if (!store.isRunning || store.isPaused) {
-      workerActive = false;
-      return;
-    }
-
-    const item = await idbGetNextQueued();
-    if (!item) {
-      useQueueProcessor.setState({ isRunning: false, currentItem: null });
-      workerActive = false;
-      scheduleRefresh();
-      return;
-    }
-
-    try {
-      await processQueueItem(item);
-      consecutiveErrorCount = 0;
-      useQueueProcessor.getState()._incrementProcessed();
-    } catch (e: any) {
-      console.error("[QueueProcessor] RapidScan item failed:", e);
-      await markQueueItemError(item.id, e?.message || String(e));
-      useQueueProcessor.getState()._incrementError();
-      consecutiveErrorCount++;
-      if (consecutiveErrorCount >= CONSECUTIVE_ERROR_LIMIT) {
-        console.warn(`[QueueProcessor] Pausing — ${consecutiveErrorCount} consecutive failures. Likely OCR engine is unavailable.`);
-        writeAnomalyPauseFlag(true);
-        useQueueProcessor.setState({ isRunning: false, isPaused: true, isPausedByAnomaly: true, currentItem: null });
-        workerActive = false;
+  try {
+    while (true) {
+      const store = useQueueProcessor.getState();
+      if (!store.isRunning || store.isPaused) {
         scheduleRefresh();
         return;
       }
-    } finally {
-      useQueueProcessor.getState()._setCurrentItem(null);
-      scheduleRefresh();
-      await sleep(MIN_JOB_DELAY_MS);
+
+      const item = await idbGetNextQueued();
+      if (!item) {
+        // Only mark not-running once the last worker exits
+        if (activeWorkers <= 1) {
+          useQueueProcessor.setState({ isRunning: false, currentItem: null });
+        }
+        scheduleRefresh();
+        return;
+      }
+
+      try {
+        await processQueueItem(item);
+        useQueueProcessor.getState()._incrementProcessed();
+      } catch (e: any) {
+        console.error("[QueueProcessor] RapidScan item failed:", e);
+        await markQueueItemError(item.id, e?.message || String(e));
+        useQueueProcessor.getState()._incrementError();
+      } finally {
+        useQueueProcessor.getState()._setCurrentItem(null);
+        scheduleRefresh();
+        await sleep(MIN_JOB_DELAY_MS);
+      }
     }
+  } finally {
+    activeWorkers = Math.max(0, activeWorkers - 1);
   }
 }
+
 
 
 async function processQueueItem(item: QueueItem): Promise<void> {

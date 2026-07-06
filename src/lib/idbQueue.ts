@@ -175,7 +175,7 @@ export async function idbListMetaFast(limit = 500): Promise<QueueItemMeta[]> {
  */
 export async function idbGetNextQueued(): Promise<QueueItem | null> {
   const db = await openDB()
-  const STUCK_THRESHOLD_MS = 5_000 // 5 seconds - reduced for faster recovery
+  const STUCK_THRESHOLD_MS = 2_000 // 5 seconds - reduced for faster recovery
 
   const next = await new Promise<QueueItem | null>((resolve, reject) => {
     const t = db.transaction(STORE, "readonly")
@@ -233,7 +233,7 @@ export async function idbGetNextQueued(): Promise<QueueItem | null> {
  */
 export async function idbCountQueued(): Promise<number> {
   const db = await openDB()
-  const STUCK_THRESHOLD_MS = 5_000
+  const STUCK_THRESHOLD_MS = 2_000
   const stuckCutoff = Date.now() - STUCK_THRESHOLD_MS
   
   const count = await new Promise<number>((resolve, reject) => {

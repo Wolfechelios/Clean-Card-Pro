@@ -1,97 +1,44 @@
+## Goal
 
-# Local-First Migration Plan
+Bring back the previous rapid-scan behavior where 200+ cards flowed through the queue smoothly, and fix the current "stuck in processing" symptom when scanning more than one card.
 
-Goal: the scanner and everyday app usage never touch Supabase. Supabase remains only long enough to migrate existing cloud data into the browser, then all remaining calls are removed.
+## What's wrong today
 
-## Phase 1 — Local storage foundation
+- `src/lib/queueProcessor.ts` runs a **single** worker (one `workerActive` flag). Previously the scanner ran **3 concurrent workers** — that's why it could chew through 200 cards.
+- When PaddleOCR init fails (see console: `no available backend found … initWasm() failed`), the single worker gets tied up on that item for the full 18s timeout, so every subsequent scan visibly "sits in processing".
+- The 5-consecutive-error auto-pause I added last turn now actively hurts recovery: one flaky OCR init pauses the whole queue and the user has to manually resume.
+- Failed items were being deleted, which is fine, but stuck "processing" items still show as "processing" in the UI for 5s before the stuck-detector re-picks them — with only 1 worker that reads as "frozen".
 
-Add a Dexie-based IndexedDB layer plus an OPFS image store. No feature changes yet.
+## Plan
 
-- New `src/lib/local/db.ts` — Dexie schema with stores:
-  `scannedCards`, `scanQueue`, `scanHistory`, `cardCatalog`, `priceCatalog`, `settings`, `imageMetadata`, `syncQueue`.
-- New `src/lib/local/images.ts` — OPFS helpers: `putImage(blob) → imageId`, `getImageURL(id)`, `deleteImage(id)`, thumbnail generation, quota handling, fallback to IndexedDB blob when OPFS unavailable.
-- New `src/lib/local/repositories/` — thin repos: `cardsRepo`, `catalogRepo`, `priceRepo`, `queueRepo`, `historyRepo`, `settingsRepo`. Every UI component talks to a repo, never to the DB directly.
-- New `src/lib/local/searchIndex.ts` — in-memory Fuse/trigram index over `cardCatalog` + `scannedCards`; rebuild on load and on writes.
+### 1. Restore concurrent workers in `src/lib/queueProcessor.ts`
+- Replace the single `workerActive` boolean with a counter and spawn up to `WORKER_CONCURRENCY = 3` parallel `workerLoop()` instances from `startWorker()`.
+- Each loop independently calls `idbGetNextQueued()`; IndexedDB serializes reads, and the item is immediately flipped to `"processing"` so siblings won't grab the same one.
+- Reduce `MIN_JOB_DELAY_MS` from 350 → 100 to match the prior throughput.
 
-## Phase 2 — Rewire the Rapid Scan critical path
+### 2. Remove the aggressive auto-pause
+- Delete `consecutiveErrorCount` / `CONSECUTIVE_ERROR_LIMIT` and the `writeAnomalyPauseFlag(true)` branch in `workerLoop`.
+- Keep the per-item delete-on-error (that part is correct — it prevents clogging).
+- Rationale: with 3 workers and item deletion, a bad OCR run no longer freezes the pipeline; the queue just moves on.
 
-Only the scan pipeline in this phase. Camera UI stays untouched.
+### 3. Unstick items faster
+- In `src/lib/idbQueue.ts`, lower `STUCK_THRESHOLD_MS` in `idbGetNextQueued` / `idbCountQueued` from 5000 → 2000 so orphaned "processing" items reappear quickly.
+- On worker startup, run a one-shot sweep that flips any `"processing"` items with `processingStartedAt` older than the threshold back to `"queued"` (defensive — covers a hard reload mid-scan).
 
-```text
-Camera → capture blob
-     → OPFS putImage → imageId
-     → queueRepo.enqueue({imageId})
-     → local OCR (existing glmOcr / tesseract, no network)
-     → catalogRepo.lookup(setCode, cardNumber, name)   // exact match first
-     → priceRepo.lookup(cardKey)                        // local cache only
-     → cardsRepo.save(result)
-     → UI displays result
-```
+### 4. Harden the OCR path so a bad init doesn't hang a worker
+- In `src/lib/queueProcessor.ts`, wrap `runLocalCardOcr` in a shorter soft-timeout (e.g., 12s) with a retry-once policy; second failure → delete and move on. The current 18s hard-timeout is what makes "processing" feel stuck.
+- No changes to lookup/pricing logic.
 
-- Replace every `supabase.*` call inside: `use-card-scanner.ts`, `queueProcessor.ts`, rapid-scan hooks/components, `enhancedCardIdentify.ts` (scan path only), image upload helpers.
-- Queue must persist across refresh (already in IndexedDB via Dexie) and resume on app load.
-- Remove `supabase.auth` gating from the scanner — scanning works signed-out.
-- Guarantee: no `await` on a network call before the result renders.
+### 5. Sanity-check `RapidScanCamera.tsx`
+- Confirm `QUEUE_MAX = 500` stays and the capture path still just calls `idbAdd` + `useQueueProcessor.getState().start()`. No UI/behavior change beyond that.
 
-## Phase 3 — Rewire the rest of the app to repos
+## Files touched
 
-Point every collection/list/detail/edit/delete/bulk screen at the local repos:
-Collections, Card Detail, Value Prediction, Sets, Recent Scans, Bulk Rarity/Reidentify/Image lookup, Import Cleaner, Sell Assist, Visual Search, Price Hub, Graded Scan, Image Backfill, Settings.
-
-Features that require a remote service (Perplexity image search, Gemini vision fallback, PSA10 refresh, price refresh) become **optional background jobs** invoked from Settings, not part of any scan or list-render path. They are disabled by default when Supabase is removed.
-
-## Phase 4 — One-time migration tool
-
-New page `src/pages/MigrateFromCloud.tsx` (Settings → "Import existing cloud collection"):
-
-1. Sign in to Supabase (last time it's needed).
-2. Paginated fetch of `cards`, `saved_filters`, `price_cache`, `graded_pricing_cache`, `user_api_keys`, `profiles` for the current user.
-3. Download each `card-images` object → OPFS.
-4. Write into IndexedDB via repos.
-5. Verification report: cloud count vs local count, missing images, size on disk.
-6. Button "Mark migration complete" — sets `settings.migrationComplete = true`.
-
-Until `migrationComplete` is true, Supabase client is still bundled but only reachable from this page.
-
-## Phase 5 — Delete Supabase
-
-Once migration is verified:
-
-- Delete `src/integrations/supabase/` (client + generated types).
-- Delete `supabase/` (edge functions + config).
-- Remove `@supabase/*` deps from `package.json`, drop `VITE_SUPABASE_*` from `.env`.
-- Delete auth screens; replace `useAuth` with a stub that returns a local device id (`crypto.randomUUID()` stored in `settings`).
-- Delete `src/lib/supabaseFunctionsDisabled.ts` and any remaining call sites.
-- Grep for `supabase`, `functions.invoke`, `from(`, `auth.getUser` → must return zero hits outside deleted folders.
-
-## Phase 6 — Local backup / restore (replaces cloud sync)
-
-Settings → Storage panel:
-
-- Export Backup → single `.zip` (JSON + images from OPFS).
-- Import Backup → restore into IndexedDB + OPFS.
-- Clear scan history / failed-scan images / successful-scan images.
-- Rebuild search index.
-- Storage usage bar (Navigator Storage API).
-- Destructive actions require typed confirmation.
-
-## Technical details
-
-- **Deps to add**: `dexie`, `dexie-react-hooks`, `fuse.js`, `jszip`, `idb-keyval` (fallback), `comlink` (worker for OCR).
-- **Deps to remove (Phase 5)**: `@supabase/supabase-js`, `@supabase/ssr` if present.
-- **Worker**: move OCR + identification into a Web Worker so the camera thread never blocks.
-- **Ordering guarantee**: each queue item carries its `imageId`; result is written keyed by `imageId`. Never assign a result to the "current" card.
-- **Match precedence in `catalogRepo.lookup`**: `(setCode + cardNumber)` → `(setName + cardNumber)` → `(name + setCode)` → fuzzy name. AI recognition is only consulted if all exact paths fail AND the user enabled remote fallback.
-- **Price precedence**: local `priceCatalog` → cached `price_cache` (migrated) → nothing (show "Refresh price" button). No network call during scan.
-- **Image lifecycle**: capture → OPFS → thumbnail → after successful save, original may be pruned per Settings. Upload never happens before display.
-
-## Deliverables per phase
-
-Each phase is a separate, releasable step. Phases 1–3 leave Supabase in the tree but unused by scanning; Phase 4 gives users a way to bring their data over; Phase 5 removes Supabase entirely; Phase 6 finalizes local backup UX.
+- `src/lib/queueProcessor.ts` — multi-worker, remove auto-pause, tighter OCR timeout.
+- `src/lib/idbQueue.ts` — lower stuck threshold, startup requeue sweep helper.
+- `src/components/scanner/RapidScanCamera.tsx` — only if the start/enqueue wiring needs a nudge; no visual changes.
 
 ## Out of scope
 
-- No redesign of the camera UI.
-- No new cloud provider.
-- No changes to pricing math or identification rules already in project memory.
-- Multi-device sync (explicitly replaced by manual backup/restore).
+- PaddleOCR wasm loading itself (already patched last turn to the jsdelivr CDN). If it regresses, that's a separate fix.
+- Pricing, identification, or UI layout changes.
