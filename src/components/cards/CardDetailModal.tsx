@@ -337,14 +337,8 @@ export function CardDetailModal({
 
   const handleDelete = async () => {
     if (!card) return;
-
     try {
-      const { error } = await supabase
-        .from("cards")
-        .delete()
-        .eq("id", card.id);
-
-      if (error) throw error;
+      await deleteCardLocal(card.id);
 
       toast.success("Card deleted successfully");
       setShowDeleteConfirm(false);
