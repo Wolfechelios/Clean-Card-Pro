@@ -728,14 +728,16 @@ export function CardDetailModal({
                     imageLocked={card.image_locked || false}
                     imageSource={card.image_source || null}
                     onImageUpdated={async () => {
-                      const { data } = await supabase
-                        .from("cards")
-                        .select("image_url, thumbnail_url, image_locked, image_source")
-                        .eq("id", card.id)
-                        .single();
+                      const data: any = await getCardById(card.id);
                       if (data && cardState) {
-                        setCardState({ ...cardState, ...data });
-                        onUpdate?.({ ...card, ...data });
+                        const picked = {
+                          image_url: data.image_url,
+                          thumbnail_url: data.thumbnail_url,
+                          image_locked: data.image_locked,
+                          image_source: data.image_source,
+                        };
+                        setCardState({ ...cardState, ...picked });
+                        onUpdate?.({ ...card, ...picked });
                       }
                     }}
                   />
