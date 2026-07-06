@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+// supabase client removed — local-first
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -30,38 +30,7 @@ export function MergeSetsDialog({ open, onOpenChange, sets, onMerged }: MergeSet
   const handleMerge = async () => {
     if (!targetId || !sourceId || targetId === sourceId) return;
     setMerging(true);
-
-    try {
-      // Move all cards from source to target
-      const { error: moveErr } = await supabase
-        .from("pc_cards")
-        .update({ set_id: targetId })
-        .eq("set_id", sourceId);
-
-      if (moveErr) throw moveErr;
-
-      // Update target card count
-      const { count } = await supabase
-        .from("pc_cards")
-        .select("id", { count: "exact", head: true })
-        .eq("set_id", targetId);
-
-      await supabase
-        .from("pc_sets")
-        .update({ total_cards: count || 0 })
-        .eq("id", targetId);
-
-      // Delete empty source set
-      await supabase.from("pc_sets").delete().eq("id", sourceId);
-
-      toast.success("Sets merged successfully");
-      onMerged();
-      onOpenChange(false);
-    } catch (err) {
-      console.error("Merge error:", err);
-      toast.error("Failed to merge sets");
-    }
-
+    toast.info("Price DB is disabled in local-first mode");
     setMerging(false);
   };
 
