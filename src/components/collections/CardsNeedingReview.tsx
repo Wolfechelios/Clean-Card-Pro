@@ -31,7 +31,7 @@ import {
   Search
 } from "lucide-react";
 import { useCardsNeedingReview, type ReviewReason, type CardNeedingReview } from "@/hooks/use-cards-needing-review";
-import { supabase } from "@/integrations/supabase/client";
+// supabase client removed — local-first
 import { toast } from "sonner";
 import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 
