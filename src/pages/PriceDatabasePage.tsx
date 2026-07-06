@@ -54,12 +54,8 @@ function PriceDBContent({ userId }: { userId: string }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchSets = useCallback(async () => {
-    const { data } = await supabase
-      .from("pc_sets")
-      .select("id, game, set_code, set_name, total_cards, imported_at")
-      .eq("user_id", userId)
-      .order("imported_at", { ascending: false });
-    setSets(data || []);
+    // Local-first: pc_sets/pc_cards live in the cloud only. Return empty.
+    setSets([]);
   }, [userId]);
 
   useEffect(() => { fetchSets(); }, [fetchSets]);
