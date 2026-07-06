@@ -124,6 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (session?.user?.id) {
           triggerPriceUpdate(session.user.id);
+          maybeSyncCloudCards(session.user.id);
         }
       })
       .catch((err) => {
