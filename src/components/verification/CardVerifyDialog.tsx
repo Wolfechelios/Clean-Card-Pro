@@ -143,9 +143,10 @@ export function CardVerifyDialog({
               image_url = imageRes.value.data.imageUrl;
             }
 
-            if (priceRes.status === "fulfilled") {
-              market_price = priceRes.value.price ?? priceRes.value.marketPrice ?? market_price ?? null;
-              psa10_price = priceRes.value.psa10Price ?? null;
+            if (priceRes.status === "fulfilled" && priceRes.value) {
+              const pv: any = priceRes.value;
+              market_price = pv.suggested ?? pv.raw ?? pv.medianRaw ?? market_price ?? null;
+              psa10_price = pv.psa10 ?? pv.medianPsa10 ?? null;
             }
           } catch {
             // keep partial results
