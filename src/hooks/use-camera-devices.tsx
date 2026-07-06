@@ -157,13 +157,18 @@ export const useCameraDevices = () => {
         // Drop blocked virtual webcams (external camera, Facebook Portal, etc.)
         if (isBlockedVirtualCamera(label)) return null;
 
+        const continuity = isContinuityCamera(label);
         const usb = isUSBDevice(label);
         const rear = isRearCamera(label);
 
         let lensType: LensType = "unknown";
         let lensLabel = label;
 
-        if (usb) {
+        if (continuity) {
+          lensType = "continuity";
+          // Preserve device name (e.g. "Alex's iPhone") and tag it clearly.
+          lensLabel = /continuity/i.test(label) ? label : `${label} (Continuity Cam)`;
+        } else if (usb) {
           lensType = "usb";
           lensLabel = label;
         } else if (rear) {
@@ -173,7 +178,7 @@ export const useCameraDevices = () => {
           rearCounter++;
         }
         // Skip front cameras entirely
-        if (!rear && !usb) {
+        if (!rear && !usb && !continuity) {
           return null;
         }
 
@@ -182,6 +187,7 @@ export const useCameraDevices = () => {
           deviceId: device.deviceId,
           label,
           isUSB: usb,
+          isContinuity: continuity,
           lensType,
           lensLabel,
         };
@@ -189,10 +195,12 @@ export const useCameraDevices = () => {
 
       setDevices(videoDevices);
 
-      // Auto-select main wide lens or first device
+      // Auto-select: prefer Continuity Camera (iPhone) → main wide lens → first device
       setSelectedDeviceId(prev => {
         if (prev && videoDevices.some(d => d.deviceId === prev)) return prev;
         if (videoDevices.length === 0) return "";
+        const continuityDev = videoDevices.find(d => d.isContinuity);
+        if (continuityDev) return continuityDev.deviceId;
         const mainLens = videoDevices.find(d => d.lensType === "wide") || videoDevices[0];
         return mainLens.deviceId;
       });
