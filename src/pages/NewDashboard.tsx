@@ -152,25 +152,14 @@ export default function NewDashboard() {
 
     triggerDashboardRefresh();
 
-    // Real-time subscription for card changes (throttled)
-    const channel = supabase
-      .channel("dashboard-cards-changes")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "cards",
-        },
-        () => {
-          triggerDashboardRefresh();
-        }
-      )
-      .subscribe();
-
+    // Local-first: refresh on window focus / storage events instead of Supabase realtime.
+    const refresh = () => triggerDashboardRefresh();
+    window.addEventListener("focus", refresh);
+    window.addEventListener("storage", refresh);
     return () => {
       if (refreshTimerRef.current) window.clearTimeout(refreshTimerRef.current);
-      supabase.removeChannel(channel);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("storage", refresh);
     };
   }, [authLoading, userId, triggerDashboardRefresh]);
 
