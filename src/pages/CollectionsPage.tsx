@@ -10,7 +10,6 @@ import { Input } from "@/components/ui/input";
 import { Search, Trash2, RefreshCw, Edit3, ImageOff, X, Download, ImagePlus, Cloud, Gem } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -38,6 +37,7 @@ import { CardDetailModal, CardData } from "@/components/cards/CardDetailModal";
 import { BulkImageSearch } from "@/components/collections/BulkImageSearch";
 import { AutopilotPanel } from "@/components/AutopilotPanel";
 import { toPublicImageUrl } from "@/lib/storage/getPublicImageUrl";
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 
 interface CardItem {
   id: string;

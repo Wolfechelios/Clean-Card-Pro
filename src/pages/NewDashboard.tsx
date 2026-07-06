@@ -4,7 +4,6 @@ import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Database } from "@/integrations/supabase/types";
 import {
-import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
   TrendingUp,
   TrendingDown,
   DollarSign,
@@ -49,6 +48,7 @@ import { Badge } from "@/components/ui/badge";
 import { useGlobalProcessControl } from "@/hooks/use-global-process-control";
 import { RecentScansBox } from "@/components/scanner/RecentScansBox";
 import { toPublicImageUrl } from "@/lib/storage/getPublicImageUrl";
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 
 type CardType = Database["public"]["Tables"]["cards"]["Row"];
 

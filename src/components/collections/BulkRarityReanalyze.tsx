@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
-import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
   Card,
   CardContent,
   CardDescription,
@@ -12,6 +11,7 @@ import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { RefreshCw, Sparkles, CheckCircle2, AlertCircle } from "lucide-react";
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 
 interface BulkRarityReanalyzeProps {
   // This should represent "missing rarity" count (null/empty/Unknown)

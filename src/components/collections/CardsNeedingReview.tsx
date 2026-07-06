@@ -8,7 +8,6 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
-import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -34,6 +33,7 @@ import {
 import { useCardsNeedingReview, type ReviewReason, type CardNeedingReview } from "@/hooks/use-cards-needing-review";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { disabledSupabaseFunctionInvoke } from "@/lib/supabaseFunctionsDisabled";
 
 const REASON_LABELS: Record<ReviewReason, string> = {
   low_ocr_confidence: "Low Confidence",
