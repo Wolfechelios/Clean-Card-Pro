@@ -1,6 +1,6 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { RefreshCw, Smartphone, Camera, Scan, ZoomIn, Focus, Layers } from "lucide-react";
+import { RefreshCw, Smartphone, Camera, Scan, ZoomIn, Focus, Layers, Apple } from "lucide-react";
 import { CameraDevice, LensType } from "@/hooks/use-camera-devices";
 
 interface CameraDeviceSelectorProps {
