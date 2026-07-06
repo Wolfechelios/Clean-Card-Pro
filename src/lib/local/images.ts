@@ -7,7 +7,6 @@ const OPFS_DIR = "cleancards-images";
 
 async function opfsRoot(): Promise<FileSystemDirectoryHandle | null> {
   try {
-    // @ts-expect-error - storage.getDirectory is available in modern browsers
     const root: FileSystemDirectoryHandle = await navigator.storage.getDirectory();
     return await root.getDirectoryHandle(OPFS_DIR, { create: true });
   } catch {
@@ -20,7 +19,6 @@ async function opfsWrite(id: string, blob: Blob): Promise<boolean> {
   if (!dir) return false;
   try {
     const handle = await dir.getFileHandle(id, { create: true });
-    // @ts-expect-error - createWritable is standard on FileSystemFileHandle
     const writable = await handle.createWritable();
     await writable.write(blob);
     await writable.close();
