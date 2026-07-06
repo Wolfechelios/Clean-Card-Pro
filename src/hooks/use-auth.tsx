@@ -79,6 +79,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }, 100);
     };
 
+    const maybeSyncCloudCards = async (userId: string) => {
+      const key = `cc_cloud_synced_${userId}`;
+      if (localStorage.getItem(key)) return;
+      try {
+        const { syncFromSupabase } = await import("@/lib/localCards");
+        const rows = await syncFromSupabase();
+        localStorage.setItem(key, String(Date.now()));
+        console.log(`[auth] Restored ${rows.length} cards from cloud for user ${userId}`);
+      } catch (e) {
+        console.warn("[auth] Cloud restore failed", e);
+      }
+    };
+
     // Set up auth state listener FIRST
     const {
       data: { subscription },
@@ -92,6 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         priceUpdateTriggered = false;
       } else if (session?.user?.id) {
         triggerPriceUpdate(session.user.id);
+        maybeSyncCloudCards(session.user.id);
       }
     });
 
