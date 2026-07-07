@@ -420,6 +420,7 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   const threshold = scanSettings.autoConfirmThreshold ?? 75;
 
   if (scanSettings.scanMode === "SAVE" && confPct >= threshold) {
+    const endSave = pipelineTracer.begin(item.id, "save");
     try {
       const inserted = await insertCardDual({
         user_id: userId,
@@ -451,9 +452,18 @@ async function processQueueItem(item: QueueItem): Promise<void> {
       processedCard.isInLibrary = true;
       processedCard.dbId = inserted.id;
       processedCard.libraryQuantity = 1;
-    } catch (e) {
+      endSave({ status: "ok", meta: { dbId: inserted.id } });
+    } catch (e: any) {
       console.error("[QueueProcessor] auto-save failed:", e);
+      endSave({ status: "fail", error: e?.message || String(e) });
     }
+  } else {
+    pipelineTracer.record({
+      itemId: item.id,
+      stage: "save",
+      status: "skip",
+      meta: { reason: scanSettings.scanMode !== "SAVE" ? "scan-mode-not-save" : "below-confidence-threshold", confPct, threshold },
+    });
   }
 
   useQueueProcessor.getState()._setLastProcessedCard(processedCard);
