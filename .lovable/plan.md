@@ -1,44 +1,60 @@
+# Scan Pipeline Health Monitor
+
+A secondary failsafe that watches every stage of the scan → identify → price → save pipeline, records timing + pass/fail per stage, and surfaces exactly where a card breaks down.
+
 ## Goal
 
-Bring back the previous rapid-scan behavior where 200+ cards flowed through the queue smoothly, and fix the current "stuck in processing" symptom when scanning more than one card.
+Right now when a card "gets stuck" you can't tell whether it's the camera capture, PaddleOCR, card identification, pricing lookup, or the DB save that failed. This adds structured per-stage telemetry plus a live diagnostic panel.
 
-## What's wrong today
+## What gets built
 
-- `src/lib/queueProcessor.ts` runs a **single** worker (one `workerActive` flag). Previously the scanner ran **3 concurrent workers** — that's why it could chew through 200 cards.
-- When PaddleOCR init fails (see console: `no available backend found … initWasm() failed`), the single worker gets tied up on that item for the full 18s timeout, so every subsequent scan visibly "sits in processing".
-- The 5-consecutive-error auto-pause I added last turn now actively hurts recovery: one flaky OCR init pauses the whole queue and the user has to manually resume.
-- Failed items were being deleted, which is fine, but stuck "processing" items still show as "processing" in the UI for 5s before the stuck-detector re-picks them — with only 1 worker that reads as "frozen".
+### 1. Pipeline tracer (`src/lib/pipelineTracer.ts`) — new
+A lightweight in-memory + IndexedDB event bus that records every stage transition per queue item.
 
-## Plan
+Stages tracked:
+```text
+capture  → image acquired from camera / upload
+enqueue  → item written to idbQueue
+ocr      → PaddleOCR / local OCR result
+identify → card matched (name/set/number)
+price    → pricing adapters returned a value
+save     → written to Supabase cards table
+```
 
-### 1. Restore concurrent workers in `src/lib/queueProcessor.ts`
-- Replace the single `workerActive` boolean with a counter and spawn up to `WORKER_CONCURRENCY = 3` parallel `workerLoop()` instances from `startWorker()`.
-- Each loop independently calls `idbGetNextQueued()`; IndexedDB serializes reads, and the item is immediately flipped to `"processing"` so siblings won't grab the same one.
-- Reduce `MIN_JOB_DELAY_MS` from 350 → 100 to match the prior throughput.
+Each entry: `{ itemId, stage, status: 'start'|'ok'|'fail'|'timeout', ms, error?, meta? }`.
+Ring buffer of last 200 items kept in IndexedDB so it survives reloads.
 
-### 2. Remove the aggressive auto-pause
-- Delete `consecutiveErrorCount` / `CONSECUTIVE_ERROR_LIMIT` and the `writeAnomalyPauseFlag(true)` branch in `workerLoop`.
-- Keep the per-item delete-on-error (that part is correct — it prevents clogging).
-- Rationale: with 3 workers and item deletion, a bad OCR run no longer freezes the pipeline; the queue just moves on.
+### 2. Instrument existing pipeline
+Wrap the existing call sites with `trace.begin(stage)` / `trace.end(stage, result)` — no logic changes:
+- `src/lib/queueProcessor.ts` — around OCR, identify, price, save calls in `processQueueItem`
+- `src/lib/enhancedCardIdentify.ts` (or `hybridCardIdentify.ts`) — identify stage result
+- `src/lib/fetchCardPrices.ts` — price stage result + which adapter answered
+- `src/components/scanner/RapidScanCamera.tsx` — capture + enqueue
 
-### 3. Unstick items faster
-- In `src/lib/idbQueue.ts`, lower `STUCK_THRESHOLD_MS` in `idbGetNextQueued` / `idbCountQueued` from 5000 → 2000 so orphaned "processing" items reappear quickly.
-- On worker startup, run a one-shot sweep that flips any `"processing"` items with `processingStartedAt` older than the threshold back to `"queued"` (defensive — covers a hard reload mid-scan).
+### 3. Self-test runner (`src/lib/pipelineSelfTest.ts`) — new
+On-demand end-to-end check that does NOT touch the user's real queue:
+- Runs a canned fixture image through OCR → identify → price (dry-run, no DB write)
+- Also does a lightweight Supabase ping (auth session + a `select 1`-style read against `cards`)
+- Returns `{ stage, ok, ms, error }[]` so the UI can render a green/red checklist
 
-### 4. Harden the OCR path so a bad init doesn't hang a worker
-- In `src/lib/queueProcessor.ts`, wrap `runLocalCardOcr` in a shorter soft-timeout (e.g., 12s) with a retry-once policy; second failure → delete and move on. The current 18s hard-timeout is what makes "processing" feel stuck.
-- No changes to lookup/pricing logic.
+### 4. Diagnostic UI (`src/components/scanner/PipelineHealthPanel.tsx`) — new
+Collapsible panel reachable from the scan page (small "Diagnostics" button near `QueueStatusIndicator`):
+- **Live stage feed**: last 20 items × 6 stages as a colored grid (green ok / amber slow / red fail / grey skipped) with hover to see error + ms
+- **Aggregate**: success rate per stage over last 50 items — instantly shows "OCR failing 80%" vs "pricing failing 80%"
+- **Run self-test** button → renders the checklist from step 3
+- **Copy diagnostics** button → dumps last 50 traces as JSON to clipboard for support
 
-### 5. Sanity-check `RapidScanCamera.tsx`
-- Confirm `QUEUE_MAX = 500` stays and the capture path still just calls `idbAdd` + `useQueueProcessor.getState().start()`. No UI/behavior change beyond that.
+### 5. Auto-flag stuck items
+When queueProcessor's stuck-detector fires, also emit a `stage: 'stuck'` trace entry so the panel shows *why* a specific card sat in processing.
 
-## Files touched
+## Technical notes
 
-- `src/lib/queueProcessor.ts` — multi-worker, remove auto-pause, tighter OCR timeout.
-- `src/lib/idbQueue.ts` — lower stuck threshold, startup requeue sweep helper.
-- `src/components/scanner/RapidScanCamera.tsx` — only if the start/enqueue wiring needs a nudge; no visual changes.
+- Zero new dependencies; uses existing `idb-keyval`-style helpers already in `src/lib/idbQueue.ts`.
+- Tracer is a no-op if disabled via a `localStorage` flag (default: on in dev, on for everyone since footprint is tiny).
+- No behavior change to the scan pipeline — pure observation layer. If tracing throws, it's swallowed and never blocks a scan.
+- Panel is lazy-loaded so it doesn't add to scan-page bundle.
 
 ## Out of scope
 
-- PaddleOCR wasm loading itself (already patched last turn to the jsdelivr CDN). If it regresses, that's a separate fix.
-- Pricing, identification, or UI layout changes.
+- Fixing individual pipeline bugs uncovered by the monitor (separate follow-up per finding).
+- Server-side aggregation / uploading traces anywhere.

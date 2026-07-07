@@ -461,6 +461,9 @@ export default function RapidScanCamera() {
       const previewUrl = URL.createObjectURL(blob);
       setRows((prev) => [{ id, imageUrl: previewUrl, status: "queued" }, ...prev]);
 
+      const { pipelineTracer } = await import("@/lib/pipelineTracer");
+      pipelineTracer.record({ itemId: id, stage: "capture", status: "ok", meta: { bytes: blob.size, source: "camera" } });
+
       const compressed = await compressImageForQueue(blob);
       await idbAdd({
         id,
@@ -470,6 +473,7 @@ export default function RapidScanCamera() {
         mime: compressed.type || "image/jpeg",
         filename: "card.jpg",
       });
+      pipelineTracer.record({ itemId: id, stage: "enqueue", status: "start" });
 
       setStatus(`Captured — ${getRotationLabel(cameraRotation)} rotation applied`);
       await refreshQueueCount();

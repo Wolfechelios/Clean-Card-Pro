@@ -24,6 +24,7 @@ import {
 import { compactOcrText, hasReadablePrice, runRapidBasicLookup } from "@/lib/rapidBasicLookupClient";
 import { logTrace } from "@/lib/rapidDebug";
 import { isReadableTitle, isValidPrintedCode } from "@/lib/ocr/ocrQuality";
+import { pipelineTracer } from "@/lib/pipelineTracer";
 
 export type ProcessedCard = {
   id: string;
@@ -153,6 +154,7 @@ function firstValidPrintedIdentifier(...parts: Array<string | null | undefined>)
 
 function markQueueItemError(id: string, error: string): Promise<void> {
   logTrace(id, "error", { message: error });
+  pipelineTracer.record({ itemId: id, stage: "save", status: "fail", error });
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("rapid-scan-item-error", { detail: { id, error } }));
   }
@@ -267,6 +269,7 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   const store = useQueueProcessor.getState();
   store._setCurrentItem(item.id);
   await idbUpdateMeta(item.id, { status: "processing" });
+  pipelineTracer.record({ itemId: item.id, stage: "enqueue", status: "ok" });
 
   const base64 = await blobToBase64DataUrl(item.blob, item.mime || "image/jpeg");
   const scanSettings = getScannerSettings();
@@ -274,10 +277,27 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   const userId = getLocalUserId();
 
   logTrace(item.id, "ocr-start");
+  const endOcr = pipelineTracer.begin(item.id, "ocr");
   const ocrStartedAt = performance.now();
-  const ocr = await withTimeout(runLocalCardOcr(item.blob), LOCAL_OCR_TIMEOUT_MS, "Local OCR");
+  let ocr: Awaited<ReturnType<typeof runLocalCardOcr>>;
+  try {
+    ocr = await withTimeout(runLocalCardOcr(item.blob), LOCAL_OCR_TIMEOUT_MS, "Local OCR");
+  } catch (e: any) {
+    endOcr({ status: /timeout/i.test(e?.message || "") ? "timeout" : "fail", error: e?.message || String(e) });
+    throw e;
+  }
   const ocrDurationMs = Math.round(performance.now() - ocrStartedAt);
   const ocrText = compactOcrText(ocr?.setCode, ocr?.cardNumber, ocr?.title, ocr?.fullCode, ocr?.rawText);
+  endOcr({
+    status: ocr ? "ok" : "fail",
+    meta: {
+      hasText: Boolean(ocrText),
+      title: ocr?.title ?? null,
+      setCode: ocr?.setCode ?? null,
+      cardNumber: ocr?.cardNumber ?? null,
+      confidence: ocr?.confidence ?? null,
+    },
+  });
   logTrace(item.id, "ocr-result", {
     durationMs: ocrDurationMs,
     data: {
@@ -293,6 +313,7 @@ async function processQueueItem(item: QueueItem): Promise<void> {
 
   const hasStructured = Boolean(ocr?.title || ocr?.setCode || ocr?.cardNumber || ocr?.fullCode);
   if (!ocrText && !hasStructured) {
+    pipelineTracer.record({ itemId: item.id, stage: "identify", status: "skip", error: "unreadable OCR" });
     await markQueueItemError(item.id, "Unreadable scan — retake photo");
     return;
   }
@@ -300,32 +321,51 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   const printedIdentifier = firstValidPrintedIdentifier(ocr?.setCode, ocr?.fullCode, ocr?.cardNumber);
   const hasValidTitle = isReadableTitle(ocr?.title);
   if (!printedIdentifier) {
+    pipelineTracer.record({ itemId: item.id, stage: "identify", status: "skip", error: "no printed code" });
     await markQueueItemError(item.id, "No printed set/card code found — retake photo closer to the code");
     return;
   }
 
   logTrace(item.id, "lookup-start", { data: { setCode: printedIdentifier, cardNumber: ocr?.cardNumber ?? null, game: ocr?.game ?? null } });
+  const endIdentify = pipelineTracer.begin(item.id, "identify");
   const lookupStartedAt = performance.now();
-  const lookup = await withTimeout(
-    runRapidBasicLookup({
-      imageUrl: null,
-      ocrText,
-      title: hasValidTitle ? ocr?.title ?? null : null,
-      setName: null,
-      setCode: printedIdentifier,
-      cardNumber: ocr?.cardNumber ?? null,
-      edition: ocr?.edition ?? null,
-      game: ocr?.game ?? null,
-      gameTypeHint,
-      allowGoogleLens: false,
-    }),
-    LOCAL_LOOKUP_TIMEOUT_MS,
-    "Printed-code card lookup",
-  );
+  let lookup: Awaited<ReturnType<typeof runRapidBasicLookup>>;
+  try {
+    lookup = await withTimeout(
+      runRapidBasicLookup({
+        imageUrl: null,
+        ocrText,
+        title: hasValidTitle ? ocr?.title ?? null : null,
+        setName: null,
+        setCode: printedIdentifier,
+        cardNumber: ocr?.cardNumber ?? null,
+        edition: ocr?.edition ?? null,
+        game: ocr?.game ?? null,
+        gameTypeHint,
+        allowGoogleLens: false,
+      }),
+      LOCAL_LOOKUP_TIMEOUT_MS,
+      "Printed-code card lookup",
+    );
+  } catch (e: any) {
+    endIdentify({ status: /timeout/i.test(e?.message || "") ? "timeout" : "fail", error: e?.message || String(e) });
+    throw e;
+  }
   const lookupDurationMs = Math.round(performance.now() - lookupStartedAt);
 
   const identify = lookup.cardData;
   const pricing = lookup.pricing ?? null;
+  endIdentify({
+    status: lookup.success && identify?.card_name ? "ok" : "fail",
+    error: lookup.error || undefined,
+    meta: { source: (lookup as any).source ?? null, cardName: identify?.card_name ?? null },
+  });
+  pipelineTracer.record({
+    itemId: item.id,
+    stage: "price",
+    status: hasReadablePrice(pricing) ? "ok" : "skip",
+    meta: { raw: pricing?.raw ?? null, psa10: pricing?.psa10 ?? null, source: (lookup as any).source ?? null },
+  });
   logTrace(item.id, "lookup-result", {
     durationMs: lookupDurationMs,
     data: {
@@ -380,6 +420,7 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   const threshold = scanSettings.autoConfirmThreshold ?? 75;
 
   if (scanSettings.scanMode === "SAVE" && confPct >= threshold) {
+    const endSave = pipelineTracer.begin(item.id, "save");
     try {
       const inserted = await insertCardDual({
         user_id: userId,
@@ -411,9 +452,18 @@ async function processQueueItem(item: QueueItem): Promise<void> {
       processedCard.isInLibrary = true;
       processedCard.dbId = inserted.id;
       processedCard.libraryQuantity = 1;
-    } catch (e) {
+      endSave({ status: "ok", meta: { dbId: inserted.id } });
+    } catch (e: any) {
       console.error("[QueueProcessor] auto-save failed:", e);
+      endSave({ status: "fail", error: e?.message || String(e) });
     }
+  } else {
+    pipelineTracer.record({
+      itemId: item.id,
+      stage: "save",
+      status: "skip",
+      meta: { reason: scanSettings.scanMode !== "SAVE" ? "scan-mode-not-save" : "below-confidence-threshold", confPct, threshold },
+    });
   }
 
   useQueueProcessor.getState()._setLastProcessedCard(processedCard);

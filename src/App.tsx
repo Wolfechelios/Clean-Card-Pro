@@ -10,6 +10,9 @@ import AppLayout from "./components/layout/AppLayout";
 import { lazy, Suspense, useState } from "react";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { QueueStatusIndicator } from "@/components/scanner/QueueStatusIndicator";
+const PipelineHealthPanel = lazy(() =>
+  import("@/components/scanner/PipelineHealthPanel").then((m) => ({ default: m.PipelineHealthPanel }))
+);
 import { SplashScreen } from "@/components/SplashScreen";
 import { OfflineIndicator } from "@/components/OfflineIndicator";
 import { useQueueAutoResume } from "@/hooks/use-queue-auto-resume";
@@ -106,6 +109,9 @@ const App = () => {
               <AuthProvider>
                 <AppRoutes />
                 <QueueStatusIndicator />
+                <Suspense fallback={null}>
+                  <PipelineHealthPanel />
+                </Suspense>
                 <OfflineIndicator />
               </AuthProvider>
             </BrowserRouter>
