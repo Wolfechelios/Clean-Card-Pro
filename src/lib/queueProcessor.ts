@@ -269,6 +269,7 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   const store = useQueueProcessor.getState();
   store._setCurrentItem(item.id);
   await idbUpdateMeta(item.id, { status: "processing" });
+  pipelineTracer.record({ itemId: item.id, stage: "enqueue", status: "ok" });
 
   const base64 = await blobToBase64DataUrl(item.blob, item.mime || "image/jpeg");
   const scanSettings = getScannerSettings();
@@ -276,10 +277,27 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   const userId = getLocalUserId();
 
   logTrace(item.id, "ocr-start");
+  const endOcr = pipelineTracer.begin(item.id, "ocr");
   const ocrStartedAt = performance.now();
-  const ocr = await withTimeout(runLocalCardOcr(item.blob), LOCAL_OCR_TIMEOUT_MS, "Local OCR");
+  let ocr: Awaited<ReturnType<typeof runLocalCardOcr>>;
+  try {
+    ocr = await withTimeout(runLocalCardOcr(item.blob), LOCAL_OCR_TIMEOUT_MS, "Local OCR");
+  } catch (e: any) {
+    endOcr({ status: /timeout/i.test(e?.message || "") ? "timeout" : "fail", error: e?.message || String(e) });
+    throw e;
+  }
   const ocrDurationMs = Math.round(performance.now() - ocrStartedAt);
   const ocrText = compactOcrText(ocr?.setCode, ocr?.cardNumber, ocr?.title, ocr?.fullCode, ocr?.rawText);
+  endOcr({
+    status: ocr ? "ok" : "fail",
+    meta: {
+      hasText: Boolean(ocrText),
+      title: ocr?.title ?? null,
+      setCode: ocr?.setCode ?? null,
+      cardNumber: ocr?.cardNumber ?? null,
+      confidence: ocr?.confidence ?? null,
+    },
+  });
   logTrace(item.id, "ocr-result", {
     durationMs: ocrDurationMs,
     data: {
@@ -295,6 +313,7 @@ async function processQueueItem(item: QueueItem): Promise<void> {
 
   const hasStructured = Boolean(ocr?.title || ocr?.setCode || ocr?.cardNumber || ocr?.fullCode);
   if (!ocrText && !hasStructured) {
+    pipelineTracer.record({ itemId: item.id, stage: "identify", status: "skip", error: "unreadable OCR" });
     await markQueueItemError(item.id, "Unreadable scan — retake photo");
     return;
   }
@@ -302,6 +321,7 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   const printedIdentifier = firstValidPrintedIdentifier(ocr?.setCode, ocr?.fullCode, ocr?.cardNumber);
   const hasValidTitle = isReadableTitle(ocr?.title);
   if (!printedIdentifier) {
+    pipelineTracer.record({ itemId: item.id, stage: "identify", status: "skip", error: "no printed code" });
     await markQueueItemError(item.id, "No printed set/card code found — retake photo closer to the code");
     return;
   }
