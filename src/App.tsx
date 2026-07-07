@@ -109,6 +109,9 @@ const App = () => {
               <AuthProvider>
                 <AppRoutes />
                 <QueueStatusIndicator />
+                <Suspense fallback={null}>
+                  <PipelineHealthPanel />
+                </Suspense>
                 <OfflineIndicator />
               </AuthProvider>
             </BrowserRouter>
