@@ -154,6 +154,7 @@ function firstValidPrintedIdentifier(...parts: Array<string | null | undefined>)
 
 function markQueueItemError(id: string, error: string): Promise<void> {
   logTrace(id, "error", { message: error });
+  pipelineTracer.record({ itemId: id, stage: "save", status: "fail", error });
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("rapid-scan-item-error", { detail: { id, error } }));
   }
