@@ -327,27 +327,45 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   }
 
   logTrace(item.id, "lookup-start", { data: { setCode: printedIdentifier, cardNumber: ocr?.cardNumber ?? null, game: ocr?.game ?? null } });
+  const endIdentify = pipelineTracer.begin(item.id, "identify");
   const lookupStartedAt = performance.now();
-  const lookup = await withTimeout(
-    runRapidBasicLookup({
-      imageUrl: null,
-      ocrText,
-      title: hasValidTitle ? ocr?.title ?? null : null,
-      setName: null,
-      setCode: printedIdentifier,
-      cardNumber: ocr?.cardNumber ?? null,
-      edition: ocr?.edition ?? null,
-      game: ocr?.game ?? null,
-      gameTypeHint,
-      allowGoogleLens: false,
-    }),
-    LOCAL_LOOKUP_TIMEOUT_MS,
-    "Printed-code card lookup",
-  );
+  let lookup: Awaited<ReturnType<typeof runRapidBasicLookup>>;
+  try {
+    lookup = await withTimeout(
+      runRapidBasicLookup({
+        imageUrl: null,
+        ocrText,
+        title: hasValidTitle ? ocr?.title ?? null : null,
+        setName: null,
+        setCode: printedIdentifier,
+        cardNumber: ocr?.cardNumber ?? null,
+        edition: ocr?.edition ?? null,
+        game: ocr?.game ?? null,
+        gameTypeHint,
+        allowGoogleLens: false,
+      }),
+      LOCAL_LOOKUP_TIMEOUT_MS,
+      "Printed-code card lookup",
+    );
+  } catch (e: any) {
+    endIdentify({ status: /timeout/i.test(e?.message || "") ? "timeout" : "fail", error: e?.message || String(e) });
+    throw e;
+  }
   const lookupDurationMs = Math.round(performance.now() - lookupStartedAt);
 
   const identify = lookup.cardData;
   const pricing = lookup.pricing ?? null;
+  endIdentify({
+    status: lookup.success && identify?.card_name ? "ok" : "fail",
+    error: lookup.error || undefined,
+    meta: { source: (lookup as any).source ?? null, cardName: identify?.card_name ?? null },
+  });
+  pipelineTracer.record({
+    itemId: item.id,
+    stage: "price",
+    status: hasReadablePrice(pricing) ? "ok" : "skip",
+    meta: { raw: pricing?.raw ?? null, psa10: pricing?.psa10 ?? null, source: (lookup as any).source ?? null },
+  });
   logTrace(item.id, "lookup-result", {
     durationMs: lookupDurationMs,
     data: {
