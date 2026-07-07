@@ -24,6 +24,7 @@ import {
 import { compactOcrText, hasReadablePrice, runRapidBasicLookup } from "@/lib/rapidBasicLookupClient";
 import { logTrace } from "@/lib/rapidDebug";
 import { isReadableTitle, isValidPrintedCode } from "@/lib/ocr/ocrQuality";
+import { pipelineTracer } from "@/lib/pipelineTracer";
 
 export type ProcessedCard = {
   id: string;
