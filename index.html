@@ -42,7 +42,12 @@
     <!-- Theme Color -->
     <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+
+    <!-- Permissions Policy: allow camera + microphone for scanner -->
+    <meta http-equiv="Permissions-Policy" content="camera=*, microphone=*, display-capture=*" />
+    <meta http-equiv="Feature-Policy" content="camera *; microphone *" />
   </head>
+
 
   <body>
     <div id="root"></div>

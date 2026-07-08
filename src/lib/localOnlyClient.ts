@@ -58,7 +58,7 @@ function matches(row: any, filters: any[]) {
     if (f.op === "lte") return value <= f.val;
     if (f.op === "in") return Array.isArray(f.val) && f.val.includes(value);
     if (f.op === "like" || f.op === "ilike") {
-      const needle = String(f.val).replaceAll("%", "").toLowerCase();
+      const needle = String(f.val).split("%").join("").toLowerCase();
       return String(value ?? "").toLowerCase().includes(needle);
     }
     return true;
