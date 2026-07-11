@@ -2,12 +2,25 @@
 // PaddleOCR integration using @gutenye/ocr-browser (PP-OCRv4 model via ONNX Runtime)
 // Uses dynamic import to avoid bloating the main bundle
 
+import * as ort from "onnxruntime-web";
+import wasmAsset from "../../public/ort/ort-wasm-simd-threaded.jsep.wasm.asset.json";
+
 type OcrModule = typeof import("@gutenye/ocr-browser");
 type OcrInstance = Awaited<ReturnType<OcrModule["default"]["create"]>>;
 
 let ocrInstance: OcrInstance | null = null;
 let initPromise: Promise<void> | null = null;
 let OcrClass: OcrModule["default"] | null = null;
+
+// ONNX Runtime cannot reliably infer its generated module URL after Vite
+// code-splitting, especially in Safari. Serve the matching loader locally and
+// the (large) WASM binary via the externalized asset URL.
+ort.env.wasm.wasmPaths = {
+  "ort-wasm-simd-threaded.jsep.mjs": "/ort/ort-wasm-simd-threaded.jsep.mjs",
+  "ort-wasm-simd-threaded.jsep.wasm": wasmAsset.url,
+} as any;
+ort.env.wasm.numThreads = 1;
+ort.env.wasm.proxy = false;
 
 // Model paths - these will be loaded from CDN
 const MODEL_BASE_URL = "https://cdn.jsdelivr.net/npm/@aspect0/ppocr-onnx-models@latest/";
@@ -35,14 +48,6 @@ async function initPaddleOCR(): Promise<void> {
     const startTime = performance.now();
     
     try {
-      // Point onnxruntime-web at a CDN that serves .wasm with the correct MIME type.
-      // Without this, the bundler's resolved URL returns HTML (404) and every ORT
-      // backend fails to initialize.
-      const ort = await import("onnxruntime-web");
-      ort.env.wasm.wasmPaths =
-        "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.17.3/dist/";
-      ort.env.wasm.numThreads = 1;
-
       // Dynamic import to avoid bundling into main chunk
       if (!OcrClass) {
         const module = await import("@gutenye/ocr-browser");
