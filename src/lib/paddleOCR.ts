@@ -70,6 +70,11 @@ async function initPaddleOCR(): Promise<void> {
     const startTime = performance.now();
     
     try {
+      // Pre-fetch wasm binary and feed it to ORT directly, bypassing loader
+      // path resolution which returns HTML in this environment.
+      const wasmBinary = await loadWasmBinary();
+      (ort.env.wasm as any).wasmBinary = wasmBinary;
+
       // Dynamic import to avoid bundling into main chunk
       if (!OcrClass) {
         const module = await import("@gutenye/ocr-browser");
@@ -79,6 +84,7 @@ async function initPaddleOCR(): Promise<void> {
       ocrInstance = await OcrClass.create({
         models: MODEL_CONFIG,
       });
+
       
       const elapsed = Math.round(performance.now() - startTime);
       console.log(`[PaddleOCR] Engine initialized in ${elapsed}ms`);
