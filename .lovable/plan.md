@@ -1,60 +1,33 @@
-# Scan Pipeline Health Monitor
+## Problem
 
-A secondary failsafe that watches every stage of the scan → identify → price → save pipeline, records timing + pass/fail per stage, and surfaces exactly where a card breaks down.
+The OCR engine crashes on init with:
+`expected magic word 00 61 73 6d, found 3c 21 64 6f`
 
-## Goal
+Hex `3c 21 64 6f` = ASCII `<!do` — the browser is receiving an HTML page (index.html fallback) where the `.wasm` binary should be.
 
-Right now when a card "gets stuck" you can't tell whether it's the camera capture, PaddleOCR, card identification, pricing lookup, or the DB save that failed. This adds structured per-stage telemetry plus a live diagnostic panel.
+## Root cause
 
-## What gets built
+When the `.mjs` ORT loader runs, it resolves the `.wasm` sibling via its own `import.meta.url` (i.e. `/ort/ort-wasm-simd-threaded.jsep.wasm`). We removed the physical wasm from `public/ort/` (too big to commit) and only externalized it via `lovable-assets`. The `wasmPaths` object mapping we set is not being honored on this code path, so the loader requests the missing local path and the dev server returns `index.html`.
 
-### 1. Pipeline tracer (`src/lib/pipelineTracer.ts`) — new
-A lightweight in-memory + IndexedDB event bus that records every stage transition per queue item.
+## Fix
 
-Stages tracked:
-```text
-capture  → image acquired from camera / upload
-enqueue  → item written to idbQueue
-ocr      → PaddleOCR / local OCR result
-identify → card matched (name/set/number)
-price    → pricing adapters returned a value
-save     → written to Supabase cards table
-```
+Pre-fetch the wasm bytes from the externalized asset URL and hand them directly to ONNX Runtime via `ort.env.wasm.wasmBinary`. This bypasses all path resolution — the loader uses the ArrayBuffer we provide and never issues its own fetch.
 
-Each entry: `{ itemId, stage, status: 'start'|'ok'|'fail'|'timeout', ms, error?, meta? }`.
-Ring buffer of last 200 items kept in IndexedDB so it survives reloads.
+## Changes
 
-### 2. Instrument existing pipeline
-Wrap the existing call sites with `trace.begin(stage)` / `trace.end(stage, result)` — no logic changes:
-- `src/lib/queueProcessor.ts` — around OCR, identify, price, save calls in `processQueueItem`
-- `src/lib/enhancedCardIdentify.ts` (or `hybridCardIdentify.ts`) — identify stage result
-- `src/lib/fetchCardPrices.ts` — price stage result + which adapter answered
-- `src/components/scanner/RapidScanCamera.tsx` — capture + enqueue
+**`src/lib/paddleOCR.ts`**
+- Remove `ort.env.wasm.wasmPaths` object mapping.
+- Add an async pre-fetch: `fetch(wasmAsset.url)` → `arrayBuffer()` → assign to `ort.env.wasm.wasmBinary`.
+- Keep `/ort/ort-wasm-simd-threaded.jsep.mjs` served locally (small, already in repo) so the loader module still resolves.
+- Cache the fetched bytes in a module-level promise so we only download once.
+- Run the pre-fetch inside `initPaddleOCR()` before the first `OcrClass.create()` call.
 
-### 3. Self-test runner (`src/lib/pipelineSelfTest.ts`) — new
-On-demand end-to-end check that does NOT touch the user's real queue:
-- Runs a canned fixture image through OCR → identify → price (dry-run, no DB write)
-- Also does a lightweight Supabase ping (auth session + a `select 1`-style read against `cards`)
-- Returns `{ stage, ok, ms, error }[]` so the UI can render a green/red checklist
+No other files change. Public asset layout stays: `.mjs` local, `.wasm` on Lovable asset CDN.
 
-### 4. Diagnostic UI (`src/components/scanner/PipelineHealthPanel.tsx`) — new
-Collapsible panel reachable from the scan page (small "Diagnostics" button near `QueueStatusIndicator`):
-- **Live stage feed**: last 20 items × 6 stages as a colored grid (green ok / amber slow / red fail / grey skipped) with hover to see error + ms
-- **Aggregate**: success rate per stage over last 50 items — instantly shows "OCR failing 80%" vs "pricing failing 80%"
-- **Run self-test** button → renders the checklist from step 3
-- **Copy diagnostics** button → dumps last 50 traces as JSON to clipboard for support
+## Verification
 
-### 5. Auto-flag stuck items
-When queueProcessor's stuck-detector fires, also emit a `stage: 'stuck'` trace entry so the panel shows *why* a specific card sat in processing.
+After the fix, the Diagnostics panel self-test should:
+1. Successfully init PaddleOCR (no "magic word" error).
+2. Complete an OCR round trip on a test image.
 
-## Technical notes
-
-- Zero new dependencies; uses existing `idb-keyval`-style helpers already in `src/lib/idbQueue.ts`.
-- Tracer is a no-op if disabled via a `localStorage` flag (default: on in dev, on for everyone since footprint is tiny).
-- No behavior change to the scan pipeline — pure observation layer. If tracing throws, it's swallowed and never blocks a scan.
-- Panel is lazy-loaded so it doesn't add to scan-page bundle.
-
-## Out of scope
-
-- Fixing individual pipeline bugs uncovered by the monitor (separate follow-up per finding).
-- Server-side aggregation / uploading traces anywhere.
+If the asset URL itself returns HTML in this environment (secondary failure), we'd see a JSON parse / non-200 error at the `fetch` step, which is easier to diagnose than the current wasm-magic error.
