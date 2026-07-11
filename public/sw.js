@@ -4,8 +4,8 @@ const IS_PREVIEW = (() => {
   try { return self.location.hostname.includes("id-preview--") || self.location.hostname.includes("lovableproject.com"); } catch { return false; }
 })();
 
-const CACHE_NAME = "cleancards-v2";
-const ASSET_CACHE = "cleancards-assets-v2";
+const CACHE_NAME = "cleancards-v3";
+const ASSET_CACHE = "cleancards-assets-v3";
 const PRECACHE = ["/offline.html"];
 
 // Install
@@ -54,8 +54,15 @@ self.addEventListener("fetch", (event) => {
           cached ||
           fetch(request).then((response) => {
             if (response.ok) {
-              const clone = response.clone();
-              caches.open(ASSET_CACHE).then((cache) => cache.put(request, clone));
+              const contentType = response.headers.get("content-type") || "";
+              const isWasm = url.pathname.toLowerCase().endsWith(".wasm");
+              const isHtml = contentType.includes("text/html");
+
+              // Never cache an SPA fallback page under a WASM URL.
+              if (!isWasm || (!isHtml && contentType.includes("application/wasm"))) {
+                const clone = response.clone();
+                caches.open(ASSET_CACHE).then((cache) => cache.put(request, clone));
+              }
             }
             return response;
           })
