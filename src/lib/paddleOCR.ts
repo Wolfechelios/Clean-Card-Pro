@@ -3,6 +3,7 @@
 // Uses dynamic import to avoid bloating the main bundle
 
 import * as ort from "onnxruntime-web";
+import wasmAsset from "../../public/ort/ort-wasm-simd-threaded.jsep.wasm.asset.json";
 
 type OcrModule = typeof import("@gutenye/ocr-browser");
 type OcrInstance = Awaited<ReturnType<OcrModule["default"]["create"]>>;
@@ -12,9 +13,12 @@ let initPromise: Promise<void> | null = null;
 let OcrClass: OcrModule["default"] | null = null;
 
 // ONNX Runtime cannot reliably infer its generated module URL after Vite
-// code-splitting, especially in Safari. Serve the matching loader and WASM
-// from a stable public path and configure it before the first session exists.
-ort.env.wasm.wasmPaths = "/ort/";
+// code-splitting, especially in Safari. Serve the matching loader locally and
+// the (large) WASM binary via the externalized asset URL.
+ort.env.wasm.wasmPaths = {
+  "ort-wasm-simd-threaded.jsep.mjs": "/ort/ort-wasm-simd-threaded.jsep.mjs",
+  "ort-wasm-simd-threaded.jsep.wasm": wasmAsset.url,
+} as any;
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.proxy = false;
 
