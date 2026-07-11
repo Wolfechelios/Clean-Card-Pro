@@ -12,15 +12,37 @@ let ocrInstance: OcrInstance | null = null;
 let initPromise: Promise<void> | null = null;
 let OcrClass: OcrModule["default"] | null = null;
 
-// ONNX Runtime cannot reliably infer its generated module URL after Vite
-// code-splitting, especially in Safari. Serve the matching loader locally and
-// the (large) WASM binary via the externalized asset URL.
-ort.env.wasm.wasmPaths = {
-  "ort-wasm-simd-threaded.jsep.mjs": "/ort/ort-wasm-simd-threaded.jsep.mjs",
-  "ort-wasm-simd-threaded.jsep.wasm": wasmAsset.url,
-} as any;
+// ONNX Runtime resolves its .wasm sibling from the loader's own import.meta.url,
+// which ignores wasmPaths in this build. Instead, pre-fetch the externalized
+// wasm binary and hand it directly to ORT via wasmBinary — bypasses all path
+// resolution.
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.proxy = false;
+
+let wasmBinaryPromise: Promise<ArrayBuffer> | null = null;
+async function loadWasmBinary(): Promise<ArrayBuffer> {
+  if (!wasmBinaryPromise) {
+    wasmBinaryPromise = (async () => {
+      const res = await fetch(wasmAsset.url);
+      if (!res.ok) {
+        throw new Error(`Failed to fetch OCR wasm binary: HTTP ${res.status}`);
+      }
+      const ct = res.headers.get("content-type") || "";
+      const buf = await res.arrayBuffer();
+      // Sanity check: WebAssembly magic word 0x00 0x61 0x73 0x6d
+      const head = new Uint8Array(buf, 0, 4);
+      if (head[0] !== 0x00 || head[1] !== 0x61 || head[2] !== 0x73 || head[3] !== 0x6d) {
+        throw new Error(`OCR wasm fetch returned non-wasm content (content-type: ${ct})`);
+      }
+      return buf;
+    })().catch((err) => {
+      wasmBinaryPromise = null;
+      throw err;
+    });
+  }
+  return wasmBinaryPromise;
+}
+
 
 // Model paths - these will be loaded from CDN
 const MODEL_BASE_URL = "https://cdn.jsdelivr.net/npm/@aspect0/ppocr-onnx-models@latest/";
@@ -48,6 +70,11 @@ async function initPaddleOCR(): Promise<void> {
     const startTime = performance.now();
     
     try {
+      // Pre-fetch wasm binary and feed it to ORT directly, bypassing loader
+      // path resolution which returns HTML in this environment.
+      const wasmBinary = await loadWasmBinary();
+      (ort.env.wasm as any).wasmBinary = wasmBinary;
+
       // Dynamic import to avoid bundling into main chunk
       if (!OcrClass) {
         const module = await import("@gutenye/ocr-browser");
@@ -57,6 +84,7 @@ async function initPaddleOCR(): Promise<void> {
       ocrInstance = await OcrClass.create({
         models: MODEL_CONFIG,
       });
+
       
       const elapsed = Math.round(performance.now() - startTime);
       console.log(`[PaddleOCR] Engine initialized in ${elapsed}ms`);
