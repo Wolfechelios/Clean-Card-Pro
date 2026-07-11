@@ -19,8 +19,9 @@ let ocrInstance: OcrInstance | null = null;
 let initPromise: Promise<void> | null = null;
 let OcrClass: OcrModule["default"] | null = null;
 
-// Model paths - these will be loaded from CDN
-const MODEL_BASE_URL = "https://cdn.jsdelivr.net/npm/@aspect0/ppocr-onnx-models@latest/";
+// Use the model package that @gutenye/ocr-browser actually depends on.
+// Version is pinned to the package-lock dependency to prevent filename drift.
+const MODEL_BASE_URL = "https://cdn.jsdelivr.net/npm/@gutenye/ocr-models@1.2.2/";
 
 const MODEL_CONFIG = {
   detectionPath: `${MODEL_BASE_URL}ch_PP-OCRv4_det_infer.onnx`,
