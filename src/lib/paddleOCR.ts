@@ -1,27 +1,18 @@
 // src/lib/paddleOCR.ts
-// PaddleOCR integration using @gutenye/ocr-browser (PP-OCRv4 model via ONNX Runtime)
-// Uses dynamic import to avoid bloating the main bundle
+// PaddleOCR integration using @gutenye/ocr-browser (PP-OCRv4 via ONNX Runtime)
 
 import * as ort from "onnxruntime-web";
 
-// Pin ONNX Runtime Web to the exact version installed by package-lock.
-// Using a versioned CDN prevents Vite/Lovable SPA fallbacks from returning
-// index.html for a missing local .wasm file. This must run before OCR imports.
-const ORT_DIST_URL = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.24.3/dist/";
+// OCR binaries are copied from node_modules into public/ocr-assets by
+// scripts/sync-ocr-assets.mjs. Loading them locally prevents CDN failures or
+// SPA HTML fallbacks from being interpreted as WebAssembly/ONNX binaries.
+const OCR_ASSET_ROOT = "/ocr-assets";
+const ORT_DIST_URL = `${OCR_ASSET_ROOT}/ort/`;
+const MODEL_BASE_URL = `${OCR_ASSET_ROOT}/models/`;
+
 ort.env.wasm.wasmPaths = ORT_DIST_URL;
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.proxy = false;
-
-type OcrModule = typeof import("@gutenye/ocr-browser");
-type OcrInstance = Awaited<ReturnType<OcrModule["default"]["create"]>>;
-
-let ocrInstance: OcrInstance | null = null;
-let initPromise: Promise<void> | null = null;
-let OcrClass: OcrModule["default"] | null = null;
-
-// Use the model package that @gutenye/ocr-browser actually depends on.
-// Version is pinned to the package-lock dependency to prevent filename drift.
-const MODEL_BASE_URL = "https://cdn.jsdelivr.net/npm/@gutenye/ocr-models@1.2.2/";
 
 const MODEL_CONFIG = {
   detectionPath: `${MODEL_BASE_URL}ch_PP-OCRv4_det_infer.onnx`,
@@ -29,37 +20,131 @@ const MODEL_CONFIG = {
   dictionaryPath: `${MODEL_BASE_URL}ppocr_keys_v1.txt`,
 };
 
-/**
- * Initialize the PaddleOCR engine
- * Models are loaded from CDN on first use
- */
+const REQUIRED_BINARY_ASSETS = [
+  {
+    name: "ONNX Runtime WebAssembly",
+    url: `${ORT_DIST_URL}ort-wasm-simd-threaded.wasm`,
+    magic: [0x00, 0x61, 0x73, 0x6d],
+  },
+  {
+    name: "PaddleOCR detection model",
+    url: MODEL_CONFIG.detectionPath,
+  },
+  {
+    name: "PaddleOCR recognition model",
+    url: MODEL_CONFIG.recognitionPath,
+  },
+] as const;
+
+type OcrModule = typeof import("@gutenye/ocr-browser");
+type OcrInstance = Awaited<ReturnType<OcrModule["default"]["create"]>>;
+
+let ocrInstance: OcrInstance | null = null;
+let initPromise: Promise<void> | null = null;
+let OcrClass: OcrModule["default"] | null = null;
+let assetsVerified = false;
+
+function beginsWith(bytes: Uint8Array, expected: readonly number[]): boolean {
+  return expected.every((value, index) => bytes[index] === value);
+}
+
+function looksLikeHtml(bytes: Uint8Array): boolean {
+  const prefix = new TextDecoder().decode(bytes.subarray(0, 64)).trimStart().toLowerCase();
+  return prefix.startsWith("<!doctype") || prefix.startsWith("<html");
+}
+
+async function readAssetPrefix(url: string): Promise<{
+  bytes: Uint8Array;
+  contentType: string;
+}> {
+  const response = await fetch(url, {
+    cache: "no-store",
+    headers: { Accept: "application/octet-stream,*/*" },
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} ${response.statusText}`);
+  }
+
+  const contentType = response.headers.get("content-type") || "unknown";
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const full = new Uint8Array(await response.arrayBuffer());
+    return { bytes: full.subarray(0, 64), contentType };
+  }
+
+  const { value } = await reader.read();
+  await reader.cancel();
+  return { bytes: value?.subarray(0, 64) || new Uint8Array(), contentType };
+}
+
+async function verifyLocalOcrAssets(): Promise<void> {
+  if (assetsVerified) return;
+
+  for (const asset of REQUIRED_BINARY_ASSETS) {
+    let result: Awaited<ReturnType<typeof readAssetPrefix>>;
+    try {
+      result = await readAssetPrefix(asset.url);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `${asset.name} could not be loaded from ${asset.url}: ${message}. ` +
+          "Run npm install or npm run verify:ocr-assets, then rebuild the app.",
+      );
+    }
+
+    if (result.bytes.length === 0) {
+      throw new Error(`${asset.name} is empty at ${asset.url}`);
+    }
+
+    if (looksLikeHtml(result.bytes) || result.contentType.includes("text/html")) {
+      throw new Error(
+        `${asset.name} resolved to HTML instead of binary data at ${asset.url}. ` +
+          "The OCR asset copy step did not run or the host rewrote the asset request.",
+      );
+    }
+
+    if ("magic" in asset && !beginsWith(result.bytes, asset.magic)) {
+      const header = Array.from(result.bytes.subarray(0, 8))
+        .map((byte) => byte.toString(16).padStart(2, "0"))
+        .join(" ");
+      throw new Error(
+        `${asset.name} has an invalid binary header at ${asset.url}: ${header}`,
+      );
+    }
+  }
+
+  assetsVerified = true;
+}
+
+/** Initialize the PaddleOCR engine. */
 async function initPaddleOCR(): Promise<void> {
   if (ocrInstance) return;
-  
+
   if (initPromise) {
     await initPromise;
     return;
   }
 
   initPromise = (async () => {
-    console.log("[PaddleOCR] Initializing OCR engine...");
+    console.log("[PaddleOCR] Verifying local OCR assets...");
     const startTime = performance.now();
-    
+
     try {
-      // Dynamic import to avoid bundling into main chunk
+      await verifyLocalOcrAssets();
+
       if (!OcrClass) {
         const module = await import("@gutenye/ocr-browser");
         OcrClass = module.default;
       }
-      
-      ocrInstance = await OcrClass.create({
-        models: MODEL_CONFIG,
-      });
-      
+
+      ocrInstance = await OcrClass.create({ models: MODEL_CONFIG });
+
       const elapsed = Math.round(performance.now() - startTime);
       console.log(`[PaddleOCR] Engine initialized in ${elapsed}ms`);
     } catch (error) {
       console.error("[PaddleOCR] Failed to initialize:", error);
+      ocrInstance = null;
       initPromise = null;
       throw error;
     }
@@ -83,15 +168,11 @@ export type PaddleOCRResult = {
   rawResult: unknown;
 };
 
-/**
- * Convert various image sources to a data URL string
- */
+/** Convert supported browser image sources to a data URL. */
 function toDataURL(
-  source: string | HTMLImageElement | HTMLCanvasElement | HTMLVideoElement
+  source: string | HTMLImageElement | HTMLCanvasElement | HTMLVideoElement,
 ): string {
-  if (typeof source === "string") {
-    return source;
-  }
+  if (typeof source === "string") return source;
 
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
@@ -112,31 +193,23 @@ function toDataURL(
   return canvas.toDataURL("image/png");
 }
 
-/**
- * Run PaddleOCR on an image
- * @param imageSource - Can be an image URL, data URL, HTMLImageElement, HTMLCanvasElement, or HTMLVideoElement
- * @returns OCR result with extracted text and line-by-line details
- */
+/** Run PaddleOCR on an image source. */
 export async function runPaddleOCR(
-  imageSource: string | HTMLImageElement | HTMLCanvasElement | HTMLVideoElement
+  imageSource: string | HTMLImageElement | HTMLCanvasElement | HTMLVideoElement,
 ): Promise<PaddleOCRResult> {
   await initPaddleOCR();
-  
-  if (!ocrInstance) {
-    throw new Error("PaddleOCR engine not initialized");
-  }
+
+  if (!ocrInstance) throw new Error("PaddleOCR engine not initialized");
 
   console.log("[PaddleOCR] Running OCR detection...");
   const startTime = performance.now();
 
   try {
-    // Convert to data URL string for the OCR engine
     const imageUrl = toDataURL(imageSource);
     const result = await ocrInstance.detect(imageUrl);
     const elapsed = Math.round(performance.now() - startTime);
     console.log(`[PaddleOCR] Detection completed in ${elapsed}ms`);
 
-    // Parse the result into a structured format
     const lines = (result || []).map((item: any) => ({
       text: item.text || "",
       confidence: item.score || 0,
@@ -148,10 +221,8 @@ export async function runPaddleOCR(
       },
     }));
 
-    const fullText = lines.map((l) => l.text).join("\n");
-
     return {
-      text: fullText,
+      text: lines.map((line) => line.text).join("\n"),
       lines,
       rawResult: result,
     };
@@ -161,16 +232,10 @@ export async function runPaddleOCR(
   }
 }
 
-/**
- * Check if PaddleOCR is available and ready
- */
 export function isPaddleOCRReady(): boolean {
   return ocrInstance !== null;
 }
 
-/**
- * Pre-initialize PaddleOCR (useful for warming up before first scan)
- */
 export async function warmupPaddleOCR(): Promise<boolean> {
   try {
     await initPaddleOCR();
@@ -180,19 +245,12 @@ export async function warmupPaddleOCR(): Promise<boolean> {
   }
 }
 
-/**
- * Extract text from an image file using PaddleOCR
- * @param file - Image file to process
- * @returns OCR result
- */
 export async function runPaddleOCROnFile(file: File): Promise<PaddleOCRResult> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = async () => {
       try {
-        const dataUrl = reader.result as string;
-        const result = await runPaddleOCR(dataUrl);
-        resolve(result);
+        resolve(await runPaddleOCR(reader.result as string));
       } catch (error) {
         reject(error);
       }
@@ -202,22 +260,14 @@ export async function runPaddleOCROnFile(file: File): Promise<PaddleOCRResult> {
   });
 }
 
-/**
- * Extract text from a canvas element using PaddleOCR
- * Useful for real-time camera scanning
- */
 export async function runPaddleOCROnCanvas(
-  canvas: HTMLCanvasElement
+  canvas: HTMLCanvasElement,
 ): Promise<PaddleOCRResult> {
   return runPaddleOCR(canvas);
 }
 
-/**
- * Extract text from a video frame using PaddleOCR
- * Useful for live video scanning
- */
 export async function runPaddleOCROnVideo(
-  video: HTMLVideoElement
+  video: HTMLVideoElement,
 ): Promise<PaddleOCRResult> {
   return runPaddleOCR(video);
 }
