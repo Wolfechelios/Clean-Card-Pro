@@ -42,6 +42,41 @@ async function assertBinaryMagic(filePath, expectedBytes, label) {
   }
 }
 
+async function walkFiles(directory) {
+  const results = [];
+  const entries = await readdir(directory, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const fullPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...(await walkFiles(fullPath)));
+    } else if (entry.isFile()) {
+      results.push(fullPath);
+    }
+  }
+
+  return results;
+}
+
+async function findRequiredFile(root, filename) {
+  const files = await walkFiles(root);
+  const exact = files.find((file) => path.basename(file) === filename);
+  if (exact) return exact;
+
+  const available = files
+    .filter((file) => /\.(?:onnx|txt)$/i.test(file))
+    .map((file) => path.relative(root, file))
+    .sort();
+
+  throw new Error(
+    [
+      `Required OCR model asset was not found anywhere inside ${root}: ${filename}`,
+      "Available OCR package files:",
+      ...available.map((file) => `  - ${file}`),
+    ].join("\n"),
+  );
+}
+
 async function copyOrtAssets() {
   const entries = await readdir(ortSource, { withFileTypes: true });
   const files = entries
@@ -68,16 +103,17 @@ async function copyOrtAssets() {
 
 async function copyModelAssets() {
   await mkdir(modelOutput, { recursive: true });
+
   for (const filename of requiredModels) {
-    const source = path.join(modelSource, filename);
+    const source = await findRequiredFile(modelSource, filename);
     const sourceInfo = await stat(source).catch(() => null);
     if (!sourceInfo?.isFile() || sourceInfo.size === 0) {
       throw new Error(`Required OCR model asset is missing or empty: ${source}`);
     }
     await cp(source, path.join(modelOutput, filename));
+    console.log(`Copied OCR model: ${path.relative(modelSource, source)} -> ${filename}`);
   }
 
-  // ONNX protobuf files begin with a small binary field tag, not HTML text.
   for (const filename of requiredModels.filter((name) => name.endsWith(".onnx"))) {
     const data = await readFile(path.join(modelOutput, filename));
     const prefix = data.subarray(0, 32).toString("utf8").trimStart().toLowerCase();
