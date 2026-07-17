@@ -74,7 +74,6 @@ type ProcessorStore = ProcessorState & {
   _setQueueMeta: (v: QueueItemMeta[]) => void;
   _incrementProcessed: () => void;
   _incrementError: () => void;
-  resetSession: () => void;
 };
 
 const QUEUE_REFRESH_INTERVAL_MS = 1000;
@@ -87,27 +86,6 @@ const WORKER_CONCURRENCY = 3;
 let activeWorkers = 0;
 let queueTimer: ReturnType<typeof setTimeout> | null = null;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-
-let currentSessionId = crypto.randomUUID();
-const sessionHashWindow = new Set<string>();
-
-
-function generateScanHash(ocr: any): string | null {
-  if (!ocr) return null;
-  const key = [ocr.setCode, ocr.cardNumber, ocr.fullCode].filter(Boolean).join("|");
-  if (key) return `S:${currentSessionId}:${key}`;
-  return null;
-}
-
-function fuseConfidence(ocrConf: number, lookup: any): number {
-  if (!lookup || !lookup.success) return ocrConf;
-  const lConf = lookup.cardData?.confidence ?? 0;
-  if (ocrConf > 0.85 && lConf > 0.85) return 0.98;
-  if (ocrConf > 0.95 || lConf > 0.95) return 0.95;
-  if (ocrConf > 0.7 && lConf > 0.7) return (ocrConf + lConf) / 2;
-  return Math.min(ocrConf, lConf);
-}
-
 let autoResumeChecked = false;
 
 
@@ -239,10 +217,6 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   _setQueueMeta: (v) => set({ queueMeta: v }),
   _incrementProcessed: () => set((s) => ({ processedCount: s.processedCount + 1 })),
   _incrementError: () => set((s) => ({ errorCount: s.errorCount + 1 })),
-  resetSession: () => {
-    currentSessionId = crypto.randomUUID();
-    sessionHashWindow.clear();
-  },
 }));
 
 function startWorker() {
@@ -316,15 +290,6 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   const ocrText = compactOcrText(ocr?.setCode, ocr?.cardNumber, ocr?.title, ocr?.fullCode, ocr?.rawText);
   endOcr({
     status: ocr ? "ok" : "fail",
-
-  const hash = generateScanHash(ocr);
-  if (hash && sessionHashWindow.has(hash)) {
-    pipelineTracer.record({ itemId: item.id, stage: "duplicate", status: "skip", meta: { hash } });
-    logTrace(item.id, "duplicate", { message: "Duplicate card detected in current session", hash });
-    await idbDelete(item.id);
-    return;
-  }
-  if (hash) sessionHashWindow.add(hash);
     meta: {
       hasText: Boolean(ocrText),
       title: ocr?.title ?? null,
@@ -333,227 +298,3 @@ async function processQueueItem(item: QueueItem): Promise<void> {
       confidence: ocr?.confidence ?? null,
     },
   });
-  logTrace(item.id, "ocr-result", {
-    durationMs: ocrDurationMs,
-    data: {
-      title: ocr?.title,
-      setCode: ocr?.setCode,
-      cardNumber: ocr?.cardNumber,
-      fullCode: ocr?.fullCode,
-      game: ocr?.game,
-      confidence: ocr?.confidence,
-      rawText: ocr?.rawText ? ocr.rawText.slice(0, 600) : "",
-    },
-  });
-
-
-  const hash = generateScanHash(ocr);
-  if (hash && sessionHashWindow.has(hash)) {
-    pipelineTracer.record({ itemId: item.id, stage: "duplicate", status: "skip", meta: { hash } });
-    logTrace(item.id, "duplicate", { message: "Duplicate card detected in current session", hash });
-    await idbDelete(item.id);
-    return;
-  }
-  if (hash) sessionHashWindow.add(hash);
-
-  const hasStructured = Boolean(ocr?.title || ocr?.setCode || ocr?.cardNumber || ocr?.fullCode);
-  if (!ocrText && !hasStructured) {
-    pipelineTracer.record({ itemId: item.id, stage: "identify", status: "skip", error: "unreadable OCR" });
-    await markQueueItemError(item.id, "Unreadable scan — retake photo");
-    return;
-  }
-
-  const printedIdentifier = firstValidPrintedIdentifier(ocr?.setCode, ocr?.fullCode, ocr?.cardNumber);
-  const hasValidTitle = isReadableTitle(ocr?.title);
-  if (!printedIdentifier) {
-    pipelineTracer.record({ itemId: item.id, stage: "identify", status: "skip", error: "no printed code" });
-    await markQueueItemError(item.id, "No printed set/card code found — retake photo closer to the code");
-    return;
-  }
-
-  logTrace(item.id, "lookup-start", { data: { setCode: printedIdentifier, cardNumber: ocr?.cardNumber ?? null, game: ocr?.game ?? null } });
-  const endIdentify = pipelineTracer.begin(item.id, "identify");
-  const lookupStartedAt = performance.now();
-  let lookup: Awaited<ReturnType<typeof runRapidBasicLookup>>;
-  try {
-    lookup = await withTimeout(
-      runRapidBasicLookup({
-        imageUrl: null,
-        ocrText,
-        title: hasValidTitle ? ocr?.title ?? null : null,
-        setName: null,
-        setCode: printedIdentifier,
-        cardNumber: ocr?.cardNumber ?? null,
-        edition: ocr?.edition ?? null,
-        game: ocr?.game ?? null,
-        gameTypeHint,
-        allowGoogleLens: false,
-      }),
-      LOCAL_LOOKUP_TIMEOUT_MS,
-      "Printed-code card lookup",
-    );
-  } catch (e: any) {
-    endIdentify({ status: /timeout/i.test(e?.message || "") ? "timeout" : "fail", error: e?.message || String(e) });
-    throw e;
-  }
-  const lookupDurationMs = Math.round(performance.now() - lookupStartedAt);
-
-  const identify = lookup.cardData;
-  const pricing = lookup.pricing ?? null;
-  const confidence = fuseConfidence(ocr?.confidence ?? 0, lookup);
-    status: lookup.success && identify?.card_name ? "ok" : "fail",
-    error: lookup.error || undefined,
-    meta: { source: (lookup as any).source ?? null, cardName: identify?.card_name ?? null },
-  });
-  pipelineTracer.record({
-    itemId: item.id,
-    stage: "price",
-    status: hasReadablePrice(pricing) ? "ok" : "skip",
-    meta: { raw: pricing?.raw ?? null, psa10: pricing?.psa10 ?? null, source: (lookup as any).source ?? null },
-  });
-  logTrace(item.id, "lookup-result", {
-    durationMs: lookupDurationMs,
-    data: {
-      success: lookup.success,
-      source: (lookup as any).source ?? null,
-      cardName: identify?.card_name ?? null,
-      error: lookup.error ?? null,
-      hasPrice: hasReadablePrice(pricing),
-    },
-  });
-
-  if (!lookup.success || !identify?.card_name) {
-    await markQueueItemError(item.id, lookup.error || "No printed-code lookup match — retake photo closer to the printed code");
-    return;
-  }
-
-  const cardName = String(identify.card_name || "").trim();
-  const confidence = fuseConfidence(ocr?.confidence ?? 0, lookup);
-  const cardSet = identify.card_set ?? null;
-  const cardNumber = identify.card_number ?? ocr?.cardNumber ?? ocr?.setCode ?? null;
-  const rarity = identify.rarity ?? null;
-  const gameType = identify.game_type ?? null;
-  const sportType = identify.sport_type ?? null;
-  const year = identify.year ?? null;
-  const manufacturer = identify.manufacturer ?? null;
-  const playerName = sportType ? cardName : null;
-  const team = null;
-  const imageUrl = base64;
-  const rawPrice = money(pricing?.raw ?? pricing?.highestSold ?? null);
-  const psa10Price = money(pricing?.psa10 ?? pricing?.cgc10 ?? null);
-
-  const processedCard: ProcessedCard = {
-    id: item.id,
-    cardName,
-    cardSet: cardSet || undefined,
-    cardNumber: cardNumber || undefined,
-    rarity: rarity || undefined,
-    gameType: gameType || undefined,
-    sportType: sportType || undefined,
-    value: rawPrice,
-    psa10Price,
-    imageUrl,
-    isInLibrary: false,
-    libraryQuantity: 0,
-    year: year || undefined,
-    playerName: playerName || undefined,
-    team: team || undefined,
-    manufacturer: manufacturer || undefined,
-  };
-
-  const confPct = confidence * 100;
-  const threshold = scanSettings.autoConfirmThreshold ?? 75;
-
-  if (scanSettings.scanMode === "SAVE" && confPct >= threshold) {
-    const endSave = pipelineTracer.begin(item.id, "save");
-    try {
-      const inserted = await insertCardDual({
-        user_id: userId,
-        card_name: cardName,
-        card_set: cardSet,
-        card_number: cardNumber,
-        rarity,
-        game_type: gameType,
-        sport_type: sportType,
-        image_url: imageUrl,
-        image_source: "scan",
-        image_status: "local-preview",
-        image_search_status: "found",
-        current_price_raw: rawPrice,
-        suggested_price: rawPrice,
-        last_price_update: rawPrice ? new Date().toISOString() : null,
-        condition: "ungraded",
-        year: year ? parseInt(year, 10) || null : null,
-        player_name: playerName,
-        team,
-        manufacturer,
-        raw_name: cardName,
-        raw_set: cardSet,
-        raw_number: cardNumber,
-        raw_year: year,
-        raw_manufacturer: manufacturer,
-        ocr_confidence: confidence,
-      } as any);
-      processedCard.isInLibrary = true;
-      processedCard.dbId = inserted.id;
-      processedCard.libraryQuantity = 1;
-      endSave({ status: "ok", meta: { dbId: inserted.id } });
-    } catch (e: any) {
-      console.error("[QueueProcessor] auto-save failed:", e);
-      endSave({ status: "fail", error: e?.message || String(e) });
-    }
-  } else {
-    pipelineTracer.record({
-      itemId: item.id,
-      stage: "save",
-      status: "skip",
-      meta: { reason: scanSettings.scanMode !== "SAVE" ? "scan-mode-not-save" : "below-confidence-threshold", confPct, threshold },
-    });
-  }
-
-  useQueueProcessor.getState()._setLastProcessedCard(processedCard);
-  console.log("[QueueProcessor] Printed-code lookup matched", cardName, { ocrSource: ocr?.source ?? "local-browser-ocr", source: lookup.source, hasPrice: hasReadablePrice(pricing) });
-
-  addRecentScan({
-    id: item.id,
-    card_name: cardName,
-    card_set: cardSet,
-    card_number: cardNumber,
-    player_name: playerName,
-    image_url: imageUrl,
-    price: rawPrice,
-    psa10Price,
-    confidence,
-    rarity,
-    gameType,
-    sportType,
-    dbId: processedCard.dbId ?? null,
-    isInLibrary: processedCard.isInLibrary,
-    libraryQuantity: processedCard.libraryQuantity,
-    year,
-    team,
-    manufacturer,
-  });
-
-  logTrace(item.id, "success", {
-    message: cardName,
-    data: { cardName, cardSet, cardNumber, value: rawPrice, source: (lookup as any).source ?? null },
-  });
-  window.dispatchEvent(new CustomEvent("recent-scan-added"));
-  await idbDelete(item.id);
-}
-
-export async function checkAndResumeQueue(): Promise<void> {
-  if (autoResumeChecked) return;
-  autoResumeChecked = true;
-  const state = useQueueProcessor.getState();
-  const anomalyPaused = state.isPausedByAnomaly || readAnomalyPauseFlag();
-  if (anomalyPaused) {
-    useQueueProcessor.setState({ isPaused: true, isPausedByAnomaly: true });
-    return;
-  }
-  const queuedCount = await idbCountQueued();
-  if (queuedCount > 0) state.start();
-}
-
-export { idbAdd, idbCount, idbCountQueued, idbClear, idbGetAll, idbDelete } from "@/lib/idbQueue";

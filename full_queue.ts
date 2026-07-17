@@ -74,7 +74,6 @@ type ProcessorStore = ProcessorState & {
   _setQueueMeta: (v: QueueItemMeta[]) => void;
   _incrementProcessed: () => void;
   _incrementError: () => void;
-  resetSession: () => void;
 };
 
 const QUEUE_REFRESH_INTERVAL_MS = 1000;
@@ -87,27 +86,6 @@ const WORKER_CONCURRENCY = 3;
 let activeWorkers = 0;
 let queueTimer: ReturnType<typeof setTimeout> | null = null;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-
-let currentSessionId = crypto.randomUUID();
-const sessionHashWindow = new Set<string>();
-
-
-function generateScanHash(ocr: any): string | null {
-  if (!ocr) return null;
-  const key = [ocr.setCode, ocr.cardNumber, ocr.fullCode].filter(Boolean).join("|");
-  if (key) return `S:${currentSessionId}:${key}`;
-  return null;
-}
-
-function fuseConfidence(ocrConf: number, lookup: any): number {
-  if (!lookup || !lookup.success) return ocrConf;
-  const lConf = lookup.cardData?.confidence ?? 0;
-  if (ocrConf > 0.85 && lConf > 0.85) return 0.98;
-  if (ocrConf > 0.95 || lConf > 0.95) return 0.95;
-  if (ocrConf > 0.7 && lConf > 0.7) return (ocrConf + lConf) / 2;
-  return Math.min(ocrConf, lConf);
-}
-
 let autoResumeChecked = false;
 
 
@@ -239,10 +217,6 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   _setQueueMeta: (v) => set({ queueMeta: v }),
   _incrementProcessed: () => set((s) => ({ processedCount: s.processedCount + 1 })),
   _incrementError: () => set((s) => ({ errorCount: s.errorCount + 1 })),
-  resetSession: () => {
-    currentSessionId = crypto.randomUUID();
-    sessionHashWindow.clear();
-  },
 }));
 
 function startWorker() {
@@ -316,15 +290,6 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   const ocrText = compactOcrText(ocr?.setCode, ocr?.cardNumber, ocr?.title, ocr?.fullCode, ocr?.rawText);
   endOcr({
     status: ocr ? "ok" : "fail",
-
-  const hash = generateScanHash(ocr);
-  if (hash && sessionHashWindow.has(hash)) {
-    pipelineTracer.record({ itemId: item.id, stage: "duplicate", status: "skip", meta: { hash } });
-    logTrace(item.id, "duplicate", { message: "Duplicate card detected in current session", hash });
-    await idbDelete(item.id);
-    return;
-  }
-  if (hash) sessionHashWindow.add(hash);
     meta: {
       hasText: Boolean(ocrText),
       title: ocr?.title ?? null,
@@ -345,16 +310,6 @@ async function processQueueItem(item: QueueItem): Promise<void> {
       rawText: ocr?.rawText ? ocr.rawText.slice(0, 600) : "",
     },
   });
-
-
-  const hash = generateScanHash(ocr);
-  if (hash && sessionHashWindow.has(hash)) {
-    pipelineTracer.record({ itemId: item.id, stage: "duplicate", status: "skip", meta: { hash } });
-    logTrace(item.id, "duplicate", { message: "Duplicate card detected in current session", hash });
-    await idbDelete(item.id);
-    return;
-  }
-  if (hash) sessionHashWindow.add(hash);
 
   const hasStructured = Boolean(ocr?.title || ocr?.setCode || ocr?.cardNumber || ocr?.fullCode);
   if (!ocrText && !hasStructured) {
@@ -400,7 +355,7 @@ async function processQueueItem(item: QueueItem): Promise<void> {
 
   const identify = lookup.cardData;
   const pricing = lookup.pricing ?? null;
-  const confidence = fuseConfidence(ocr?.confidence ?? 0, lookup);
+  endIdentify({
     status: lookup.success && identify?.card_name ? "ok" : "fail",
     error: lookup.error || undefined,
     meta: { source: (lookup as any).source ?? null, cardName: identify?.card_name ?? null },
@@ -428,7 +383,7 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   }
 
   const cardName = String(identify.card_name || "").trim();
-  const confidence = fuseConfidence(ocr?.confidence ?? 0, lookup);
+  const confidence = Number(identify.confidence ?? 0.98);
   const cardSet = identify.card_set ?? null;
   const cardNumber = identify.card_number ?? ocr?.cardNumber ?? ocr?.setCode ?? null;
   const rarity = identify.rarity ?? null;
