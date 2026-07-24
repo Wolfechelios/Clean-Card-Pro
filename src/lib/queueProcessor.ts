@@ -12,10 +12,10 @@ import {
   idbAdd,
   idbClear,
   idbCount,
+  idbClaimNextQueued,
   idbCountQueued,
   idbDelete,
   idbGetAll,
-  idbGetNextQueued,
   idbListMetaFast,
   idbUpdateMeta,
   type QueueItem,
@@ -25,6 +25,10 @@ import { compactOcrText, hasReadablePrice, runRapidBasicLookup } from "@/lib/rap
 import { logTrace } from "@/lib/rapidDebug";
 import { isReadableTitle, isValidPrintedCode } from "@/lib/ocr/ocrQuality";
 import { pipelineTracer } from "@/lib/pipelineTracer";
+import {
+  createSessionDuplicateTracker,
+  fuseConfidence,
+} from "@/lib/rapidScan/scanPolicy";
 
 export type ProcessedCard = {
   id: string;
@@ -79,34 +83,14 @@ type ProcessorStore = ProcessorState & {
 
 const QUEUE_REFRESH_INTERVAL_MS = 1000;
 const MIN_JOB_DELAY_MS = 100;
-const LOCAL_OCR_TIMEOUT_MS = 12000;
+const LOCAL_OCR_TIMEOUT_MS = 30_000;
 const LOCAL_LOOKUP_TIMEOUT_MS = 8000;
 const ANOMALY_PAUSE_STORAGE_KEY = "rapid-scan-anomaly-paused";
 const WORKER_CONCURRENCY = 3;
 
 let activeWorkers = 0;
-let queueTimer: ReturnType<typeof setTimeout> | null = null;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-
-let currentSessionId = crypto.randomUUID();
-const sessionHashWindow = new Set<string>();
-
-
-function generateScanHash(ocr: any): string | null {
-  if (!ocr) return null;
-  const key = [ocr.setCode, ocr.cardNumber, ocr.fullCode].filter(Boolean).join("|");
-  if (key) return `S:${currentSessionId}:${key}`;
-  return null;
-}
-
-function fuseConfidence(ocrConf: number, lookup: any): number {
-  if (!lookup || !lookup.success) return ocrConf;
-  const lConf = lookup.cardData?.confidence ?? 0;
-  if (ocrConf > 0.85 && lConf > 0.85) return 0.98;
-  if (ocrConf > 0.95 || lConf > 0.95) return 0.95;
-  if (ocrConf > 0.7 && lConf > 0.7) return (ocrConf + lConf) / 2;
-  return Math.min(ocrConf, lConf);
-}
+const sessionDuplicates = createSessionDuplicateTracker();
 
 let autoResumeChecked = false;
 
@@ -157,6 +141,14 @@ function money(n: number | null | undefined) {
   return Math.round(Number(n) * 100) / 100;
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : String(error);
+}
+
+function isTimeoutError(error: unknown): boolean {
+  return /timeout/i.test(errorMessage(error));
+}
+
 function blobToBase64DataUrl(blob: Blob, mime: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -174,14 +166,13 @@ function firstValidPrintedIdentifier(...parts: Array<string | null | undefined>)
   return null;
 }
 
-function markQueueItemError(id: string, error: string): Promise<void> {
+async function markQueueItemError(id: string, error: string): Promise<void> {
   logTrace(id, "error", { message: error });
   pipelineTracer.record({ itemId: id, stage: "save", status: "fail", error });
+  await idbUpdateMeta(id, { status: "error", error });
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("rapid-scan-item-error", { detail: { id, error } }));
   }
-  // Delete the failed item so it never gets re-picked and doesn't clog IDB.
-  return idbDelete(id).catch(() => undefined);
 }
 
 
@@ -197,19 +188,17 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   queueMeta: [],
 
   start: () => {
-    if (get().isRunning) return;
     if (readAnomalyPauseFlag()) {
       set({ isPaused: true, isPausedByAnomaly: true });
       return;
     }
-    set({ isRunning: true, isPaused: false, isPausedByAnomaly: false });
+    if (!get().isRunning) {
+      set({ isRunning: true, isPaused: false, isPausedByAnomaly: false });
+    }
     startWorker();
   },
 
   stop: () => {
-    if (queueTimer) clearTimeout(queueTimer);
-    queueTimer = null;
-    activeWorkers = 0;
     set({ isRunning: false, isPaused: false, currentItem: null });
   },
 
@@ -240,8 +229,7 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   _incrementProcessed: () => set((s) => ({ processedCount: s.processedCount + 1 })),
   _incrementError: () => set((s) => ({ errorCount: s.errorCount + 1 })),
   resetSession: () => {
-    currentSessionId = crypto.randomUUID();
-    sessionHashWindow.clear();
+    sessionDuplicates.reset();
   },
 }));
 
@@ -261,22 +249,22 @@ async function workerLoop() {
         return;
       }
 
-      const item = await idbGetNextQueued();
+      const item = await idbClaimNextQueued();
       if (!item) {
-        // Only mark not-running once the last worker exits
-        if (activeWorkers <= 1) {
-          useQueueProcessor.setState({ isRunning: false, currentItem: null });
-        }
         scheduleRefresh();
         return;
       }
 
       try {
-        await processQueueItem(item);
-        useQueueProcessor.getState()._incrementProcessed();
-      } catch (e: any) {
-        console.error("[QueueProcessor] RapidScan item failed:", e);
-        await markQueueItemError(item.id, e?.message || String(e));
+        const outcome = await processQueueItem(item);
+        if (outcome === "processed") {
+          useQueueProcessor.getState()._incrementProcessed();
+        } else if (outcome === "error") {
+          useQueueProcessor.getState()._incrementError();
+        }
+      } catch (error: unknown) {
+        console.error("[QueueProcessor] RapidScan item failed:", error);
+        await markQueueItemError(item.id, errorMessage(error));
         useQueueProcessor.getState()._incrementError();
       } finally {
         useQueueProcessor.getState()._setCurrentItem(null);
@@ -286,15 +274,24 @@ async function workerLoop() {
     }
   } finally {
     activeWorkers = Math.max(0, activeWorkers - 1);
+    if (activeWorkers === 0) {
+      useQueueProcessor.setState({ isRunning: false, currentItem: null });
+      void idbCountQueued().then((queuedCount) => {
+        if (queuedCount > 0 && !useQueueProcessor.getState().isPaused) {
+          useQueueProcessor.getState().start();
+        }
+      });
+    }
   }
 }
 
 
 
-async function processQueueItem(item: QueueItem): Promise<void> {
+type ProcessOutcome = "processed" | "duplicate" | "error";
+
+async function processQueueItem(item: QueueItem): Promise<ProcessOutcome> {
   const store = useQueueProcessor.getState();
   store._setCurrentItem(item.id);
-  await idbUpdateMeta(item.id, { status: "processing" });
   pipelineTracer.record({ itemId: item.id, stage: "enqueue", status: "ok" });
 
   const base64 = await blobToBase64DataUrl(item.blob, item.mime || "image/jpeg");
@@ -308,23 +305,14 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   let ocr: Awaited<ReturnType<typeof runLocalCardOcr>>;
   try {
     ocr = await withTimeout(runLocalCardOcr(item.blob), LOCAL_OCR_TIMEOUT_MS, "Local OCR");
-  } catch (e: any) {
-    endOcr({ status: /timeout/i.test(e?.message || "") ? "timeout" : "fail", error: e?.message || String(e) });
-    throw e;
+  } catch (error: unknown) {
+    endOcr({ status: isTimeoutError(error) ? "timeout" : "fail", error: errorMessage(error) });
+    throw error;
   }
   const ocrDurationMs = Math.round(performance.now() - ocrStartedAt);
   const ocrText = compactOcrText(ocr?.setCode, ocr?.cardNumber, ocr?.title, ocr?.fullCode, ocr?.rawText);
   endOcr({
     status: ocr ? "ok" : "fail",
-
-  const hash = generateScanHash(ocr);
-  if (hash && sessionHashWindow.has(hash)) {
-    pipelineTracer.record({ itemId: item.id, stage: "duplicate", status: "skip", meta: { hash } });
-    logTrace(item.id, "duplicate", { message: "Duplicate card detected in current session", hash });
-    await idbDelete(item.id);
-    return;
-  }
-  if (hash) sessionHashWindow.add(hash);
     meta: {
       hasText: Boolean(ocrText),
       title: ocr?.title ?? null,
@@ -346,29 +334,41 @@ async function processQueueItem(item: QueueItem): Promise<void> {
     },
   });
 
-
-  const hash = generateScanHash(ocr);
-  if (hash && sessionHashWindow.has(hash)) {
-    pipelineTracer.record({ itemId: item.id, stage: "duplicate", status: "skip", meta: { hash } });
-    logTrace(item.id, "duplicate", { message: "Duplicate card detected in current session", hash });
+  const duplicateReservation = sessionDuplicates.reserve(ocr);
+  if (duplicateReservation.duplicate) {
+    pipelineTracer.record({
+      itemId: item.id,
+      stage: "identify",
+      status: "skip",
+      meta: {
+        reason: "duplicate",
+        setCode: ocr?.setCode ?? null,
+        fullCode: ocr?.fullCode ?? null,
+      },
+    });
+    logTrace(item.id, "duplicate", { message: "Duplicate card detected in current session" });
     await idbDelete(item.id);
-    return;
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("rapid-scan-item-duplicate", { detail: { id: item.id } }));
+    }
+    return "duplicate";
   }
-  if (hash) sessionHashWindow.add(hash);
 
   const hasStructured = Boolean(ocr?.title || ocr?.setCode || ocr?.cardNumber || ocr?.fullCode);
   if (!ocrText && !hasStructured) {
+    sessionDuplicates.release(duplicateReservation.token);
     pipelineTracer.record({ itemId: item.id, stage: "identify", status: "skip", error: "unreadable OCR" });
     await markQueueItemError(item.id, "Unreadable scan — retake photo");
-    return;
+    return "error";
   }
 
   const printedIdentifier = firstValidPrintedIdentifier(ocr?.setCode, ocr?.fullCode, ocr?.cardNumber);
   const hasValidTitle = isReadableTitle(ocr?.title);
   if (!printedIdentifier) {
+    sessionDuplicates.release(duplicateReservation.token);
     pipelineTracer.record({ itemId: item.id, stage: "identify", status: "skip", error: "no printed code" });
     await markQueueItemError(item.id, "No printed set/card code found — retake photo closer to the code");
-    return;
+    return "error";
   }
 
   logTrace(item.id, "lookup-start", { data: { setCode: printedIdentifier, cardNumber: ocr?.cardNumber ?? null, game: ocr?.game ?? null } });
@@ -392,30 +392,32 @@ async function processQueueItem(item: QueueItem): Promise<void> {
       LOCAL_LOOKUP_TIMEOUT_MS,
       "Printed-code card lookup",
     );
-  } catch (e: any) {
-    endIdentify({ status: /timeout/i.test(e?.message || "") ? "timeout" : "fail", error: e?.message || String(e) });
-    throw e;
+  } catch (error: unknown) {
+    sessionDuplicates.release(duplicateReservation.token);
+    endIdentify({ status: isTimeoutError(error) ? "timeout" : "fail", error: errorMessage(error) });
+    throw error;
   }
   const lookupDurationMs = Math.round(performance.now() - lookupStartedAt);
 
   const identify = lookup.cardData;
   const pricing = lookup.pricing ?? null;
   const confidence = fuseConfidence(ocr?.confidence ?? 0, lookup);
+  endIdentify({
     status: lookup.success && identify?.card_name ? "ok" : "fail",
     error: lookup.error || undefined,
-    meta: { source: (lookup as any).source ?? null, cardName: identify?.card_name ?? null },
+    meta: { source: lookup.source ?? null, cardName: identify?.card_name ?? null },
   });
   pipelineTracer.record({
     itemId: item.id,
     stage: "price",
     status: hasReadablePrice(pricing) ? "ok" : "skip",
-    meta: { raw: pricing?.raw ?? null, psa10: pricing?.psa10 ?? null, source: (lookup as any).source ?? null },
+    meta: { raw: pricing?.raw ?? null, psa10: pricing?.psa10 ?? null, source: lookup.source ?? null },
   });
   logTrace(item.id, "lookup-result", {
     durationMs: lookupDurationMs,
     data: {
       success: lookup.success,
-      source: (lookup as any).source ?? null,
+      source: lookup.source ?? null,
       cardName: identify?.card_name ?? null,
       error: lookup.error ?? null,
       hasPrice: hasReadablePrice(pricing),
@@ -423,12 +425,12 @@ async function processQueueItem(item: QueueItem): Promise<void> {
   });
 
   if (!lookup.success || !identify?.card_name) {
+    sessionDuplicates.release(duplicateReservation.token);
     await markQueueItemError(item.id, lookup.error || "No printed-code lookup match — retake photo closer to the printed code");
-    return;
+    return "error";
   }
 
   const cardName = String(identify.card_name || "").trim();
-  const confidence = fuseConfidence(ocr?.confidence ?? 0, lookup);
   const cardSet = identify.card_set ?? null;
   const cardNumber = identify.card_number ?? ocr?.cardNumber ?? ocr?.setCode ?? null;
   const rarity = identify.rarity ?? null;
@@ -493,14 +495,14 @@ async function processQueueItem(item: QueueItem): Promise<void> {
         raw_year: year,
         raw_manufacturer: manufacturer,
         ocr_confidence: confidence,
-      } as any);
+      } as Parameters<typeof insertCardDual>[0]);
       processedCard.isInLibrary = true;
       processedCard.dbId = inserted.id;
       processedCard.libraryQuantity = 1;
       endSave({ status: "ok", meta: { dbId: inserted.id } });
-    } catch (e: any) {
-      console.error("[QueueProcessor] auto-save failed:", e);
-      endSave({ status: "fail", error: e?.message || String(e) });
+    } catch (error: unknown) {
+      console.error("[QueueProcessor] auto-save failed:", error);
+      endSave({ status: "fail", error: errorMessage(error) });
     }
   } else {
     pipelineTracer.record({
@@ -537,10 +539,11 @@ async function processQueueItem(item: QueueItem): Promise<void> {
 
   logTrace(item.id, "success", {
     message: cardName,
-    data: { cardName, cardSet, cardNumber, value: rawPrice, source: (lookup as any).source ?? null },
+    data: { cardName, cardSet, cardNumber, value: rawPrice, source: lookup.source ?? null },
   });
   window.dispatchEvent(new CustomEvent("recent-scan-added"));
   await idbDelete(item.id);
+  return "processed";
 }
 
 export async function checkAndResumeQueue(): Promise<void> {

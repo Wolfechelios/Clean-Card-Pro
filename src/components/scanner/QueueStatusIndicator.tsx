@@ -25,9 +25,9 @@ export function QueueStatusIndicator() {
     isPaused,
     queueCount,
     processedCount,
-    errorCount,
     currentItem,
     lastProcessedCard,
+    queueMeta,
     start,
     stop,
     pause,
@@ -38,6 +38,7 @@ export function QueueStatusIndicator() {
   // Start minimized so it never pops up blocking the view
   const [expanded, setExpanded] = useState(false);
   const [restarting, setRestarting] = useState(false);
+  const visibleErrorCount = queueMeta.filter((item) => item.status === "error").length;
 
   const handleRestart = async () => {
     setRestarting(true);
@@ -53,12 +54,12 @@ export function QueueStatusIndicator() {
   }, [refreshQueue]);
 
   // Don't show if nothing in queue and not running
-  if (!isRunning && queueCount === 0) {
+  if (!isRunning && queueCount === 0 && visibleErrorCount === 0) {
     return null;
   }
 
-  const total = queueCount + processedCount + errorCount;
-  const progress = total > 0 ? ((processedCount + errorCount) / total) * 100 : 0;
+  const total = queueCount + processedCount + visibleErrorCount;
+  const progress = total > 0 ? ((processedCount + visibleErrorCount) / total) * 100 : 0;
 
   // Minimized pill — always see-through, never blocks content
   if (!expanded) {
@@ -78,6 +79,12 @@ export function QueueStatusIndicator() {
             <span className="flex items-center gap-0.5 text-muted-foreground">
               <CheckCircle2 className="h-3 w-3" />
               {processedCount}
+            </span>
+          )}
+          {visibleErrorCount > 0 && (
+            <span className="flex items-center gap-0.5 text-destructive">
+              <AlertCircle className="h-3 w-3" />
+              {visibleErrorCount}
             </span>
           )}
           <ChevronUp className="h-3 w-3 text-muted-foreground" />
@@ -117,10 +124,10 @@ export function QueueStatusIndicator() {
           <CheckCircle2 className="h-3 w-3" />
           {processedCount}
         </span>
-        {errorCount > 0 && (
+        {visibleErrorCount > 0 && (
           <span className="flex items-center gap-1 text-destructive">
             <AlertCircle className="h-3 w-3" />
-            {errorCount}
+            {visibleErrorCount}
           </span>
         )}
       </div>

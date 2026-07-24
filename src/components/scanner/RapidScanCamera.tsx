@@ -21,10 +21,27 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
+import { withTimeout } from "@/lib/async/withTimeout";
 import { cn } from "@/lib/utils";
+import {
+  filterCameraDevices,
+  getCameraStreamWithFallback,
+} from "@/lib/camera/cameraPolicy";
 import { compressImageForQueue } from "@/lib/imageCompressor";
-import { idbAdd, idbClear, idbCount, idbCountQueued } from "@/lib/idbQueue";
+import {
+  idbAdd,
+  idbClear,
+  idbCountPending,
+  idbCountQueued,
+  idbGetAll,
+  idbRetry,
+} from "@/lib/idbQueue";
 import { useQueueProcessor } from "@/lib/queueProcessor";
+import {
+  mergeRecentScanRows,
+  reconcileScanRows,
+  type ScanRowState,
+} from "@/lib/rapidScan/scanRows";
 import { clearAllRecentScans, getRecentScans } from "@/lib/recentScans";
 
 type ZoomState = {
@@ -42,16 +59,19 @@ type BasicCameraCapabilities = MediaTrackCapabilities & {
   exposureMode?: string[];
 };
 
-type ScanRow = {
-  id: string;
-  imageUrl: string;
-  status: "queued" | "processing" | "completed" | "error";
-  cardName?: string;
-  cardSet?: string;
-  cardNumber?: string;
-  value?: number | null;
-  error?: string;
+type CameraTrackSettings = MediaTrackSettings & {
+  zoom?: number;
 };
+
+type CameraConstraintSet = MediaTrackConstraintSet & {
+  exposureMode?: string;
+  focusMode?: string;
+  pointsOfInterest?: Array<{ x: number; y: number }>;
+  torch?: boolean;
+  zoom?: number;
+};
+
+type ScanRow = ScanRowState;
 
 const QUEUE_MAX = 500;
 const DEFAULT_ZOOM: ZoomState = { supported: false, min: 1, max: 3, step: 0.1, value: 1 };
@@ -89,6 +109,7 @@ function sortCameraDevices(list: MediaDeviceInfo[]) {
 function normalizeZoom(caps: BasicCameraCapabilities, settings: MediaTrackSettings): ZoomState {
   const raw = caps.zoom;
   if (!raw) return DEFAULT_ZOOM;
+  const settingsZoom = (settings as CameraTrackSettings).zoom;
 
   if (Array.isArray(raw) && raw.length > 0) {
     const sorted = raw.filter((n): n is number => typeof n === "number").sort((a, b) => a - b);
@@ -99,7 +120,7 @@ function normalizeZoom(caps: BasicCameraCapabilities, settings: MediaTrackSettin
       min,
       max,
       step: 0.1,
-      value: typeof (settings as any).zoom === "number" ? (settings as any).zoom : min,
+      value: typeof settingsZoom === "number" ? settingsZoom : min,
     };
   }
 
@@ -113,7 +134,7 @@ function normalizeZoom(caps: BasicCameraCapabilities, settings: MediaTrackSettin
       min,
       max,
       step: Number.isFinite(step) && step > 0 ? step : 0.1,
-      value: typeof (settings as any).zoom === "number" ? (settings as any).zoom : min,
+      value: typeof settingsZoom === "number" ? settingsZoom : min,
     };
   }
 
@@ -140,6 +161,10 @@ function getRotationLabel(rotation: CameraRotation) {
   return "Left";
 }
 
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 function drawRotatedVideoToCanvas(video: HTMLVideoElement, canvas: HTMLCanvasElement, rotation: CameraRotation) {
   const sourceWidth = video.videoWidth || 1920;
   const sourceHeight = video.videoHeight || 1080;
@@ -163,6 +188,42 @@ function drawRotatedVideoToCanvas(video: HTMLVideoElement, canvas: HTMLCanvasEle
   }
   ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
   ctx.restore();
+}
+
+function waitForVideoMetadata(video: HTMLVideoElement, timeoutMs = 5000): Promise<void> {
+  if (video.readyState >= HTMLMediaElement.HAVE_METADATA) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      cleanup();
+      reject(new Error("Camera preview timed out"));
+    }, timeoutMs);
+
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      video.removeEventListener("loadedmetadata", onLoadedMetadata);
+      video.removeEventListener("error", onError);
+    };
+    const onLoadedMetadata = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = () => {
+      cleanup();
+      reject(new Error("Camera preview failed to load"));
+    };
+
+    video.addEventListener("loadedmetadata", onLoadedMetadata, { once: true });
+    video.addEventListener("error", onError, { once: true });
+  });
+}
+
+async function startVideoPreview(video: HTMLVideoElement, stream: MediaStream): Promise<void> {
+  video.srcObject = stream;
+  video.setAttribute("playsinline", "true");
+  video.muted = true;
+  await waitForVideoMetadata(video);
+  await withTimeout(video.play(), 5000, "Camera playback");
 }
 
 export default function RapidScanCamera() {
@@ -203,12 +264,16 @@ export default function RapidScanCamera() {
   const totalValue = useMemo(() => {
     return rows.reduce((sum, row) => sum + (row.status === "completed" ? row.value || 0 : 0), 0);
   }, [rows]);
+  const failedCount = useMemo(
+    () => processor.queueMeta.filter((item) => item.status === "error").length,
+    [processor.queueMeta],
+  );
 
   const refreshDevices = useCallback(async () => {
     if (!navigator.mediaDevices?.enumerateDevices) return;
     try {
       const list = await navigator.mediaDevices.enumerateDevices();
-      setDevices(sortCameraDevices(list.filter((device) => device.kind === "videoinput")));
+      setDevices(sortCameraDevices(filterCameraDevices(list)));
     } catch {
       // Safari may hide devices until permission is granted.
     }
@@ -241,6 +306,25 @@ export default function RapidScanCamera() {
   useEffect(() => {
     void refreshDevices();
     void refreshQueueCount();
+    void idbGetAll().then((items) => {
+      setRows((current) => {
+        const currentIds = new Set(current.map((row) => row.id));
+        const restored: ScanRow[] = items
+          .filter((item) => !currentIds.has(item.id))
+          .map((item) => ({
+            id: item.id,
+            imageUrl: URL.createObjectURL(item.blob),
+            status:
+              item.status === "error"
+                ? "error"
+                : item.status === "processing"
+                  ? "processing"
+                  : "queued",
+            error: item.error,
+          }));
+        return restored.length > 0 ? [...restored, ...current] : current;
+      });
+    });
   }, [refreshDevices, refreshQueueCount]);
 
   useEffect(() => {
@@ -250,7 +334,10 @@ export default function RapidScanCamera() {
   }, [refreshDevices]);
 
   useEffect(() => {
-    const onRecentScanAdded = () => setRows(rowsFromRecent());
+    const onRecentScanAdded = () => {
+      const recent = rowsFromRecent();
+      setRows((current) => mergeRecentScanRows(current, recent));
+    };
     window.addEventListener("recent-scan-added", onRecentScanAdded);
     return () => window.removeEventListener("recent-scan-added", onRecentScanAdded);
   }, []);
@@ -280,6 +367,38 @@ export default function RapidScanCamera() {
     setRows((prev) => prev.map((row) => (row.id === current ? { ...row, status: "processing" } : row)));
   }, [processor.currentItem]);
 
+  useEffect(() => {
+    setRows((prev) => reconcileScanRows(prev, processor.queueMeta));
+    setQueuedCount(processor.queueCount);
+  }, [processor.queueCount, processor.queueMeta]);
+
+  useEffect(() => {
+    const onItemError = (event: Event) => {
+      const detail = (event as CustomEvent<{ id?: string; error?: string }>).detail;
+      if (!detail?.id) return;
+      setRows((prev) =>
+        prev.map((row) =>
+          row.id === detail.id
+            ? { ...row, status: "error", error: detail.error || "Scan processing failed" }
+            : row,
+        ),
+      );
+    };
+    const onDuplicate = (event: Event) => {
+      const detail = (event as CustomEvent<{ id?: string }>).detail;
+      if (!detail?.id) return;
+      setRows((prev) => prev.filter((row) => row.id !== detail.id));
+      toast.info("Duplicate card skipped");
+    };
+
+    window.addEventListener("rapid-scan-item-error", onItemError);
+    window.addEventListener("rapid-scan-item-duplicate", onDuplicate);
+    return () => {
+      window.removeEventListener("rapid-scan-item-error", onItemError);
+      window.removeEventListener("rapid-scan-item-duplicate", onDuplicate);
+    };
+  }, []);
+
   function stopPreviewOnly() {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
@@ -298,7 +417,8 @@ export default function RapidScanCamera() {
 
     if (zoom.supported && track?.applyConstraints) {
       try {
-        await track.applyConstraints({ advanced: [{ zoom: clamped } as any] });
+        const advanced: CameraConstraintSet = { zoom: clamped };
+        await track.applyConstraints({ advanced: [advanced] });
         setZoomState((prev) => ({ ...prev, value: clamped }));
         return;
       } catch {
@@ -324,11 +444,10 @@ export default function RapidScanCamera() {
       stopPreviewOnly();
 
       const requestedDeviceId = deviceIdOverride ?? selectedDeviceId;
-      const video: MediaTrackConstraints = requestedDeviceId
-        ? { deviceId: { exact: requestedDeviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
-        : { width: { ideal: 1920 }, height: { ideal: 1080 } };
-
-      const stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+      const { stream, usedFallback } = await getCameraStreamWithFallback(
+        navigator.mediaDevices,
+        requestedDeviceId,
+      );
       streamRef.current = stream;
       trackRef.current = stream.getVideoTracks()[0] ?? null;
 
@@ -339,6 +458,9 @@ export default function RapidScanCamera() {
       if (actualDeviceId) {
         setSelectedDeviceId(actualDeviceId);
         localStorage.setItem("rapid_scan_camera_device_id", actualDeviceId);
+      } else if (usedFallback) {
+        setSelectedDeviceId("");
+        localStorage.removeItem("rapid_scan_camera_device_id");
       }
       setTorchSupported(Boolean(caps.torch));
       setFocusSupported(Boolean(caps.focusMode?.length || caps.exposureMode?.length));
@@ -347,19 +469,23 @@ export default function RapidScanCamera() {
 
       const videoElement = videoRef.current;
       if (!videoElement) throw new Error("Video preview missing");
-      videoElement.srcObject = stream;
-      videoElement.setAttribute("playsinline", "true");
-      videoElement.muted = true;
-      await videoElement.play();
+      await startVideoPreview(videoElement, stream);
 
       setCameraOn(true);
       await refreshDevices();
-      const label = sortedDevices.find((d) => d.deviceId === (actualDeviceId || requestedDeviceId))?.label;
-      setStatus(label ? `Camera live: ${label}` : "Camera live — choose iPhone/Continuity if listed");
-    } catch (error: any) {
+      const label =
+        track?.label ||
+        sortedDevices.find((d) => d.deviceId === (usedFallback ? actualDeviceId : actualDeviceId || requestedDeviceId))?.label;
+      if (usedFallback) {
+        setStatus(label ? `Saved camera unavailable — using ${label}` : "Saved camera unavailable — using default camera");
+      } else {
+        setStatus(label ? `Camera live: ${label}` : "Camera live — choose iPhone/Continuity if listed");
+      }
+    } catch (error: unknown) {
       console.error(error);
-      setStatus(error?.message ?? "Camera failed");
-      toast.error(error?.message ?? "Camera failed to start");
+      stopPreviewOnly();
+      setStatus(errorMessage(error, "Camera failed"));
+      toast.error(errorMessage(error, "Camera failed to start"));
     } finally {
       setBusy(false);
       startingRef.current = false;
@@ -375,7 +501,7 @@ export default function RapidScanCamera() {
     }
   }
 
-  async function useContinuityCamera() {
+  async function selectContinuityCamera() {
     if (!continuityDevice) {
       await refreshDevices();
       toast.info("If iPhone does not appear, unlock it and keep it near this Mac, then tap Refresh cameras.");
@@ -398,7 +524,8 @@ export default function RapidScanCamera() {
     if (!track || !torchSupported) return;
     const next = typeof forced === "boolean" ? forced : !torchOn;
     try {
-      await track.applyConstraints({ advanced: [{ torch: next } as any] });
+      const advanced: CameraConstraintSet = { torch: next };
+      await track.applyConstraints({ advanced: [advanced] });
       setTorchOn(next);
     } catch {
       toast.error("Torch is blocked by Safari or this camera lens");
@@ -412,7 +539,11 @@ export default function RapidScanCamera() {
     resetRotation();
     if (torchOn) await toggleTorch(false);
     try {
-      await trackRef.current?.applyConstraints?.({ advanced: [{ focusMode: "continuous", exposureMode: "continuous" } as any] });
+      const advanced: CameraConstraintSet = {
+        focusMode: "continuous",
+        exposureMode: "continuous",
+      };
+      await trackRef.current?.applyConstraints?.({ advanced: [advanced] });
     } catch {
       // not all Safari builds support focus constraints
     }
@@ -428,8 +559,13 @@ export default function RapidScanCamera() {
     window.setTimeout(() => setFocusPoint(null), 900);
 
     try {
+      const advanced: CameraConstraintSet = {
+        focusMode: "single-shot",
+        exposureMode: "single-shot",
+        pointsOfInterest: [{ x, y }],
+      };
       await trackRef.current?.applyConstraints?.({
-        advanced: [{ focusMode: "single-shot", exposureMode: "single-shot", pointsOfInterest: [{ x, y }] } as any],
+        advanced: [advanced],
       });
       setStatus("Focused");
     } catch {
@@ -442,7 +578,7 @@ export default function RapidScanCamera() {
     setBusy(true);
 
     try {
-      const current = await idbCount();
+      const current = await idbCountPending();
       if (current >= QUEUE_MAX) {
         toast.error(`Queue full (${QUEUE_MAX})`);
         return;
@@ -478,9 +614,9 @@ export default function RapidScanCamera() {
       setStatus(`Captured — ${getRotationLabel(cameraRotation)} rotation applied`);
       await refreshQueueCount();
       processor.start();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error);
-      toast.error(error?.message ?? "Capture failed");
+      toast.error(errorMessage(error, "Capture failed"));
     } finally {
       setBusy(false);
     }
@@ -495,6 +631,22 @@ export default function RapidScanCamera() {
     setStatus("Cleared");
   }
 
+  async function retryScan(id: string) {
+    try {
+      await idbRetry(id);
+      setRows((prev) =>
+        prev.map((row) =>
+          row.id === id ? { ...row, status: "queued", error: undefined } : row,
+        ),
+      );
+      await processor.refreshQueue();
+      processor.start();
+      setStatus("Retrying scan");
+    } catch (error: unknown) {
+      toast.error(errorMessage(error, "Could not retry scan"));
+    }
+  }
+
   useEffect(() => {
     return () => {
       stopPreviewOnly();
@@ -507,6 +659,7 @@ export default function RapidScanCamera() {
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={cameraOn ? "default" : "secondary"}>{cameraOn ? "Camera Live" : "Camera Off"}</Badge>
           <Badge variant="outline">Queued {queuedCount}</Badge>
+          {failedCount > 0 && <Badge variant="destructive">Errors {failedCount}</Badge>}
           <Badge variant="outline">${totalValue.toFixed(2)}</Badge>
           <Badge variant="outline">{getRotationLabel(cameraRotation)}</Badge>
           {selectedDevice?.label && <Badge variant={isContinuityDevice(selectedDevice) ? "default" : "outline"}>{selectedDevice.label}</Badge>}
@@ -636,7 +789,7 @@ export default function RapidScanCamera() {
                   </select>
                 </label>
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" onClick={() => void useContinuityCamera()} className="h-10">
+                  <Button variant="outline" onClick={() => void selectContinuityCamera()} className="h-10">
                     <Smartphone className="mr-2 h-4 w-4" /> Use iPhone
                   </Button>
                   {!cameraOn ? (
@@ -749,9 +902,16 @@ export default function RapidScanCamera() {
                   </div>
                   {row.error && <div className="truncate text-xs text-destructive">{row.error}</div>}
                 </div>
-                <Badge variant={row.status === "completed" ? "default" : row.status === "error" ? "destructive" : "secondary"}>
-                  {row.status === "completed" && typeof row.value === "number" ? `$${row.value.toFixed(2)}` : row.status}
-                </Badge>
+                <div className="flex flex-col items-end gap-1">
+                  <Badge variant={row.status === "completed" ? "default" : row.status === "error" ? "destructive" : "secondary"}>
+                    {row.status === "completed" && typeof row.value === "number" ? `$${row.value.toFixed(2)}` : row.status}
+                  </Badge>
+                  {row.status === "error" && (
+                    <Button variant="outline" size="sm" onClick={() => void retryScan(row.id)}>
+                      <RefreshCw className="mr-1 h-3 w-3" /> Retry
+                    </Button>
+                  )}
+                </div>
               </Card>
             ))}
           </div>

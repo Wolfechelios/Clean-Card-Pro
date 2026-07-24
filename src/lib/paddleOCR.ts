@@ -4,11 +4,9 @@
 
 import * as ort from "onnxruntime-web";
 
-// Pin ONNX Runtime Web to the exact version installed by package-lock.
-// Using a versioned CDN prevents Vite/Lovable SPA fallbacks from returning
-// index.html for a missing local .wasm file. This must run before OCR imports.
-const ORT_DIST_URL = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.24.3/dist/";
-ort.env.wasm.wasmPaths = ORT_DIST_URL;
+// Keep OCR fully same-origin. These assets are committed under public/ocr-assets
+// so Safari and installed PWAs do not depend on a third-party CDN or CORS.
+ort.env.wasm.wasmPaths = "/ocr-assets/ort/";
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.proxy = false;
 
@@ -19,9 +17,7 @@ let ocrInstance: OcrInstance | null = null;
 let initPromise: Promise<void> | null = null;
 let OcrClass: OcrModule["default"] | null = null;
 
-// Use the model package that @gutenye/ocr-browser actually depends on.
-// Version is pinned to the package-lock dependency to prevent filename drift.
-const MODEL_BASE_URL = "https://cdn.jsdelivr.net/npm/@gutenye/ocr-models@1.2.2/";
+const MODEL_BASE_URL = "/ocr-assets/models/";
 
 const MODEL_CONFIG = {
   detectionPath: `${MODEL_BASE_URL}ch_PP-OCRv4_det_infer.onnx`,
@@ -31,7 +27,7 @@ const MODEL_CONFIG = {
 
 /**
  * Initialize the PaddleOCR engine
- * Models are loaded from CDN on first use
+ * Models are loaded from bundled same-origin assets on first use.
  */
 async function initPaddleOCR(): Promise<void> {
   if (ocrInstance) return;
@@ -137,7 +133,11 @@ export async function runPaddleOCR(
     console.log(`[PaddleOCR] Detection completed in ${elapsed}ms`);
 
     // Parse the result into a structured format
-    const lines = (result || []).map((item: any) => ({
+    const lines = (result || []).map((item: {
+      text?: string;
+      score?: number;
+      box?: number[][];
+    }) => ({
       text: item.text || "",
       confidence: item.score || 0,
       boundingBox: {

@@ -4,8 +4,8 @@ const IS_PREVIEW = (() => {
   try { return self.location.hostname.includes("id-preview--") || self.location.hostname.includes("lovableproject.com"); } catch { return false; }
 })();
 
-const CACHE_NAME = "cleancards-v3";
-const ASSET_CACHE = "cleancards-assets-v3";
+const CACHE_NAME = "cleancards-v4";
+const ASSET_CACHE = "cleancards-assets-v4";
 const PRECACHE = ["/offline.html"];
 
 // Install
@@ -46,7 +46,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  const isAsset = /\.(js|css|png|jpg|jpeg|webp|svg|woff2?|wasm|onnx)$/i.test(url.pathname);
+  const isAsset = /\.(js|mjs|css|png|jpg|jpeg|webp|svg|woff2?|wasm|onnx|txt)$/i.test(url.pathname);
   if (isAsset) {
     event.respondWith(
       caches.match(request).then(
@@ -56,10 +56,13 @@ self.addEventListener("fetch", (event) => {
             if (response.ok) {
               const contentType = response.headers.get("content-type") || "";
               const isWasm = url.pathname.toLowerCase().endsWith(".wasm");
+              const isOnnx = url.pathname.toLowerCase().endsWith(".onnx");
+              const isBinaryModel = isWasm || isOnnx;
               const isHtml = contentType.includes("text/html");
 
-              // Never cache an SPA fallback page under a WASM URL.
-              if (!isWasm || (!isHtml && contentType.includes("application/wasm"))) {
+              // Never cache an SPA fallback page under a model or WASM URL.
+              const validBinary = !isBinaryModel || (!isHtml && (!isWasm || contentType.includes("application/wasm")));
+              if (validBinary) {
                 const clone = response.clone();
                 caches.open(ASSET_CACHE).then((cache) => cache.put(request, clone));
               }

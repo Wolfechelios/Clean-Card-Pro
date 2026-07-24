@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { isBlockedCameraLabel } from "@/lib/camera/cameraPolicy";
 
 export type LensType = "wide" | "ultrawide" | "telephoto" | "macro" | "depth" | "standard" | "usb" | "continuity" | "unknown";
 
@@ -109,20 +110,6 @@ function isUSBDevice(label: string): boolean {
   );
 }
 
-// Virtual cameras the user explicitly does NOT want listed.
-// iPhone via Continuity Camera (native macOS) is preserved.
-function isBlockedVirtualCamera(label: string): boolean {
-  if (isContinuityCamera(label)) return false;
-  const l = label.toLowerCase();
-  return (
-    l.includes("reincubate") ||
-    l.includes("facebook") ||
-    l.includes("portal") ||
-    l.includes("messenger")
-  );
-}
-
-
 export const useCameraDevices = () => {
   const [devices, setDevices] = useState<CameraDevice[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
@@ -155,7 +142,7 @@ export const useCameraDevices = () => {
         const label = device.label || `Camera ${device.deviceId.slice(0, 8)}`;
 
         // Drop blocked virtual webcams (external camera, Facebook Portal, etc.)
-        if (isBlockedVirtualCamera(label)) return null;
+        if (isBlockedCameraLabel(label)) return null;
 
         const continuity = isContinuityCamera(label);
         const usb = isUSBDevice(label);

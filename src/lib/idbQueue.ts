@@ -21,6 +21,7 @@ export type QueueItemMeta = Omit<QueueItem, "blob">
 const DB_NAME = "card_scout_pro"
 const DB_VERSION = 1
 const STORE = "rapid_scan_queue"
+const PROCESSING_STALE_MS = 60_000
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -58,7 +59,7 @@ function tx<T>(
       return
     }
 
-    t.oncomplete = () => resolve(request ? (request.result as any) : undefined)
+    t.oncomplete = () => resolve(request ? (request.result as T) : undefined)
     t.onerror = () => reject(t.error)
     t.onabort = () => reject(t.error)
   })
@@ -102,6 +103,14 @@ export async function idbDelete(id: string): Promise<void> {
   db.close()
 }
 
+export async function idbRetry(id: string): Promise<void> {
+  await idbUpdateMeta(id, {
+    status: "queued",
+    error: undefined,
+    processingStartedAt: undefined,
+  })
+}
+
 export async function idbListMeta(limit = 500): Promise<QueueItemMeta[]> {
   const db = await openDB()
   const items: QueueItemMeta[] = []
@@ -117,7 +126,6 @@ export async function idbListMeta(limit = 500): Promise<QueueItemMeta[]> {
       if (items.length >= limit) return
       cursor.continue()
     }
-    return req as any
   })
 
   db.close()
@@ -170,12 +178,11 @@ export async function idbListMetaFast(limit = 500): Promise<QueueItemMeta[]> {
 
 /**
  * Get the next queued item FIFO (oldest first).
- * Also picks up stuck "processing" items older than 5s (orphaned from crashes/scaling).
+ * Also picks up stale "processing" items orphaned by crashes or reloads.
  * Returns full item (includes blob).
  */
 export async function idbGetNextQueued(): Promise<QueueItem | null> {
   const db = await openDB()
-  const STUCK_THRESHOLD_MS = 2_000 // 5 seconds - reduced for faster recovery
 
   const next = await new Promise<QueueItem | null>((resolve, reject) => {
     const t = db.transaction(STORE, "readonly")
@@ -194,7 +201,7 @@ export async function idbGetNextQueued(): Promise<QueueItem | null> {
       }
 
       // No queued items - check for stuck "processing" items using processingStartedAt
-      const stuckCutoff = Date.now() - STUCK_THRESHOLD_MS
+      const stuckCutoff = Date.now() - PROCESSING_STALE_MS
       // Scan all processing items and check processingStartedAt
       const processingRange = IDBKeyRange.bound(["processing", 0], ["processing", Number.MAX_SAFE_INTEGER])
       const processingReq = idx.openCursor(processingRange, "next")
@@ -229,12 +236,80 @@ export async function idbGetNextQueued(): Promise<QueueItem | null> {
 }
 
 /**
+ * Atomically select and mark the next queue item as processing.
+ * A read-only selection followed by a separate update lets parallel workers
+ * select the same card, so claiming must happen inside one read/write transaction.
+ */
+export async function idbClaimNextQueued(): Promise<QueueItem | null> {
+  const db = await openDB()
+  const stuckCutoff = Date.now() - PROCESSING_STALE_MS
+  let claimed: QueueItem | null = null
+
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STORE, "readwrite")
+    const store = transaction.objectStore(STORE)
+    const index = store.index("status_createdAt")
+
+    const claimCursor = (cursor: IDBCursorWithValue): void => {
+      const current = cursor.value as QueueItem
+      claimed = {
+        ...current,
+        status: "processing",
+        processingStartedAt: Date.now(),
+        error: undefined,
+      }
+      cursor.update(claimed)
+    }
+
+    const queuedRange = IDBKeyRange.bound(
+      ["queued", 0],
+      ["queued", Number.MAX_SAFE_INTEGER],
+    )
+    const queuedRequest = index.openCursor(queuedRange, "next")
+
+    queuedRequest.onsuccess = () => {
+      const cursor = queuedRequest.result as IDBCursorWithValue | null
+      if (cursor) {
+        claimCursor(cursor)
+        return
+      }
+
+      const processingRange = IDBKeyRange.bound(
+        ["processing", 0],
+        ["processing", Number.MAX_SAFE_INTEGER],
+      )
+      const processingRequest = index.openCursor(processingRange, "next")
+      processingRequest.onsuccess = () => {
+        const processingCursor = processingRequest.result as IDBCursorWithValue | null
+        if (!processingCursor) return
+
+        const item = processingCursor.value as QueueItem
+        const startedAt = item.processingStartedAt || item.createdAt
+        if (startedAt < stuckCutoff) {
+          claimCursor(processingCursor)
+          return
+        }
+        processingCursor.continue()
+      }
+      processingRequest.onerror = () => reject(processingRequest.error)
+    }
+
+    queuedRequest.onerror = () => reject(queuedRequest.error)
+    transaction.oncomplete = () => resolve()
+    transaction.onerror = () => reject(transaction.error)
+    transaction.onabort = () => reject(transaction.error)
+  })
+
+  db.close()
+  return claimed
+}
+
+/**
  * Count only items that are actually processable (queued or stuck processing)
  */
 export async function idbCountQueued(): Promise<number> {
   const db = await openDB()
-  const STUCK_THRESHOLD_MS = 2_000
-  const stuckCutoff = Date.now() - STUCK_THRESHOLD_MS
+  const stuckCutoff = Date.now() - PROCESSING_STALE_MS
   
   const count = await new Promise<number>((resolve, reject) => {
     const t = db.transaction(STORE, "readonly")
@@ -280,6 +355,42 @@ export async function idbCountQueued(): Promise<number> {
   return count
 }
 
+export async function idbCountPending(): Promise<number> {
+  const db = await openDB()
+
+  const count = await new Promise<number>((resolve, reject) => {
+    const transaction = db.transaction(STORE, "readonly")
+    const index = transaction.objectStore(STORE).index("status_createdAt")
+    const queuedRange = IDBKeyRange.bound(
+      ["queued", 0],
+      ["queued", Number.MAX_SAFE_INTEGER],
+    )
+    const processingRange = IDBKeyRange.bound(
+      ["processing", 0],
+      ["processing", Number.MAX_SAFE_INTEGER],
+    )
+    let queued = 0
+    let processing = 0
+
+    const queuedRequest = index.count(queuedRange)
+    queuedRequest.onsuccess = () => {
+      queued = queuedRequest.result
+      const processingRequest = index.count(processingRange)
+      processingRequest.onsuccess = () => {
+        processing = processingRequest.result
+      }
+      processingRequest.onerror = () => reject(processingRequest.error)
+    }
+    queuedRequest.onerror = () => reject(queuedRequest.error)
+    transaction.oncomplete = () => resolve(queued + processing)
+    transaction.onerror = () => reject(transaction.error)
+    transaction.onabort = () => reject(transaction.error)
+  })
+
+  db.close()
+  return count
+}
+
 export async function idbCount(): Promise<number> {
   const db = await openDB()
   const n = (await tx(db, "readonly", (store) => store.count())) as number
@@ -299,7 +410,6 @@ export async function idbGetAll(): Promise<QueueItem[]> {
       items.push(cursor.value as QueueItem)
       cursor.continue()
     }
-    return req as any
   })
 
   db.close()
