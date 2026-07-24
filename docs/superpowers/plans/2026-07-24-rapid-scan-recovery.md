@@ -14,7 +14,7 @@
 - Rapid Scan must start processing immediately after capture.
 - Yu-Gi-Oh identification remains printed set/card code first.
 - Rapid Scan must not require Ollama, Supabase functions, or an external OCR CDN.
-- Camo virtual cameras must not appear as scanner choices.
+- external camera virtual cameras must not appear as scanner choices.
 
 ---
 
@@ -76,7 +76,7 @@
 **Interfaces:**
 - Produces: `isBlockedCameraLabel(label)`, `filterCameraDevices(devices)`, `buildVideoConstraints(deviceId)`, and `getCameraStreamWithFallback(mediaDevices, deviceId)`.
 
-- [x] Filter Camo labels while preserving native iPhone/Continuity cameras.
+- [x] Filter external camera labels while preserving native iPhone/Continuity cameras.
 - [x] Try the selected device with exact constraints, then retry the default camera on `NotFoundError` or `OverconstrainedError`.
 - [x] Wait for `loadedmetadata`, call `play()`, and enforce a five-second startup timeout.
 - [x] Clear a stale saved device ID when fallback is used.
