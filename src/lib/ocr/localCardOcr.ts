@@ -17,6 +17,8 @@ export type LocalCardOcrResult = {
 };
 
 function cleanLine(line: string): string {
+  // OCR output can contain C0 controls that must not become card-name text.
+  // eslint-disable-next-line no-control-regex
   return line.replace(/[\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim();
 }
 
@@ -32,18 +34,8 @@ function extractTitle(text: string, codeRaw: string | null): string | undefined 
   return lines.find((line) => /[A-Za-z]/.test(line) && !/[.!?]{2,}/.test(line));
 }
 
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error || new Error("Failed to read OCR image"));
-    reader.readAsDataURL(blob);
-  });
-}
-
 export async function runLocalCardOcr(image: Blob | File | string): Promise<LocalCardOcrResult> {
-  const imageSource = typeof image === "string" ? image : await blobToDataUrl(image);
-  const result = await runPaddleOCR(imageSource);
+  const result = await runPaddleOCR(image);
   const rawText = result.text || "";
   const detected = extractPrintedCode(rawText);
   const bestLineConfidence = Math.max(0, ...result.lines.map((line) => Number(line.confidence) || 0));
