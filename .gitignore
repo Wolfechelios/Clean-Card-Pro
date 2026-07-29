@@ -33,6 +33,7 @@ dist/**
 .next/**
 coverage/
 .cache/
+.worktrees/
 *.tsbuildinfo
 # Generated build output
 tsconfig.app.tsbuildinfo
