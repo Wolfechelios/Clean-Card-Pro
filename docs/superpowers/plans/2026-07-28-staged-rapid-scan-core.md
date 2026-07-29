@@ -156,7 +156,12 @@ export type ResolvedCardIdentity = {
 };
 
 export type ResolveResult =
-  | { status: "identified"; identity: ResolvedCardIdentity; selectedSetCorrected: boolean }
+  | {
+      status: "identified";
+      identity: ResolvedCardIdentity;
+      selectedSetCorrected: boolean;
+      evidence: string[];
+    }
   | { status: "needs_review"; candidates: ResolvedCardIdentity[]; reason: string }
   | { status: "identification_error"; reason: string };
 
@@ -350,8 +355,9 @@ test("identical automatic frames are suppressed but later physical cards are acc
   const debounce = createPhysicalFrameDebouncer({ maxHashDistance: 2, cooldownMs: 1200 });
   assert.equal(debounce.accept({ hash: 0b1010n, capturedAt: 1000 }, "auto"), true);
   assert.equal(debounce.accept({ hash: 0b1010n, capturedAt: 1100 }, "auto"), false);
-  assert.equal(debounce.accept({ hash: 0b1111n, capturedAt: 1200 }, "auto"), true);
-  assert.equal(debounce.accept({ hash: 0b1010n, capturedAt: 1300 }, "manual"), true);
+  assert.equal(debounce.accept({ hash: 0b1111n, capturedAt: 1200 }, "auto"), false);
+  assert.equal(debounce.accept({ hash: 0b0101n, capturedAt: 1300 }, "auto"), true);
+  assert.equal(debounce.accept({ hash: 0b1010n, capturedAt: 1400 }, "manual"), true);
 });
 
 test("hamming distance counts changed bits", () => {
@@ -408,7 +414,7 @@ Delete `createSessionDuplicateTracker()` use from `queueProcessor.ts`. Update `s
 
 Run: `npm test`
 
-Expected: PASS, including a test proving two intentional scans of `SDY-046` reach inventory upsert.
+Expected: PASS, including a test proving two intentional scans of `SDY-046` are both allowed through identification. The end-to-end quantity increment assertion belongs to Task 7, after inventory upsert exists.
 
 - [ ] **Step 6: Commit**
 
@@ -608,7 +614,8 @@ git commit -m "feat: add rapid scan session controls"
 - Modify: `src/lib/rapidBasicLookupClient.ts`
 
 **Interfaces:**
-- Produces: `CardResolver`, `ResolveRequest`, `ResolveResult`, `yugiohResolver.resolve()`, `listYugiohSets()`.
+- Consumes: the shared `ResolveResult` from `src/lib/rapidScan/contracts.ts`.
+- Produces: `CardResolver`, `ResolveRequest`, `yugiohResolver.resolve()`, `listYugiohSets()`.
 
 - [ ] **Step 1: Write the failing resolver policy test**
 
@@ -641,23 +648,6 @@ Expected: FAIL because the resolver does not exist.
 export type ResolveRequest = {
   session: RapidScanSession;
   ocr: LocalCardOcrResult;
-};
-
-export type ResolveResult = {
-  status: "identified" | "needs_review" | "not_found";
-  fingerprintParts: {
-    game: string;
-    language: string;
-    printedCode: string;
-    edition: string;
-    variant: string;
-    gradingCompany: string;
-    grade: string;
-  } | null;
-  card: RapidBasicLookupResponse["cardData"];
-  confidence: number;
-  selectedSetCorrected: boolean;
-  evidence: string[];
 };
 
 export interface CardResolver {
@@ -717,6 +707,11 @@ test("same ungraded card increments quantity but a different grade stays separat
     edition: "1st", variant: "ultra-rare", gradingCompany: "PSA", grade: "10",
   });
   assert.notEqual(raw, graded);
+  assert.equal(planInventoryMutation({ quantity: 1 }, "new-capture").nextQuantity, 2);
+  assert.equal(planInventoryMutation({ quantity: 2 }, "retry-existing-event").nextQuantity, 2);
+});
+
+test("two intentional captures of SDY-046 increment quantity exactly once each", () => {
   assert.equal(planInventoryMutation({ quantity: 1 }, "new-capture").nextQuantity, 2);
   assert.equal(planInventoryMutation({ quantity: 2 }, "retry-existing-event").nextQuantity, 2);
 });
