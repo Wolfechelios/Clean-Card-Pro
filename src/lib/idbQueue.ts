@@ -27,6 +27,7 @@ export type QueueItem = {
   filename: string;
   rotation?: CaptureJob["rotation"];
   session?: RapidScanSession;
+  captureStatus?: CaptureJobStatus;
 };
 export type QueueItemMeta = Omit<QueueItem, "blob">;
 
@@ -91,6 +92,7 @@ function toQueue(job: StoredJob): QueueItem {
     filename: job.legacyFilename ?? "card.jpg",
     rotation: job.rotation,
     session: { ...job.session },
+    captureStatus: job.status,
   };
 }
 function toMeta(job: StoredMeta): QueueItemMeta {
@@ -104,6 +106,7 @@ function toMeta(job: StoredMeta): QueueItemMeta {
     filename: job.legacyFilename ?? "card.jpg",
     rotation: job.rotation,
     session: { ...job.session },
+    captureStatus: job.status,
   };
 }
 
