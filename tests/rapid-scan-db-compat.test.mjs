@@ -142,6 +142,43 @@ test("identified work remains pending until saved", async () => {
   assert.equal(await queue.idbCountPending(), 3);
 });
 
+test("legacy queue adapter snapshots capture session context into durable jobs", async () => {
+  await reset();
+  localStorage.setItem("rapid_scan_v2_queue_migrated", "1");
+  const queue = await import("../src/lib/idbQueue.ts?session=1");
+  const session = {
+    id: "active",
+    game: "yugioh",
+    selectedSetId: "lob",
+    selectedSetName: "Legend of Blue Eyes White Dragon",
+    profileId: "foil",
+    captureMode: "manual",
+  };
+
+  await queue.idbAdd({
+    id: "session-capture",
+    createdAt: 500,
+    status: "queued",
+    blob: new Blob(["capture"], { type: "image/jpeg" }),
+    mime: "image/jpeg",
+    filename: "card.jpg",
+    rotation: 90,
+    session,
+  });
+  session.selectedSetName = "Changed after enqueue";
+
+  const stored = await rapidScanDb.captureJobs.get("session-capture");
+  assert.equal(stored.rotation, 90);
+  assert.deepEqual(stored.session, {
+    id: "active",
+    game: "yugioh",
+    selectedSetId: "lob",
+    selectedSetName: "Legend of Blue Eyes White Dragon",
+    profileId: "foil",
+    captureMode: "manual",
+  });
+});
+
 test("legacy cards migrate before reads with full field fidelity", async () => {
   await reset();
   await legacyCards([["legacy", {
