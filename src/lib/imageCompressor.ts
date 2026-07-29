@@ -15,6 +15,29 @@ const DEFAULT_OPTIONS: CompressionOptions = {
   format: "jpeg",
 };
 
+export type ImageCanvas = HTMLCanvasElement | OffscreenCanvas;
+
+export async function imageCanvasToBlob(
+  canvas: ImageCanvas,
+  type: string,
+  quality: number,
+): Promise<Blob> {
+  if ("convertToBlob" in canvas) {
+    return canvas.convertToBlob({ type, quality });
+  }
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("Canvas image encoding failed"));
+      },
+      type,
+      quality,
+    );
+  });
+}
+
 /**
  * Compress an image blob for queue storage.
  * Reduces memory footprint significantly while maintaining enough quality for identification.
