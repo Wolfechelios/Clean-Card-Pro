@@ -1,7 +1,17 @@
+import type { CaptureProfile } from "../rapidScan/captureProfiles";
+
 export type CameraLikeDevice = {
   kind: string;
   deviceId: string;
   label: string;
+};
+
+export type ProfileCameraCapabilities = {
+  exposureCompensation?: {
+    min?: number;
+    max?: number;
+    step?: number;
+  };
 };
 
 export function isBlockedCameraLabel(label: string): boolean {
@@ -24,6 +34,31 @@ export function filterCameraDevices<T extends CameraLikeDevice>(devices: T[]): T
 export function buildVideoConstraints(deviceId?: string): MediaTrackConstraints {
   const size = { width: { ideal: 1920 }, height: { ideal: 1080 } };
   return deviceId ? { deviceId: { exact: deviceId }, ...size } : size;
+}
+
+export function buildProfileConstraints(
+  profile: Readonly<CaptureProfile>,
+  capabilities: ProfileCameraCapabilities,
+): MediaTrackConstraints {
+  const range = capabilities.exposureCompensation;
+  if (
+    !range ||
+    typeof range.min !== "number" ||
+    typeof range.max !== "number" ||
+    !Number.isFinite(range.min) ||
+    !Number.isFinite(range.max)
+  ) {
+    return {};
+  }
+
+  const exposureCompensation = Math.min(
+    range.max,
+    Math.max(range.min, profile.exposureCompensation),
+  );
+  const constraint = { exposureCompensation } as MediaTrackConstraintSet & {
+    exposureCompensation: number;
+  };
+  return { advanced: [constraint] };
 }
 
 export function shouldRetryDefaultCamera(error: unknown, hadSelectedDevice: boolean): boolean {
