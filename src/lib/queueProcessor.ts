@@ -29,6 +29,7 @@ import {
   fuseConfidence,
   selectPrintedIdentifier,
 } from "@/lib/rapidScan/scanPolicy";
+import { prepareCaptureImages } from "@/lib/rapidScan/imagePipeline";
 
 export type ProcessedCard = {
   id: string;
@@ -281,7 +282,15 @@ async function processQueueItem(item: QueueItem): Promise<ProcessOutcome> {
   store._setCurrentItem(item.id);
   pipelineTracer.record({ itemId: item.id, stage: "enqueue", status: "ok" });
 
-  const base64 = await blobToBase64DataUrl(item.blob, item.mime || "image/jpeg");
+  const preparedImages = await prepareCaptureImages(
+    item.blob,
+    item.session?.profileId ?? "standard",
+    item.rotation ?? 0,
+  );
+  const base64 = await blobToBase64DataUrl(
+    preparedImages.libraryBlob,
+    preparedImages.libraryBlob.type || item.mime || "image/jpeg",
+  );
   const scanSettings = getScannerSettings();
   const gameTypeHint = scanSettings.gameTypeFilter !== "auto" ? scanSettings.gameTypeFilter : undefined;
   const userId = getLocalUserId();
@@ -291,7 +300,11 @@ async function processQueueItem(item: QueueItem): Promise<ProcessOutcome> {
   const ocrStartedAt = performance.now();
   let ocr: Awaited<ReturnType<typeof runLocalCardOcr>>;
   try {
-    ocr = await withTimeout(runLocalCardOcr(item.blob), LOCAL_OCR_TIMEOUT_MS, "Local OCR");
+    ocr = await withTimeout(
+      runLocalCardOcr(preparedImages.ocrBlob),
+      LOCAL_OCR_TIMEOUT_MS,
+      "Local OCR",
+    );
   } catch (error: unknown) {
     endOcr({ status: isTimeoutError(error) ? "timeout" : "fail", error: errorMessage(error) });
     throw error;
