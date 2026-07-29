@@ -111,7 +111,7 @@ After high-confidence identification, save or update inventory in one atomic tra
 
 Identity fingerprint:
 
-`game + language + printed set/card code + edition + variant/rarity`
+`game + language + printed set/card code + edition + variant/rarity + grading company + grade`, using `ungraded` sentinels for raw cards
 
 An identical fingerprint increments quantity. Different editions, languages, alternate art, foil/rarity variants, graded copies, or meaningfully different variants remain separate.
 
@@ -134,7 +134,7 @@ Required normalized fields:
 - `source_url`
 - `price_date`
 
-Missing prices are `null`, never zero.
+`grade_10_price` maps to the Grade 10 or PSA 10 column displayed by the imported PriceCharting page. Missing prices are `null`, never zero.
 
 When a required set page is missing, the saved card receives `needs_source_page`. Importing the page later automatically retries matching pricing jobs.
 
