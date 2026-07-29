@@ -1,5 +1,9 @@
 import Dexie from "dexie";
-import type { CaptureJob, CaptureJobStatus } from "@/lib/rapidScan/contracts";
+import type {
+  CaptureJob,
+  CaptureJobStatus,
+  RapidScanSession,
+} from "@/lib/rapidScan/contracts";
 import {
   claimNextCapture,
   enqueueCapture,
@@ -21,6 +25,8 @@ export type QueueItem = {
   blob: Blob;
   mime: string;
   filename: string;
+  rotation?: CaptureJob["rotation"];
+  session?: RapidScanSession;
 };
 export type QueueItemMeta = Omit<QueueItem, "blob">;
 
@@ -47,24 +53,27 @@ type StoredJob = CaptureJob & { legacyFilename?: string };
 type StoredMeta = CaptureJobMeta & { legacyFilename?: string };
 
 function toCapture(item: QueueItem): StoredJob {
+  const session: RapidScanSession = item.session
+    ? { ...item.session }
+    : {
+        id: `legacy-${item.id}`,
+        game: "other",
+        selectedSetId: null,
+        selectedSetName: null,
+        profileId: "standard",
+        captureMode: "auto",
+      };
   return {
     id: item.id,
     idempotencyKey: item.id,
     createdAt: item.createdAt,
     updatedAt: item.processingStartedAt ?? item.createdAt,
-    rotation: 0,
+    rotation: item.rotation ?? 0,
     status: captureStatus[item.status],
     processingStartedAt: item.processingStartedAt,
     retryCount: 0,
     error: item.error,
-    session: {
-      id: `legacy-${item.id}`,
-      game: "other",
-      selectedSetId: null,
-      selectedSetName: null,
-      profileId: "standard",
-      captureMode: "auto",
-    },
+    session,
     originalBlob: item.blob,
     mime: item.mime,
     legacyFilename: item.filename,
@@ -80,6 +89,8 @@ function toQueue(job: StoredJob): QueueItem {
     blob: job.originalBlob,
     mime: job.mime,
     filename: job.legacyFilename ?? "card.jpg",
+    rotation: job.rotation,
+    session: { ...job.session },
   };
 }
 function toMeta(job: StoredMeta): QueueItemMeta {
@@ -91,6 +102,8 @@ function toMeta(job: StoredMeta): QueueItemMeta {
     error: job.error,
     mime: job.mime,
     filename: job.legacyFilename ?? "card.jpg",
+    rotation: job.rotation,
+    session: { ...job.session },
   };
 }
 
