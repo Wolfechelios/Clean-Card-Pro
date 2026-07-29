@@ -192,6 +192,7 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
       set({ isPaused: true, isPausedByAnomaly: true });
       return;
     }
+    stopRequested = false;
     if (!get().isRunning) {
       set({ isRunning: true, isPaused: false, isPausedByAnomaly: false });
     }
@@ -199,6 +200,7 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   },
 
   stop: () => {
+    stopRequested = true;
     set({ isRunning: false, isPaused: false, currentItem: null });
   },
 
@@ -206,6 +208,7 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
 
   resume: () => {
     writeAnomalyPauseFlag(false);
+    stopRequested = false;
     set({ isPaused: false, isPausedByAnomaly: false });
     if (!get().isRunning) set({ isRunning: true });
     startWorker();
