@@ -45,8 +45,17 @@ import {
   reconcileScanRows,
   type ScanRowState,
 } from "@/lib/rapidScan/scanRows";
-import { prepareCameraCaptureCanvases } from "@/lib/rapidScan/captureCanvas";
+import {
+  prepareCameraCaptureCanvases,
+  resetCameraCaptureCanvases,
+} from "@/lib/rapidScan/captureCanvas";
 import type { RapidScanSession } from "@/lib/rapidScan/contracts";
+import {
+  analyzeCameraFrame,
+  createAutoCaptureCoordinator,
+  createCameraFrameScheduler,
+  getAutoCaptureOptions,
+} from "@/lib/rapidScan/autoCapture";
 import {
   getRapidScanSession,
   normalizeRapidScanSession,
@@ -217,12 +226,16 @@ export default function RapidScanCamera() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const originalCanvasRef = useRef<HTMLCanvasElement>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+  const analysisCanvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const trackRef = useRef<MediaStreamTrack | null>(null);
   const startingRef = useRef(false);
+  const cameraOnRef = useRef(false);
+  const autoCaptureCoordinatorRef = useRef(createAutoCaptureCoordinator());
   const processor = useQueueProcessor();
 
   const [cameraOn, setCameraOn] = useState(false);
+  const [cameraGeneration, setCameraGeneration] = useState(0);
   const [phoneOpen, setPhoneOpen] = useState(() => localStorage.getItem("rapid_scan_phone_open") !== "0");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("Tap Start Camera");
@@ -242,6 +255,7 @@ export default function RapidScanCamera() {
   const [rows, setRows] = useState<ScanRow[]>(() => rowsFromRecent());
   const [rapidScanSession, setRapidScanSession] =
     useState<RapidScanSession>(() => getRapidScanSession());
+  cameraOnRef.current = cameraOn;
 
   const sortedDevices = useMemo(() => sortCameraDevices(devices), [devices]);
   const continuityDevice = useMemo(() => sortedDevices.find(isContinuityDevice), [sortedDevices]);
@@ -438,10 +452,16 @@ export default function RapidScanCamera() {
   }, []);
 
   function stopPreviewOnly() {
+    autoCaptureCoordinatorRef.current.stop();
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     trackRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
+    resetCameraCaptureCanvases(
+      analysisCanvasRef.current,
+      originalCanvasRef.current,
+      previewCanvasRef.current,
+    );
     setCameraOn(false);
     setTorchOn(false);
     setTorchSupported(false);
@@ -510,6 +530,7 @@ export default function RapidScanCamera() {
       await startVideoPreview(videoElement, stream);
 
       setCameraOn(true);
+      setCameraGeneration((generation) => generation + 1);
       await refreshDevices();
       const label =
         track?.label ||
@@ -612,7 +633,7 @@ export default function RapidScanCamera() {
   }
 
   async function capture() {
-    if (!cameraOn || busy) return;
+    if (!cameraOnRef.current) return;
     const captureSnapshot = snapshotRapidScanCaptureContext(
       rapidScanSession,
       cameraRotation,
@@ -678,6 +699,51 @@ export default function RapidScanCamera() {
       setBusy(false);
     }
   }
+  autoCaptureCoordinatorRef.current.setCapture(capture);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    const analysisCanvas = analysisCanvasRef.current;
+    if (!video || !analysisCanvas) {
+      autoCaptureCoordinatorRef.current.stop();
+      return;
+    }
+
+    const scheduler = createCameraFrameScheduler(video, window);
+    const coordinator = autoCaptureCoordinatorRef.current;
+    coordinator.configure({
+      enabled: cameraOn,
+      captureMode: rapidScanSession.captureMode,
+      controllerOptions: getAutoCaptureOptions(
+        rapidScanSession.profileId,
+      ),
+      schedule: scheduler.schedule,
+      cancel: scheduler.cancel,
+      minIntervalMs: scheduler.minIntervalMs,
+      analyze() {
+        if (
+          !cameraOnRef.current ||
+          video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+        ) {
+          return {
+            sharpness: 0,
+            glareRatio: 1,
+            perceptualHash: 0n,
+          };
+        }
+        return analyzeCameraFrame(video, analysisCanvas);
+      },
+    });
+
+    return () => {
+      coordinator.stop();
+    };
+  }, [
+    cameraGeneration,
+    cameraOn,
+    rapidScanSession.captureMode,
+    rapidScanSession.profileId,
+  ]);
 
   async function clearQueueAndRecent() {
     processor.stop();
@@ -753,6 +819,7 @@ export default function RapidScanCamera() {
           </div>
           <canvas ref={originalCanvasRef} className="hidden" />
           <canvas ref={previewCanvasRef} className="hidden" />
+          <canvas ref={analysisCanvasRef} className="hidden" />
 
           {!cameraOn && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-white">
@@ -802,7 +869,9 @@ export default function RapidScanCamera() {
 
       <div className="flex justify-center py-2">
         <button
-          onClick={() => void capture()}
+          onClick={() =>
+            void autoCaptureCoordinatorRef.current.manualCapture()
+          }
           disabled={!cameraOn || busy}
           className={cn(
             "flex h-20 w-20 items-center justify-center rounded-full transition active:scale-95",
