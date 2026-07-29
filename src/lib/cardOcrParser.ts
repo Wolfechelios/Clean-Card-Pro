@@ -1,4 +1,7 @@
-import { findYugiohSetCodeIndexMatch } from "@/lib/yugiohSetCodeIndex";
+import {
+  findYugiohSetCodeIndexMatch,
+  normalizeYugiohPrintedCode,
+} from "@/lib/yugiohSetCodeIndex";
 
 export type ParsedCardOcr = {
   cardName: string;
@@ -35,17 +38,21 @@ function cleanLine(line: string): string {
   return line.replace(/^[^a-z0-9]+/i, "").replace(/\s+/g, " ").trim();
 }
 
-function normalizePrintedCode(prefix: string, country: string | undefined, number: string): string {
-  return `${prefix.toUpperCase()}-${country ? country.toUpperCase() : ""}${number.toUpperCase()}`;
-}
-
 export function parseYugiohOcrText(rawText: string | null | undefined): ParsedCardOcr {
   const text = String(rawText || "");
   const lines = text.split(/\r?\n/).map(cleanLine).filter((line) => line.length >= 2);
   const joined = lines.join("\n");
   const setMatch = joined.match(YUGIOH_PRINTED_CODE_RE);
-  const setCode = setMatch ? normalizePrintedCode(setMatch[1], setMatch[2], setMatch[3]) : "";
-  const cardNumber = setMatch ? setMatch[3].toUpperCase() : (joined.match(SIMPLE_NUMBER_RE)?.[1]?.toUpperCase() || "");
+  const setCode = setMatch
+    ? normalizeYugiohPrintedCode(setMatch[0]) ?? ""
+    : "";
+  const normalizedNumber =
+    setCode.match(
+      /-(?:(?:EN|JP|KR|DE|FR|IT|SP|PT|JE|AE))?(\d{2,5}[A-Z]?)$/,
+    )?.[1] ?? "";
+  const cardNumber = setMatch
+    ? normalizedNumber
+    : (joined.match(SIMPLE_NUMBER_RE)?.[1]?.toUpperCase() || "");
   const cardName = lines.find((line) => {
     const lower = line.toLowerCase();
     if (YUGIOH_PRINTED_CODE_RE.test(line)) return false;
