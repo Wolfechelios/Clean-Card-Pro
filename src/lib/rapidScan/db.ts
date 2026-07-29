@@ -3,11 +3,14 @@ import {
   canTransitionCaptureJob,
   type CaptureJob,
   type CaptureJobStatus,
+  type RapidScanSession,
+  type ResolvedCardIdentity,
 } from "./contracts";
 
 export type InventoryCard = {
   id: string;
   fingerprint: string;
+  libraryBlob?: Blob;
   quantity: number;
   card_name: string;
   card_set: string | null;
@@ -28,10 +31,20 @@ export type ScanEvent = {
   captureJobId: string;
   inventoryId: string;
   idempotencyKey: string;
+  fingerprint: string;
+  fingerprintSource: string;
   quantityAction: "created" | "incremented";
+  libraryQuantity: number;
+  pricingStatus: InventoryCard["pricing_status"];
   sessionId: string;
   profileId: string;
   selectedSetCorrected: boolean;
+  evidence?: string[];
+  identity?: ResolvedCardIdentity;
+  confidence?: number;
+  session?: RapidScanSession;
+  rotation?: CaptureJob["rotation"];
+  capturedAt?: number;
   createdAt: number;
 };
 
