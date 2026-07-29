@@ -89,6 +89,7 @@ const ANOMALY_PAUSE_STORAGE_KEY = "rapid-scan-anomaly-paused";
 const WORKER_CONCURRENCY = 3;
 
 let activeWorkers = 0;
+let stopRequested = false;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 const sessionDuplicates = createSessionDuplicateTracker();
 
