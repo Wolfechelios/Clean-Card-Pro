@@ -1,34 +1,38 @@
 // src/lib/queueProcessor.ts
-// Fully local-first RapidScan queue worker.
-// Local image blob -> browser OCR -> direct printed-code lookup -> local/LocalOnly save only after match.
+// Browser-local Rapid Scan worker: claim -> image derivatives -> OCR -> resolve -> save.
 
 import { create } from "zustand";
-import { getScannerSettings } from "@/hooks/use-scanner-settings";
 import { addRecentScan } from "@/lib/recentScans";
-import { insertCardDual } from "@/lib/localCards";
 import { runLocalCardOcr } from "@/lib/ocr/localCardOcr";
-import { withTimeout } from "@/lib/async/withTimeout";
 import {
   idbAdd,
   idbClear,
   idbCount,
-  idbClaimNextQueued,
   idbCountQueued,
   idbDelete,
   idbGetAll,
   idbListMetaFast,
-  idbUpdateMeta,
-  type QueueItem,
   type QueueItemMeta,
 } from "@/lib/idbQueue";
-import { compactOcrText, hasReadablePrice, runRapidBasicLookup } from "@/lib/rapidBasicLookupClient";
-import { logTrace } from "@/lib/rapidDebug";
-import { isReadableTitle, isValidPrintedCode } from "@/lib/ocr/ocrQuality";
-import { pipelineTracer } from "@/lib/pipelineTracer";
 import {
-  createSessionDuplicateTracker,
-  fuseConfidence,
-} from "@/lib/rapidScan/scanPolicy";
+  claimNextCapture,
+  transitionCapture,
+} from "@/lib/rapidScan/db";
+import type {
+  CaptureJob,
+  RapidScanSession,
+  ResolveResult,
+} from "@/lib/rapidScan/contracts";
+import {
+  prepareCaptureImages,
+  type PreparedCaptureImages,
+} from "@/lib/rapidScan/imagePipeline";
+import {
+  upsertIdentifiedCapture,
+  type InventoryCaptureImages,
+} from "@/lib/rapidScan/inventoryUpsert";
+import type { CardResolver } from "@/lib/resolvers/contracts";
+import { yugiohResolver } from "@/lib/resolvers/yugiohResolver";
 
 export type ProcessedCard = {
   id: string;
@@ -68,33 +72,49 @@ type ProcessorStore = ProcessorState & {
   pause: () => void;
   resume: () => void;
   refreshQueue: () => Promise<void>;
-  _setRunning: (v: boolean) => void;
-  _setPaused: (v: boolean) => void;
-  _setQueueCount: (v: number) => void;
-  _setProcessedCount: (v: number) => void;
-  _setErrorCount: (v: number) => void;
-  _setCurrentItem: (v: string | null) => void;
-  _setLastProcessedCard: (v: ProcessedCard | null) => void;
-  _setQueueMeta: (v: QueueItemMeta[]) => void;
+  _setCurrentItem: (value: string | null) => void;
+  _setLastProcessedCard: (value: ProcessedCard | null) => void;
   _incrementProcessed: () => void;
   _incrementError: () => void;
-  resetSession: () => void;
+};
+
+type IdentifiedResult = Extract<ResolveResult, { status: "identified" }>;
+
+export type SavedScanPublication = {
+  job: CaptureJob;
+  identity: IdentifiedResult["identity"];
+  inventoryId: string;
+  quantity: number;
+  action: "created" | "incremented";
+  libraryBlob: Blob;
+  pricingStatus: "pending";
+};
+
+export type CaptureProcessingDependencies = {
+  prepareCaptureImages: (
+    originalBlob: Blob,
+    profileId: CaptureJob["session"]["profileId"],
+    rotation: CaptureJob["rotation"],
+  ) => Promise<PreparedCaptureImages>;
+  runLocalCardOcr: typeof runLocalCardOcr;
+  resolverFor: (game: RapidScanSession["game"]) => CardResolver;
+  transitionCapture: typeof transitionCapture;
+  upsertIdentifiedCapture: (
+    job: CaptureJob,
+    result: IdentifiedResult,
+    images?: InventoryCaptureImages,
+  ) => ReturnType<typeof upsertIdentifiedCapture>;
+  publishSavedScan: (publication: SavedScanPublication) => void;
 };
 
 const QUEUE_REFRESH_INTERVAL_MS = 1000;
 const MIN_JOB_DELAY_MS = 100;
-const LOCAL_OCR_TIMEOUT_MS = 30_000;
-const LOCAL_LOOKUP_TIMEOUT_MS = 8000;
 const ANOMALY_PAUSE_STORAGE_KEY = "rapid-scan-anomaly-paused";
-const WORKER_CONCURRENCY = 3;
+const WORKER_CONCURRENCY = 1;
 
 let activeWorkers = 0;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-const sessionDuplicates = createSessionDuplicateTracker();
-
 let autoResumeChecked = false;
-
-
 
 function readAnomalyPauseFlag(): boolean {
   if (typeof window === "undefined") return false;
@@ -111,20 +131,11 @@ function writeAnomalyPauseFlag(isPaused: boolean): void {
     if (isPaused) window.localStorage.setItem(ANOMALY_PAUSE_STORAGE_KEY, "1");
     else window.localStorage.removeItem(ANOMALY_PAUSE_STORAGE_KEY);
   } catch {
-    // ignore storage failures
+    // A private browsing policy can deny storage without disabling scanning.
   }
 }
 
-function getLocalUserId(): string {
-  const key = "clean_card_local_user_id";
-  const existing = localStorage.getItem(key);
-  if (existing) return existing;
-  const id = `local-${crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
-  localStorage.setItem(key, id);
-  return id;
-}
-
-function scheduleRefresh() {
+function scheduleRefresh(): void {
   if (refreshTimer) return;
   refreshTimer = setTimeout(() => {
     refreshTimer = null;
@@ -132,49 +143,149 @@ function scheduleRefresh() {
   }, QUEUE_REFRESH_INTERVAL_MS);
 }
 
-function sleep(ms: number) {
+function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function money(n: number | null | undefined) {
-  if (n == null || Number.isNaN(Number(n))) return null;
-  return Math.round(Number(n) * 100) / 100;
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error && error.message ? error.message : String(error);
 }
 
-function isTimeoutError(error: unknown): boolean {
-  return /timeout/i.test(errorMessage(error));
+function unsupportedResolver(game: RapidScanSession["game"]): CardResolver {
+  return {
+    game,
+    listSets: async () => [],
+    resolve: async () => ({
+      status: "identification_error",
+      reason: `${game} identification is not available yet.`,
+    }),
+  };
 }
 
-function blobToBase64DataUrl(blob: Blob, mime: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(new Blob([blob], { type: mime }));
+export function resolverFor(game: RapidScanSession["game"]): CardResolver {
+  return game === "yugioh" ? yugiohResolver : unsupportedResolver(game);
+}
+
+function blobUrl(blob: Blob): string {
+  return typeof URL?.createObjectURL === "function"
+    ? URL.createObjectURL(blob)
+    : "";
+}
+
+export function publishSavedScan(publication: SavedScanPublication): void {
+  const { job, identity, inventoryId, quantity, libraryBlob } = publication;
+  const imageUrl = blobUrl(libraryBlob);
+  const processedCard: ProcessedCard = {
+    id: job.id,
+    cardName: identity.cardName,
+    cardSet: identity.setName ?? undefined,
+    cardNumber: identity.printedCode ?? undefined,
+    rarity: identity.variant ?? undefined,
+    gameType: identity.game,
+    value: null,
+    psa10Price: null,
+    imageUrl,
+    isInLibrary: true,
+    libraryQuantity: quantity,
+    dbId: inventoryId,
+  };
+  useQueueProcessor.getState()._setLastProcessedCard(processedCard);
+  addRecentScan({
+    id: job.id,
+    card_name: identity.cardName,
+    card_set: identity.setName,
+    card_number: identity.printedCode,
+    player_name: null,
+    image_url: imageUrl,
+    price: null,
+    psa10Price: null,
+    confidence: identity.confidence,
+    rarity: identity.variant,
+    gameType: identity.game,
+    sportType: null,
+    dbId: inventoryId,
+    isInLibrary: true,
+    libraryQuantity: quantity,
+    year: null,
+    team: null,
+    manufacturer: null,
   });
-}
-
-function firstValidPrintedIdentifier(...parts: Array<string | null | undefined>): string | null {
-  for (const part of parts) {
-    const value = String(part ?? "").trim();
-    if (isValidPrintedCode(value)) return value;
-  }
-  return null;
-}
-
-async function markQueueItemError(id: string, error: string): Promise<void> {
-  logTrace(id, "error", { message: error });
-  pipelineTracer.record({ itemId: id, stage: "save", status: "fail", error });
-  await idbUpdateMeta(id, { status: "error", error });
   if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("rapid-scan-item-error", { detail: { id, error } }));
+    window.dispatchEvent(new CustomEvent("recent-scan-added"));
+    window.dispatchEvent(
+      new CustomEvent("rapid-scan-saved", { detail: publication }),
+    );
   }
 }
 
+const defaultDependencies: CaptureProcessingDependencies = {
+  prepareCaptureImages,
+  runLocalCardOcr,
+  resolverFor,
+  transitionCapture,
+  upsertIdentifiedCapture,
+  publishSavedScan,
+};
+
+export async function processClaimedCapture(
+  job: CaptureJob,
+  dependencies: CaptureProcessingDependencies = defaultDependencies,
+): Promise<"processed" | "error"> {
+  const images = await dependencies.prepareCaptureImages(
+    job.originalBlob,
+    job.session.profileId,
+    job.rotation,
+  );
+  const ocr = await dependencies.runLocalCardOcr(images.ocrBlob);
+  const result = await dependencies.resolverFor(job.session.game).resolve({
+    session: job.session,
+    ocr,
+  });
+
+  if (result.status !== "identified") {
+    const status =
+      result.status === "needs_review"
+        ? "needs_review"
+        : "identification_error";
+    await dependencies.transitionCapture(job.id, status, {
+      error: result.reason,
+      libraryBlob: images.libraryBlob,
+      ocrBlob: images.ocrBlob,
+    });
+    return "error";
+  }
+
+  const saved = await dependencies.upsertIdentifiedCapture(job, result, {
+    libraryBlob: images.libraryBlob,
+  });
+  dependencies.publishSavedScan({
+    job,
+    identity: result.identity,
+    ...saved,
+    libraryBlob: images.libraryBlob,
+    pricingStatus: "pending",
+  });
+  return "processed";
+}
+
+async function transitionUnexpectedFailure(
+  job: CaptureJob,
+  error: unknown,
+): Promise<void> {
+  const message = errorMessage(error);
+  try {
+    await transitionCapture(job.id, "identification_error", { error: message });
+  } catch (transitionError) {
+    console.error("[QueueProcessor] Failed to persist worker error:", transitionError);
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent("rapid-scan-item-error", {
+        detail: { id: job.id, error: message },
+      }),
+    );
+  }
+}
 
 export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   isRunning: false,
@@ -197,77 +308,61 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
     }
     startWorker();
   },
-
-  stop: () => {
-    set({ isRunning: false, isPaused: false, currentItem: null });
-  },
-
+  stop: () => set({ isRunning: false, isPaused: false, currentItem: null }),
   pause: () => set({ isPaused: true }),
-
   resume: () => {
     writeAnomalyPauseFlag(false);
-    set({ isPaused: false, isPausedByAnomaly: false });
-    if (!get().isRunning) set({ isRunning: true });
+    set({ isPaused: false, isPausedByAnomaly: false, isRunning: true });
     startWorker();
   },
-
-
   refreshQueue: async () => {
-    const queuedCount = await idbCountQueued();
-    const all = await idbListMetaFast();
-    set({ queueCount: queuedCount, queueMeta: all });
+    const [queueCount, queueMeta] = await Promise.all([
+      idbCountQueued(),
+      idbListMetaFast(),
+    ]);
+    set({ queueCount, queueMeta });
   },
-
-  _setRunning: (v) => set({ isRunning: v }),
-  _setPaused: (v) => set({ isPaused: v }),
-  _setQueueCount: (v) => set({ queueCount: v }),
-  _setProcessedCount: (v) => set({ processedCount: v }),
-  _setErrorCount: (v) => set({ errorCount: v }),
-  _setCurrentItem: (v) => set({ currentItem: v }),
-  _setLastProcessedCard: (v) => set({ lastProcessedCard: v }),
-  _setQueueMeta: (v) => set({ queueMeta: v }),
-  _incrementProcessed: () => set((s) => ({ processedCount: s.processedCount + 1 })),
-  _incrementError: () => set((s) => ({ errorCount: s.errorCount + 1 })),
-  resetSession: () => {
-    sessionDuplicates.reset();
-  },
+  _setCurrentItem: (currentItem) => set({ currentItem }),
+  _setLastProcessedCard: (lastProcessedCard) => set({ lastProcessedCard }),
+  _incrementProcessed: () =>
+    set((state) => ({ processedCount: state.processedCount + 1 })),
+  _incrementError: () =>
+    set((state) => ({ errorCount: state.errorCount + 1 })),
 }));
 
-function startWorker() {
+function startWorker(): void {
   while (activeWorkers < WORKER_CONCURRENCY) {
-    activeWorkers++;
+    activeWorkers += 1;
     void workerLoop();
   }
 }
 
-async function workerLoop() {
+async function workerLoop(): Promise<void> {
   try {
     while (true) {
-      const store = useQueueProcessor.getState();
-      if (!store.isRunning || store.isPaused) {
+      const state = useQueueProcessor.getState();
+      if (!state.isRunning || state.isPaused) {
         scheduleRefresh();
         return;
       }
 
-      const item = await idbClaimNextQueued();
-      if (!item) {
+      const job = await claimNextCapture();
+      if (!job) {
         scheduleRefresh();
         return;
       }
+      state._setCurrentItem(job.id);
 
       try {
-        const outcome = await processQueueItem(item);
-        if (outcome === "processed") {
-          useQueueProcessor.getState()._incrementProcessed();
-        } else if (outcome === "error") {
-          useQueueProcessor.getState()._incrementError();
-        }
-      } catch (error: unknown) {
+        const outcome = await processClaimedCapture(job);
+        if (outcome === "processed") state._incrementProcessed();
+        else state._incrementError();
+      } catch (error) {
         console.error("[QueueProcessor] RapidScan item failed:", error);
-        await markQueueItemError(item.id, errorMessage(error));
-        useQueueProcessor.getState()._incrementError();
+        await transitionUnexpectedFailure(job, error);
+        state._incrementError();
       } finally {
-        useQueueProcessor.getState()._setCurrentItem(null);
+        state._setCurrentItem(null);
         scheduleRefresh();
         await sleep(MIN_JOB_DELAY_MS);
       }
@@ -285,278 +380,22 @@ async function workerLoop() {
   }
 }
 
-
-
-type ProcessOutcome = "processed" | "duplicate" | "error";
-
-async function processQueueItem(item: QueueItem): Promise<ProcessOutcome> {
-  const store = useQueueProcessor.getState();
-  store._setCurrentItem(item.id);
-  pipelineTracer.record({ itemId: item.id, stage: "enqueue", status: "ok" });
-
-  const base64 = await blobToBase64DataUrl(item.blob, item.mime || "image/jpeg");
-  const scanSettings = getScannerSettings();
-  const gameTypeHint = scanSettings.gameTypeFilter !== "auto" ? scanSettings.gameTypeFilter : undefined;
-  const userId = getLocalUserId();
-
-  logTrace(item.id, "ocr-start");
-  const endOcr = pipelineTracer.begin(item.id, "ocr");
-  const ocrStartedAt = performance.now();
-  let ocr: Awaited<ReturnType<typeof runLocalCardOcr>>;
-  try {
-    ocr = await withTimeout(runLocalCardOcr(item.blob), LOCAL_OCR_TIMEOUT_MS, "Local OCR");
-  } catch (error: unknown) {
-    endOcr({ status: isTimeoutError(error) ? "timeout" : "fail", error: errorMessage(error) });
-    throw error;
-  }
-  const ocrDurationMs = Math.round(performance.now() - ocrStartedAt);
-  const ocrText = compactOcrText(ocr?.setCode, ocr?.cardNumber, ocr?.title, ocr?.fullCode, ocr?.rawText);
-  endOcr({
-    status: ocr ? "ok" : "fail",
-    meta: {
-      hasText: Boolean(ocrText),
-      title: ocr?.title ?? null,
-      setCode: ocr?.setCode ?? null,
-      cardNumber: ocr?.cardNumber ?? null,
-      confidence: ocr?.confidence ?? null,
-    },
-  });
-  logTrace(item.id, "ocr-result", {
-    durationMs: ocrDurationMs,
-    data: {
-      title: ocr?.title,
-      setCode: ocr?.setCode,
-      cardNumber: ocr?.cardNumber,
-      fullCode: ocr?.fullCode,
-      game: ocr?.game,
-      confidence: ocr?.confidence,
-      rawText: ocr?.rawText ? ocr.rawText.slice(0, 600) : "",
-    },
-  });
-
-  const duplicateReservation = sessionDuplicates.reserve(ocr);
-  if (duplicateReservation.duplicate) {
-    pipelineTracer.record({
-      itemId: item.id,
-      stage: "identify",
-      status: "skip",
-      meta: {
-        reason: "duplicate",
-        setCode: ocr?.setCode ?? null,
-        fullCode: ocr?.fullCode ?? null,
-      },
-    });
-    logTrace(item.id, "duplicate", { message: "Duplicate card detected in current session" });
-    await idbDelete(item.id);
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("rapid-scan-item-duplicate", { detail: { id: item.id } }));
-    }
-    return "duplicate";
-  }
-
-  const hasStructured = Boolean(ocr?.title || ocr?.setCode || ocr?.cardNumber || ocr?.fullCode);
-  if (!ocrText && !hasStructured) {
-    sessionDuplicates.release(duplicateReservation.token);
-    pipelineTracer.record({ itemId: item.id, stage: "identify", status: "skip", error: "unreadable OCR" });
-    await markQueueItemError(item.id, "Unreadable scan — retake photo");
-    return "error";
-  }
-
-  const printedIdentifier = firstValidPrintedIdentifier(ocr?.setCode, ocr?.fullCode, ocr?.cardNumber);
-  const hasValidTitle = isReadableTitle(ocr?.title);
-  if (!printedIdentifier) {
-    sessionDuplicates.release(duplicateReservation.token);
-    pipelineTracer.record({ itemId: item.id, stage: "identify", status: "skip", error: "no printed code" });
-    await markQueueItemError(item.id, "No printed set/card code found — retake photo closer to the code");
-    return "error";
-  }
-
-  logTrace(item.id, "lookup-start", { data: { setCode: printedIdentifier, cardNumber: ocr?.cardNumber ?? null, game: ocr?.game ?? null } });
-  const endIdentify = pipelineTracer.begin(item.id, "identify");
-  const lookupStartedAt = performance.now();
-  let lookup: Awaited<ReturnType<typeof runRapidBasicLookup>>;
-  try {
-    lookup = await withTimeout(
-      runRapidBasicLookup({
-        imageUrl: null,
-        ocrText,
-        title: hasValidTitle ? ocr?.title ?? null : null,
-        setName: null,
-        setCode: printedIdentifier,
-        cardNumber: ocr?.cardNumber ?? null,
-        edition: ocr?.edition ?? null,
-        game: ocr?.game ?? null,
-        gameTypeHint,
-        allowGoogleLens: false,
-      }),
-      LOCAL_LOOKUP_TIMEOUT_MS,
-      "Printed-code card lookup",
-    );
-  } catch (error: unknown) {
-    sessionDuplicates.release(duplicateReservation.token);
-    endIdentify({ status: isTimeoutError(error) ? "timeout" : "fail", error: errorMessage(error) });
-    throw error;
-  }
-  const lookupDurationMs = Math.round(performance.now() - lookupStartedAt);
-
-  const identify = lookup.cardData;
-  const pricing = lookup.pricing ?? null;
-  const confidence = fuseConfidence(ocr?.confidence ?? 0, lookup);
-  endIdentify({
-    status: lookup.success && identify?.card_name ? "ok" : "fail",
-    error: lookup.error || undefined,
-    meta: { source: lookup.source ?? null, cardName: identify?.card_name ?? null },
-  });
-  pipelineTracer.record({
-    itemId: item.id,
-    stage: "price",
-    status: hasReadablePrice(pricing) ? "ok" : "skip",
-    meta: { raw: pricing?.raw ?? null, psa10: pricing?.psa10 ?? null, source: lookup.source ?? null },
-  });
-  logTrace(item.id, "lookup-result", {
-    durationMs: lookupDurationMs,
-    data: {
-      success: lookup.success,
-      source: lookup.source ?? null,
-      cardName: identify?.card_name ?? null,
-      error: lookup.error ?? null,
-      hasPrice: hasReadablePrice(pricing),
-    },
-  });
-
-  if (!lookup.success || !identify?.card_name) {
-    sessionDuplicates.release(duplicateReservation.token);
-    await markQueueItemError(item.id, lookup.error || "No printed-code lookup match — retake photo closer to the printed code");
-    return "error";
-  }
-
-  const cardName = String(identify.card_name || "").trim();
-  const cardSet = identify.card_set ?? null;
-  const cardNumber = identify.card_number ?? ocr?.cardNumber ?? ocr?.setCode ?? null;
-  const rarity = identify.rarity ?? null;
-  const gameType = identify.game_type ?? null;
-  const sportType = identify.sport_type ?? null;
-  const year = identify.year ?? null;
-  const manufacturer = identify.manufacturer ?? null;
-  const playerName = sportType ? cardName : null;
-  const team = null;
-  const imageUrl = base64;
-  const rawPrice = money(pricing?.raw ?? pricing?.highestSold ?? null);
-  const psa10Price = money(pricing?.psa10 ?? pricing?.cgc10 ?? null);
-
-  const processedCard: ProcessedCard = {
-    id: item.id,
-    cardName,
-    cardSet: cardSet || undefined,
-    cardNumber: cardNumber || undefined,
-    rarity: rarity || undefined,
-    gameType: gameType || undefined,
-    sportType: sportType || undefined,
-    value: rawPrice,
-    psa10Price,
-    imageUrl,
-    isInLibrary: false,
-    libraryQuantity: 0,
-    year: year || undefined,
-    playerName: playerName || undefined,
-    team: team || undefined,
-    manufacturer: manufacturer || undefined,
-  };
-
-  const confPct = confidence * 100;
-  const threshold = scanSettings.autoConfirmThreshold ?? 75;
-
-  if (scanSettings.scanMode === "SAVE" && confPct >= threshold) {
-    const endSave = pipelineTracer.begin(item.id, "save");
-    try {
-      const inserted = await insertCardDual({
-        user_id: userId,
-        card_name: cardName,
-        card_set: cardSet,
-        card_number: cardNumber,
-        rarity,
-        game_type: gameType,
-        sport_type: sportType,
-        image_url: imageUrl,
-        image_source: "scan",
-        image_status: "local-preview",
-        image_search_status: "found",
-        current_price_raw: rawPrice,
-        suggested_price: rawPrice,
-        last_price_update: rawPrice ? new Date().toISOString() : null,
-        condition: "ungraded",
-        year: year ? parseInt(year, 10) || null : null,
-        player_name: playerName,
-        team,
-        manufacturer,
-        raw_name: cardName,
-        raw_set: cardSet,
-        raw_number: cardNumber,
-        raw_year: year,
-        raw_manufacturer: manufacturer,
-        ocr_confidence: confidence,
-      } as Parameters<typeof insertCardDual>[0]);
-      processedCard.isInLibrary = true;
-      processedCard.dbId = inserted.id;
-      processedCard.libraryQuantity = 1;
-      endSave({ status: "ok", meta: { dbId: inserted.id } });
-    } catch (error: unknown) {
-      console.error("[QueueProcessor] auto-save failed:", error);
-      endSave({ status: "fail", error: errorMessage(error) });
-    }
-  } else {
-    pipelineTracer.record({
-      itemId: item.id,
-      stage: "save",
-      status: "skip",
-      meta: { reason: scanSettings.scanMode !== "SAVE" ? "scan-mode-not-save" : "below-confidence-threshold", confPct, threshold },
-    });
-  }
-
-  useQueueProcessor.getState()._setLastProcessedCard(processedCard);
-  console.log("[QueueProcessor] Printed-code lookup matched", cardName, { ocrSource: ocr?.source ?? "local-browser-ocr", source: lookup.source, hasPrice: hasReadablePrice(pricing) });
-
-  addRecentScan({
-    id: item.id,
-    card_name: cardName,
-    card_set: cardSet,
-    card_number: cardNumber,
-    player_name: playerName,
-    image_url: imageUrl,
-    price: rawPrice,
-    psa10Price,
-    confidence,
-    rarity,
-    gameType,
-    sportType,
-    dbId: processedCard.dbId ?? null,
-    isInLibrary: processedCard.isInLibrary,
-    libraryQuantity: processedCard.libraryQuantity,
-    year,
-    team,
-    manufacturer,
-  });
-
-  logTrace(item.id, "success", {
-    message: cardName,
-    data: { cardName, cardSet, cardNumber, value: rawPrice, source: lookup.source ?? null },
-  });
-  window.dispatchEvent(new CustomEvent("recent-scan-added"));
-  await idbDelete(item.id);
-  return "processed";
-}
-
 export async function checkAndResumeQueue(): Promise<void> {
   if (autoResumeChecked) return;
   autoResumeChecked = true;
   const state = useQueueProcessor.getState();
-  const anomalyPaused = state.isPausedByAnomaly || readAnomalyPauseFlag();
-  if (anomalyPaused) {
+  if (state.isPausedByAnomaly || readAnomalyPauseFlag()) {
     useQueueProcessor.setState({ isPaused: true, isPausedByAnomaly: true });
     return;
   }
-  const queuedCount = await idbCountQueued();
-  if (queuedCount > 0) state.start();
+  if ((await idbCountQueued()) > 0) state.start();
 }
 
-export { idbAdd, idbCount, idbCountQueued, idbClear, idbGetAll, idbDelete } from "@/lib/idbQueue";
+export {
+  idbAdd,
+  idbCount,
+  idbCountQueued,
+  idbClear,
+  idbGetAll,
+  idbDelete,
+} from "@/lib/idbQueue";

@@ -1,423 +1,255 @@
-// src/lib/idbQueue.ts
-// Minimal IndexedDB-backed persistent queue for Rapid Scan jobs.
+import Dexie from "dexie";
+import type {
+  CaptureJob,
+  CaptureJobStatus,
+  RapidScanSession,
+} from "@/lib/rapidScan/contracts";
+import {
+  claimNextCapture,
+  enqueueCapture,
+  hasCompletedLegacyMigration,
+  importCaptureJobsIfAbsent,
+  listCaptureMeta,
+  rapidScanDb,
+  retryCapture,
+  type CaptureJobMeta,
+} from "@/lib/rapidScan/db";
 
-export type QueueStatus = "queued" | "processing" | "success" | "error"
-
+export type QueueStatus = "queued" | "processing" | "success" | "error";
 export type QueueItem = {
-  id: string
-  createdAt: number
-  processingStartedAt?: number // Track when processing started for stuck detection
-  status: QueueStatus
-  error?: string
+  id: string;
+  createdAt: number;
+  processingStartedAt?: number;
+  status: QueueStatus;
+  error?: string;
+  blob: Blob;
+  mime: string;
+  filename: string;
+  rotation?: CaptureJob["rotation"];
+  session?: RapidScanSession;
+  captureStatus?: CaptureJobStatus;
+};
+export type QueueItemMeta = Omit<QueueItem, "blob">;
 
-  // Stored image payload
-  blob: Blob
-  mime: string
-  filename: string
+const LEGACY_DB_NAME = "card_scout_pro";
+const LEGACY_STORE = "rapid_scan_queue";
+const MIGRATION_KEY = "rapid_scan_v2_queue_migrated";
+const PROCESSING_STALE_MS = 60_000;
+
+const legacyStatus = {
+  captured: "queued",
+  processing_ocr: "processing",
+  identified: "processing",
+  saved: "success",
+  needs_review: "error",
+  identification_error: "error",
+} as const;
+const captureStatus: Record<QueueStatus, CaptureJobStatus> = {
+  queued: "captured",
+  processing: "processing_ocr",
+  success: "saved",
+  error: "identification_error",
+};
+type StoredJob = CaptureJob & { legacyFilename?: string };
+type StoredMeta = CaptureJobMeta & { legacyFilename?: string };
+
+function toCapture(item: QueueItem): StoredJob {
+  const session: RapidScanSession = item.session
+    ? { ...item.session }
+    : {
+        id: `legacy-${item.id}`,
+        game: "other",
+        selectedSetId: null,
+        selectedSetName: null,
+        profileId: "standard",
+        captureMode: "auto",
+      };
+  return {
+    id: item.id,
+    idempotencyKey: item.id,
+    createdAt: item.createdAt,
+    updatedAt: item.processingStartedAt ?? item.createdAt,
+    rotation: item.rotation ?? 0,
+    status: captureStatus[item.status],
+    processingStartedAt: item.processingStartedAt,
+    retryCount: 0,
+    error: item.error,
+    session,
+    originalBlob: item.blob,
+    mime: item.mime,
+    legacyFilename: item.filename,
+  };
+}
+function toQueue(job: StoredJob): QueueItem {
+  return {
+    id: job.id,
+    createdAt: job.createdAt,
+    processingStartedAt: job.processingStartedAt,
+    status: legacyStatus[job.status],
+    error: job.error,
+    blob: job.originalBlob,
+    mime: job.mime,
+    filename: job.legacyFilename ?? "card.jpg",
+    rotation: job.rotation,
+    session: { ...job.session },
+    captureStatus: job.status,
+  };
+}
+function toMeta(job: StoredMeta): QueueItemMeta {
+  return {
+    id: job.id,
+    createdAt: job.createdAt,
+    processingStartedAt: job.processingStartedAt,
+    status: legacyStatus[job.status],
+    error: job.error,
+    mime: job.mime,
+    filename: job.legacyFilename ?? "card.jpg",
+    rotation: job.rotation,
+    session: { ...job.session },
+    captureStatus: job.status,
+  };
 }
 
-export type QueueItemMeta = Omit<QueueItem, "blob">
-
-const DB_NAME = "card_scout_pro"
-const DB_VERSION = 1
-const STORE = "rapid_scan_queue"
-const PROCESSING_STALE_MS = 60_000
-
-function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION)
-
-    req.onupgradeneeded = () => {
-      const db = req.result
-      if (!db.objectStoreNames.contains(STORE)) {
-        const store = db.createObjectStore(STORE, { keyPath: "id" })
-        store.createIndex("status_createdAt", ["status", "createdAt"], { unique: false })
-        store.createIndex("createdAt", "createdAt", { unique: false })
-      }
-    }
-
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  })
+async function readLegacyQueue(): Promise<QueueItem[]> {
+  if (typeof indexedDB === "undefined") return [];
+  if (typeof indexedDB.databases === "function") {
+    const databases = await indexedDB.databases();
+    if (!databases.some((database) => database.name === LEGACY_DB_NAME)) return [];
+  }
+  const database = await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(LEGACY_DB_NAME);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  if (!database.objectStoreNames.contains(LEGACY_STORE)) {
+    database.close();
+    return [];
+  }
+  try {
+    return await new Promise<QueueItem[]>((resolve, reject) => {
+      const transaction = database.transaction(LEGACY_STORE, "readonly");
+      const request = transaction.objectStore(LEGACY_STORE).getAll();
+      request.onsuccess = () => resolve(request.result as QueueItem[]);
+      request.onerror = () => reject(request.error);
+    });
+  } finally {
+    database.close();
+  }
 }
 
-function tx<T>(
-  db: IDBDatabase,
-  mode: IDBTransactionMode,
-  fn: (store: IDBObjectStore) => IDBRequest<T> | void
-): Promise<T | void> {
-  return new Promise((resolve, reject) => {
-    const t = db.transaction(STORE, mode)
-    const store = t.objectStore(STORE)
+let migrationPromise: Promise<void> | null = null;
+function ensureMigration(): Promise<void> {
+  if (migrationPromise) return migrationPromise;
+  migrationPromise = (async () => {
+    if (typeof localStorage === "undefined" || typeof indexedDB === "undefined") return;
+    const marked = localStorage.getItem(MIGRATION_KEY) === "1";
+    if (marked && await hasCompletedLegacyMigration("legacy_queue")) return;
+    const legacy = await readLegacyQueue();
+    await importCaptureJobsIfAbsent(legacy.map(toCapture), { importMissing: !marked });
+    localStorage.setItem(MIGRATION_KEY, "1");
+  })();
+  return migrationPromise;
+}
 
-    let request: IDBRequest<T> | undefined
-    try {
-      const maybeReq = fn(store)
-      if (maybeReq) request = maybeReq as IDBRequest<T>
-    } catch (e) {
-      reject(e)
-      return
-    }
-
-    t.oncomplete = () => resolve(request ? (request.result as T) : undefined)
-    t.onerror = () => reject(t.error)
-    t.onabort = () => reject(t.error)
-  })
+async function nextAvailable(): Promise<StoredJob | null> {
+  const captured = await rapidScanDb.captureJobs
+    .where("[status+createdAt]")
+    .between(["captured", Dexie.minKey], ["captured", Dexie.maxKey])
+    .first();
+  if (captured) return captured as StoredJob;
+  const cutoff = Date.now() - PROCESSING_STALE_MS;
+  const stale = await rapidScanDb.captureJobs
+    .where("[status+createdAt]")
+    .between(["processing_ocr", Dexie.minKey], ["processing_ocr", Dexie.maxKey])
+    .filter((job) => (job.processingStartedAt ?? job.createdAt) < cutoff)
+    .first();
+  return (stale as StoredJob | undefined) ?? null;
 }
 
 export async function idbAdd(item: QueueItem): Promise<void> {
-  const db = await openDB()
-  await tx(db, "readwrite", (store) => store.put(item))
-  db.close()
+  await ensureMigration();
+  await enqueueCapture(toCapture(item));
 }
-
 export async function idbGet(id: string): Promise<QueueItem | null> {
-  const db = await openDB()
-  const res = (await tx(db, "readonly", (store) => store.get(id))) as QueueItem | undefined
-  db.close()
-  return res ?? null
+  await ensureMigration();
+  const job = await rapidScanDb.captureJobs.get(id);
+  return job ? toQueue(job as StoredJob) : null;
 }
-
 export async function idbUpdateMeta(id: string, patch: Partial<QueueItemMeta>): Promise<void> {
-  const db = await openDB()
-  await tx(db, "readwrite", (store) => {
-    const req = store.get(id)
-    req.onsuccess = () => {
-      const current = req.result as QueueItem | undefined
-      if (!current) return
-      // Track when processing started for stuck detection
-      const next: QueueItem = { 
-        ...current, 
-        ...patch,
-        ...(patch.status === "processing" ? { processingStartedAt: Date.now() } : {})
-      }
-      store.put(next)
-    }
-  })
-  db.close()
+  await ensureMigration();
+  await rapidScanDb.transaction("rw", rapidScanDb.captureJobs, async () => {
+    const current = await rapidScanDb.captureJobs.get(id) as StoredJob | undefined;
+    if (!current) return;
+    const next: StoredJob = {
+      ...current,
+      createdAt: patch.createdAt ?? current.createdAt,
+      status: patch.status ? captureStatus[patch.status] : current.status,
+      processingStartedAt:
+        patch.status === "processing" ? Date.now()
+        : patch.status === "queued" ? undefined
+        : patch.processingStartedAt ?? current.processingStartedAt,
+      error: "error" in patch ? patch.error : current.error,
+      mime: patch.mime ?? current.mime,
+      legacyFilename: patch.filename ?? current.legacyFilename,
+      updatedAt: Date.now(),
+    };
+    await rapidScanDb.captureJobs.put(next);
+  });
 }
-
 export async function idbDelete(id: string): Promise<void> {
-  const db = await openDB()
-  await tx(db, "readwrite", (store) => store.delete(id))
-  db.close()
+  await ensureMigration();
+  await rapidScanDb.captureJobs.delete(id);
 }
-
 export async function idbRetry(id: string): Promise<void> {
-  await idbUpdateMeta(id, {
-    status: "queued",
-    error: undefined,
-    processingStartedAt: undefined,
-  })
+  await ensureMigration();
+  await retryCapture(id);
 }
-
 export async function idbListMeta(limit = 500): Promise<QueueItemMeta[]> {
-  const db = await openDB()
-  const items: QueueItemMeta[] = []
-
-  await tx(db, "readonly", (store) => {
-    const req = store.openCursor()
-    req.onsuccess = () => {
-      const cursor = req.result as IDBCursorWithValue | null
-      if (!cursor) return
-      const v = cursor.value as QueueItem
-      const { blob: _blob, ...meta } = v
-      items.push(meta)
-      if (items.length >= limit) return
-      cursor.continue()
-    }
-  })
-
-  db.close()
-  return items.sort((a, b) => b.createdAt - a.createdAt)
+  await ensureMigration();
+  return (await listCaptureMeta(limit)).map((job) => toMeta(job as StoredMeta));
 }
-
-/**
- * Fast version of idbListMeta that only reads metadata, not blobs.
- * This is much faster for UI updates as it doesn't load large image blobs.
- */
 export async function idbListMetaFast(limit = 500): Promise<QueueItemMeta[]> {
-  const db = await openDB()
-  const items: QueueItemMeta[] = []
-
-  await new Promise<void>((resolve, reject) => {
-    const t = db.transaction(STORE, "readonly")
-    const store = t.objectStore(STORE)
-    const idx = store.index("createdAt")
-    
-    // Use cursor to iterate but only extract meta fields
-    const req = idx.openCursor(null, "prev") // newest first
-    
-    req.onsuccess = () => {
-      const cursor = req.result as IDBCursorWithValue | null
-      if (!cursor || items.length >= limit) {
-        resolve()
-        return
-      }
-      
-      const v = cursor.value as QueueItem
-      // Extract only meta fields, skip blob
-      items.push({
-        id: v.id,
-        createdAt: v.createdAt,
-        processingStartedAt: v.processingStartedAt,
-        status: v.status,
-        error: v.error,
-        mime: v.mime,
-        filename: v.filename,
-      })
-      cursor.continue()
-    }
-    req.onerror = () => reject(req.error)
-    t.onerror = () => reject(t.error)
-  })
-
-  db.close()
-  return items
+  return idbListMeta(limit);
 }
-
-/**
- * Get the next queued item FIFO (oldest first).
- * Also picks up stale "processing" items orphaned by crashes or reloads.
- * Returns full item (includes blob).
- */
 export async function idbGetNextQueued(): Promise<QueueItem | null> {
-  const db = await openDB()
-
-  const next = await new Promise<QueueItem | null>((resolve, reject) => {
-    const t = db.transaction(STORE, "readonly")
-    const store = t.objectStore(STORE)
-    const idx = store.index("status_createdAt")
-
-    // First try "queued" items (oldest first)
-    const queuedRange = IDBKeyRange.bound(["queued", 0], ["queued", Number.MAX_SAFE_INTEGER])
-    const queuedReq = idx.openCursor(queuedRange, "next")
-
-    queuedReq.onsuccess = () => {
-      const cursor = queuedReq.result as IDBCursorWithValue | null
-      if (cursor) {
-        resolve(cursor.value as QueueItem)
-        return
-      }
-
-      // No queued items - check for stuck "processing" items using processingStartedAt
-      const stuckCutoff = Date.now() - PROCESSING_STALE_MS
-      // Scan all processing items and check processingStartedAt
-      const processingRange = IDBKeyRange.bound(["processing", 0], ["processing", Number.MAX_SAFE_INTEGER])
-      const processingReq = idx.openCursor(processingRange, "next")
-
-      processingReq.onsuccess = () => {
-        const pCursor = processingReq.result as IDBCursorWithValue | null
-        if (pCursor) {
-          const item = pCursor.value as QueueItem
-          // Check if stuck based on processingStartedAt (or createdAt as fallback)
-          const startedAt = item.processingStartedAt || item.createdAt
-          if (startedAt < stuckCutoff) {
-            resolve(item)
-          } else {
-            // Not stuck yet, check next
-            pCursor.continue()
-          }
-        } else {
-          resolve(null)
-        }
-      }
-      processingReq.onerror = () => reject(processingReq.error)
-    }
-    queuedReq.onerror = () => reject(queuedReq.error)
-
-    t.oncomplete = () => {}
-    t.onerror = () => reject(t.error)
-    t.onabort = () => reject(t.error)
-  })
-
-  db.close()
-  return next
+  await ensureMigration();
+  const job = await nextAvailable();
+  return job ? toQueue(job) : null;
 }
-
-/**
- * Atomically select and mark the next queue item as processing.
- * A read-only selection followed by a separate update lets parallel workers
- * select the same card, so claiming must happen inside one read/write transaction.
- */
 export async function idbClaimNextQueued(): Promise<QueueItem | null> {
-  const db = await openDB()
-  const stuckCutoff = Date.now() - PROCESSING_STALE_MS
-  let claimed: QueueItem | null = null
-
-  await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction(STORE, "readwrite")
-    const store = transaction.objectStore(STORE)
-    const index = store.index("status_createdAt")
-
-    const claimCursor = (cursor: IDBCursorWithValue): void => {
-      const current = cursor.value as QueueItem
-      claimed = {
-        ...current,
-        status: "processing",
-        processingStartedAt: Date.now(),
-        error: undefined,
-      }
-      cursor.update(claimed)
-    }
-
-    const queuedRange = IDBKeyRange.bound(
-      ["queued", 0],
-      ["queued", Number.MAX_SAFE_INTEGER],
-    )
-    const queuedRequest = index.openCursor(queuedRange, "next")
-
-    queuedRequest.onsuccess = () => {
-      const cursor = queuedRequest.result as IDBCursorWithValue | null
-      if (cursor) {
-        claimCursor(cursor)
-        return
-      }
-
-      const processingRange = IDBKeyRange.bound(
-        ["processing", 0],
-        ["processing", Number.MAX_SAFE_INTEGER],
-      )
-      const processingRequest = index.openCursor(processingRange, "next")
-      processingRequest.onsuccess = () => {
-        const processingCursor = processingRequest.result as IDBCursorWithValue | null
-        if (!processingCursor) return
-
-        const item = processingCursor.value as QueueItem
-        const startedAt = item.processingStartedAt || item.createdAt
-        if (startedAt < stuckCutoff) {
-          claimCursor(processingCursor)
-          return
-        }
-        processingCursor.continue()
-      }
-      processingRequest.onerror = () => reject(processingRequest.error)
-    }
-
-    queuedRequest.onerror = () => reject(queuedRequest.error)
-    transaction.oncomplete = () => resolve()
-    transaction.onerror = () => reject(transaction.error)
-    transaction.onabort = () => reject(transaction.error)
-  })
-
-  db.close()
-  return claimed
+  await ensureMigration();
+  const job = await claimNextCapture(PROCESSING_STALE_MS);
+  return job ? toQueue(job as StoredJob) : null;
 }
-
-/**
- * Count only items that are actually processable (queued or stuck processing)
- */
 export async function idbCountQueued(): Promise<number> {
-  const db = await openDB()
-  const stuckCutoff = Date.now() - PROCESSING_STALE_MS
-  
-  const count = await new Promise<number>((resolve, reject) => {
-    const t = db.transaction(STORE, "readonly")
-    const store = t.objectStore(STORE)
-    const idx = store.index("status_createdAt")
-    let total = 0
-
-    // Count "queued" items
-    const queuedRange = IDBKeyRange.bound(["queued", 0], ["queued", Number.MAX_SAFE_INTEGER])
-    const queuedReq = idx.count(queuedRange)
-
-    queuedReq.onsuccess = () => {
-      total += queuedReq.result
-
-      // Count stuck "processing" items by scanning and checking processingStartedAt
-      const processingRange = IDBKeyRange.bound(["processing", 0], ["processing", Number.MAX_SAFE_INTEGER])
-      const processingReq = idx.openCursor(processingRange)
-      let stuckCount = 0
-
-      processingReq.onsuccess = () => {
-        const cursor = processingReq.result as IDBCursorWithValue | null
-        if (cursor) {
-          const item = cursor.value as QueueItem
-          const startedAt = item.processingStartedAt || item.createdAt
-          if (startedAt < stuckCutoff) {
-            stuckCount++
-          }
-          cursor.continue()
-        } else {
-          total += stuckCount
-          resolve(total)
-        }
-      }
-      processingReq.onerror = () => reject(processingReq.error)
-    }
-    queuedReq.onerror = () => reject(queuedReq.error)
-
-    t.oncomplete = () => {}
-    t.onerror = () => reject(t.error)
-  })
-
-  db.close()
-  return count
+  await ensureMigration();
+  const cutoff = Date.now() - PROCESSING_STALE_MS;
+  return rapidScanDb.captureJobs.filter(
+    (job) =>
+      job.status === "captured" ||
+      (job.status === "processing_ocr" &&
+        (job.processingStartedAt ?? job.createdAt) < cutoff),
+  ).count();
 }
-
 export async function idbCountPending(): Promise<number> {
-  const db = await openDB()
-
-  const count = await new Promise<number>((resolve, reject) => {
-    const transaction = db.transaction(STORE, "readonly")
-    const index = transaction.objectStore(STORE).index("status_createdAt")
-    const queuedRange = IDBKeyRange.bound(
-      ["queued", 0],
-      ["queued", Number.MAX_SAFE_INTEGER],
-    )
-    const processingRange = IDBKeyRange.bound(
-      ["processing", 0],
-      ["processing", Number.MAX_SAFE_INTEGER],
-    )
-    let queued = 0
-    let processing = 0
-
-    const queuedRequest = index.count(queuedRange)
-    queuedRequest.onsuccess = () => {
-      queued = queuedRequest.result
-      const processingRequest = index.count(processingRange)
-      processingRequest.onsuccess = () => {
-        processing = processingRequest.result
-      }
-      processingRequest.onerror = () => reject(processingRequest.error)
-    }
-    queuedRequest.onerror = () => reject(queuedRequest.error)
-    transaction.oncomplete = () => resolve(queued + processing)
-    transaction.onerror = () => reject(transaction.error)
-    transaction.onabort = () => reject(transaction.error)
-  })
-
-  db.close()
-  return count
+  await ensureMigration();
+  return rapidScanDb.captureJobs.filter(
+    (job) =>
+      job.status === "captured" ||
+      job.status === "processing_ocr" ||
+      job.status === "identified",
+  ).count();
 }
-
 export async function idbCount(): Promise<number> {
-  const db = await openDB()
-  const n = (await tx(db, "readonly", (store) => store.count())) as number
-  db.close()
-  return n
+  await ensureMigration();
+  return rapidScanDb.captureJobs.count();
 }
-
 export async function idbGetAll(): Promise<QueueItem[]> {
-  const db = await openDB()
-  const items: QueueItem[] = []
-
-  await tx(db, "readonly", (store) => {
-    const req = store.openCursor()
-    req.onsuccess = () => {
-      const cursor = req.result as IDBCursorWithValue | null
-      if (!cursor) return
-      items.push(cursor.value as QueueItem)
-      cursor.continue()
-    }
-  })
-
-  db.close()
-  return items.sort((a, b) => b.createdAt - a.createdAt)
+  await ensureMigration();
+  return (await rapidScanDb.captureJobs.orderBy("createdAt").reverse().toArray())
+    .map((job) => toQueue(job as StoredJob));
 }
-
 export async function idbClear(): Promise<void> {
-  const db = await openDB()
-  await tx(db, "readwrite", (store) => store.clear())
-  db.close()
+  await ensureMigration();
+  await rapidScanDb.captureJobs.clear();
 }

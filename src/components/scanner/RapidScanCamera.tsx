@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
+import { RapidScanSessionBar } from "@/components/scanner/RapidScanSessionBar";
 import { withTimeout } from "@/lib/async/withTimeout";
 import { cn } from "@/lib/utils";
 import {
@@ -38,10 +39,30 @@ import {
 } from "@/lib/idbQueue";
 import { useQueueProcessor } from "@/lib/queueProcessor";
 import {
+  countReaderCaptureStates,
+  isRetryableScanStatus,
   mergeRecentScanRows,
   reconcileScanRows,
   type ScanRowState,
 } from "@/lib/rapidScan/scanRows";
+import {
+  prepareCameraCaptureCanvases,
+  resetCameraCaptureCanvases,
+} from "@/lib/rapidScan/captureCanvas";
+import type { RapidScanSession } from "@/lib/rapidScan/contracts";
+import {
+  analyzeCameraFrame,
+  createAutoCaptureCoordinator,
+  createCameraFrameScheduler,
+  getAutoCaptureOptions,
+} from "@/lib/rapidScan/autoCapture";
+import {
+  getRapidScanSession,
+  normalizeRapidScanSession,
+  saveRapidScanSession,
+  snapshotRapidScanCaptureContext,
+} from "@/lib/rapidScan/session";
+import { listBundledYugiohSets } from "@/lib/rapidScan/bundledYugiohSets";
 import { clearAllRecentScans, getRecentScans } from "@/lib/recentScans";
 
 type ZoomState = {
@@ -165,31 +186,6 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-function drawRotatedVideoToCanvas(video: HTMLVideoElement, canvas: HTMLCanvasElement, rotation: CameraRotation) {
-  const sourceWidth = video.videoWidth || 1920;
-  const sourceHeight = video.videoHeight || 1080;
-  const rotatedSideways = rotation === 90 || rotation === 270;
-  canvas.width = rotatedSideways ? sourceHeight : sourceWidth;
-  canvas.height = rotatedSideways ? sourceWidth : sourceHeight;
-
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Capture canvas unavailable");
-
-  ctx.save();
-  if (rotation === 90) {
-    ctx.translate(canvas.width, 0);
-    ctx.rotate(Math.PI / 2);
-  } else if (rotation === 180) {
-    ctx.translate(canvas.width, canvas.height);
-    ctx.rotate(Math.PI);
-  } else if (rotation === 270) {
-    ctx.translate(0, canvas.height);
-    ctx.rotate((3 * Math.PI) / 2);
-  }
-  ctx.drawImage(video, 0, 0, sourceWidth, sourceHeight);
-  ctx.restore();
-}
-
 function waitForVideoMetadata(video: HTMLVideoElement, timeoutMs = 5000): Promise<void> {
   if (video.readyState >= HTMLMediaElement.HAVE_METADATA) return Promise.resolve();
 
@@ -228,13 +224,18 @@ async function startVideoPreview(video: HTMLVideoElement, stream: MediaStream): 
 
 export default function RapidScanCamera() {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const originalCanvasRef = useRef<HTMLCanvasElement>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+  const analysisCanvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const trackRef = useRef<MediaStreamTrack | null>(null);
   const startingRef = useRef(false);
+  const cameraOnRef = useRef(false);
+  const autoCaptureCoordinatorRef = useRef(createAutoCaptureCoordinator());
   const processor = useQueueProcessor();
 
   const [cameraOn, setCameraOn] = useState(false);
+  const [cameraGeneration, setCameraGeneration] = useState(0);
   const [phoneOpen, setPhoneOpen] = useState(() => localStorage.getItem("rapid_scan_phone_open") !== "0");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("Tap Start Camera");
@@ -252,6 +253,9 @@ export default function RapidScanCamera() {
   });
   const [queuedCount, setQueuedCount] = useState(0);
   const [rows, setRows] = useState<ScanRow[]>(() => rowsFromRecent());
+  const [rapidScanSession, setRapidScanSession] =
+    useState<RapidScanSession>(() => getRapidScanSession());
+  cameraOnRef.current = cameraOn;
 
   const sortedDevices = useMemo(() => sortCameraDevices(devices), [devices]);
   const continuityDevice = useMemo(() => sortedDevices.find(isContinuityDevice), [sortedDevices]);
@@ -264,10 +268,55 @@ export default function RapidScanCamera() {
   const totalValue = useMemo(() => {
     return rows.reduce((sum, row) => sum + (row.status === "completed" ? row.value || 0 : 0), 0);
   }, [rows]);
-  const failedCount = useMemo(
-    () => processor.queueMeta.filter((item) => item.status === "error").length,
+  const captureStateCounts = useMemo(
+    () => countReaderCaptureStates(processor.queueMeta),
     [processor.queueMeta],
   );
+  const failedCount = captureStateCounts.identification_error;
+  const rapidScanSets = useMemo(
+    () => {
+      const available =
+        rapidScanSession.game === "yugioh"
+          ? listBundledYugiohSets()
+          : [];
+      if (
+        rapidScanSession.selectedSetId &&
+        rapidScanSession.selectedSetName &&
+        !available.some((set) => set.id === rapidScanSession.selectedSetId)
+      ) {
+        return [
+          {
+            id: rapidScanSession.selectedSetId,
+            name: rapidScanSession.selectedSetName,
+          },
+          ...available,
+        ];
+      }
+      return available;
+    },
+    [
+      rapidScanSession.game,
+      rapidScanSession.selectedSetId,
+      rapidScanSession.selectedSetName,
+    ],
+  );
+  const sessionCounts = useMemo(
+    () => ({
+      captured: captureStateCounts.captured,
+      processing:
+        captureStateCounts.processing_ocr + captureStateCounts.identified,
+      saved: captureStateCounts.saved,
+      review: captureStateCounts.needs_review,
+      errors: captureStateCounts.identification_error,
+    }),
+    [captureStateCounts],
+  );
+
+  const changeRapidScanSession = useCallback((next: RapidScanSession) => {
+    const normalized = normalizeRapidScanSession(next);
+    saveRapidScanSession(normalized);
+    setRapidScanSession(normalized);
+  }, []);
 
   const refreshDevices = useCallback(async () => {
     if (!navigator.mediaDevices?.enumerateDevices) return;
@@ -315,11 +364,14 @@ export default function RapidScanCamera() {
             id: item.id,
             imageUrl: URL.createObjectURL(item.blob),
             status:
-              item.status === "error"
-                ? "error"
+              item.captureStatus ??
+              (item.status === "error"
+                ? "identification_error"
                 : item.status === "processing"
-                  ? "processing"
-                  : "queued",
+                  ? "processing_ocr"
+                  : item.status === "success"
+                    ? "saved"
+                    : "captured"),
             error: item.error,
           }));
         return restored.length > 0 ? [...restored, ...current] : current;
@@ -364,7 +416,7 @@ export default function RapidScanCamera() {
   useEffect(() => {
     const current = processor.currentItem;
     if (!current) return;
-    setRows((prev) => prev.map((row) => (row.id === current ? { ...row, status: "processing" } : row)));
+    setRows((prev) => prev.map((row) => (row.id === current ? { ...row, status: "processing_ocr" } : row)));
   }, [processor.currentItem]);
 
   useEffect(() => {
@@ -379,7 +431,7 @@ export default function RapidScanCamera() {
       setRows((prev) =>
         prev.map((row) =>
           row.id === detail.id
-            ? { ...row, status: "error", error: detail.error || "Scan processing failed" }
+            ? { ...row, status: "identification_error", error: detail.error || "Scan processing failed" }
             : row,
         ),
       );
@@ -400,10 +452,16 @@ export default function RapidScanCamera() {
   }, []);
 
   function stopPreviewOnly() {
+    autoCaptureCoordinatorRef.current.stop();
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     trackRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
+    resetCameraCaptureCanvases(
+      analysisCanvasRef.current,
+      originalCanvasRef.current,
+      previewCanvasRef.current,
+    );
     setCameraOn(false);
     setTorchOn(false);
     setTorchSupported(false);
@@ -472,6 +530,7 @@ export default function RapidScanCamera() {
       await startVideoPreview(videoElement, stream);
 
       setCameraOn(true);
+      setCameraGeneration((generation) => generation + 1);
       await refreshDevices();
       const label =
         track?.label ||
@@ -574,7 +633,11 @@ export default function RapidScanCamera() {
   }
 
   async function capture() {
-    if (!cameraOn || busy) return;
+    if (!cameraOnRef.current) return;
+    const captureSnapshot = snapshotRapidScanCaptureContext(
+      rapidScanSession,
+      cameraRotation,
+    );
     setBusy(true);
 
     try {
@@ -585,22 +648,35 @@ export default function RapidScanCamera() {
       }
 
       const video = videoRef.current;
-      const canvas = canvasRef.current;
-      if (!video || !canvas) throw new Error("Camera preview not ready");
+      const originalCanvas = originalCanvasRef.current;
+      const previewCanvas = previewCanvasRef.current;
+      if (!video || !originalCanvas || !previewCanvas) {
+        throw new Error("Camera preview not ready");
+      }
 
-      drawRotatedVideoToCanvas(video, canvas, cameraRotation);
+      prepareCameraCaptureCanvases(
+        video,
+        originalCanvas,
+        previewCanvas,
+        captureSnapshot.rotation,
+      );
 
-      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.95));
-      if (!blob) throw new Error("Capture failed");
+      const originalBlob = await new Promise<Blob | null>((resolve) =>
+        originalCanvas.toBlob(resolve, "image/jpeg", 0.95),
+      );
+      const previewBlob = await new Promise<Blob | null>((resolve) =>
+        previewCanvas.toBlob(resolve, "image/jpeg", 0.95),
+      );
+      if (!originalBlob || !previewBlob) throw new Error("Capture failed");
 
       const id = safeUUID();
-      const previewUrl = URL.createObjectURL(blob);
+      const previewUrl = URL.createObjectURL(previewBlob);
       setRows((prev) => [{ id, imageUrl: previewUrl, status: "queued" }, ...prev]);
 
       const { pipelineTracer } = await import("@/lib/pipelineTracer");
-      pipelineTracer.record({ itemId: id, stage: "capture", status: "ok", meta: { bytes: blob.size, source: "camera" } });
+      pipelineTracer.record({ itemId: id, stage: "capture", status: "ok", meta: { bytes: originalBlob.size, source: "camera" } });
 
-      const compressed = await compressImageForQueue(blob);
+      const compressed = await compressImageForQueue(originalBlob);
       await idbAdd({
         id,
         createdAt: Date.now(),
@@ -608,10 +684,12 @@ export default function RapidScanCamera() {
         blob: compressed,
         mime: compressed.type || "image/jpeg",
         filename: "card.jpg",
+        session: captureSnapshot.session,
+        rotation: captureSnapshot.rotation,
       });
       pipelineTracer.record({ itemId: id, stage: "enqueue", status: "start" });
 
-      setStatus(`Captured — ${getRotationLabel(cameraRotation)} rotation applied`);
+      setStatus(`Captured — ${getRotationLabel(captureSnapshot.rotation)} rotation applied`);
       await refreshQueueCount();
       processor.start();
     } catch (error: unknown) {
@@ -621,6 +699,51 @@ export default function RapidScanCamera() {
       setBusy(false);
     }
   }
+  autoCaptureCoordinatorRef.current.setCapture(capture);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    const analysisCanvas = analysisCanvasRef.current;
+    if (!video || !analysisCanvas) {
+      autoCaptureCoordinatorRef.current.stop();
+      return;
+    }
+
+    const scheduler = createCameraFrameScheduler(video, window);
+    const coordinator = autoCaptureCoordinatorRef.current;
+    coordinator.configure({
+      enabled: cameraOn,
+      captureMode: rapidScanSession.captureMode,
+      controllerOptions: getAutoCaptureOptions(
+        rapidScanSession.profileId,
+      ),
+      schedule: scheduler.schedule,
+      cancel: scheduler.cancel,
+      minIntervalMs: scheduler.minIntervalMs,
+      analyze() {
+        if (
+          !cameraOnRef.current ||
+          video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+        ) {
+          return {
+            sharpness: 0,
+            glareRatio: 1,
+            perceptualHash: 0n,
+          };
+        }
+        return analyzeCameraFrame(video, analysisCanvas);
+      },
+    });
+
+    return () => {
+      coordinator.stop();
+    };
+  }, [
+    cameraGeneration,
+    cameraOn,
+    rapidScanSession.captureMode,
+    rapidScanSession.profileId,
+  ]);
 
   async function clearQueueAndRecent() {
     processor.stop();
@@ -669,6 +792,13 @@ export default function RapidScanCamera() {
         </Button>
       </div>
 
+      <RapidScanSessionBar
+        session={rapidScanSession}
+        sets={rapidScanSets}
+        counts={sessionCounts}
+        onChange={changeRapidScanSession}
+      />
+
       <Card className="overflow-hidden bg-black">
         <div className="relative">
           <div className="flex h-[62vh] min-h-[360px] max-h-[680px] w-full items-center justify-center overflow-hidden bg-black">
@@ -687,7 +817,9 @@ export default function RapidScanCamera() {
               onPointerUp={handleTapFocus}
             />
           </div>
-          <canvas ref={canvasRef} className="hidden" />
+          <canvas ref={originalCanvasRef} className="hidden" />
+          <canvas ref={previewCanvasRef} className="hidden" />
+          <canvas ref={analysisCanvasRef} className="hidden" />
 
           {!cameraOn && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-white">
@@ -737,7 +869,9 @@ export default function RapidScanCamera() {
 
       <div className="flex justify-center py-2">
         <button
-          onClick={() => void capture()}
+          onClick={() =>
+            void autoCaptureCoordinatorRef.current.manualCapture()
+          }
           disabled={!cameraOn || busy}
           className={cn(
             "flex h-20 w-20 items-center justify-center rounded-full transition active:scale-95",
@@ -903,10 +1037,10 @@ export default function RapidScanCamera() {
                   {row.error && <div className="truncate text-xs text-destructive">{row.error}</div>}
                 </div>
                 <div className="flex flex-col items-end gap-1">
-                  <Badge variant={row.status === "completed" ? "default" : row.status === "error" ? "destructive" : "secondary"}>
+                  <Badge variant={row.status === "completed" || row.status === "saved" ? "default" : isRetryableScanStatus(row.status) ? "destructive" : "secondary"}>
                     {row.status === "completed" && typeof row.value === "number" ? `$${row.value.toFixed(2)}` : row.status}
                   </Badge>
-                  {row.status === "error" && (
+                  {isRetryableScanStatus(row.status) && (
                     <Button variant="outline" size="sm" onClick={() => void retryScan(row.id)}>
                       <RefreshCw className="mr-1 h-3 w-3" /> Retry
                     </Button>

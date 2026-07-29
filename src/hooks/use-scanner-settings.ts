@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import type { CaptureProfileId } from "@/lib/rapidScan/contracts";
 
 const SCANNER_SETTINGS_KEY = "card-scanner-settings";
 
@@ -22,6 +23,11 @@ export interface ScannerSettings {
   autoCaptureEnabled: boolean;
 
   batchScanSize: number;
+
+  captureMode: "auto" | "manual";
+  selectedSetId: string | null;
+  selectedSetName: string | null;
+  captureProfileId: CaptureProfileId;
 
   // Microscope settings
   preferredMicroscopeDeviceId: string;
@@ -53,6 +59,11 @@ const DEFAULT_SETTINGS: ScannerSettings = {
 
   batchScanSize: 3,
 
+  captureMode: "manual",
+  selectedSetId: null,
+  selectedSetName: null,
+  captureProfileId: "standard",
+
   preferredMicroscopeDeviceId: "",
 
   foilDetectionEnabled: true,
@@ -61,31 +72,47 @@ const DEFAULT_SETTINGS: ScannerSettings = {
   gameTypeFilter: "auto",
 };
 
+function readStoredScannerSettings(): Partial<ScannerSettings> | null {
+  try {
+    const stored = localStorage.getItem(SCANNER_SETTINGS_KEY);
+    if (!stored) return null;
+    const parsed: unknown = JSON.parse(stored);
+    return parsed && typeof parsed === "object"
+      ? parsed as Partial<ScannerSettings>
+      : null;
+  } catch (error) {
+    console.error("Failed to load scanner settings:", error);
+    return null;
+  }
+}
+
+export function updateStoredScannerSettings(
+  updates: Partial<ScannerSettings>,
+  fallback: ScannerSettings = DEFAULT_SETTINGS,
+): ScannerSettings {
+  const stored = readStoredScannerSettings();
+  const newSettings = {
+    ...DEFAULT_SETTINGS,
+    ...(stored ?? fallback),
+    ...updates,
+  };
+  try {
+    localStorage.setItem(SCANNER_SETTINGS_KEY, JSON.stringify(newSettings));
+  } catch (error) {
+    console.error("Failed to save scanner settings:", error);
+  }
+  return newSettings;
+}
+
 export function useScannerSettings() {
   const [settings, setSettings] = useState<ScannerSettings>(DEFAULT_SETTINGS);
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(SCANNER_SETTINGS_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        setSettings({ ...DEFAULT_SETTINGS, ...parsed });
-      }
-    } catch (error) {
-      console.error("Failed to load scanner settings:", error);
-    }
+    setSettings(getScannerSettings());
   }, []);
 
   const updateSettings = useCallback((updates: Partial<ScannerSettings>) => {
-    setSettings((prev) => {
-      const newSettings = { ...prev, ...updates };
-      try {
-        localStorage.setItem(SCANNER_SETTINGS_KEY, JSON.stringify(newSettings));
-      } catch (error) {
-        console.error("Failed to save scanner settings:", error);
-      }
-      return newSettings;
-    });
+    setSettings((prev) => updateStoredScannerSettings(updates, prev));
   }, []);
 
   const resetSettings = useCallback(() => {
@@ -101,13 +128,6 @@ export function useScannerSettings() {
 }
 
 export function getScannerSettings(): ScannerSettings {
-  try {
-    const stored = localStorage.getItem(SCANNER_SETTINGS_KEY);
-    if (stored) {
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
-    }
-  } catch (error) {
-    console.error("Failed to load scanner settings:", error);
-  }
-  return DEFAULT_SETTINGS;
+  const stored = readStoredScannerSettings();
+  return stored ? { ...DEFAULT_SETTINGS, ...stored } : DEFAULT_SETTINGS;
 }

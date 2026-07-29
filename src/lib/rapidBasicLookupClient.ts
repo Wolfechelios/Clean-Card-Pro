@@ -1,5 +1,6 @@
 import { findPriceChartingYuGiOhMatch, parseYugiohOcrText } from "@/lib/cardOcrParser";
 import { lookupYugiohByPrintedCode } from "@/lib/yugiohDirectLookup";
+import { normalizeYugiohPrintedCode } from "@/lib/yugiohSetCodeIndex";
 
 export type RapidBasicLookupResponse = {
   success: boolean;
@@ -13,6 +14,8 @@ export type RapidBasicLookupResponse = {
     sport_type?: string | null;
     year?: string | null;
     manufacturer?: string | null;
+    image_url?: string | null;
+    image_url_small?: string | null;
     confidence?: number | null;
   } | null;
   pricing?: { raw?: number | null; psa8?: number | null; psa9?: number | null; psa10?: number | null; cgc9?: number | null; cgc10?: number | null; highestSold?: number | null; url?: string | null } | null;
@@ -62,7 +65,9 @@ export async function runRapidBasicLookup(args: { imageUrl: string | null; ocrTe
     });
     if (localMatch) return fromPriceChartingMatch(localMatch);
 
-    const directYgo = await lookupYugiohByPrintedCode(args.setCode || parsed.setCode);
+    const directYgo = await lookupYugiohByPrintedCode(
+      normalizeYugiohPrintedCode(args.setCode || parsed.setCode),
+    );
     if (directYgo) return directYgo;
   }
 
