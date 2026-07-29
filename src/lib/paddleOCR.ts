@@ -79,33 +79,81 @@ export type PaddleOCRResult = {
   rawResult: unknown;
 };
 
+export type PaddleOCRImageSource =
+  | string
+  | Blob
+  | ImageBitmap
+  | HTMLImageElement
+  | HTMLCanvasElement
+  | HTMLVideoElement;
+
+function isImageBitmap(source: PaddleOCRImageSource): source is ImageBitmap {
+  return (
+    typeof ImageBitmap !== "undefined" &&
+    source instanceof ImageBitmap
+  );
+}
+
 /**
- * Convert various image sources to a data URL string
+ * Convert browser image sources to the string input expected by the OCR engine.
+ * Blob inputs are decoded without FileReader so Rapid Scan never allocates a
+ * second base64 copy of the captured file.
  */
-function toDataURL(
-  source: string | HTMLImageElement | HTMLCanvasElement | HTMLVideoElement
-): string {
+export async function paddleImageToDataURL(
+  source: PaddleOCRImageSource,
+): Promise<string> {
   if (typeof source === "string") {
     return source;
   }
 
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Failed to get canvas context");
-
-  if (source instanceof HTMLVideoElement) {
-    canvas.width = source.videoWidth;
-    canvas.height = source.videoHeight;
-    ctx.drawImage(source, 0, 0);
-  } else if (source instanceof HTMLImageElement) {
-    canvas.width = source.naturalWidth || source.width;
-    canvas.height = source.naturalHeight || source.height;
-    ctx.drawImage(source, 0, 0);
-  } else if (source instanceof HTMLCanvasElement) {
-    return source.toDataURL("image/png");
+  let drawable: Exclude<PaddleOCRImageSource, string | Blob>;
+  let decodedBitmap: ImageBitmap | null = null;
+  if (source instanceof Blob) {
+    if (typeof createImageBitmap !== "function") {
+      throw new Error("Browser image decoding is unavailable");
+    }
+    decodedBitmap = await createImageBitmap(source);
+    drawable = decodedBitmap;
+  } else {
+    drawable = source;
   }
 
-  return canvas.toDataURL("image/png");
+  try {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Failed to get canvas context");
+
+    if (
+      typeof HTMLVideoElement !== "undefined" &&
+      drawable instanceof HTMLVideoElement
+    ) {
+      canvas.width = drawable.videoWidth;
+      canvas.height = drawable.videoHeight;
+      ctx.drawImage(drawable, 0, 0);
+    } else if (
+      typeof HTMLImageElement !== "undefined" &&
+      drawable instanceof HTMLImageElement
+    ) {
+      canvas.width = drawable.naturalWidth || drawable.width;
+      canvas.height = drawable.naturalHeight || drawable.height;
+      ctx.drawImage(drawable, 0, 0);
+    } else if (
+      typeof HTMLCanvasElement !== "undefined" &&
+      drawable instanceof HTMLCanvasElement
+    ) {
+      return drawable.toDataURL("image/png");
+    } else if (isImageBitmap(drawable)) {
+      canvas.width = drawable.width;
+      canvas.height = drawable.height;
+      ctx.drawImage(drawable, 0, 0);
+    } else {
+      throw new Error("Unsupported OCR image source");
+    }
+
+    return canvas.toDataURL("image/png");
+  } finally {
+    decodedBitmap?.close();
+  }
 }
 
 /**
@@ -114,7 +162,7 @@ function toDataURL(
  * @returns OCR result with extracted text and line-by-line details
  */
 export async function runPaddleOCR(
-  imageSource: string | HTMLImageElement | HTMLCanvasElement | HTMLVideoElement
+  imageSource: PaddleOCRImageSource
 ): Promise<PaddleOCRResult> {
   await initPaddleOCR();
   
@@ -127,7 +175,7 @@ export async function runPaddleOCR(
 
   try {
     // Convert to data URL string for the OCR engine
-    const imageUrl = toDataURL(imageSource);
+    const imageUrl = await paddleImageToDataURL(imageSource);
     const result = await ocrInstance.detect(imageUrl);
     const elapsed = Math.round(performance.now() - startTime);
     console.log(`[PaddleOCR] Detection completed in ${elapsed}ms`);
@@ -186,20 +234,7 @@ export async function warmupPaddleOCR(): Promise<boolean> {
  * @returns OCR result
  */
 export async function runPaddleOCROnFile(file: File): Promise<PaddleOCRResult> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const dataUrl = reader.result as string;
-        const result = await runPaddleOCR(dataUrl);
-        resolve(result);
-      } catch (error) {
-        reject(error);
-      }
-    };
-    reader.onerror = () => reject(new Error("Failed to read file"));
-    reader.readAsDataURL(file);
-  });
+  return runPaddleOCR(file);
 }
 
 /**
