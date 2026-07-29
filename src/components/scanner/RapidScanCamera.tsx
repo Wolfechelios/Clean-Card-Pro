@@ -39,6 +39,8 @@ import {
 } from "@/lib/idbQueue";
 import { useQueueProcessor } from "@/lib/queueProcessor";
 import {
+  countReaderCaptureStates,
+  isRetryableScanStatus,
   mergeRecentScanRows,
   reconcileScanRows,
   type ScanRowState,
@@ -252,10 +254,11 @@ export default function RapidScanCamera() {
   const totalValue = useMemo(() => {
     return rows.reduce((sum, row) => sum + (row.status === "completed" ? row.value || 0 : 0), 0);
   }, [rows]);
-  const failedCount = useMemo(
-    () => processor.queueMeta.filter((item) => item.status === "error").length,
+  const captureStateCounts = useMemo(
+    () => countReaderCaptureStates(processor.queueMeta),
     [processor.queueMeta],
   );
+  const failedCount = captureStateCounts.identification_error;
   const rapidScanSets = useMemo(
     () => {
       const available =
@@ -285,13 +288,14 @@ export default function RapidScanCamera() {
   );
   const sessionCounts = useMemo(
     () => ({
-      captured: processor.queueMeta.filter((item) => item.status === "queued").length,
-      processing: processor.queueMeta.filter((item) => item.status === "processing").length,
-      saved: rows.filter((row) => row.status === "completed").length,
-      review: 0,
-      errors: failedCount,
+      captured: captureStateCounts.captured,
+      processing:
+        captureStateCounts.processing_ocr + captureStateCounts.identified,
+      saved: captureStateCounts.saved,
+      review: captureStateCounts.needs_review,
+      errors: captureStateCounts.identification_error,
     }),
-    [failedCount, processor.queueMeta, rows],
+    [captureStateCounts],
   );
 
   const changeRapidScanSession = useCallback((next: RapidScanSession) => {
@@ -346,11 +350,14 @@ export default function RapidScanCamera() {
             id: item.id,
             imageUrl: URL.createObjectURL(item.blob),
             status:
-              item.status === "error"
-                ? "error"
+              item.captureStatus ??
+              (item.status === "error"
+                ? "identification_error"
                 : item.status === "processing"
-                  ? "processing"
-                  : "queued",
+                  ? "processing_ocr"
+                  : item.status === "success"
+                    ? "saved"
+                    : "captured"),
             error: item.error,
           }));
         return restored.length > 0 ? [...restored, ...current] : current;
@@ -395,7 +402,7 @@ export default function RapidScanCamera() {
   useEffect(() => {
     const current = processor.currentItem;
     if (!current) return;
-    setRows((prev) => prev.map((row) => (row.id === current ? { ...row, status: "processing" } : row)));
+    setRows((prev) => prev.map((row) => (row.id === current ? { ...row, status: "processing_ocr" } : row)));
   }, [processor.currentItem]);
 
   useEffect(() => {
@@ -410,7 +417,7 @@ export default function RapidScanCamera() {
       setRows((prev) =>
         prev.map((row) =>
           row.id === detail.id
-            ? { ...row, status: "error", error: detail.error || "Scan processing failed" }
+            ? { ...row, status: "identification_error", error: detail.error || "Scan processing failed" }
             : row,
         ),
       );
@@ -961,10 +968,10 @@ export default function RapidScanCamera() {
                   {row.error && <div className="truncate text-xs text-destructive">{row.error}</div>}
                 </div>
                 <div className="flex flex-col items-end gap-1">
-                  <Badge variant={row.status === "completed" ? "default" : row.status === "error" ? "destructive" : "secondary"}>
+                  <Badge variant={row.status === "completed" || row.status === "saved" ? "default" : isRetryableScanStatus(row.status) ? "destructive" : "secondary"}>
                     {row.status === "completed" && typeof row.value === "number" ? `$${row.value.toFixed(2)}` : row.status}
                   </Badge>
-                  {row.status === "error" && (
+                  {isRetryableScanStatus(row.status) && (
                     <Button variant="outline" size="sm" onClick={() => void retryScan(row.id)}>
                       <RefreshCw className="mr-1 h-3 w-3" /> Retry
                     </Button>
