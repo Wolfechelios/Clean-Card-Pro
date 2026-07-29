@@ -7,7 +7,7 @@ export type CameraLikeDevice = {
 export function isBlockedCameraLabel(label: string): boolean {
   const normalized = label.toLowerCase();
   return (
-    normalized.includes("external-camera") ||
+    normalized.includes("camo") ||
     normalized.includes("reincubate") ||
     normalized.includes("facebook") ||
     normalized.includes("portal") ||
