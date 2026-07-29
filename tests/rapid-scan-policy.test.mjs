@@ -13,6 +13,8 @@ import {
   shouldRetryDefaultCamera,
 } from "../src/lib/camera/cameraPolicy.ts";
 import {
+  countReaderCaptureStates,
+  isRetryableScanStatus,
   mergeRecentScanRows,
   reconcileScanRows,
 } from "../src/lib/rapidScan/scanRows.ts";
@@ -92,6 +94,50 @@ test("reconciles processing and error queue metadata into visible rows", () => {
   const retried = reconcileScanRows(failed, [{ id: "scan-1", status: "queued" }]);
   assert.equal(retried[0].status, "queued");
   assert.equal(retried[0].error, undefined);
+});
+
+test("keeps every durable capture state visible to the reader", () => {
+  const durableStates = [
+    "captured",
+    "processing_ocr",
+    "identified",
+    "saved",
+    "needs_review",
+    "identification_error",
+  ];
+
+  for (const status of durableStates) {
+    const [row] = reconcileScanRows(
+      [{ id: status, imageUrl: `blob:${status}`, status: "queued" }],
+      [{ id: status, status: "queued", captureStatus: status }],
+    );
+    assert.equal(row.status, status);
+  }
+});
+
+test("retry and session counts use durable review and error states", () => {
+  assert.equal(isRetryableScanStatus("needs_review"), true);
+  assert.equal(isRetryableScanStatus("identification_error"), true);
+  assert.equal(isRetryableScanStatus("error"), true);
+  assert.equal(isRetryableScanStatus("saved"), false);
+  assert.equal(isRetryableScanStatus("processing_ocr"), false);
+
+  const counts = countReaderCaptureStates([
+    { id: "1", status: "queued", captureStatus: "captured" },
+    { id: "2", status: "processing", captureStatus: "processing_ocr" },
+    { id: "3", status: "processing", captureStatus: "identified" },
+    { id: "4", status: "success", captureStatus: "saved" },
+    { id: "5", status: "error", captureStatus: "needs_review" },
+    { id: "6", status: "error", captureStatus: "identification_error" },
+  ]);
+  assert.deepEqual(counts, {
+    captured: 1,
+    processing_ocr: 1,
+    identified: 1,
+    saved: 1,
+    needs_review: 1,
+    identification_error: 1,
+  });
 });
 
 test("merges a completed result without dropping other queued scan rows", () => {
