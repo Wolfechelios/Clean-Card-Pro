@@ -11,6 +11,20 @@ import {
 } from "../src/lib/rapidScan/captureProfiles.ts";
 import { buildProfileConstraints } from "../src/lib/camera/cameraPolicy.ts";
 import { prepareCaptureImages } from "../src/lib/rapidScan/imagePipeline.ts";
+import { prepareCameraCaptureCanvases } from "../src/lib/rapidScan/captureCanvas.ts";
+import { listBundledYugiohSets } from "../src/lib/rapidScan/bundledYugiohSets.ts";
+import { deriveBundledYugiohSets } from "../scripts/generate-bundled-yugioh-sets.mjs";
+import {
+  getScannerSettings,
+  updateStoredScannerSettings,
+} from "../src/hooks/use-scanner-settings.ts";
+import {
+  filterRapidScanSets,
+  getRapidScanSession,
+  normalizeRapidScanSession,
+  saveRapidScanSession,
+  snapshotRapidScanCaptureContext,
+} from "../src/lib/rapidScan/session.ts";
 
 function replaceGlobal(name, value) {
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, name);
@@ -129,6 +143,245 @@ function createCanvasFakes(sourcePixels, sourceWidth, sourceHeight) {
   };
 }
 
+test("session defaults to Yu-Gi-Oh, manual capture, and standard profile", () => {
+  assert.deepEqual(normalizeRapidScanSession({}), {
+    id: "active",
+    game: "yugioh",
+    selectedSetId: null,
+    selectedSetName: null,
+    profileId: "standard",
+    captureMode: "manual",
+  });
+  assert.equal(
+    normalizeRapidScanSession({ profileId: "toString" }).profileId,
+    "standard",
+  );
+});
+
+test("session persistence preserves legacy scanner settings and snapshots changes", () => {
+  const storage = new Map([
+    [
+      "card-scanner-settings",
+      JSON.stringify({
+        autoConfirmEnabled: false,
+        gameTypeFilter: "auto",
+        captureMode: "auto",
+        selectedSetId: "lob",
+        selectedSetName: "Legend of Blue Eyes White Dragon",
+        captureProfileId: "sleeved",
+      }),
+    ],
+  ]);
+  const restoreStorage = replaceGlobal("localStorage", {
+    getItem: (key) => storage.get(key) ?? null,
+    setItem: (key, value) => storage.set(key, String(value)),
+  });
+
+  try {
+    assert.deepEqual(getRapidScanSession(), {
+      id: "active",
+      game: "yugioh",
+      selectedSetId: "lob",
+      selectedSetName: "Legend of Blue Eyes White Dragon",
+      profileId: "sleeved",
+      captureMode: "auto",
+    });
+
+    const next = {
+      id: "active",
+      game: "pokemon",
+      selectedSetId: "base",
+      selectedSetName: "Base Set",
+      profileId: "foil",
+      captureMode: "manual",
+    };
+    saveRapidScanSession(next);
+    next.selectedSetName = "Changed after save";
+    updateStoredScannerSettings({ scanMode: "SCAN_ONLY" });
+
+    assert.deepEqual(getRapidScanSession(), {
+      id: "active",
+      game: "pokemon",
+      selectedSetId: "base",
+      selectedSetName: "Base Set",
+      profileId: "foil",
+      captureMode: "manual",
+    });
+    assert.equal(
+      JSON.parse(storage.get("card-scanner-settings")).autoConfirmEnabled,
+      false,
+    );
+    assert.equal(
+      JSON.parse(storage.get("card-scanner-settings")).gameTypeFilter,
+      "auto",
+    );
+    assert.equal(
+      JSON.parse(storage.get("card-scanner-settings")).scanMode,
+      "SCAN_ONLY",
+    );
+  } finally {
+    restoreStorage();
+  }
+});
+
+test("legacy scanner settings receive Rapid Scan session defaults", () => {
+  const restoreStorage = replaceGlobal("localStorage", {
+    getItem: () => JSON.stringify({ autoConfirmEnabled: false }),
+  });
+
+  try {
+    const settings = getScannerSettings();
+    assert.equal(settings.autoConfirmEnabled, false);
+    assert.equal(settings.captureMode, "manual");
+    assert.equal(settings.selectedSetId, null);
+    assert.equal(settings.selectedSetName, null);
+    assert.equal(settings.captureProfileId, "standard");
+  } finally {
+    restoreStorage();
+  }
+});
+
+test("set catalog keeps the selected game and presents stable names", () => {
+  assert.deepEqual(
+    filterRapidScanSets(
+      [
+        { id: "metal", set_name: "Metal Raiders", game: "Yu-Gi-Oh!" },
+        { id: "base", set_name: "Base Set", game: "pokemon" },
+        { id: "legend", set_name: "Legend of Blue Eyes", game: "yugioh" },
+        { id: "missing", set_name: "", game: "yugioh" },
+      ],
+      "yugioh",
+    ),
+    [
+      { id: "legend", name: "Legend of Blue Eyes" },
+      { id: "metal", name: "Metal Raiders" },
+    ],
+  );
+});
+
+test("bundled Yu-Gi-Oh sets are available without authentication or network", () => {
+  const restoreFetch = replaceGlobal("fetch", () => {
+    throw new Error("network must not be used");
+  });
+
+  try {
+    const sets = listBundledYugiohSets([
+      { id: "LOCAL", name: "Locally Imported Set" },
+    ]);
+    assert.ok(sets.length > 100);
+    assert.deepEqual(
+      sets.find((set) => set.id === "LOB::Legend%20of%20Blue%20Eyes%20White%20Dragon"),
+      {
+        id: "LOB::Legend%20of%20Blue%20Eyes%20White%20Dragon",
+        name: "Legend of Blue Eyes White Dragon",
+      },
+    );
+    assert.deepEqual(
+      sets.find((set) => set.id === "LOCAL"),
+      { id: "LOCAL", name: "Locally Imported Set" },
+    );
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("bundled set derivation preserves ambiguous prefixes and is reproducible", () => {
+  const records = [
+    ["DUEA-EN001", "Duelist Alliance"],
+    ["DUEA-EN002", "Duelist Alliance Sneak Peek Participation Card"],
+    ["DUEA-EN003", "Duelist Alliance: Deluxe Edition"],
+    ["GENF-EN001", "Generation Force"],
+    ["GENF-EN002", "Generation Force Sneak Peek Participation Card"],
+    ["GENF-EN003", "Generation Force: Special Edition"],
+    ["INOV-EN001", "Invasion: Vengeance"],
+    ["INOV-EN002", "Invasion: Vengeance Sneak Peek Participation Card"],
+    ["INOV-EN003", "Invasion: Vengeance: Special Edition"],
+    ["SAST-EN001", "Savage Strike"],
+    ["SAST-EN002", "Savage Strike Sneak Peek Participation Card"],
+    ["SAST-EN003", "Savage Strike Special Edition"],
+    ["DUEA-EN004", "  Duelist   Alliance  "],
+  ];
+  const asIndex = Object.fromEntries(
+    records.map(([setCode, setName]) => [setCode, { setCode, setName }]),
+  );
+  const reversedIndex = Object.fromEntries(
+    [...records]
+      .reverse()
+      .map(([setCode, setName]) => [setCode, { setCode, setName }]),
+  );
+
+  const sets = deriveBundledYugiohSets(asIndex);
+  assert.deepEqual(sets, deriveBundledYugiohSets(reversedIndex));
+  assert.equal(new Set(sets.map((set) => set.id)).size, sets.length);
+  for (const prefix of ["DUEA", "GENF", "INOV", "SAST"]) {
+    assert.equal(
+      sets.filter((set) => set.id.startsWith(`${prefix}::`)).length,
+      3,
+      `${prefix} must retain all distinct products`,
+    );
+  }
+});
+
+test("camera capture keeps source pixels unrotated and rotates only the preview", () => {
+  const makeCanvas = () => {
+    const canvas = { width: 0, height: 0, operations: [], drawnSource: null };
+    canvas.getContext = () => ({
+      save: () => canvas.operations.push(["save"]),
+      restore: () => canvas.operations.push(["restore"]),
+      translate: (...args) => canvas.operations.push(["translate", ...args]),
+      rotate: (...args) => canvas.operations.push(["rotate", ...args]),
+      drawImage: (source) => {
+        canvas.operations.push(["drawImage"]);
+        canvas.drawnSource = source;
+      },
+    });
+    return canvas;
+  };
+  const video = { videoWidth: 3, videoHeight: 2 };
+  const originalCanvas = makeCanvas();
+  const previewCanvas = makeCanvas();
+
+  prepareCameraCaptureCanvases(video, originalCanvas, previewCanvas, 90);
+
+  assert.deepEqual([originalCanvas.width, originalCanvas.height], [3, 2]);
+  assert.equal(originalCanvas.drawnSource, video);
+  assert.equal(
+    originalCanvas.operations.some(([operation]) => operation === "rotate"),
+    false,
+  );
+  assert.deepEqual([previewCanvas.width, previewCanvas.height], [2, 3]);
+  assert.equal(previewCanvas.drawnSource, originalCanvas);
+  assert.equal(
+    previewCanvas.operations.some(([operation]) => operation === "rotate"),
+    true,
+  );
+});
+
+test("capture context snapshots every non-zero rotation and session selection", () => {
+  for (const wantedRotation of [90, 180, 270]) {
+    const session = {
+      id: "active",
+      game: "yugioh",
+      selectedSetId: "LOB",
+      selectedSetName: "Legend of Blue Eyes White Dragon",
+      profileId: "foil",
+      captureMode: "manual",
+    };
+    let rotation = wantedRotation;
+    const snapshot = snapshotRapidScanCaptureContext(session, rotation);
+
+    session.selectedSetName = "Changed after capture";
+    rotation = 0;
+
+    assert.equal(snapshot.rotation, wantedRotation);
+    assert.equal(
+      snapshot.session.selectedSetName,
+      "Legend of Blue Eyes White Dragon",
+    );
+    assert.notEqual(snapshot.rotation, rotation);
+  }
+});
+
 test("Prizm and Absolute profiles reduce highlights and require glare scoring", () => {
   const prizm = getCaptureProfile("chrome-prizm");
   const absolute = getCaptureProfile("absolute-high-gloss");
@@ -201,6 +454,54 @@ test("image preparation preserves the original and transforms only the OCR image
   } finally {
     restoreCanvas();
     restoreBitmap();
+  }
+});
+
+test("image preparation produces rotated derivatives for every non-zero rotation", async () => {
+  const sourcePixels = Uint8ClampedArray.from(
+    { length: 3 * 2 * 4 },
+    (_, index) => [40, 100, 160, 255][index % 4],
+  );
+
+  for (const rotation of [90, 180, 270]) {
+    const fakes = createCanvasFakes(sourcePixels, 3, 2);
+    const restoreBitmap = replaceGlobal(
+      "createImageBitmap",
+      async () => fakes.bitmap,
+    );
+    const restoreCanvas = replaceGlobal(
+      "OffscreenCanvas",
+      fakes.FakeOffscreenCanvas,
+    );
+    const originalBlob = new Blob([`original-${rotation}`], {
+      type: "image/jpeg",
+    });
+
+    try {
+      const prepared = await prepareCaptureImages(
+        originalBlob,
+        "standard",
+        rotation,
+      );
+      const expectedSize = rotation === 180 ? [3, 2] : [2, 3];
+
+      assert.equal(prepared.originalBlob, originalBlob);
+      assert.notEqual(prepared.libraryBlob, originalBlob);
+      assert.notEqual(prepared.ocrBlob, originalBlob);
+      assert.deepEqual(
+        fakes.canvases.map(({ width, height }) => [width, height]),
+        [expectedSize, expectedSize],
+      );
+      assert.equal(
+        fakes.canvases[0].operations.some(
+          ([operation]) => operation === "rotate",
+        ),
+        true,
+      );
+    } finally {
+      restoreCanvas();
+      restoreBitmap();
+    }
   }
 });
 
