@@ -29,6 +29,8 @@ export interface RecentScan {
   dbId?: string | null;
   isInLibrary?: boolean;
   libraryQuantity?: number;
+  quantityAction?: "created" | "incremented";
+  pricingStatus?: "pending" | "priced" | "needs_source_page" | "pricing_error";
   year?: string | null;
   team?: string | null;
   manufacturer?: string | null;
