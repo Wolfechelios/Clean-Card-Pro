@@ -280,8 +280,9 @@ async function workerLoop() {
     activeWorkers = Math.max(0, activeWorkers - 1);
     if (activeWorkers === 0) {
       useQueueProcessor.setState({ isRunning: false, currentItem: null });
+      if (stopRequested) return;
       void idbCountQueued().then((queuedCount) => {
-        if (queuedCount > 0 && !useQueueProcessor.getState().isPaused) {
+        if (queuedCount > 0 && !stopRequested && !useQueueProcessor.getState().isPaused) {
           useQueueProcessor.getState().start();
         }
       });
