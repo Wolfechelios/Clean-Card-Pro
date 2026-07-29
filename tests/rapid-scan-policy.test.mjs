@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
-  createSessionDuplicateTracker,
   fuseConfidence,
   normalizeConfidence,
+  selectPrintedIdentifier,
 } from "../src/lib/rapidScan/scanPolicy.ts";
 import {
   buildVideoConstraints,
@@ -29,22 +30,26 @@ test("fuses normalized OCR and lookup confidence without exceeding one", () => {
   assert.equal(fuseConfidence(70, { success: false }), 0.7);
 });
 
-test("duplicate tracking rejects only a repeated printed identifier in the same session", () => {
-  const tracker = createSessionDuplicateTracker("session-a");
-  const scan = { setCode: "SDY-046", cardNumber: "046", fullCode: "SDY-046" };
+test("repeated printed identifiers remain independently eligible for queue identification", async () => {
+  const scans = [
+    { setCode: "SDY-046", cardNumber: "046", fullCode: "SDY-046" },
+    { setCode: "SDY-046", cardNumber: "046", fullCode: "SDY-046" },
+  ];
+  assert.deepEqual(
+    scans.map((scan) =>
+      selectPrintedIdentifier(scan.setCode, scan.fullCode, scan.cardNumber),
+    ),
+    ["SDY-046", "SDY-046"],
+  );
 
-  const first = tracker.reserve(scan);
-  assert.equal(first.duplicate, false);
-  assert.equal(typeof first.token, "string");
-  assert.equal(tracker.reserve(scan).duplicate, true);
-
-  tracker.release(first.token);
-  const retry = tracker.reserve(scan);
-  assert.equal(retry.duplicate, false, "a failed scan must be retryable");
-
-  tracker.reset("session-b");
-  assert.equal(tracker.reserve(scan).duplicate, false);
-  assert.equal(tracker.reserve({ title: "Dark Magician" }).duplicate, false);
+  const queueSource = await readFile(
+    new URL("../src/lib/queueProcessor.ts", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(queueSource, /createSessionDuplicateTracker|sessionDuplicates/);
+  assert.doesNotMatch(queueSource, /duplicateReservation|\.reserve\(ocr\)/);
+  assert.doesNotMatch(queueSource, /type ProcessOutcome = [^;]*"duplicate"/);
+  assert.doesNotMatch(queueSource, /reason: "duplicate"|rapid-scan-item-duplicate/);
 });
 
 test("filters Camo while retaining native iPhone Continuity Camera", () => {
