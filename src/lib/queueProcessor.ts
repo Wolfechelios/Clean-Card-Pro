@@ -23,11 +23,11 @@ import {
 } from "@/lib/idbQueue";
 import { compactOcrText, hasReadablePrice, runRapidBasicLookup } from "@/lib/rapidBasicLookupClient";
 import { logTrace } from "@/lib/rapidDebug";
-import { isReadableTitle, isValidPrintedCode } from "@/lib/ocr/ocrQuality";
+import { isReadableTitle } from "@/lib/ocr/ocrQuality";
 import { pipelineTracer } from "@/lib/pipelineTracer";
 import {
-  createSessionDuplicateTracker,
   fuseConfidence,
+  selectPrintedIdentifier,
 } from "@/lib/rapidScan/scanPolicy";
 
 export type ProcessedCard = {
@@ -78,7 +78,6 @@ type ProcessorStore = ProcessorState & {
   _setQueueMeta: (v: QueueItemMeta[]) => void;
   _incrementProcessed: () => void;
   _incrementError: () => void;
-  resetSession: () => void;
 };
 
 const QUEUE_REFRESH_INTERVAL_MS = 1000;
@@ -90,7 +89,6 @@ const WORKER_CONCURRENCY = 3;
 
 let activeWorkers = 0;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-const sessionDuplicates = createSessionDuplicateTracker();
 
 let autoResumeChecked = false;
 
@@ -158,14 +156,6 @@ function blobToBase64DataUrl(blob: Blob, mime: string): Promise<string> {
   });
 }
 
-function firstValidPrintedIdentifier(...parts: Array<string | null | undefined>): string | null {
-  for (const part of parts) {
-    const value = String(part ?? "").trim();
-    if (isValidPrintedCode(value)) return value;
-  }
-  return null;
-}
-
 async function markQueueItemError(id: string, error: string): Promise<void> {
   logTrace(id, "error", { message: error });
   pipelineTracer.record({ itemId: id, stage: "save", status: "fail", error });
@@ -228,9 +218,6 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   _setQueueMeta: (v) => set({ queueMeta: v }),
   _incrementProcessed: () => set((s) => ({ processedCount: s.processedCount + 1 })),
   _incrementError: () => set((s) => ({ errorCount: s.errorCount + 1 })),
-  resetSession: () => {
-    sessionDuplicates.reset();
-  },
 }));
 
 function startWorker() {
@@ -287,7 +274,7 @@ async function workerLoop() {
 
 
 
-type ProcessOutcome = "processed" | "duplicate" | "error";
+type ProcessOutcome = "processed" | "error";
 
 async function processQueueItem(item: QueueItem): Promise<ProcessOutcome> {
   const store = useQueueProcessor.getState();
@@ -334,38 +321,16 @@ async function processQueueItem(item: QueueItem): Promise<ProcessOutcome> {
     },
   });
 
-  const duplicateReservation = sessionDuplicates.reserve(ocr);
-  if (duplicateReservation.duplicate) {
-    pipelineTracer.record({
-      itemId: item.id,
-      stage: "identify",
-      status: "skip",
-      meta: {
-        reason: "duplicate",
-        setCode: ocr?.setCode ?? null,
-        fullCode: ocr?.fullCode ?? null,
-      },
-    });
-    logTrace(item.id, "duplicate", { message: "Duplicate card detected in current session" });
-    await idbDelete(item.id);
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("rapid-scan-item-duplicate", { detail: { id: item.id } }));
-    }
-    return "duplicate";
-  }
-
   const hasStructured = Boolean(ocr?.title || ocr?.setCode || ocr?.cardNumber || ocr?.fullCode);
   if (!ocrText && !hasStructured) {
-    sessionDuplicates.release(duplicateReservation.token);
     pipelineTracer.record({ itemId: item.id, stage: "identify", status: "skip", error: "unreadable OCR" });
     await markQueueItemError(item.id, "Unreadable scan — retake photo");
     return "error";
   }
 
-  const printedIdentifier = firstValidPrintedIdentifier(ocr?.setCode, ocr?.fullCode, ocr?.cardNumber);
+  const printedIdentifier = selectPrintedIdentifier(ocr?.setCode, ocr?.fullCode, ocr?.cardNumber);
   const hasValidTitle = isReadableTitle(ocr?.title);
   if (!printedIdentifier) {
-    sessionDuplicates.release(duplicateReservation.token);
     pipelineTracer.record({ itemId: item.id, stage: "identify", status: "skip", error: "no printed code" });
     await markQueueItemError(item.id, "No printed set/card code found — retake photo closer to the code");
     return "error";
@@ -393,7 +358,6 @@ async function processQueueItem(item: QueueItem): Promise<ProcessOutcome> {
       "Printed-code card lookup",
     );
   } catch (error: unknown) {
-    sessionDuplicates.release(duplicateReservation.token);
     endIdentify({ status: isTimeoutError(error) ? "timeout" : "fail", error: errorMessage(error) });
     throw error;
   }
@@ -425,7 +389,6 @@ async function processQueueItem(item: QueueItem): Promise<ProcessOutcome> {
   });
 
   if (!lookup.success || !identify?.card_name) {
-    sessionDuplicates.release(duplicateReservation.token);
     await markQueueItemError(item.id, lookup.error || "No printed-code lookup match — retake photo closer to the printed code");
     return "error";
   }
