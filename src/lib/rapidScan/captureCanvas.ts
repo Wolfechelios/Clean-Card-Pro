@@ -42,3 +42,18 @@ export function prepareCameraCaptureCanvases(
   );
   previewContext.restore();
 }
+
+type ResettableCanvas = {
+  width: number;
+  height: number;
+};
+
+export function resetCameraCaptureCanvases(
+  ...canvases: Array<ResettableCanvas | null>
+): void {
+  for (const canvas of canvases) {
+    if (!canvas) continue;
+    canvas.width = 0;
+    canvas.height = 0;
+  }
+}
