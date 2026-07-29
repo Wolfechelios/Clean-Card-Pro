@@ -1,8 +1,4 @@
-export type ScanIdentifier = {
-  setCode?: string | null;
-  cardNumber?: string | null;
-  fullCode?: string | null;
-};
+import { isValidPrintedCode } from "@/lib/ocr/ocrQuality";
 
 export type LookupConfidence = {
   success?: boolean;
@@ -32,36 +28,12 @@ export function fuseConfidence(
   return Math.min(ocr, matched);
 }
 
-function printedIdentifier(input: ScanIdentifier): string | null {
-  const value = input.fullCode || input.setCode || input.cardNumber;
-  if (!value) return null;
-  const normalized = String(value).trim().toUpperCase().replace(/\s+/g, "");
-  return normalized || null;
-}
-
-export function createSessionDuplicateTracker(initialSessionId = "session") {
-  let sessionId = initialSessionId;
-  const seen = new Set<string>();
-
-  return {
-    reserve(input: ScanIdentifier): { duplicate: boolean; token: string | null } {
-      const identifier = printedIdentifier(input);
-      if (!identifier) return { duplicate: false, token: null };
-
-      const token = `${sessionId}:${identifier}`;
-      if (seen.has(token)) return { duplicate: true, token: null };
-
-      seen.add(token);
-      return { duplicate: false, token };
-    },
-
-    release(token: string | null | undefined): void {
-      if (token) seen.delete(token);
-    },
-
-    reset(nextSessionId = `${Date.now()}-${Math.random().toString(16).slice(2)}`): void {
-      sessionId = nextSessionId;
-      seen.clear();
-    },
-  };
+export function selectPrintedIdentifier(
+  ...parts: Array<string | null | undefined>
+): string | null {
+  for (const part of parts) {
+    const value = String(part ?? "").trim();
+    if (isValidPrintedCode(value)) return value;
+  }
+  return null;
 }
