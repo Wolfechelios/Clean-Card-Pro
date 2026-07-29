@@ -231,23 +231,47 @@ function chain(table: string): any {
   return api;
 }
 
+const LOCAL_USER = {
+  id: "local-user",
+  aud: "authenticated",
+  role: "authenticated",
+  email: "local@device",
+  app_metadata: {},
+  user_metadata: {},
+  created_at: new Date(0).toISOString(),
+};
+
+const LOCAL_SESSION = {
+  access_token: "local-only",
+  refresh_token: "local-only",
+  token_type: "bearer",
+  expires_in: 31536000,
+  expires_at: Math.floor(Date.now() / 1000) + 31536000,
+  user: LOCAL_USER,
+};
+
 export const localOnlyClient: any = {
   from: (table: string) => chain(table),
 
   auth: {
-    getSession: () => ok({ session: null }),
-    getUser: () => ok({ user: { id: "local-user" } }),
+    getSession: () => ok({ session: LOCAL_SESSION }),
+    getUser: () => ok({ user: LOCAL_USER }),
     signOut: () => ok(null),
     signInWithPassword: () => fail({ message: "Cloud auth disabled. Local-only mode is active." }),
     signUp: () => fail({ message: "Cloud auth disabled. Local-only mode is active." }),
     updateUser: () => ok(null),
-    onAuthStateChange: () => ({
-      data: {
-        subscription: {
-          unsubscribe: () => {},
+    onAuthStateChange: (callback?: (event: string, session: any) => void) => {
+      if (typeof callback === "function") {
+        setTimeout(() => callback("SIGNED_IN", LOCAL_SESSION), 0);
+      }
+      return {
+        data: {
+          subscription: {
+            unsubscribe: () => {},
+          },
         },
-      },
-    }),
+      };
+    },
   },
 
   storage: {

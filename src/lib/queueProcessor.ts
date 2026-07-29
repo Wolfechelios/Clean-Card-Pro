@@ -89,6 +89,7 @@ const ANOMALY_PAUSE_STORAGE_KEY = "rapid-scan-anomaly-paused";
 const WORKER_CONCURRENCY = 3;
 
 let activeWorkers = 0;
+let stopRequested = false;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 const sessionDuplicates = createSessionDuplicateTracker();
 
@@ -192,6 +193,7 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
       set({ isPaused: true, isPausedByAnomaly: true });
       return;
     }
+    stopRequested = false;
     if (!get().isRunning) {
       set({ isRunning: true, isPaused: false, isPausedByAnomaly: false });
     }
@@ -199,6 +201,7 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
   },
 
   stop: () => {
+    stopRequested = true;
     set({ isRunning: false, isPaused: false, currentItem: null });
   },
 
@@ -206,6 +209,7 @@ export const useQueueProcessor = create<ProcessorStore>((set, get) => ({
 
   resume: () => {
     writeAnomalyPauseFlag(false);
+    stopRequested = false;
     set({ isPaused: false, isPausedByAnomaly: false });
     if (!get().isRunning) set({ isRunning: true });
     startWorker();
@@ -276,8 +280,9 @@ async function workerLoop() {
     activeWorkers = Math.max(0, activeWorkers - 1);
     if (activeWorkers === 0) {
       useQueueProcessor.setState({ isRunning: false, currentItem: null });
+      if (stopRequested) return;
       void idbCountQueued().then((queuedCount) => {
-        if (queuedCount > 0 && !useQueueProcessor.getState().isPaused) {
+        if (queuedCount > 0 && !stopRequested && !useQueueProcessor.getState().isPaused) {
           useQueueProcessor.getState().start();
         }
       });

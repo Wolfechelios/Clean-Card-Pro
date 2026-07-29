@@ -85,7 +85,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const { syncFromSupabase } = await import("@/lib/localCards");
         const rows = await syncFromSupabase();
-        localStorage.setItem(key, String(Date.now()));
+        // Only mark as synced when the restore actually returned data, so a
+        // failed/offline attempt retries automatically on the next sign-in.
+        if (rows.length > 0) {
+          localStorage.setItem(key, String(Date.now()));
+        }
         console.log(`[auth] Restored ${rows.length} cards from cloud for user ${userId}`);
       } catch (e) {
         console.warn("[auth] Cloud restore failed", e);
