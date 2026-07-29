@@ -1,4 +1,5 @@
 import type { RapidBasicLookupResponse } from "@/lib/rapidBasicLookupClient";
+import { normalizeYugiohPrintedCode } from "@/lib/yugiohSetCodeIndex";
 
 const REMOTE_CARD_BY_SETCODE_URL = "https://db.ygoprodeck.com/api/v7/cardinfo.php";
 
@@ -17,14 +18,15 @@ type LocalYgoPrint = {
 
 const memoryCache = new Map<string, LocalYgoPrint>();
 
-export function normalizeCode(value: string | null | undefined): string | null {
-  const cleaned = String(value ?? "")
-    .trim()
-    .toUpperCase()
-    .replace(/[\u2010\u2011\u2012\u2013\u2014\u2212]/g, "-")
-    .replace(/\s+/g, "")
-    .replace(/([A-Z0-9]{2,8})(EN|JP|KR|DE|FR|IT|SP|PT|JE|AE)(\d{3,5}[A-Z]?)$/, "$1-$2$3");
-  return cleaned.length >= 5 ? cleaned : null;
+type ApiRow = Record<string, unknown>;
+
+function isApiRow(value: unknown): value is ApiRow {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function text(value: unknown): string | null {
+  const normalized = String(value ?? "").trim();
+  return normalized || null;
 }
 
 function money(value: unknown): number | null {
@@ -33,19 +35,34 @@ function money(value: unknown): number | null {
   return Math.round(n * 100) / 100;
 }
 
-function buildPrint(card: any, wantedCode: string): LocalYgoPrint | null {
-  if (!card) return null;
-  const sets: any[] = Array.isArray(card.card_sets) ? card.card_sets : [];
-  const match = sets.find((s) => normalizeCode(s?.set_code) === wantedCode) ?? sets[0] ?? {};
-  const price = card.card_prices?.[0] ?? {};
+function buildPrint(card: unknown, wantedCode: string): LocalYgoPrint | null {
+  if (!isApiRow(card)) return null;
+  const sets = Array.isArray(card.card_sets)
+    ? card.card_sets.filter(isApiRow)
+    : [];
+  const match =
+    sets.find(
+      (set) =>
+        normalizeYugiohPrintedCode(String(set.set_code ?? "")) === wantedCode,
+    ) ??
+    sets[0] ??
+    {};
+  const prices = Array.isArray(card.card_prices)
+    ? card.card_prices.filter(isApiRow)
+    : [];
+  const images = Array.isArray(card.card_images)
+    ? card.card_images.filter(isApiRow)
+    : [];
+  const price = prices[0] ?? {};
+  const image = images[0] ?? {};
   return {
     setCode: wantedCode,
-    cardName: card.name ?? null,
-    setName: match.set_name ?? null,
-    rarity: match.set_rarity ?? null,
+    cardName: text(card.name),
+    setName: text(match.set_name),
+    rarity: text(match.set_rarity),
     setPrice: money(match.set_price),
-    imageUrl: card.card_images?.[0]?.image_url ?? null,
-    imageUrlSmall: card.card_images?.[0]?.image_url_small ?? null,
+    imageUrl: text(image.image_url),
+    imageUrlSmall: text(image.image_url_small),
     tcgplayerPrice: money(price.tcgplayer_price),
     ebayPrice: money(price.ebay_price),
     cardmarketPrice: money(price.cardmarket_price),
@@ -53,7 +70,6 @@ function buildPrint(card: any, wantedCode: string): LocalYgoPrint | null {
 }
 
 function responseFromPrint(print: LocalYgoPrint, wanted: string, source: "cache" | "ygoprodeck"): RapidBasicLookupResponse {
-  const raw = money(print.setPrice) ?? money(print.tcgplayerPrice) ?? money(print.ebayPrice) ?? money(print.cardmarketPrice);
   return {
     success: true,
     source,
@@ -67,9 +83,11 @@ function responseFromPrint(print: LocalYgoPrint, wanted: string, source: "cache"
       sport_type: null,
       year: null,
       manufacturer: "Konami",
+      image_url: print.imageUrl,
+      image_url_small: print.imageUrlSmall,
       confidence: 0.99,
     },
-    pricing: { raw, psa8: null, psa9: null, psa10: null, cgc9: null, cgc10: null, highestSold: raw, url: print.imageUrl ?? null },
+    pricing: null,
     priceChartingUrl: null,
     googleLensUrl: null,
     requiresDisambiguation: false,
@@ -77,7 +95,7 @@ function responseFromPrint(print: LocalYgoPrint, wanted: string, source: "cache"
 }
 
 export async function lookupYugiohByPrintedCode(setCode: string | null | undefined): Promise<RapidBasicLookupResponse | null> {
-  const wanted = normalizeCode(setCode);
+  const wanted = normalizeYugiohPrintedCode(setCode);
   if (!wanted) return null;
   if (!/^[A-Z0-9]{2,8}-(?:EN|JP|KR|DE|FR|IT|SP|PT|JE|AE)?\d{3,5}[A-Z]?$/.test(wanted)) return null;
 
