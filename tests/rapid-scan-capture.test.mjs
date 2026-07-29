@@ -6,12 +6,23 @@ import {
   hammingDistance,
 } from "../src/lib/rapidScan/frameAnalysis.ts";
 import {
+  analyzeCameraFrame,
+  createAutoCaptureController,
+  createAutoCaptureCoordinator,
+  createCameraFrameScheduler,
+  createFrameAnalysisLoop,
+  getAutoCaptureOptions,
+} from "../src/lib/rapidScan/autoCapture.ts";
+import {
   CAPTURE_PROFILES,
   getCaptureProfile,
 } from "../src/lib/rapidScan/captureProfiles.ts";
 import { buildProfileConstraints } from "../src/lib/camera/cameraPolicy.ts";
 import { prepareCaptureImages } from "../src/lib/rapidScan/imagePipeline.ts";
-import { prepareCameraCaptureCanvases } from "../src/lib/rapidScan/captureCanvas.ts";
+import {
+  prepareCameraCaptureCanvases,
+  resetCameraCaptureCanvases,
+} from "../src/lib/rapidScan/captureCanvas.ts";
 import { listBundledYugiohSets } from "../src/lib/rapidScan/bundledYugiohSets.ts";
 import { deriveBundledYugiohSets } from "../scripts/generate-bundled-yugioh-sets.mjs";
 import {
@@ -613,4 +624,445 @@ test("luma analysis derives sharpness, glare, and a stable physical-frame hash",
     glareRatio: 0.5,
     perceptualHash: 0xaa55aa55aa55aa55n,
   });
+});
+
+test("auto capture requires consecutive stable good frames", () => {
+  const controller = createAutoCaptureController({
+    requiredStableFrames: 3,
+    minSharpness: 40,
+    maxGlareRatio: 0.08,
+    cooldownMs: 500,
+  });
+  const good = {
+    sharpness: 60,
+    glareRatio: 0.02,
+    perceptualHash: 0b1010n,
+  };
+
+  assert.deepEqual(controller.observe(good, 0), {
+    capture: false,
+    rearmed: false,
+    reason: "stabilizing",
+  });
+  assert.equal(
+    controller.observe({ ...good, perceptualHash: 0b1011n }, 100).capture,
+    false,
+  );
+  assert.deepEqual(controller.observe(good, 200), {
+    capture: true,
+    rearmed: false,
+    reason: "stable",
+  });
+});
+
+test("bad or physically different frames restart auto capture stability", () => {
+  const controller = createAutoCaptureController({
+    requiredStableFrames: 2,
+    minSharpness: 40,
+    maxGlareRatio: 0.08,
+    cooldownMs: 0,
+  });
+  const good = {
+    sharpness: 60,
+    glareRatio: 0.02,
+    perceptualHash: 0b1n,
+  };
+
+  controller.observe(good, 0);
+  assert.equal(
+    controller.observe({ ...good, sharpness: 20 }, 10).reason,
+    "not_good",
+  );
+  assert.equal(controller.observe(good, 20).capture, false);
+  assert.equal(
+    controller.observe({ ...good, perceptualHash: 0b1111n }, 30).capture,
+    false,
+  );
+  assert.equal(
+    controller.observe({ ...good, perceptualHash: 0b1110n }, 40).capture,
+    true,
+  );
+});
+
+test("auto capture suppresses the accepted card through distance two and rearms a different card after cooldown", () => {
+  const controller = createAutoCaptureController({
+    requiredStableFrames: 2,
+    minSharpness: 40,
+    maxGlareRatio: 0.08,
+    cooldownMs: 500,
+  });
+  const frame = {
+    sharpness: 60,
+    glareRatio: 0.02,
+    perceptualHash: 0b0000n,
+  };
+
+  controller.observe(frame, 0);
+  assert.equal(controller.observe(frame, 10).capture, true);
+  assert.equal(
+    controller.observe({ ...frame, perceptualHash: 0b0011n }, 1000).reason,
+    "same_card",
+  );
+  assert.equal(
+    controller.observe({ ...frame, perceptualHash: 0b1111n }, 200).reason,
+    "cooldown",
+  );
+  assert.deepEqual(
+    controller.observe({ ...frame, perceptualHash: 0b1111n }, 510),
+    { capture: false, rearmed: true, reason: "stabilizing" },
+  );
+  assert.equal(
+    controller.observe({ ...frame, perceptualHash: 0b1110n }, 520).capture,
+    true,
+  );
+});
+
+test("frame analysis loop is single-instance, throttled, and ignores cancelled callbacks", () => {
+  let nextId = 0;
+  const callbacks = new Map();
+  const cancelled = [];
+  const analyzedAt = [];
+  const loop = createFrameAnalysisLoop({
+    schedule(callback) {
+      const id = ++nextId;
+      callbacks.set(id, callback);
+      return id;
+    },
+    cancel(id) {
+      cancelled.push(id);
+      callbacks.delete(id);
+    },
+    minIntervalMs: 100,
+    analyze: (timestamp) => analyzedAt.push(timestamp),
+  });
+
+  loop.start();
+  loop.start();
+  assert.deepEqual([...callbacks.keys()], [1]);
+
+  const first = callbacks.get(1);
+  callbacks.delete(1);
+  first(0);
+  const second = callbacks.get(2);
+  callbacks.delete(2);
+  second(50);
+  const third = callbacks.get(3);
+  callbacks.delete(3);
+  third(100);
+  assert.deepEqual(analyzedAt, [0, 100]);
+
+  const stale = callbacks.get(4);
+  loop.stop();
+  assert.deepEqual(cancelled, [4]);
+  stale(200);
+  assert.deepEqual(analyzedAt, [0, 100]);
+  assert.equal(callbacks.size, 0);
+
+  loop.start();
+  assert.deepEqual([...callbacks.keys()], [5]);
+});
+
+test("frame analysis loop keeps scheduling after one frame cannot be analyzed", () => {
+  let nextId = 0;
+  const callbacks = new Map();
+  const loop = createFrameAnalysisLoop({
+    schedule(callback) {
+      const id = ++nextId;
+      callbacks.set(id, callback);
+      return id;
+    },
+    cancel(id) {
+      callbacks.delete(id);
+    },
+    analyze() {
+      throw new Error("temporary canvas failure");
+    },
+  });
+
+  loop.start();
+  const callback = callbacks.get(1);
+  callbacks.delete(1);
+  assert.throws(() => callback(0), /temporary canvas failure/);
+  assert.deepEqual([...callbacks.keys()], [2]);
+  loop.stop();
+});
+
+test("camera frame scheduler prefers video callbacks and throttles its animation-frame fallback", () => {
+  const videoCancelled = [];
+  let videoCallback;
+  const videoScheduler = createCameraFrameScheduler(
+    {
+      requestVideoFrameCallback(callback) {
+        videoCallback = callback;
+        return 41;
+      },
+      cancelVideoFrameCallback(id) {
+        videoCancelled.push(id);
+      },
+    },
+    {
+      requestAnimationFrame() {
+        throw new Error("fallback must not be scheduled");
+      },
+      cancelAnimationFrame() {},
+    },
+  );
+  let observedAt = -1;
+  assert.equal(videoScheduler.minIntervalMs, 0);
+  assert.equal(
+    videoScheduler.schedule((timestamp) => {
+      observedAt = timestamp;
+    }),
+    41,
+  );
+  videoCallback(125);
+  assert.equal(observedAt, 125);
+  videoScheduler.cancel(41);
+  assert.deepEqual(videoCancelled, [41]);
+
+  const fallbackCancelled = [];
+  let fallbackCallback;
+  const fallbackScheduler = createCameraFrameScheduler(
+    {},
+    {
+      requestAnimationFrame(callback) {
+        fallbackCallback = callback;
+        return 9;
+      },
+      cancelAnimationFrame(id) {
+        fallbackCancelled.push(id);
+      },
+    },
+  );
+  assert.equal(fallbackScheduler.minIntervalMs, 100);
+  assert.equal(fallbackScheduler.schedule(() => {}), 9);
+  assert.equal(typeof fallbackCallback, "function");
+  fallbackScheduler.cancel(9);
+  assert.deepEqual(fallbackCancelled, [9]);
+});
+
+test("camera frame analysis downsizes video pixels and delegates luma metrics", () => {
+  const checkerboardRgba = Uint8ClampedArray.from(
+    { length: 8 * 8 * 4 },
+    (_, index) => {
+      const pixel = Math.floor(index / 4);
+      if (index % 4 === 3) return 255;
+      return (Math.floor(pixel / 8) + (pixel % 8)) % 2 === 0 ? 255 : 0;
+    },
+  );
+  const draws = [];
+  const canvas = {
+    width: 0,
+    height: 0,
+    getContext() {
+      return {
+        drawImage: (...args) => draws.push(args),
+        getImageData: () => ({ data: checkerboardRgba }),
+      };
+    },
+  };
+  const video = { marker: "physical video frame" };
+
+  assert.deepEqual(analyzeCameraFrame(video, canvas, 8, 8), {
+    sharpness: 255,
+    glareRatio: 0.5,
+    perceptualHash: 0xaa55aa55aa55aa55n,
+  });
+  assert.deepEqual([canvas.width, canvas.height], [8, 8]);
+  assert.deepEqual(draws, [[video, 0, 0, 8, 8]]);
+});
+
+test("auto capture policy ignores glare for matte cards and tightens reflective profiles", () => {
+  const standardOptions = getAutoCaptureOptions("standard");
+  const absoluteOptions = getAutoCaptureOptions("absolute-high-gloss");
+  const standard = createAutoCaptureController(standardOptions);
+  const absolute = createAutoCaptureController(absoluteOptions);
+  const highGlare = {
+    sharpness: 60,
+    glareRatio: 0.2,
+    perceptualHash: 0b1010n,
+  };
+
+  assert.equal(standardOptions.maxGlareRatio, 1);
+  assert.equal(standardOptions.requiredStableFrames, 2);
+  assert.equal(absoluteOptions.maxGlareRatio, 0.06);
+  assert.equal(absoluteOptions.requiredStableFrames, 3);
+  assert.equal(standard.observe(highGlare, 0).capture, false);
+  assert.equal(standard.observe(highGlare, 10).capture, true);
+  assert.equal(absolute.observe(highGlare, 0).reason, "not_good");
+});
+
+test("auto capture coordinator wires mode, capture guard, reconfiguration, and latest context", async () => {
+  let nextId = 0;
+  const callbacks = new Map();
+  const cancelled = [];
+  const schedule = (callback) => {
+    const id = ++nextId;
+    callbacks.set(id, callback);
+    return id;
+  };
+  const cancel = (id) => {
+    cancelled.push(id);
+    callbacks.delete(id);
+  };
+  let metrics = {
+    sharpness: 60,
+    glareRatio: 0.02,
+    perceptualHash: 0b1n,
+  };
+  const captures = [];
+  let releaseCapture;
+  let markCaptureFinished;
+  const firstCaptureFinished = new Promise((resolve) => {
+    markCaptureFinished = resolve;
+  });
+  let latestContext = {
+    sessionId: "session-a",
+    profileId: "standard",
+    rotation: 0,
+  };
+  const coordinator = createAutoCaptureCoordinator();
+  coordinator.setCapture(async () => {
+    captures.push({ ...latestContext });
+    await new Promise((resolve) => {
+      releaseCapture = resolve;
+    });
+    markCaptureFinished();
+  });
+
+  coordinator.configure({
+    enabled: true,
+    captureMode: "auto",
+    controllerOptions: {
+      requiredStableFrames: 2,
+      minSharpness: 40,
+      maxGlareRatio: 0.08,
+      cooldownMs: 0,
+      maxHashDistance: 2,
+    },
+    schedule,
+    cancel,
+    minIntervalMs: 0,
+    analyze: () => metrics,
+  });
+  assert.deepEqual([...callbacks.keys()], [1]);
+
+  const runFrame = (timestamp) => {
+    const [id, callback] = callbacks.entries().next().value;
+    callbacks.delete(id);
+    callback(timestamp);
+  };
+  runFrame(0);
+  runFrame(10);
+  assert.deepEqual(captures, [
+    { sessionId: "session-a", profileId: "standard", rotation: 0 },
+  ]);
+
+  metrics = {
+    ...metrics,
+    perceptualHash: 0b1111n,
+  };
+  runFrame(20);
+  runFrame(30);
+  assert.equal(captures.length, 1, "in-flight capture must block another enqueue");
+
+  const oldPending = callbacks.values().next().value;
+  latestContext = {
+    sessionId: "session-b",
+    profileId: "absolute-high-gloss",
+    rotation: 90,
+  };
+  coordinator.setCapture(async () => {
+    captures.push({ ...latestContext });
+  });
+  coordinator.configure({
+    enabled: true,
+    captureMode: "manual",
+    controllerOptions: getAutoCaptureOptions("absolute-high-gloss"),
+    schedule,
+    cancel,
+    minIntervalMs: 0,
+    analyze: () => metrics,
+  });
+  assert.equal(callbacks.size, 0);
+  oldPending(40);
+  assert.equal(captures.length, 1, "manual mode must never auto-capture");
+
+  releaseCapture();
+  await firstCaptureFinished;
+  await Promise.resolve();
+  await coordinator.manualCapture();
+  assert.deepEqual(captures[1], {
+    sessionId: "session-b",
+    profileId: "absolute-high-gloss",
+    rotation: 90,
+  });
+
+  coordinator.configure({
+    enabled: true,
+    captureMode: "auto",
+    controllerOptions: getAutoCaptureOptions("standard"),
+    schedule,
+    cancel,
+    minIntervalMs: 0,
+    analyze: () => metrics,
+  });
+  assert.equal(callbacks.size, 1);
+  runFrame(50);
+  coordinator.configure({
+    enabled: true,
+    captureMode: "auto",
+    controllerOptions: getAutoCaptureOptions("absolute-high-gloss"),
+    schedule,
+    cancel,
+    minIntervalMs: 0,
+    analyze: () => metrics,
+  });
+  assert.equal(callbacks.size, 1, "profile/camera switches start one loop");
+  runFrame(60);
+  runFrame(70);
+  assert.equal(
+    captures.length,
+    2,
+    "profile switch must reset prior stability progress",
+  );
+  runFrame(80);
+  assert.equal(captures.length, 3);
+
+  coordinator.configure({
+    enabled: true,
+    captureMode: "auto",
+    controllerOptions: getAutoCaptureOptions("absolute-high-gloss"),
+    schedule,
+    cancel,
+    minIntervalMs: 0,
+    analyze: () => metrics,
+  });
+  assert.equal(
+    callbacks.size,
+    1,
+    "camera-generation reconfigure replaces its callback",
+  );
+  coordinator.stop();
+  assert.equal(callbacks.size, 0, "stop or unmount leaves no callback");
+  assert.ok(cancelled.length >= 3);
+});
+
+test("camera stop cleanup resets analysis, original, and preview canvases", () => {
+  const canvases = [
+    { width: 64, height: 64 },
+    { width: 1920, height: 1080 },
+    { width: 1080, height: 1920 },
+  ];
+
+  resetCameraCaptureCanvases(...canvases);
+
+  assert.deepEqual(
+    canvases.map(({ width, height }) => [width, height]),
+    [
+      [0, 0],
+      [0, 0],
+      [0, 0],
+    ],
+  );
 });
