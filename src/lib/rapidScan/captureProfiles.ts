@@ -8,6 +8,9 @@ export type CaptureProfile = {
   highlightCompression: number;
   glareScoring: boolean;
   burstFrames: number;
+  autoMinSharpness: number;
+  autoMaxGlareRatio: number;
+  autoCooldownMs: number;
 };
 
 const captureProfiles: Record<CaptureProfileId, CaptureProfile> = {
@@ -19,6 +22,9 @@ const captureProfiles: Record<CaptureProfileId, CaptureProfile> = {
     highlightCompression: 0,
     glareScoring: false,
     burstFrames: 1,
+    autoMinSharpness: 36,
+    autoMaxGlareRatio: 1,
+    autoCooldownMs: 250,
   },
   sleeved: {
     id: "sleeved",
@@ -28,6 +34,9 @@ const captureProfiles: Record<CaptureProfileId, CaptureProfile> = {
     highlightCompression: 0.15,
     glareScoring: true,
     burstFrames: 2,
+    autoMinSharpness: 38,
+    autoMaxGlareRatio: 0.12,
+    autoCooldownMs: 250,
   },
   foil: {
     id: "foil",
@@ -37,6 +46,9 @@ const captureProfiles: Record<CaptureProfileId, CaptureProfile> = {
     highlightCompression: 0.35,
     glareScoring: true,
     burstFrames: 3,
+    autoMinSharpness: 40,
+    autoMaxGlareRatio: 0.08,
+    autoCooldownMs: 250,
   },
   "chrome-prizm": {
     id: "chrome-prizm",
@@ -46,6 +58,9 @@ const captureProfiles: Record<CaptureProfileId, CaptureProfile> = {
     highlightCompression: 0.45,
     glareScoring: true,
     burstFrames: 3,
+    autoMinSharpness: 42,
+    autoMaxGlareRatio: 0.06,
+    autoCooldownMs: 250,
   },
   "absolute-high-gloss": {
     id: "absolute-high-gloss",
@@ -55,6 +70,9 @@ const captureProfiles: Record<CaptureProfileId, CaptureProfile> = {
     highlightCompression: 0.4,
     glareScoring: true,
     burstFrames: 3,
+    autoMinSharpness: 42,
+    autoMaxGlareRatio: 0.06,
+    autoCooldownMs: 250,
   },
   custom: {
     id: "custom",
@@ -64,6 +82,9 @@ const captureProfiles: Record<CaptureProfileId, CaptureProfile> = {
     highlightCompression: 0,
     glareScoring: true,
     burstFrames: 1,
+    autoMinSharpness: 40,
+    autoMaxGlareRatio: 0.1,
+    autoCooldownMs: 250,
   },
 };
 
