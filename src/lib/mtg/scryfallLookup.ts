@@ -79,8 +79,13 @@ function mapCard(data: any): ScryfallCard | null {
 async function getJson(url: string): Promise<any | null> {
   return rateLimited(async () => {
     try {
-      const response = await fetch(url, { headers: { Accept: "application/json" } });
+      // Browsers set their own User-Agent (this header is ignored there);
+      // non-browser callers need it because Scryfall rejects default agents.
+      const response = await fetch(url, {
+        headers: { Accept: "application/json", "User-Agent": "CleanCards/1.0 (card scanner)" },
+      });
       if (!response.ok) return null;
+
       return await response.json();
     } catch (error) {
       console.warn("[Scryfall] request failed:", error);
