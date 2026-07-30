@@ -376,14 +376,17 @@ export default function RapidScanCamera() {
     const onItemError = (event: Event) => {
       const detail = (event as CustomEvent<{ id?: string; error?: string }>).detail;
       if (!detail?.id) return;
-      setRows((prev) =>
-        prev.map((row) =>
-          row.id === detail.id
-            ? { ...row, status: "error", error: detail.error || "Scan processing failed" }
-            : row,
-        ),
-      );
+      const message = detail.error || "Scan processing failed";
+      setRows((prev) => {
+        const exists = prev.some((row) => row.id === detail.id);
+        if (exists) {
+          return prev.map((row) => (row.id === detail.id ? { ...row, status: "error", error: message } : row));
+        }
+        // The row may not exist yet (or was reconciled away) — surface the failure anyway.
+        return [{ id: detail.id!, imageUrl: "", status: "error", error: message }, ...prev];
+      });
     };
+
     const onDuplicate = (event: Event) => {
       const detail = (event as CustomEvent<{ id?: string }>).detail;
       if (!detail?.id) return;
@@ -894,7 +897,18 @@ export default function RapidScanCamera() {
           <div className="grid gap-2">
             {rows.slice(0, 30).map((row) => (
               <Card key={row.id} className="flex items-center gap-3 p-2">
-                <img src={row.imageUrl} alt="Captured card" className="h-16 w-12 rounded object-cover" />
+                {row.imageUrl ? (
+                  <img
+                    src={row.imageUrl}
+                    alt="Captured card"
+                    className="h-16 w-12 rounded object-cover"
+                    onError={(event) => {
+                      event.currentTarget.style.visibility = "hidden";
+                    }}
+                  />
+                ) : (
+                  <div className="h-16 w-12 rounded bg-muted" aria-hidden />
+                )}
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">{row.cardName || row.status}</div>
                   <div className="truncate text-xs text-muted-foreground">
@@ -904,8 +918,11 @@ export default function RapidScanCamera() {
                 </div>
                 <div className="flex flex-col items-end gap-1">
                   <Badge variant={row.status === "completed" ? "default" : row.status === "error" ? "destructive" : "secondary"}>
-                    {row.status === "completed" && typeof row.value === "number" ? `$${row.value.toFixed(2)}` : row.status}
+                    {row.status === "completed" && Number.isFinite(Number(row.value))
+                      ? `$${Number(row.value).toFixed(2)}`
+                      : row.status}
                   </Badge>
+
                   {row.status === "error" && (
                     <Button variant="outline" size="sm" onClick={() => void retryScan(row.id)}>
                       <RefreshCw className="mr-1 h-3 w-3" /> Retry

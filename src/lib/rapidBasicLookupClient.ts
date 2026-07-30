@@ -1,5 +1,7 @@
 import { findPriceChartingYuGiOhMatch, parseYugiohOcrText } from "@/lib/cardOcrParser";
 import { lookupYugiohByPrintedCode } from "@/lib/yugiohDirectLookup";
+import { lookupMtgByName, lookupMtgByPrintedCode, type ScryfallCard } from "@/lib/mtg/scryfallLookup";
+
 
 export type RapidBasicLookupResponse = {
   success: boolean;
@@ -45,7 +47,49 @@ function fromPriceChartingMatch(localMatch: NonNullable<Awaited<ReturnType<typeo
   };
 }
 
+function fromScryfall(card: ScryfallCard): RapidBasicLookupResponse {
+  const raw = card.priceUsd ?? card.priceUsdFoil ?? null;
+  return {
+    success: true,
+    source: "scryfall",
+    confidenceTier: "HIGH",
+    cardData: {
+      card_name: card.cardName,
+      card_set: card.setName || card.setCode,
+      card_number: card.collectorNumber || null,
+      rarity: card.rarity,
+      game_type: "Magic: The Gathering",
+      sport_type: null,
+      manufacturer: "Wizards of the Coast",
+      confidence: 0.95,
+    },
+    pricing: { raw, psa8: null, psa9: null, psa10: null, cgc9: null, cgc10: null, highestSold: null, url: card.scryfallUrl },
+    priceChartingUrl: null,
+    googleLensUrl: null,
+    requiresDisambiguation: false,
+  };
+}
+
+async function runMtgLookup(args: { setCode?: string | null; cardNumber?: string | null; title?: string | null }): Promise<RapidBasicLookupResponse> {
+  const byCode = await lookupMtgByPrintedCode(args.setCode, args.cardNumber);
+  if (byCode) return fromScryfall(byCode);
+
+  const byName = await lookupMtgByName(args.title);
+  if (byName) return fromScryfall(byName);
+
+  return {
+    success: false,
+    source: "none",
+    error: "No Magic card match. Retake the photo so the card name and the bottom-left set code are readable.",
+  };
+}
+
 export async function runRapidBasicLookup(args: { imageUrl: string | null; ocrText: string; title?: string | null; setName?: string | null; setCode?: string | null; cardNumber?: string | null; edition?: string | null; game?: string | null; gameTypeHint?: string; allowGoogleLens: boolean; timeoutMs?: number }): Promise<RapidBasicLookupResponse> {
+  const isMtg = /^mtg$/i.test(String(args.game ?? "")) || /mtg|magic/i.test(String(args.gameTypeHint ?? ""));
+  if (isMtg) {
+    return runMtgLookup({ setCode: args.setCode, cardNumber: args.cardNumber, title: args.title });
+  }
+
   const parsed = parseYugiohOcrText(args.ocrText);
   const isYugioh = !args.gameTypeHint || /yugioh|yu-gi-oh/i.test(args.gameTypeHint) || Boolean(args.setCode || parsed.setCode);
 
@@ -66,5 +110,6 @@ export async function runRapidBasicLookup(args: { imageUrl: string | null; ocrTe
     if (directYgo) return directYgo;
   }
 
-  return { success: false, source: "none", error: "No Yu-Gi-Oh printed-code lookup match. Retake photo closer to the set/card code." };
+  return { success: false, source: "none", error: "No printed-code lookup match. Retake the photo closer to the set/card code." };
 }
+
