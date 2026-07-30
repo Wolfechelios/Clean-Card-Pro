@@ -38,6 +38,10 @@ function looksLikePokemon(text: string): boolean {
 function looksLikeSports(text: string): boolean {
   return /topps|panini|upper deck|fleer|donruss|bowman|score|rookie\b|\brc\b/i.test(text);
 }
+function looksLikeMtg(text: string): boolean {
+  return /wizards of the coast|deckmaster|magic:? the gathering|\bmana cost\b|\binstant\b|\bsorcery\b|\bplaneswalker\b|\benchantment\b|\bartifact\b|legendary creature/i.test(text);
+}
+
 
 export function detectEdition(text: string): string | null {
   if (/1st\s*edition|first\s*edition/i.test(text)) return "1st Edition";
