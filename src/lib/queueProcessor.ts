@@ -23,7 +23,7 @@ import {
 } from "@/lib/idbQueue";
 import { compactOcrText, hasReadablePrice, runRapidBasicLookup } from "@/lib/rapidBasicLookupClient";
 import { logTrace } from "@/lib/rapidDebug";
-import { isReadableTitle, isValidPrintedCode } from "@/lib/ocr/ocrQuality";
+import { isReadableTitle, isValidMtgCode, isValidPrintedCode } from "@/lib/ocr/ocrQuality";
 import { pipelineTracer } from "@/lib/pipelineTracer";
 import {
   createSessionDuplicateTracker,
@@ -397,13 +397,14 @@ async function processQueueItem(item: QueueItem): Promise<ProcessOutcome> {
         ocrText,
         title: hasValidTitle ? ocr?.title ?? null : null,
         setName: null,
-        setCode: printedIdentifier,
+        setCode: isMtgScan ? ocr?.setCode ?? null : printedIdentifier,
         cardNumber: ocr?.cardNumber ?? null,
         edition: ocr?.edition ?? null,
         game: ocr?.game ?? null,
         gameTypeHint,
         allowGoogleLens: false,
       }),
+
       LOCAL_LOOKUP_TIMEOUT_MS,
       "Printed-code card lookup",
     );
