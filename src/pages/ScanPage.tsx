@@ -1,4 +1,5 @@
 import Scanner from "@/components/Scanner";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 function getLocalUserId() {
   const key = "clean_card_local_user_id";
@@ -13,7 +14,10 @@ function getLocalUserId() {
 export default function ScanPage() {
   return (
     <div className="container mx-auto p-6">
-      <Scanner userId={getLocalUserId()} />
+      {/* Scoped boundary: a scanner crash shows here instead of blanking the app. */}
+      <ErrorBoundary>
+        <Scanner userId={getLocalUserId()} />
+      </ErrorBoundary>
     </div>
   );
 }
