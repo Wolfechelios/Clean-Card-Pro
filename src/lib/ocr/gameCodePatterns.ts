@@ -18,6 +18,10 @@ const YGO_LEGACY_RE = /\b(?!ATK\b|DEF\b|HP\b|LP\b)([A-Z]{2,4})[-\s]?(\d{3})\b/i;
 const POKEMON_FRACTION_RE = /\b((?:SV)?\d{1,4})\s*\/\s*((?:SV)?\d{1,4})\b/i;
 const POKEMON_PROMO_RE = /\b(SWSH|SM|XY|BW|HGSS|DP|PR|SVP)\s*-?\s*(\d{1,3}[A-Z]?)\b/i;
 const SPORTS_RE = /\b(19[5-9]\d|20[0-3]\d)\b[\s\S]{0,80}?#\s*(\d{1,4})/i;
+// MTG bottom-left block: "0123/281 R  DMU" (number, optional total, rarity letter, 3-5 char set code)
+const MTG_COLLECTOR_RE = /\b(\d{1,4})(?:\s*\/\s*\d{1,4})?\s*([CURMTLSB])?\s*[\s·•]\s*([A-Z0-9]{3,5})\b/;
+const MTG_COMPACT_RE = /\b(\d{1,4})\s*\/\s*\d{1,4}\s+([CURM])\s+([A-Z0-9]{3,5})\b/;
+
 
 const NUMBER_FIX: Record<string, string> = { O: "0", o: "0", I: "1", l: "1", S: "5", B: "8" };
 
