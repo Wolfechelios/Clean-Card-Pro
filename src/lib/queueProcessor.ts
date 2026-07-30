@@ -367,14 +367,24 @@ async function processQueueItem(item: QueueItem): Promise<ProcessOutcome> {
     return "error";
   }
 
-  const printedIdentifier = firstValidPrintedIdentifier(ocr?.setCode, ocr?.fullCode, ocr?.cardNumber);
+  const isMtgScan = ocr?.game === "mtg" || (gameTypeHint ? /mtg|magic/i.test(gameTypeHint) : false);
   const hasValidTitle = isReadableTitle(ocr?.title);
+  let printedIdentifier = firstValidPrintedIdentifier(ocr?.setCode, ocr?.fullCode, ocr?.cardNumber);
+
+  if (isMtgScan && !printedIdentifier) {
+    // Magic codes ("DMU" / "DMU-123") don't match the YGO/Pokemon shapes, and
+    // older Magic cards have no collector line at all — a readable title is enough.
+    const mtgCode = [ocr?.setCode, ocr?.fullCode].find((value) => isValidMtgCode(value));
+    printedIdentifier = mtgCode ?? (hasValidTitle ? ocr?.title ?? null : null);
+  }
+
   if (!printedIdentifier) {
     sessionDuplicates.release(duplicateReservation.token);
     pipelineTracer.record({ itemId: item.id, stage: "identify", status: "skip", error: "no printed code" });
     await markQueueItemError(item.id, "No printed set/card code found — retake photo closer to the code");
     return "error";
   }
+
 
   logTrace(item.id, "lookup-start", { data: { setCode: printedIdentifier, cardNumber: ocr?.cardNumber ?? null, game: ocr?.game ?? null } });
   const endIdentify = pipelineTracer.begin(item.id, "identify");
