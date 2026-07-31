@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PriceCharting Parser</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .drop-zone { border: 2px dashed #cbd5e1; transition: all 0.2s ease; }
+        .drop-zone.active { border-color: #3b82f6; background-color: #eff6ff; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans min-h-screen p-8">
+    <div class="max-w-5xl mx-auto">
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold tracking-tight">PriceCharting Parser</h1>
+            <p class="text-slate-500 mt-2">Upload your CSV/XLSX export to parse card names and prices.</p>
+        </header>
+
+        <div id="dropZone" class="drop-zone bg-white rounded-xl p-12 text-center cursor-pointer hover:bg-slate-100 flex flex-col items-center justify-center gap-4 mb-8">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903a5 5 0 115.9 3.8M7 16V4m10 12V4m-4 8h4" />
+            </svg>
+            <div>
+                <p class="text-xl font-medium">Drop your file here</p>
+                <p class="text-sm text-slate-400">Supports .csv and .xlsx</p>
+            </div>
+            <input type="file" id="fileInput" class="hidden" accept=".xlsx,.csv">
+        </div>
+
+        <div id="resultArea" class="hidden space-y-6">
+            <div class="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-semibold">Parsed Data</h2>
+                    <button id="downloadBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+                        Download JSON
+                    </button>
+                </div>
+                <div class="grid grid-cols-3 gap-4 mb-6">
+                    <div class="p-4 bg-slate-50 rounded-lg border border-slate-100">
+                        <span class="text-xs text-slate-500 block mb-1">Cards</span>
+                        <span id="countVal" class="text-2xl font-bold">0</span>
+                    </div>
+                    <div class="p-4 bg-slate-50 rounded-lg border border-slate-100">
+                        <span class="text-xs text-slate-500 block mb-1">Valid Codes</span>
+                        <span id="codesVal" class="text-2xl font-bold">0</span>
+                    </div>
+                    <div class="p-4 bg-slate-50 rounded-lg border border-slate-100">
+                        <span class="text-xs text-slate-500 block mb-1">Avg Price</span>
+                        <span id="priceVal" class="text-2xl font-bold">$0.00</span>
+                    </div>
+                </div>
+                <div class="flex gap-4 mb-4">
+                    <button id="togglePreview" class="text-xs text-blue-600 hover:underline">Toggle JSON Preview</button>
+                    <button id="toggleLog" class="text-xs text-slate-600 hover:underline">Show Parsing Log</button>
+                </div>
+                <pre id="jsonPreview" class="bg-slate-900 text-slate-300 p-4 rounded-lg text-xs overflow-auto max-h-96 font-mono"></pre>
+                <div id="parsingLog" class="hidden mt-4 bg-slate-100 p-4 rounded-lg text-[10px] font-mono overflow-auto max-h-64 text-slate-600 border border-slate-200"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const resultArea = document.getElementById('resultArea');
+        const jsonPreview = document.getElementById('jsonPreview');
+        const parsingLog = document.getElementById('parsingLog');
+        const downloadBtn = document.getElementById('downloadBtn');
+
+        let finalData = [];
+
+        dropZone.onclick = () => fileInput.click();
+        
+        dropZone.ondragover = (e) => {
+            e.preventDefault();
+            dropZone.classList.add('active');
+        };
+
+        dropZone.ondragleave = () => {
+            dropZone.classList.remove('active');
+        };
+
+        dropZone.ondrop = (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('active');
+            if (e.dataTransfer.files.length) {
+                handleFile(e.dataTransfer.files[0]);
+            }
+        };
+
+        fileInput.onchange = (e) => {
+            if (e.target.files.length) {
+                handleFile(e.target.files[0]);
+            }
+        };
+
+        document.getElementById('togglePreview').onclick = () => {
+            jsonPreview.classList.toggle('hidden');
+        };
+
+        document.getElementById('toggleLog').onclick = (e) => {
+            parsingLog.classList.toggle('hidden');
+            e.target.textContent = parsingLog.classList.contains('hidden') ? 'Show Parsing Log' : 'Hide Parsing Log';
+        };
+
+        async function handleFile(file) {
+            parsingLog.innerHTML = '';
+            if (file.name.endsWith('.csv')) {
+                await parseCSV(file);
+            } else if (file.name.endsWith('.xlsx')) {
+                await parseXLSX(file);
+            } else {
+                alert('Please upload a .csv or .xlsx file');
+            }
+        }
+
+        async function parseXLSX(file) {
+            const workbook = new ExcelJS.Workbook();
+            await workbook.xlsx.load(file);
+            const worksheet = workbook.getWorksheet(1);
+            
+            const headers = [];
+            worksheet.getRow(1).eachCell((cell, colNumber) => {
+                headers[colNumber] = cell.value ? String(cell.value).trim().toLowerCase() : '';
+            });
+
+            const data = [];
+            let totalSetCodes = 0, totalPrice = 0;
+
+            worksheet.eachRow((row, rowNumber) => {
+                if (rowNumber === 1) return;
+                
+                const getVal = (keys) => {
+                    for (const key of keys) {
+                        const idx = headers.indexOf(key.toLowerCase());
+                        if (idx !== -1 && idx !== 0) {
+                            const val = row.getCell(idx).value;
+                            if (val) return String(val).trim();
+                        }
+                    }
+                    return null;
+                };
+
+                const result = processRow({
+                    name: getVal(['Product Name', 'Card Name', 'Product']),
+                    set: getVal(['Set', 'Set Name']),
+                    number: getVal(['Card Number', 'Number']),
+                    rawPrice: getVal(['Grade 8/Loose', 'Loose Price', 'Market Price']),
+                    psa9: getVal(['PSA 9', 'PSA 9 Price']),
+                    psa10: getVal(['PSA 10', 'PSA 10 Price']),
+                    rarity: getVal(['Rarity'])
+                }, rowNumber);
+
+                if (result) {
+                    data.push(result);
+                    if (result.setCode) totalSetCodes++;
+                    if (result.currentPriceRaw) totalPrice += result.currentPriceRaw;
+                }
+            });
+            finalize(data, totalSetCodes, totalPrice);
+        }
+
+        async function parseCSV(file) {
+            const text = await file.text();
+            const lines = text.split(/\r?\n/).filter(l => l.trim());
+            if (lines.length === 0) return;
+            
+            const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/["']/g, ''));
+            const data = [];
+            let totalSetCodes = 0, totalPrice = 0;
+
+            for (let i = 1; i < lines.length; i++) {
+                const values = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(v => v.trim().replace(/["']/g, ''));
+                if (values.length < headers.length) continue;
+                
+                const getVal = (keys) => {
+                    for (const key of keys) {
+                        const idx = headers.indexOf(key.toLowerCase());
+                        if (idx !== -1) return values[idx] || null;
+                    }
+                    return null;
+                };
+
+                const result = processRow({
+                    name: getVal(['Product Name', 'Card Name', 'Product']),
+                    set: getVal(['Set', 'Set Name']),
+                    number: getVal(['Card Number', 'Number']),
+                    rawPrice: getVal(['Grade 8/Loose', 'Loose Price', 'Market Price']),
+                    psa9: getVal(['PSA 9', 'PSA 9 Price']),
+                    psa10: getVal(['PSA 10', 'PSA 10 Price']),
+                    rarity: getVal(['Rarity'])
+                }, i + 1);
+
+                if (result) {
+                    data.push(result);
+                    if (result.setCode) totalSetCodes++;
+                    if (result.currentPriceRaw) totalPrice += result.currentPriceRaw;
+                }
+            }
+            finalize(data, totalSetCodes, totalPrice);
+        }
+
+        function processRow(vals, rowIdx) {
+            let name = vals.name;
+            let set = vals.set;
+            let number = vals.number;
+
+            const log = (msg) => {
+                parsingLog.innerHTML += `Row ${rowIdx}: ${msg}<br>`;
+            };
+
+            // Option A: Extract name/number from set column if name is missing
+            // Pattern: "Blue-Eyes White Dragon MRL-000"
+            if (!name && set) {
+                const match = set.match(/(.*)\s+([A-Z0-9]+-\d+)$/i);
+                if (match) {
+                    name = match[1].trim();
+                    number = match[2].toUpperCase();
+                    log(`Extracted name "${name}" and number "${number}" from set column.`);
+                }
+            }
+
+            // Secondary Option: Try to find ID in the Name column if number is missing
+            if (name && !number) {
+                const match = name.match(/([A-Z0-9]+-\d+)$/i);
+                if (match) {
+                    number = match[1].toUpperCase();
+                    name = name.replace(number, '').trim();
+                    log(`Extracted number "${number}" from name column.`);
+                }
+            }
+
+            if (!name) {
+                log(`Skipping: No name found. Set: ${set}`);
+                return null;
+            }
+
+            const rawPrice = parsePrice(vals.rawPrice);
+            const psa9 = parsePrice(vals.psa9);
+            const psa10 = parsePrice(vals.psa10);
+
+            return {
+                cardName: name,
+                cardSet: set,
+                cardNumber: number,
+                setCode: (set && number) ? `${set}-${number}` : (number ? number : null),
+                rarity: vals.rarity || null,
+                currentPriceRaw: rawPrice,
+                currentPricePsa9: psa9,
+                currentPricePsa10: psa10,
+                suggestedPrice: rawPrice,
+                priceChartingUrl: null,
+                confidence: 98
+            };
+        }
+
+        function parsePrice(p) {
+            if (!p) return null;
+            const n = parseFloat(String(p).replace(/[$,]/g, ''));
+            return n > 0 ? n : null;
+        }
+
+        function finalize(data, codes, totalPrice) {
+            finalData = data;
+            resultArea.classList.remove('hidden');
+            document.getElementById('countVal').textContent = data.length;
+            document.getElementById('codesVal').textContent = codes;
+            document.getElementById('priceVal').textContent = '$' + (data.length ? (totalPrice / data.length).toFixed(2) : '0.00');
+            jsonPreview.textContent = JSON.stringify(data.slice(0, 5), null, 2) + '\n\n... and ' + (data.length - 5) + ' more items';
+        }
+
+        downloadBtn.onclick = () => {
+            const blob = new Blob([JSON.stringify(finalData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'yugioh-setcode-index.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        };
+    </script>
+</body>
+</html>

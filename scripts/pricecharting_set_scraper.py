@@ -22,7 +22,8 @@ except ImportError:
     print("Install dependencies first: python3 -m pip install requests beautifulsoup4", file=sys.stderr)
     raise
 
-CODE_RE = re.compile(r"\b([A-Z0-9]{2,8})(?:-([A-Z]{2}))?-?([A-Z0-9]{1,5})\b", re.I)
+# Priority: Match patterns like MRL-000, LOB-001, etc. at the end of the string.
+CODE_RE = re.compile(r"([A-Z0-9]{2,8})-([0-9]{1,5})$", re.I)
 
 
 def money(value: str | None):
@@ -43,19 +44,18 @@ def normalize_code(value: str | None):
     value = value.strip().upper().replace("–", "-").replace("—", "-")
     m = CODE_RE.search(value)
     if not m:
-        return value or None
-    prefix, lang, number = m.group(1).upper(), (m.group(2) or "").upper(), m.group(3).upper()
-    return f"{prefix}-{lang}{number}" if lang else f"{prefix}-{number}"
+        return None # Only return a match if it fits the SET-NUMBER pattern
+    return f"{m.group(1).upper()}-{m.group(2).upper()}"
 
 
 def split_code(full_code: str | None):
     full = normalize_code(full_code)
     if not full:
         return None, None
-    prefix = full.split("-", 1)[0]
-    rest = full.split("-", 1)[1] if "-" in full else ""
-    rest = re.sub(r"^[A-Z]{2}(?=\d)", "", rest)
-    return prefix, rest or None
+    parts = full.split("-", 1)
+    prefix = parts[0]
+    number = parts[1] if len(parts) > 1 else None
+    return prefix, number
 
 
 def clean_name(name: str, code: str | None):
@@ -104,10 +104,12 @@ def scrape(url: str):
         values = [c.get_text(" ", strip=True) for c in cells]
         link = cells[0].find("a") or tr.find("a")
         href = urljoin(url, link["href"]) if link and link.has_attr("href") else None
-        first = values[0]
-        code = normalize_code(first) or normalize_code(values[1] if len(values) > 1 else None)
+        
+        # Handle Console view (where index 0 is image and index 1 is the title/ID)
+        identity_cell = values[0] if values[0] else (values[1] if len(values) > 1 else "")
+        code = normalize_code(identity_cell)
         prefix, number = split_code(code)
-        card_name = clean_name(first, code)
+        card_name = clean_name(identity_cell, code)
 
         price_map = {"ungraded": None, "graded": None, "grade9": None, "psa10": None}
         for idx, header in enumerate(headers[:len(values)]):
