@@ -1,6 +1,7 @@
 import { findPriceChartingYuGiOhMatch, parseYugiohOcrText } from "@/lib/cardOcrParser";
 import { lookupYugiohByPrintedCode } from "@/lib/yugiohDirectLookup";
 import { lookupMtgByName, lookupMtgByPrintedCode, type ScryfallCard } from "@/lib/mtg/scryfallLookup";
+import { lookupPokemonByPrintedNumber, parsePokemonNumber, type PokemonCardResult } from "@/lib/pokemon/pokemonTcgLookup";
 
 
 export type RapidBasicLookupResponse = {
@@ -84,10 +85,61 @@ async function runMtgLookup(args: { setCode?: string | null; cardNumber?: string
   };
 }
 
+function fromPokemon(card: PokemonCardResult): RapidBasicLookupResponse {
+  return {
+    success: true,
+    source: "pokemontcg",
+    confidenceTier: card.collectorNumber ? "HIGH" : "MEDIUM",
+    cardData: {
+      card_name: card.cardName,
+      card_set: card.setName || card.setCode || null,
+      card_number: card.collectorNumber || null,
+      rarity: card.rarity || null,
+      game_type: "Pokemon",
+      sport_type: null,
+      manufacturer: "The Pokemon Company",
+      confidence: card.collectorNumber ? 0.92 : 0.75,
+    },
+    pricing: {
+      raw: card.priceRaw ?? null,
+      psa8: null,
+      psa9: null,
+      psa10: null,
+      cgc9: null,
+      cgc10: null,
+      highestSold: card.priceHigh ?? null,
+      url: card.url ?? null,
+    },
+    priceChartingUrl: null,
+    googleLensUrl: null,
+    requiresDisambiguation: false,
+  };
+}
+
+async function runPokemonLookup(args: { cardNumber?: string | null; setCode?: string | null; title?: string | null }): Promise<RapidBasicLookupResponse> {
+  const numberSource = parsePokemonNumber(args.cardNumber) ? args.cardNumber : args.setCode;
+  const hit = await lookupPokemonByPrintedNumber(numberSource, args.title);
+  if (hit) return fromPokemon(hit);
+  return {
+    success: false,
+    source: "none",
+    error: "No Pokemon card match. Retake the photo so the card name and the bottom collector number are readable.",
+  };
+}
+
 export async function runRapidBasicLookup(args: { imageUrl: string | null; ocrText: string; title?: string | null; setName?: string | null; setCode?: string | null; cardNumber?: string | null; edition?: string | null; game?: string | null; gameTypeHint?: string; allowGoogleLens: boolean; timeoutMs?: number }): Promise<RapidBasicLookupResponse> {
   const isMtg = /^mtg$/i.test(String(args.game ?? "")) || /mtg|magic/i.test(String(args.gameTypeHint ?? ""));
   if (isMtg) {
     return runMtgLookup({ setCode: args.setCode, cardNumber: args.cardNumber, title: args.title });
+  }
+
+  const isPokemon =
+    /^pokemon$/i.test(String(args.game ?? "")) ||
+    /pokemon|pok\u00e9mon/i.test(String(args.gameTypeHint ?? "")) ||
+    Boolean(parsePokemonNumber(args.cardNumber) || parsePokemonNumber(args.setCode));
+  if (isPokemon) {
+    const pokemon = await runPokemonLookup({ cardNumber: args.cardNumber, setCode: args.setCode, title: args.title });
+    if (pokemon.success) return pokemon;
   }
 
   const parsed = parseYugiohOcrText(args.ocrText);

@@ -94,6 +94,33 @@ export interface AppSettings {
   updatedAt: number;
 }
 
+/** Comic books live in their own collection, separate from card stats. */
+export interface ComicRecord {
+  id: string;
+  title: string;
+  titleKey: string; // lowercase title for lookup/dedupe
+  issueNumber?: string;
+  volume?: string;
+  year?: number;
+  publisher?: string;
+  variant?: string;
+  condition?: string; // raw grade description, e.g. "NM"
+  grade?: string; // numeric slab grade, e.g. "9.8"
+  gradedBy?: string; // CGC / CBCS / PSA / raw
+  valueRaw?: number;
+  valueGraded?: number;
+  currency: string;
+  quantity: number;
+  notes?: string;
+  imageId?: string;
+  thumbId?: string;
+  ocrText?: string;
+  priceSource?: string;
+  priceUpdatedAt?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 class LocalDatabase extends Dexie {
   scannedCards!: Table<ScannedCardRecord, string>;
   scanQueue!: Table<ScanQueueItem, string>;
@@ -103,6 +130,7 @@ class LocalDatabase extends Dexie {
   imageMetadata!: Table<ImageMetadataRecord, string>;
   syncQueue!: Table<SyncQueueItem, string>;
   settings!: Table<AppSettings, string>;
+  comics!: Table<ComicRecord, string>;
 
   constructor() {
     super("cleancards-local");
@@ -118,8 +146,14 @@ class LocalDatabase extends Dexie {
       syncQueue: "id, kind, createdAt",
       settings: "key, updatedAt",
     });
+
+    this.version(2).stores({
+      comics:
+        "id, titleKey, issueNumber, publisher, year, updatedAt, [titleKey+issueNumber]",
+    });
   }
 }
+
 
 export const db = new LocalDatabase();
 
