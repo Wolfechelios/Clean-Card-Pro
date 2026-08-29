@@ -128,22 +128,24 @@ async function runPokemonLookup(args: { cardNumber?: string | null; setCode?: st
 }
 
 export async function runRapidBasicLookup(args: { imageUrl: string | null; ocrText: string; title?: string | null; setName?: string | null; setCode?: string | null; cardNumber?: string | null; edition?: string | null; game?: string | null; gameTypeHint?: string; allowGoogleLens: boolean; timeoutMs?: number }): Promise<RapidBasicLookupResponse> {
-  const isMtg = /^mtg$/i.test(String(args.game ?? "")) || /mtg|magic/i.test(String(args.gameTypeHint ?? ""));
+  const hint = String(args.gameTypeHint ?? "").trim();
+  // Explicit user selection overrides OCR game detection entirely.
+  const isMtg = hint ? /mtg|magic/i.test(hint) : /^mtg$/i.test(String(args.game ?? ""));
   if (isMtg) {
     return runMtgLookup({ setCode: args.setCode, cardNumber: args.cardNumber, title: args.title });
   }
 
-  const isPokemon =
-    /^pokemon$/i.test(String(args.game ?? "")) ||
-    /pokemon|pok\u00e9mon/i.test(String(args.gameTypeHint ?? "")) ||
-    Boolean(parsePokemonNumber(args.cardNumber) || parsePokemonNumber(args.setCode));
+  const isPokemon = hint
+    ? /pokemon|pok\u00e9mon/i.test(hint)
+    : /^pokemon$/i.test(String(args.game ?? "")) ||
+      Boolean(parsePokemonNumber(args.cardNumber) || parsePokemonNumber(args.setCode));
   if (isPokemon) {
     const pokemon = await runPokemonLookup({ cardNumber: args.cardNumber, setCode: args.setCode, title: args.title });
     if (pokemon.success) return pokemon;
   }
 
   const parsed = parseYugiohOcrText(args.ocrText);
-  const isYugioh = !args.gameTypeHint || /yugioh|yu-gi-oh/i.test(args.gameTypeHint) || Boolean(args.setCode || parsed.setCode);
+  const isYugioh = !hint || /yugioh|yu-gi-oh/i.test(hint) || Boolean(args.setCode || parsed.setCode);
 
   if (isYugioh) {
     const localMatch = await findPriceChartingYuGiOhMatch({

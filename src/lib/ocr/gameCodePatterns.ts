@@ -38,8 +38,17 @@ function looksLikePokemon(text: string): boolean {
 function looksLikeSports(text: string): boolean {
   return /topps|panini|upper deck|fleer|donruss|bowman|score|rookie\b|\brc\b/i.test(text);
 }
+// Strong markers only appear on real Magic cards. Generic card-game words
+// ("instant", "artifact", "enchantment") false-positive on Yu-Gi-Oh OCR noise,
+// so they are treated as weak hints that need a collector line to count.
+function looksLikeMtgStrong(text: string): boolean {
+  return /wizards of the coast|deckmaster|magic:?\s*the gathering|\bmtg\b/i.test(text);
+}
+function looksLikeMtgWeak(text: string): boolean {
+  return /\bplaneswalker\b|legendary creature|\bsorcery\b|\binstant\b|\benchantment\b|\bmana cost\b/i.test(text);
+}
 function looksLikeMtg(text: string): boolean {
-  return /wizards of the coast|deckmaster|magic:? the gathering|\bmana cost\b|\binstant\b|\bsorcery\b|\bplaneswalker\b|\benchantment\b|\bartifact\b|legendary creature/i.test(text);
+  return looksLikeMtgStrong(text);
 }
 
 
@@ -68,7 +77,9 @@ export function extractPrintedCode(rawText: string): DetectedCode {
   const upper = text.toUpperCase().replace(/\s+/g, " ").trim();
   const candidates: DetectedCode[] = [];
 
-  const isMtg = looksLikeMtg(text);
+  const isMtgStrong = looksLikeMtgStrong(text);
+  const isMtg = isMtgStrong;
+  const mtgHinted = isMtgStrong || looksLikeMtgWeak(text);
   const isPokemon = looksLikePokemon(text);
 
   const ygo = upper.match(YGO_MODERN_RE) ?? upper.match(YGO_LEGACY_RE);
@@ -84,14 +95,14 @@ export function extractPrintedCode(rawText: string): DetectedCode {
       edition: detectEdition(text),
       rawMatch: ygo[0],
       // Demote Yu-Gi-Oh when the card clearly reads as Magic.
-      confidence: (isMtg && !looksLikeYgo(text) ? 0.3 : 0.75) + (looksLikeYgo(text) ? 0.2 : 0),
+      confidence: (isMtgStrong && !looksLikeYgo(text) ? 0.3 : 0.75) + (looksLikeYgo(text) ? 0.2 : 0),
     });
   }
 
   // MTG is matched before Pokemon: the collector line "0123/281 R DMU" would
   // otherwise be swallowed by the Pokemon fraction pattern.
   const mtg = upper.match(MTG_COMPACT_RE) ?? upper.match(MTG_COLLECTOR_RE);
-  if (mtg) {
+  if (mtg && mtgHinted && !looksLikeYgo(text)) {
     const num = fixNumberSection(mtg[1]).replace(/^0+(?=\d)/, "");
     const setCode = String(mtg[3] || "").toUpperCase();
     if (/^[A-Z0-9]{3,5}$/.test(setCode) && num) {
@@ -102,7 +113,7 @@ export function extractPrintedCode(rawText: string): DetectedCode {
         fullCode: `${setCode}-${num}`,
         edition: null,
         rawMatch: mtg[0],
-        confidence: 0.7 + (isMtg ? 0.25 : 0),
+        confidence: (isMtgStrong ? 0.7 : 0.55) + (isMtgStrong ? 0.25 : 0),
       });
     }
   }
@@ -128,7 +139,7 @@ export function extractPrintedCode(rawText: string): DetectedCode {
 
   // Older Magic cards have no collector line at all — fall back to the game hint
   // so the lookup can resolve the card by its printed title.
-  if (isMtg && !candidates.some((c) => c.game === "mtg")) {
+  if (isMtgStrong && !looksLikeYgo(text) && !candidates.some((c) => c.game === "mtg")) {
     candidates.push({ game: "mtg", setCode: null, cardNumber: null, fullCode: null, edition: null, rawMatch: null, confidence: 0.5 });
   }
 

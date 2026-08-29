@@ -367,7 +367,8 @@ async function processQueueItem(item: QueueItem): Promise<ProcessOutcome> {
     return "error";
   }
 
-  const isMtgScan = ocr?.game === "mtg" || (gameTypeHint ? /mtg|magic/i.test(gameTypeHint) : false);
+  // An explicit game selection always wins over OCR guessing.
+  const isMtgScan = gameTypeHint ? /mtg|magic/i.test(gameTypeHint) : ocr?.game === "mtg";
   const hasValidTitle = isReadableTitle(ocr?.title);
   let printedIdentifier = firstValidPrintedIdentifier(ocr?.setCode, ocr?.fullCode, ocr?.cardNumber);
 
