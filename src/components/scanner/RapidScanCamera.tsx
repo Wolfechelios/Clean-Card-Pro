@@ -662,9 +662,26 @@ export default function RapidScanCamera() {
           <Badge variant="outline">{getRotationLabel(cameraRotation)}</Badge>
           {selectedDevice?.label && <Badge variant={isContinuityDevice(selectedDevice) ? "default" : "outline"}>{selectedDevice.label}</Badge>}
         </div>
-        <Button variant="ghost" size="sm" onClick={() => void refreshDevices()}>
-          <RefreshCw className="mr-2 h-4 w-4" /> Refresh cameras
-        </Button>
+        <div className="flex items-center gap-2">
+          <Select
+            value={scannerSettings.gameTypeFilter}
+            onValueChange={(value) => updateScannerSettings({ gameTypeFilter: value as ScannerSettings["gameTypeFilter"] })}
+          >
+            <SelectTrigger className="h-9 w-[150px]" aria-label="Card game">
+              <SelectValue placeholder="Game" />
+            </SelectTrigger>
+            <SelectContent>
+              {GAME_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button variant="ghost" size="sm" onClick={() => void refreshDevices()}>
+            <RefreshCw className="mr-2 h-4 w-4" /> Refresh cameras
+          </Button>
+        </div>
       </div>
 
       <Card className="overflow-hidden bg-black">
