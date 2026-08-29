@@ -116,18 +116,15 @@ function toDataURL(
 export async function runPaddleOCR(
   imageSource: string | HTMLImageElement | HTMLCanvasElement | HTMLVideoElement
 ): Promise<PaddleOCRResult> {
-  await initPaddleOCR();
-  
-  if (!ocrInstance) {
-    throw new Error("PaddleOCR engine not initialized");
-  }
-
-  console.log("[PaddleOCR] Running OCR detection...");
-  const startTime = performance.now();
+  // Convert once so the fallback can reuse the same pixels.
+  const imageUrl = toDataURL(imageSource);
 
   try {
-    // Convert to data URL string for the OCR engine
-    const imageUrl = toDataURL(imageSource);
+    await initPaddleOCR();
+    if (!ocrInstance) throw new Error("PaddleOCR engine not initialized");
+
+    console.log("[PaddleOCR] Running OCR detection...");
+    const startTime = performance.now();
     const result = await ocrInstance.detect(imageUrl);
     const elapsed = Math.round(performance.now() - startTime);
     console.log(`[PaddleOCR] Detection completed in ${elapsed}ms`);
@@ -149,17 +146,22 @@ export async function runPaddleOCR(
     }));
 
     const fullText = lines.map((l) => l.text).join("\n");
+    if (!fullText.trim()) throw new Error("PaddleOCR returned no text");
 
-    return {
-      text: fullText,
-      lines,
-      rawResult: result,
-    };
+    return { text: fullText, lines, rawResult: result };
   } catch (error) {
-    console.error("[PaddleOCR] Detection failed:", error);
-    throw error;
+    console.warn("[PaddleOCR] Falling back to Tesseract:", error);
+    const { runTesseractOCR, isTesseractSupported } = await import("@/lib/ocr/tesseractOcr");
+    if (!isTesseractSupported()) throw error;
+    try {
+      return await runTesseractOCR(imageUrl);
+    } catch (fallbackError) {
+      console.error("[PaddleOCR] Tesseract fallback also failed:", fallbackError);
+      throw error;
+    }
   }
 }
+
 
 /**
  * Check if PaddleOCR is available and ready
