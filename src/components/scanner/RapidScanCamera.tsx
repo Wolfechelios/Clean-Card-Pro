@@ -24,7 +24,9 @@ import { Slider } from "@/components/ui/slider";
 import { withTimeout } from "@/lib/async/withTimeout";
 import { cn } from "@/lib/utils";
 import {
+  applySharpnessConstraints,
   filterCameraDevices,
+  focusAtPoint,
   getCameraStreamWithFallback,
 } from "@/lib/camera/cameraPolicy";
 import { compressImageForQueue } from "@/lib/imageCompressor";
@@ -474,15 +476,19 @@ export default function RapidScanCamera() {
       if (!videoElement) throw new Error("Video preview missing");
       await startVideoPreview(videoElement, stream);
 
+      // Continuous autofocus / exposure / white balance for iPhone + Android.
+      await applySharpnessConstraints(track);
+
       setCameraOn(true);
       await refreshDevices();
       const label =
         track?.label ||
         sortedDevices.find((d) => d.deviceId === (usedFallback ? actualDeviceId : actualDeviceId || requestedDeviceId))?.label;
+      const res = settings.width && settings.height ? ` @ ${settings.width}×${settings.height}` : "";
       if (usedFallback) {
-        setStatus(label ? `Saved camera unavailable — using ${label}` : "Saved camera unavailable — using default camera");
+        setStatus(label ? `Saved camera unavailable — using ${label}${res}` : "Saved camera unavailable — using default camera");
       } else {
-        setStatus(label ? `Camera live: ${label}` : "Camera live — choose iPhone/Continuity if listed");
+        setStatus(label ? `Camera live: ${label}${res}` : `Camera live${res} — tap preview to focus`);
       }
     } catch (error: unknown) {
       console.error(error);
@@ -561,19 +567,8 @@ export default function RapidScanCamera() {
     setFocusPoint({ x: x * 100, y: y * 100 });
     window.setTimeout(() => setFocusPoint(null), 900);
 
-    try {
-      const advanced: CameraConstraintSet = {
-        focusMode: "single-shot",
-        exposureMode: "single-shot",
-        pointsOfInterest: [{ x, y }],
-      };
-      await trackRef.current?.applyConstraints?.({
-        advanced: [advanced],
-      });
-      setStatus("Focused");
-    } catch {
-      setStatus("Focus point marked — Safari may auto-focus only");
-    }
+    const applied = await focusAtPoint(trackRef.current, x, y);
+    setStatus(applied ? "Focusing…" : "Focus point marked — this lens auto-focuses only");
   }
 
   async function capture() {

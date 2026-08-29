@@ -21,6 +21,7 @@ const Auth = lazy(() => import("./pages/Auth"));
 const NewDashboard = lazy(() => import("./pages/NewDashboard"));
 const ScanPage = lazy(() => import("./pages/ScanPage"));
 const CollectionsPage = lazy(() => import("./pages/CollectionsPage"));
+const ComicsPage = lazy(() => import("./pages/ComicsPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const MobileScanPage = lazy(() => import("./pages/MobileScanPage"));
 const MobileScanRedirect = lazy(() => import("./pages/MobileScanRedirect"));
@@ -63,6 +64,7 @@ function AppRoutes() {
         <Route path="/dashboard" element={page(<NewDashboard />)} />
         <Route path="/scan" element={page(<ScanPage />)} />
         <Route path="/collections" element={page(<CollectionsPage />)} />
+        <Route path="/comics" element={page(<ComicsPage />)} />
         <Route path="/binder" element={page(<BinderPage />)} />
         <Route path="/price-database" element={page(<PriceDatabasePage />)} />
         <Route path="/settings" element={page(<SettingsPage />)} />
