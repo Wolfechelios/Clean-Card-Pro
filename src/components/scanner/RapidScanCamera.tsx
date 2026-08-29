@@ -20,7 +20,9 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
+import { useScannerSettings, type ScannerSettings } from "@/hooks/use-scanner-settings";
 import { withTimeout } from "@/lib/async/withTimeout";
 import { cn } from "@/lib/utils";
 import {
@@ -45,6 +47,15 @@ import {
   type ScanRowState,
 } from "@/lib/rapidScan/scanRows";
 import { clearAllRecentScans, getRecentScans } from "@/lib/recentScans";
+
+const GAME_OPTIONS: Array<{ value: ScannerSettings["gameTypeFilter"]; label: string }> = [
+  { value: "auto", label: "Auto detect" },
+  { value: "yugioh", label: "Yu-Gi-Oh!" },
+  { value: "pokemon", label: "Pokemon" },
+  { value: "mtg", label: "Magic" },
+  { value: "sports", label: "Sports" },
+  { value: "other", label: "Other" },
+];
 
 type ZoomState = {
   supported: boolean;
@@ -241,6 +252,7 @@ export default function RapidScanCamera() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("Tap Start Camera");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const { settings: scannerSettings, updateSettings: updateScannerSettings } = useScannerSettings();
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>(() => localStorage.getItem("rapid_scan_camera_device_id") ?? "");
   const [torchSupported, setTorchSupported] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
