@@ -38,9 +38,14 @@ export async function runTesseractOCR(imageDataUrl: string): Promise<PaddleOCRRe
   const { data } = await worker.recognize(imageDataUrl);
   console.log(`[TesseractOCR] Detection completed in ${Math.round(performance.now() - startTime)}ms`);
 
-  const rawLines = Array.isArray((data as { lines?: unknown[] }).lines)
-    ? ((data as { lines: Array<{ text?: string; confidence?: number; bbox?: { x0: number; y0: number; x1: number; y1: number } }> }).lines)
-    : [];
+  type TesseractLine = {
+    text?: string;
+    confidence?: number;
+    bbox?: { x0: number; y0: number; x1: number; y1: number };
+  };
+  const maybeLines = (data as unknown as { lines?: unknown }).lines;
+  const rawLines: TesseractLine[] = Array.isArray(maybeLines) ? (maybeLines as TesseractLine[]) : [];
+
 
   const lines = rawLines
     .map((line) => ({
